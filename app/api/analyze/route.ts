@@ -20,6 +20,7 @@
  */
 
 import type { NextRequest } from "next/server";
+import { getInterpreter } from "@/lib/ai";
 import { analyzeSnapshot } from "@/lib/analysis/analyze";
 import { getCachedAnalysis, setCachedAnalysis } from "@/lib/cache";
 import { ERROR_COPY, LOCAL_RATE_LIMIT_MESSAGE, errorCodeOf } from "@/lib/github/errors";
@@ -103,7 +104,9 @@ function handle(request: NextRequest, input: string): Response {
         onStage: (event) => emit(stageLine(event)),
       });
 
+      const interpreter = await getInterpreter(snapshot.repo.fullName, process.env);
       const analysis = await analyzeSnapshot(snapshot, {
+        interpreter: interpreter ?? undefined,
         onStage: (event) => emit(stageLine(event)),
       });
 
