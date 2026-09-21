@@ -21,7 +21,7 @@ Verdict: the original plan is strong on product thinking, scope discipline, and 
 | B1 | No data contracts. Six workstreams would each invent their own `RepositorySnapshot`, `RepoAnalysis`, `CityModel` shapes. | Section 71 defines all types; they are written first in W0 and frozen |
 | B2 | Pipeline diagram never says which layer runs on the server and which in the browser. | Section 34: server produces compact `RepoAnalysis`; browser runs the generator. Fixture and live paths share code |
 | B3 | Loading UI promises factual progress ("4,218 files mapped") but no mechanism delivers progress from a single API call. | Section 44: NDJSON streaming response with fixed stage ids; `maxDuration = 60` |
-| B4 | "Cache temporarily" has no mechanism; serverless instances do not share memory. Hosted app runs on Robert's tokens during voting. | Section 30: in-memory TTL cache plus fetch-level revalidate, per-IP limit, `AI_ENABLED` kill switch, `AI_MAX_PER_HOUR`, committed fixture fallback for demo repos |
+| B4 | "Cache temporarily" has no mechanism; serverless instances do not share memory. Hosted app runs on Robert's tokens during voting. | Section 30: in-memory TTL cache plus fetch-level revalidate, per-IP limit, `AI_PROVIDER=none` default, `AI_MAX_PER_HOUR`, committed fixture fallback for demo repos |
 | B5 | GitHub issues endpoint returns PRs; tree endpoint truncates; 202/204 empties. None mentioned. Classic sources of Tuesday-night bugs. | Section 29: endpoint table with request count (about 15) and a gotcha list |
 | B6 | Merged PRs ("fresh merged PR = new building") require a fetch the ingestion list does not include. | Section 13 and 29: `pulls?state=closed&sort=updated` |
 | B7 | Health weights are given but sub-scores are undefined, so two agents would produce two different scorers. | Section 23: concrete 0..1 formulas per category; stars and forks explicitly excluded |
@@ -32,7 +32,7 @@ Verdict: the original plan is strong on product thinking, scope discipline, and 
 | B12 | Camera focus and limits left to implementation; hand-rolled tweening is a common time sink. | Section 5: drei `CameraControls` with `setLookAt` |
 | B13 | Instanced buildings plus per-object click handlers conflict. | Section 38: `instanceId` to entity map, tint-based highlight |
 | B14 | Error copy distinguishes "private" from "missing", but GitHub returns 404 for both. | Section 60: merged message; added timeout and large-repo cases |
-| B15 | AI adapter unspecified. | Section 28: `@anthropic-ai/sdk`, `claude-opus-5` default via `AI_MODEL`, structured outputs, low effort, 25 s timeout, refusal fallbacks, 25k-token input budget, evidence paths validated against the tree |
+| B15 | AI adapter unspecified. | Section 28: optional provider-agnostic adapter (Vercel AI SDK, `AI_PROVIDER=none` default), 25 s timeout, 25k-token input budget, evidence paths validated against the tree, curated fixture interpretations for reference repos |
 | B16 | No automated tests anywhere in the plan. Agents need an executable definition of done. | Section 73: Vitest suite for pure logic, per-milestone gates |
 | B17 | Monday's "hardcoded" fake data would be throwaway. | Section 50: fixture JSON conforming to the real types |
 | B18 | Reference repo set has categories but no candidates. | Section 59: named candidates per category |
