@@ -178,19 +178,34 @@ describe("/api/analyze failures", () => {
 
   it("gives a rate-limited client a distinct message", async () => {
     const headers = { "x-forwarded-for": "203.0.113.9" };
+    // Distinct repositories: cached hits are deliberately not rate limited.
     for (let i = 0; i < RATE_LIMIT_MAX; i += 1) {
-      await eventsOf(await GET(get("honojs/hono", headers)));
+      await eventsOf(await GET(get(`owner/repo-${i}`, headers)));
     }
 
-    const events = await eventsOf(await GET(get("honojs/hono", headers)));
+    const events = await eventsOf(await GET(get("owner/one-too-many", headers)));
 
     expect(events).toEqual([
       { type: "error", code: "RATE_LIMITED", message: LOCAL_RATE_LIMIT_MESSAGE },
     ]);
     expect(LOCAL_RATE_LIMIT_MESSAGE).not.toBe(ERROR_COPY.RATE_LIMITED);
     // A different client is unaffected.
-    const other = await eventsOf(await GET(get("honojs/hono", { "x-forwarded-for": "198.51.100.4" })));
+    const other = await eventsOf(
+      await GET(get("owner/another-client", { "x-forwarded-for": "198.51.100.4" })),
+    );
     expect(other.at(-1)).toMatchObject({ type: "result" });
+  });
+
+  it("still serves a cached repository to a client that is over the limit", async () => {
+    const headers = { "x-forwarded-for": "203.0.113.11" };
+    await eventsOf(await GET(get("honojs/hono", headers)));
+    for (let i = 0; i < RATE_LIMIT_MAX; i += 1) {
+      await eventsOf(await GET(get(`owner/repo-${i}`, headers)));
+    }
+
+    const events = await eventsOf(await GET(get("honojs/hono", headers)));
+
+    expect(events.at(-1)).toMatchObject({ type: "result" });
   });
 });
 

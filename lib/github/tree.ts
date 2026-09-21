@@ -139,8 +139,11 @@ export async function fetchTree(
   repo: string,
   ref: string,
 ): Promise<PrunedTree> {
+  // Branch names may contain slashes; those are path separators to GitHub, so
+  // each segment is encoded on its own rather than the whole ref.
+  const encodedRef = ref.split("/").map(encodeURIComponent).join("/");
   const raw = await client.get<GhTreeResponse>(
-    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}`,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodedRef}`,
     { resource: "tree", query: { recursive: "1" } },
   );
 

@@ -72,12 +72,23 @@ export function errorMessageOf(error: unknown): string {
   return ERROR_COPY[errorCodeOf(error)];
 }
 
+/** Plain-language reason per code, for warnings a visitor may end up reading. */
+const WARNING_REASON: Record<AnalyzeErrorCode, string> = {
+  INVALID_URL: "not a repository",
+  NOT_FOUND: "not available for this repository",
+  RATE_LIMITED: "GitHub rate limit",
+  TIMEOUT: "timed out",
+  UPSTREAM: "GitHub error",
+  TOO_LARGE: "too large to survey",
+};
+
 /**
- * A short, secret-free description of a failure for `warnings[]` and server
- * logs. GitHub error bodies never contain the token, but they can contain the
- * full request URL, so only the code and a caller-supplied label are used.
+ * A short, secret-free description of a degraded signal for `warnings[]`.
+ *
+ * Nothing from the upstream body is used: GitHub error payloads never carry
+ * the token, but they do carry the full request URL, and these strings travel
+ * to the browser inside `RepoAnalysis`.
  */
 export function warningFor(resource: string, error: unknown): string {
-  const code = errorCodeOf(error);
-  return `${resource} unavailable (${code}); that part of the city is missing.`;
+  return `Could not load ${resource} (${WARNING_REASON[errorCodeOf(error)]}).`;
 }

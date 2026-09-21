@@ -73,17 +73,21 @@ function handle(request: NextRequest, input: string): Response {
       return;
     }
 
-    const clientId = clientIdFromHeaders(request.headers);
-    if (!checkRateLimit(clientId).allowed) {
-      emit(errorLine("RATE_LIMITED", LOCAL_RATE_LIMIT_MESSAGE));
-      return;
-    }
-
+    // The cache is checked before the limiter on purpose: a cached analysis
+    // costs GitHub nothing, and during voting a lot of people will open the
+    // same two demo repositories in a row. The limit exists to protect the
+    // token, so it only guards surveys that actually spend it.
     const requestedName = `${ref.owner}/${ref.repo}`;
     const cached = getCachedAnalysis(requestedName);
     if (cached) {
       replayStages(emit, cached, "cached survey");
       emit({ type: "result", analysis: cached });
+      return;
+    }
+
+    const clientId = clientIdFromHeaders(request.headers);
+    if (!checkRateLimit(clientId).allowed) {
+      emit(errorLine("RATE_LIMITED", LOCAL_RATE_LIMIT_MESSAGE));
       return;
     }
 
@@ -136,29 +140,30 @@ function handle(request: NextRequest, input: string): Response {
  * from the stored analysis so every line stays factual (PLAN.md section 44).
  */
 function replayStages(emit: Emit, analysis: RepoAnalysis, doneDetail: string): void {
-  const { metrics } = analysis;
+  // Counts are read defensively: a hand-written fixture is allowed to be
+  // sparse, and a missing number must not turn a working fallback into a
+  // crash halfway through the stream.
+  const metrics = analysis.metrics ?? ({} as RepoAnalysis["metrics"]);
+  const count = (value: number | undefined): string => (value ?? 0).toLocaleString("en-US");
+
   const events: AnalyzeEvent[] = [
-    stageLine({ id: "discover", status: "done", detail: analysis.repo.fullName }),
-    stageLine({
-      id: "tree",
-      status: "done",
-      detail: `${metrics.scale.files.toLocaleString("en-US")} files mapped`,
-    }),
+    stageLine({ id: "discover", status: "done", detail: analysis.repo?.fullName ?? "" }),
+    stageLine({ id: "tree", status: "done", detail: `${count(metrics.scale?.files)} files mapped` }),
     stageLine({
       id: "issues",
       status: "done",
-      detail: `${metrics.issues.open.toLocaleString("en-US")} issues inspected`,
+      detail: `${count(metrics.issues?.open)} issues inspected`,
     }),
     stageLine({
       id: "pulls",
       status: "done",
-      detail: `${metrics.pulls.open.toLocaleString("en-US")} pull requests reviewed`,
+      detail: `${count(metrics.pulls?.open)} pull requests reviewed`,
     }),
     stageLine({ id: "ci", status: "done", detail: ciDetail(analysis) }),
     stageLine({
       id: "activity",
       status: "done",
-      detail: `${metrics.activity.commitsLast30d.toLocaleString("en-US")} commits in the last 30 days`,
+      detail: `${count(metrics.activity?.commitsLast30d)} commits in the last 30 days`,
     }),
   ];
 
@@ -173,7 +178,7 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, doneDetail: string): v
 }
 
 function ciDetail(analysis: RepoAnalysis): string {
-  switch (analysis.metrics.ci.state) {
+  switch (analysis.metrics?.ci?.state) {
     case "healthy":
       return "CI healthy";
     case "recent-failure":

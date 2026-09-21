@@ -182,7 +182,7 @@ describe("fetchSnapshot", () => {
     });
 
     expect(snapshot.issues).toEqual([]);
-    expect(snapshot.warnings.join(" ")).toContain("issues unavailable (UPSTREAM)");
+    expect(snapshot.warnings.join(" ")).toContain("Could not load issues (GitHub error)");
     expect(events.find((event) => event.id === "issues" && event.status === "failed")).toBeTruthy();
     // The rest of the city is untouched.
     expect(snapshot.pulls).toHaveLength(2);
