@@ -9,6 +9,10 @@
  *   completed  a finished building with a clean highlight
  *
  * At most eight of these, so plain meshes with their own handlers.
+ *
+ * The assembly is modelled on an eleven unit square plot; `site.size` is the
+ * plot the generator actually cleared for it, and the whole thing is scaled
+ * uniformly into that, so a crane never grows through the building next door.
  */
 
 import { useRef } from "react";
@@ -119,6 +123,9 @@ export default function ConstructionSitePiece({
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
 
+  // 11 x 11 is what the meshes below are drawn at; see `SITE`.
+  const fit = site.size ? Math.min(site.size[0], site.size[2]) / SITE : 1;
+
   const done = site.state === "completed";
   const weathered = site.state === "abandoned";
   const shellHeight = done ? 8.5 : site.state === "active" ? 5.4 : site.state === "slow" ? 4.2 : 3.4;
@@ -131,6 +138,7 @@ export default function ConstructionSitePiece({
 
   return (
     <group ref={reveal} position={site.position} rotation-y={site.rotationY} {...handlers}>
+      <group scale={fit}>
       <mesh rotation-x={-Math.PI / 2} position-y={0.05} receiveShadow>
         <planeGeometry args={[SITE, SITE]} />
         <meshStandardMaterial color={ground} roughness={1} />
@@ -190,6 +198,7 @@ export default function ConstructionSitePiece({
           </mesh>
         </>
       )}
+      </group>
     </group>
   );
 }

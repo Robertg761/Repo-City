@@ -3,20 +3,35 @@
  *
  * Stages 1 to 4 live here: district regions from a squarified treemap, a ring
  * road, major roads on the treemap seams, minor roads subdividing each district
- * into blocks, and one building slot per parking space inside those blocks.
+ * into blocks, one building slot per parking space inside those blocks, and the
+ * reserved plots the infrastructure landmarks stand on.
  *
  * Nothing in this file reads a PRNG, the clock, or any global. The geometry is
  * a pure function of the district list and the building counts, which is what
  * makes "different seed, same district rects" testable (PLAN.md section 35):
  * the seed only moves props and the jitter inside a slot, never the plan.
  *
- * World conventions, shared with `generator.ts` and the renderer:
+ * World conventions, shared with `generator.ts` and the renderer, and written
+ * out in full at the top of `types/city.ts`:
  *   +y is up, the ground plane is y = 0, and the city is a square centred on
  *   the origin whose side length is `CityLayout.size` (`CityModel.bounds.size`).
  *   Every `Rect` here is axis aligned on XZ with `x`/`z` at its CENTRE.
+ *
+ * The city is three concentric things:
+ *
+ *   ┌──────────────────── ring road ────────────────────┐
+ *   │            landmark band (power/fire/info/station) │
+ *   │   ┌──────────── district square ──────────────┐    │
+ *   │   │ districts …   civic centre   … districts  │    │
+ *   │   └────────────────────────────────────────────┘   │
+ *   └────────────────────────────────────────────────────┘
+ *
+ * The landmark band exists because the renderer's infrastructure assemblies are
+ * 17 to 26 units across: dropped inside the district square they would sit on
+ * top of the buildings, and shrunk to a building slot they would be unreadable.
  */
 
-import type { RoadSegment } from "@/types/city";
+import type { LandmarkType, RoadSegment } from "@/types/city";
 
 /** Axis-aligned rectangle on the XZ plane. `x` and `z` are the centre. */
 export interface Rect {
@@ -39,6 +54,18 @@ export interface Slot {
   cellD: number;
 }
 
+/**
+ * A reserved plot for one hand-built landmark assembly. `w` runs along the
+ * landmark's own x axis and `d` along its own z, i.e. after `rotationY`.
+ */
+export interface LandmarkPlot {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  rotationY: number;
+}
+
 export interface DistrictLayout {
   id: string;
   rect: Rect;
@@ -48,15 +75,11 @@ export interface DistrictLayout {
   slots: Slot[];
 }
 
-export type CivicLandmarkSlotId = "power" | "fire" | "info" | "civic";
-
 export interface CivicLayout {
   rect: Rect;
-  /** Power at one corner, fire and info at two more, civic hall centred. */
-  landmarkSlots: Record<CivicLandmarkSlotId, Slot>;
-  /** On the ring road edge, outside the district square. */
-  stationSlot: Slot;
-  /** Free corner plus the four mid-edge positions, for root landmark files. */
+  /** The town hall, at the centre of the civic square. */
+  hall: LandmarkPlot;
+  /** Around the hall, for the root landmark files (README, the manifest...). */
   buildingSlots: Slot[];
 }
 
@@ -64,11 +87,15 @@ export interface CityLayout {
   /** `CityModel.bounds.size`: side of the square centred on the origin. */
   size: number;
   /** Side of the inner square the districts and civic centre tile. */
-  treemapSide: number;
+  districtSide: number;
+  /** Depth of the band between the district square and the ring road. */
+  bandDepth: number;
   /** Half-extent of the ring road centreline. */
   ringRadius: number;
   districts: DistrictLayout[];
   civic: CivicLayout;
+  /** Power north, fire east, info west, station south, in the band. */
+  landmarkPlots: Record<Exclude<LandmarkType, "civic">, LandmarkPlot>;
   roads: RoadSegment[];
 }
 
@@ -82,25 +109,44 @@ export interface LayoutDistrictInput {
 // Constants (PLAN.md section 36 and the world conventions above)
 // ---------------------------------------------------------------------------
 
-export const ROAD_MAJOR_WIDTH = 2.6;
-export const ROAD_MINOR_WIDTH = 1.6;
+export const ROAD_MAJOR_WIDTH = 7;
+export const ROAD_MINOR_WIDTH = 4.5;
 
 const MAJOR_HALF = ROAD_MAJOR_WIDTH / 2;
 const MINOR_HALF = ROAD_MINOR_WIDTH / 2;
 /** Kerb: how far a building must stay clear of a road edge. */
-const KERB = 0.45;
+const KERB = 1.4;
 /** Blocks are separated by minor roads; aim for this block side. */
-const TARGET_BLOCK = 10;
-/** Terrain kept outside the ring road, for the station and the tree line. */
-const OUTER_MARGIN = 5;
-/** Free space between the district square and the ring road centreline. */
-const RING_GAP = ROAD_MAJOR_WIDTH;
+const TARGET_BLOCK = 22;
+/** Terrain kept outside the ring road, for the tree line. */
+const OUTER_MARGIN = 6;
+/** Free space between the ring road and the landmark band. */
+const RING_GAP = 3;
+/** Depth of the landmark band, measured out from the district square. */
+const LANDMARK_BAND = 20;
 /** Fixed number of civic-centre slots for root landmark files. */
 export const CIVIC_BUILDING_SLOTS = 5;
-/** Reserved footprint of a civic landmark, in world units (square). */
-export const LANDMARK_FOOTPRINT = 4;
-/** Reserved footprint of the transit station on the ring road. */
-export const STATION_FOOTPRINT: [number, number] = [5, 3];
+
+/**
+ * The natural footprint and height of each landmark assembly in
+ * `components/city/Landmark.tsx`, in world units. The layout reserves a plot
+ * of at most this size and the renderer scales its meshes down when the plot
+ * came out smaller, so the two sides can never disagree about how much room a
+ * power station needs.
+ */
+export const NATURAL_LANDMARK_SIZE: Record<LandmarkType, [number, number, number]> = {
+  power: [17, 13, 12],
+  fire: [18, 9, 15],
+  info: [18, 8, 12],
+  station: [26, 7, 12],
+  civic: [14, 14, 14],
+};
+
+/** Reveal windows for the road network, in milliseconds (PLAN.md section 43). */
+export const ROAD_REVEAL: { major: readonly [number, number]; minor: readonly [number, number] } = {
+  major: [150, 340],
+  minor: [320, 560],
+};
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
@@ -124,13 +170,21 @@ const insetRect = (r: Rect, by: number): Rect => ({
   d: Math.max(0, r.d - 2 * by),
 });
 
-/** Side of the world square. About 40 units for 20 buildings, 110 for 300. */
-export function cityBoundsSize(totalBuildings: number): number {
+/** Side of the square the districts and the civic centre tile. */
+export function districtSquareSide(totalBuildings: number): number {
   const n = clamp(totalBuildings, 1, 600);
-  const lo = Math.sqrt(20);
-  const hi = Math.sqrt(300);
-  const t = (Math.sqrt(n) - lo) / (hi - lo);
-  return round3(clamp(40 + 70 * t, 38, 124));
+  return round3(clamp(40 + 7.2 * Math.sqrt(n), 56, 170));
+}
+
+/**
+ * Side of the world square: the district square plus the landmark band, the
+ * ring road and a margin of open terrain. About 112 units for a ten-building
+ * town, about 230 for a three-hundred-building metropolis.
+ */
+export function cityBoundsSize(totalBuildings: number): number {
+  return round3(
+    districtSquareSide(totalBuildings) + 2 * (LANDMARK_BAND + RING_GAP + MAJOR_HALF + OUTER_MARGIN),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -229,8 +283,8 @@ function squarify(items: WeightedItem[], bounds: Rect, out: Map<string, Rect>): 
 // ---------------------------------------------------------------------------
 
 /** Side of the reserved civic centre cell, given the district square side. */
-function civicSide(treemapSide: number): number {
-  return round3(Math.max(8, Math.min(clamp(0.34 * treemapSide, 16, 26), treemapSide - 12)));
+function civicSide(districtSide: number): number {
+  return round3(Math.max(10, Math.min(clamp(0.32 * districtSide, 26, 46), districtSide - 24)));
 }
 
 /**
@@ -242,11 +296,11 @@ function civicSide(treemapSide: number): number {
  * and below it.
  */
 function carveRegions(
-  treemapSide: number,
+  districtSide: number,
   civic: number,
   districtCount: number,
 ): { civicRect: Rect; regions: Rect[] } {
-  const h = treemapSide / 2;
+  const h = districtSide / 2;
   const c = civic / 2;
 
   if (districtCount >= 4) {
@@ -320,6 +374,8 @@ interface RoadDraft {
   major: boolean;
 }
 
+const EPS = 1e-6;
+
 class RoadSet {
   private readonly seen = new Set<string>();
   private readonly drafts: RoadDraft[] = [];
@@ -352,21 +408,118 @@ class RoadSet {
     this.add(x1, z0, x1, z1, major);
   }
 
+  /**
+   * Split every segment at every junction, then order and time them.
+   *
+   * The renderer's traffic (components/city/traffic.ts) builds its road graph
+   * from segment ENDPOINTS: a car can only turn where two segments share one.
+   * Un-split seams would leave every side street a dead end, so a T-junction
+   * has to become a real node.
+   */
   build(): RoadSegment[] {
-    return this.drafts.map((r, index) => ({
+    const pieces = splitAtJunctions(this.drafts);
+
+    // Arterials first, longest first inside each class: the city draws itself
+    // outwards from its skeleton (PLAN.md section 43).
+    pieces.sort((a, b) => {
+      if (a.major !== b.major) return a.major ? -1 : 1;
+      const la = segLength(a);
+      const lb = segLength(b);
+      if (Math.abs(la - lb) > 1e-3) return lb - la;
+      return a.x1 - b.x1 || a.z1 - b.z1;
+    });
+
+    const majors = pieces.filter((p) => p.major).length;
+    const minors = pieces.length - majors;
+
+    return pieces.map((r, index) => ({
       id: `road-${r.major ? "maj" : "min"}-${index}`,
       from: [r.x1, 0, r.z1] as [number, number, number],
       to: [r.x2, 0, r.z2] as [number, number, number],
       width: r.width,
       major: r.major,
+      appearAt: r.major
+        ? spreadWindow(ROAD_REVEAL.major, index, majors)
+        : spreadWindow(ROAD_REVEAL.minor, index - majors, minors),
     }));
   }
+}
+
+const segLength = (r: RoadDraft): number => Math.hypot(r.x2 - r.x1, r.z2 - r.z1);
+
+function spreadWindow(window: readonly [number, number], index: number, total: number): number {
+  const [start, end] = window;
+  if (total <= 1) return Math.round(start);
+  return Math.round(start + ((end - start) * clamp(index, 0, total - 1)) / (total - 1));
+}
+
+/**
+ * Cut axis-aligned segments at every crossing and at every collinear endpoint.
+ * Identical pieces are deduplicated; where a major and a minor road overlap the
+ * major wins, so a seam never renders as a narrow street.
+ */
+function splitAtJunctions(drafts: readonly RoadDraft[]): RoadDraft[] {
+  const horizontal = drafts.filter((r) => Math.abs(r.z1 - r.z2) < EPS);
+  const vertical = drafts.filter((r) => Math.abs(r.x1 - r.x2) < EPS);
+  const out = new Map<string, RoadDraft>();
+
+  const emit = (r: RoadDraft, a: number, b: number, horizontalSegment: boolean): void => {
+    if (b - a < 0.05) return;
+    const piece: RoadDraft = horizontalSegment
+      ? { ...r, x1: round3(a), x2: round3(b), z1: r.z1, z2: r.z1 }
+      : { ...r, z1: round3(a), z2: round3(b), x1: r.x1, x2: r.x1 };
+    const key = `${piece.x1},${piece.z1}|${piece.x2},${piece.z2}`;
+    const existing = out.get(key);
+    if (!existing || (piece.major && !existing.major)) out.set(key, piece);
+  };
+
+  for (const road of horizontal) {
+    const lo = Math.min(road.x1, road.x2);
+    const hi = Math.max(road.x1, road.x2);
+    const cuts = new Set<number>([lo, hi]);
+    for (const other of vertical) {
+      const zLo = Math.min(other.z1, other.z2);
+      const zHi = Math.max(other.z1, other.z2);
+      if (road.z1 < zLo - EPS || road.z1 > zHi + EPS) continue;
+      if (other.x1 > lo + EPS && other.x1 < hi - EPS) cuts.add(other.x1);
+    }
+    for (const other of horizontal) {
+      if (other === road || Math.abs(other.z1 - road.z1) > EPS) continue;
+      for (const x of [other.x1, other.x2]) {
+        if (x > lo + EPS && x < hi - EPS) cuts.add(x);
+      }
+    }
+    const ordered = [...cuts].sort((a, b) => a - b);
+    for (let i = 0; i < ordered.length - 1; i++) emit(road, ordered[i], ordered[i + 1], true);
+  }
+
+  for (const road of vertical) {
+    const lo = Math.min(road.z1, road.z2);
+    const hi = Math.max(road.z1, road.z2);
+    const cuts = new Set<number>([lo, hi]);
+    for (const other of horizontal) {
+      const xLo = Math.min(other.x1, other.x2);
+      const xHi = Math.max(other.x1, other.x2);
+      if (road.x1 < xLo - EPS || road.x1 > xHi + EPS) continue;
+      if (other.z1 > lo + EPS && other.z1 < hi - EPS) cuts.add(other.z1);
+    }
+    for (const other of vertical) {
+      if (other === road || Math.abs(other.x1 - road.x1) > EPS) continue;
+      for (const z of [other.z1, other.z2]) {
+        if (z > lo + EPS && z < hi - EPS) cuts.add(z);
+      }
+    }
+    const ordered = [...cuts].sort((a, b) => a - b);
+    for (let i = 0; i < ordered.length - 1; i++) emit(road, ordered[i], ordered[i + 1], false);
+  }
+
+  return [...out.values()];
 }
 
 /** Subdivide a district into blocks, emitting the minor roads between them. */
 function subdivide(rect: Rect, roads: RoadSet): Rect[] {
   const usable = insetRect(rect, MAJOR_HALF + KERB);
-  if (usable.w <= 0.5 || usable.d <= 0.5) return [];
+  if (usable.w <= 1 || usable.d <= 1) return [];
 
   const cols = Math.max(1, Math.round(usable.w / TARGET_BLOCK));
   const rows = Math.max(1, Math.round(usable.d / TARGET_BLOCK));
@@ -392,7 +545,7 @@ function subdivide(rect: Rect, roads: RoadSet): Rect[] {
       const right = x0 + (c + 1) * cellW - (c === cols - 1 ? 0 : MINOR_HALF + KERB);
       const top = z0 + r * cellD + (r === 0 ? 0 : MINOR_HALF + KERB);
       const bottom = z0 + (r + 1) * cellD - (r === rows - 1 ? 0 : MINOR_HALF + KERB);
-      if (right - left <= 0.5 || bottom - top <= 0.5) continue;
+      if (right - left <= 1 || bottom - top <= 1) continue;
       blocks.push(rectFromBounds(left, top, right, bottom));
     }
   }
@@ -435,9 +588,9 @@ function slotsForBlocks(blocks: Rect[], pitch: number): Slot[] {
 function planSlots(blocks: Rect[], buildingCount: number): Slot[] {
   const need = Math.max(1, Math.ceil((buildingCount + 2) * 1.1));
   const area = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-  let pitch = clamp(Math.sqrt(area / need), 2.2, 5);
+  let pitch = clamp(Math.sqrt(area / need), 5, 11);
   let slots = slotsForBlocks(blocks, pitch);
-  for (let guard = 0; guard < 32 && slots.length < need && pitch > 1.3; guard++) {
+  for (let guard = 0; guard < 32 && slots.length < need && pitch > 3; guard++) {
     pitch *= 0.92;
     slots = slotsForBlocks(blocks, pitch);
   }
@@ -456,18 +609,17 @@ function orderSlots(slots: Slot[], centre: Rect): Slot[] {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 6 support: the civic centre
+// Stage 6 support: the civic centre and the landmark band
 // ---------------------------------------------------------------------------
 
-function planCivic(civicRect: Rect, ringRadius: number): CivicLayout {
+function planCivic(civicRect: Rect): CivicLayout {
   const side = Math.min(civicRect.w, civicRect.d);
   const inner = side / 2 - (MAJOR_HALF + KERB);
-  // Landmark footprints are a fixed 4 x 4 in every city large enough to hold
-  // them, so the renderer can model them once; only a toy repository shrinks
-  // them. The corner radius `q` then follows, and guarantees that no two civic
-  // cells overlap: q >= cell and q >= (hall + cell) / 2.
-  const cell = round3(clamp(inner * 0.55, 1, LANDMARK_FOOTPRINT));
-  const hall = round3(clamp(cell * 1.25, 1.2, 5));
+  // One square cell per root landmark file around the hall. The corner radius
+  // `q` then follows and guarantees that no two civic cells overlap:
+  // q >= cell and q >= (hall + cell) / 2.
+  const cell = round3(clamp(inner * 0.42, 1, 9));
+  const hall = round3(clamp(2 * (inner - cell), 3, NATURAL_LANDMARK_SIZE.civic[0]));
   const q = round3(inner - cell / 2);
 
   const slot = (x: number, z: number, size: number): Slot => ({
@@ -479,27 +631,67 @@ function planCivic(civicRect: Rect, ringRadius: number): CivicLayout {
 
   return {
     rect: civicRect,
-    landmarkSlots: {
-      // Power at one corner, fire and info at two others; the fourth corner is
-      // left to a root landmark file so the square never reads as symmetrical.
-      power: slot(-q, -q, cell),
-      fire: slot(q, -q, cell),
-      info: slot(-q, q, cell),
-      civic: slot(0, 0, hall),
-    },
-    stationSlot: {
-      x: 0,
-      z: round3(ringRadius + MAJOR_HALF + 0.4 + 1.5),
-      cellW: STATION_FOOTPRINT[0],
-      cellD: STATION_FOOTPRINT[1],
+    hall: {
+      x: round3(civicRect.x),
+      z: round3(civicRect.z),
+      w: hall,
+      d: hall,
+      rotationY: 0,
     },
     buildingSlots: [
+      slot(-q, -q, cell),
+      slot(q, -q, cell),
+      slot(-q, q, cell),
       slot(q, q, cell),
       slot(0, -q, cell),
-      slot(q, 0, cell),
-      slot(0, q, cell),
-      slot(-q, 0, cell),
     ],
+  };
+}
+
+/**
+ * The four infrastructure landmarks, one per side of the landmark band, facing
+ * the city. Power to the north, fire to the east, information to the west and
+ * the transit station to the south: a fixed compass so a returning user knows
+ * where to look (PLAN.md section 36, "fixed reserved slots").
+ */
+function planLandmarkPlots(
+  districtSide: number,
+  band: number,
+  ringRadius: number,
+): Record<Exclude<LandmarkType, "civic">, LandmarkPlot> {
+  const half = districtSide / 2;
+  // The clear strip runs from the outer kerb of the district square's edge
+  // road to the inner kerb of the ring road.
+  const from = half + MAJOR_HALF;
+  const to = ringRadius - MAJOR_HALF;
+  const centre = round3((from + to) / 2);
+  const depth = round3((to - from) * 0.94);
+  // Narrow enough to leave the two spokes on this side of the city alone.
+  const maxWidth = 0.5 * districtSide;
+
+  const plot = (
+    type: Exclude<LandmarkType, "civic">,
+    x: number,
+    z: number,
+    rotationY: number,
+  ): LandmarkPlot => {
+    const [naturalW, , naturalD] = NATURAL_LANDMARK_SIZE[type];
+    // Uniform: the renderer scales the assembly, it never stretches it.
+    const scale = Math.min(1, maxWidth / naturalW, depth / naturalD);
+    return {
+      x,
+      z,
+      w: round3(naturalW * scale),
+      d: round3(naturalD * scale),
+      rotationY: round3(rotationY),
+    };
+  };
+
+  return {
+    power: plot("power", 0, -centre, 0),
+    fire: plot("fire", centre, 0, -Math.PI / 2),
+    info: plot("info", -centre, 0, Math.PI / 2),
+    station: plot("station", 0, centre, Math.PI),
   };
 }
 
@@ -513,10 +705,11 @@ function planCivic(civicRect: Rect, ringRadius: number): CivicLayout {
  */
 export function planLayout(districts: LayoutDistrictInput[], totalBuildings: number): CityLayout {
   const size = cityBoundsSize(totalBuildings);
-  const treemapSide = round3(size - 2 * (OUTER_MARGIN + MAJOR_HALF + RING_GAP));
-  const ringRadius = round3(treemapSide / 2 + RING_GAP);
-  const civic = civicSide(treemapSide);
-  const { civicRect, regions } = carveRegions(treemapSide, civic, districts.length);
+  const districtSide = districtSquareSide(totalBuildings);
+  const half = districtSide / 2;
+  const ringRadius = round3(half + LANDMARK_BAND + RING_GAP);
+  const civic = civicSide(districtSide);
+  const { civicRect, regions } = carveRegions(districtSide, civic, districts.length);
 
   const items: WeightedItem[] = districts
     .map((d) => ({ id: d.id, weight: districtWeight(d.buildingCount) }))
@@ -533,12 +726,14 @@ export function planLayout(districts: LayoutDistrictInput[], totalBuildings: num
   // Ring road around the whole city.
   const ring = rectFromBounds(-ringRadius, -ringRadius, ringRadius, ringRadius);
   roads.addRectEdges(ring, true);
-  // Four spokes connecting the district square to the ring.
-  const half = treemapSide / 2;
-  roads.add(0, -half, 0, -ringRadius, true);
-  roads.add(0, half, 0, ringRadius, true);
-  roads.add(-half, 0, -ringRadius, 0, true);
-  roads.add(half, 0, ringRadius, 0, true);
+  // Two spokes per side, clear of the landmark plots in the middle of each.
+  const spoke = round3(districtSide / 3);
+  for (const offset of [-spoke, spoke]) {
+    roads.add(offset, -half, offset, -ringRadius, true);
+    roads.add(offset, half, offset, ringRadius, true);
+    roads.add(-half, offset, -ringRadius, offset, true);
+    roads.add(half, offset, ringRadius, offset, true);
+  }
 
   // Major roads on every treemap seam, including the civic centre's edges.
   roads.addRectEdges(civicRect, true);
@@ -560,10 +755,12 @@ export function planLayout(districts: LayoutDistrictInput[], totalBuildings: num
 
   return {
     size,
-    treemapSide,
+    districtSide,
+    bandDepth: LANDMARK_BAND,
     ringRadius,
     districts: laidOut,
-    civic: planCivic(civicRect, ringRadius),
+    civic: planCivic(civicRect),
+    landmarkPlots: planLandmarkPlots(districtSide, LANDMARK_BAND, ringRadius),
     roads: roads.build(),
   };
 }
@@ -601,4 +798,4 @@ export function roadHeading(road: RoadSegment): number {
   return Math.atan2(road.to[0] - road.from[0], road.to[2] - road.from[2]);
 }
 
-export { clamp, round3, rectFromBounds, insetRect };
+export { clamp, round3, rectFromBounds, insetRect, KERB, MAJOR_HALF, MINOR_HALF };

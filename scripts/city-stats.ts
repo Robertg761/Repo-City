@@ -34,9 +34,8 @@ registerHooks({
   },
 });
 
-const { generateCity, LIMITS, buildingsOnRoads, overlappingBuildings } = await import(
-  "../lib/city/generator.ts"
-);
+const { generateCity, LIMITS, buildingsOnRoads, obstructedPlots, overlappingBuildings } =
+  await import("../lib/city/generator.ts");
 
 const COLS = 96;
 const ROWS = 48;
@@ -101,6 +100,7 @@ export function asciiMap(city: CityModel): string {
 function report(city: CityModel): string {
   const pairs = overlappingBuildings(city);
   const onRoads = buildingsOnRoads(city);
+  const blocked = obstructedPlots(city);
   const tiers = [1, 2, 3, 4, 5].map((t) => city.buildings.filter((b) => b.tier === t).length);
   const lines = [
     `repository        ${city.repository.fullName}${city.repository.archived ? " (archived)" : ""}`,
@@ -110,7 +110,7 @@ function report(city: CityModel): string {
     `districts         ${city.districts.length}`,
     `buildings         ${city.buildings.length} / ${LIMITS.buildings}   tiers 1-5: ${tiers.join(", ")}`,
     `roads             ${city.roads.length} (${city.roads.filter((r) => r.major).length} major)`,
-    `landmarks         ${city.landmarks.map((l) => l.landmarkType).join(", ") || "none"}`,
+    `landmarks         ${city.landmarks.map((l) => `${l.landmarkType}${l.size ? ` ${l.size[0]}x${l.size[2]}` : ""}`).join(", ") || "none"}`,
     `incidents         ${city.incidents.length} / ${LIMITS.incidents}`,
     `construction      ${city.constructionSites.length} / ${LIMITS.construction}`,
     `trees             ${city.props.trees.length} / ${LIMITS.trees}`,
@@ -127,6 +127,7 @@ function report(city: CityModel): string {
     "",
     `overlapping buildings   ${pairs.length === 0 ? "none" : `${pairs.length}: ${pairs.slice(0, 5).map((p) => p.join("/")).join(" ")}`}`,
     `buildings on a road     ${onRoads.length === 0 ? "none" : `${onRoads.length}: ${onRoads.slice(0, 5).map((h) => `${h.id}(${h.clearance})`).join(" ")}`}`,
+    `obstructed plots        ${blocked.length === 0 ? "none" : `${blocked.length}: ${blocked.slice(0, 5).map((h) => `${h.id}/${h.against}`).join(" ")}`}`,
   ];
   return lines.join("\n");
 }

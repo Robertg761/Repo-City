@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import sampleAnalysis from "@/fixtures/sample.analysis.json";
 import type { BuildingPlan, RepoAnalysis } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
+import { ROAD_MAJOR_WIDTH, ROAD_MINOR_WIDTH } from "./layout";
 import {
   buildingsOnRoads,
   districtForPath,
   generateCity,
   LIMITS,
+  MAX_FOOTPRINT,
+  MIN_FOOTPRINT,
   nearestRoadDistance,
+  obstructedPlots,
   overlappingBuildings,
   REVEAL,
+  TIER_HEIGHT,
 } from "./generator";
 
 const fixture = sampleAnalysis as unknown as RepoAnalysis;
@@ -62,6 +67,10 @@ describe("generateCity: geometry", () => {
     expect(buildingsOnRoads(city)).toEqual([]);
   });
 
+  it("never stands a landmark or a construction site on a building or a road", () => {
+    expect(obstructedPlots(city)).toEqual([]);
+  });
+
   it("keeps every building inside the bounds, on the ground", () => {
     const half = city.bounds.size / 2;
     for (const building of city.buildings) {
@@ -86,15 +95,16 @@ describe("generateCity: geometry", () => {
   });
 
   it("scales heights by tier with at most 15 percent jitter", () => {
-    const nominal: Record<number, number> = { 1: 1.5, 2: 2.5, 3: 4, 4: 6.5, 5: 10 };
     for (const building of city.buildings) {
-      const base = nominal[building.tier];
+      const base = TIER_HEIGHT[building.tier];
       expect(building.size[1]).toBeGreaterThanOrEqual(base * 0.85 - 1e-3);
       expect(building.size[1]).toBeLessThanOrEqual(base * 1.15 + 1e-3);
-      // Footprints stay in the documented 1.6 to 4 unit band.
-      expect(building.size[0]).toBeLessThanOrEqual(4);
-      expect(building.size[2]).toBeLessThanOrEqual(4);
-      expect(Math.min(building.size[0], building.size[2])).toBeGreaterThanOrEqual(1.6 - 1e-9);
+      // Footprints stay in the documented 3.4 to 8 unit band.
+      expect(building.size[0]).toBeLessThanOrEqual(MAX_FOOTPRINT);
+      expect(building.size[2]).toBeLessThanOrEqual(MAX_FOOTPRINT);
+      expect(Math.min(building.size[0], building.size[2])).toBeGreaterThanOrEqual(
+        MIN_FOOTPRINT - 1e-9,
+      );
     }
   });
 
@@ -120,12 +130,12 @@ describe("generateCity: incidents (PLAN.md section 11)", () => {
     }
   });
 
-  it("keeps incidents at least 3 units apart", () => {
+  it("keeps incidents at least 9 units apart", () => {
     for (let i = 0; i < city.incidents.length; i++) {
       for (let j = i + 1; j < city.incidents.length; j++) {
         const a = city.incidents[i].position;
         const b = city.incidents[j].position;
-        expect(Math.hypot(a[0] - b[0], a[2] - b[2])).toBeGreaterThanOrEqual(3 - 1e-6);
+        expect(Math.hypot(a[0] - b[0], a[2] - b[2])).toBeGreaterThanOrEqual(9 - 1e-6);
       }
     }
   });
@@ -191,6 +201,21 @@ describe("generateCity: limits (PLAN.md section 37)", () => {
     expect(city.vehicles.count).toBeLessThanOrEqual(LIMITS.vehicles);
     expect(city.incidents.length).toBeLessThanOrEqual(LIMITS.incidents);
     expect(city.constructionSites.length).toBeLessThanOrEqual(LIMITS.construction);
+  });
+
+  it("keeps the plots clear in a crowded city too", () => {
+    const dense = clone();
+    const template = dense.buildings[0];
+    dense.buildings = Array.from({ length: 300 }, (_, index) => ({
+      ...template,
+      id: `b-dense-${index}`,
+      path: `src/dense/module-${index}.ts`,
+      landmark: null,
+      score: 5,
+    })) as BuildingPlan[];
+    const big = generateCity(dense);
+    expect(obstructedPlots(big)).toEqual([]);
+    expect(overlappingBuildings(big)).toEqual([]);
   });
 
   it("caps buildings at 300 and incidents at 12 even when handed more", () => {
@@ -286,6 +311,44 @@ describe("generateCity: model shape", () => {
     expect(city.seed).toBe(fixture.seed);
   });
 
+  it("gives every district inspector copy, a reveal time and a centred rect", () => {
+    for (const district of city.districts) {
+      expect(district.description.length).toBeGreaterThan(0);
+      expect(district.reason.length).toBeGreaterThan(0);
+      expect(district.sourceUrl).toContain("https://github.com/");
+      expect(district.appearAt).toBeGreaterThanOrEqual(REVEAL.districts[0]);
+      expect(district.appearAt).toBeLessThanOrEqual(REVEAL.districts[1]);
+      // Centre semantics: every building of the district sits inside the rect.
+      for (const id of district.buildingIds) {
+        const building = city.buildings.find((b) => b.id === id)!;
+        if (building.plan.landmark) continue; // civic centre, not the district
+        expect(Math.abs(building.position[0] - district.rect.x)).toBeLessThanOrEqual(
+          district.rect.w / 2 + 1e-6,
+        );
+        expect(Math.abs(building.position[2] - district.rect.z)).toBeLessThanOrEqual(
+          district.rect.d / 2 + 1e-6,
+        );
+      }
+    }
+  });
+
+  it("times every road inside the reveal window", () => {
+    for (const road of city.roads) {
+      expect(road.appearAt).toBeGreaterThanOrEqual(REVEAL.roads[0]);
+      expect(road.appearAt).toBeLessThanOrEqual(REVEAL.roads[1]);
+    }
+  });
+
+  it("hands each landmark the plot it was given, power carrying the CI state", () => {
+    for (const landmark of city.landmarks) {
+      expect(landmark.size).toBeDefined();
+      expect(landmark.size![0]).toBeGreaterThan(3);
+      expect(landmark.size![2]).toBeGreaterThan(3);
+    }
+    const power = city.landmarks.find((l) => l.landmarkType === "power")!;
+    expect(power.state).toBe(fixture.metrics.ci.state);
+  });
+
   it("cycles district colours through 0..7", () => {
     city.districts.forEach((district, index) => {
       expect(district.colorIndex).toBe(index % 8);
@@ -330,7 +393,7 @@ describe("generateCity: model shape", () => {
     const model: CityModel = city;
     expect(model.bounds.size).toBeGreaterThan(0);
     const widths = new Set(model.roads.map((r) => r.width));
-    expect([...widths].sort()).toEqual([1.6, 2.6]);
+    expect([...widths].sort((a, b) => a - b)).toEqual([ROAD_MINOR_WIDTH, ROAD_MAJOR_WIDTH]);
     for (const road of model.roads) {
       expect(road.from[1]).toBe(0);
       expect(road.to[1]).toBe(0);

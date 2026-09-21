@@ -5,13 +5,13 @@ import type { RoadSegment } from "@/types/city";
 
 /** A plus-shaped junction: four arms meeting at the origin. */
 const CROSS: RoadSegment[] = [
-  { id: "n", from: [0, 0, -20], to: [0, 0, 0], width: 6, major: true },
-  { id: "s", from: [0, 0, 0], to: [0, 0, 20], width: 6, major: true },
-  { id: "w", from: [-20, 0, 0], to: [0, 0, 0], width: 4, major: false },
-  { id: "e", from: [0, 0, 0], to: [20, 0, 0], width: 4, major: false },
+  { id: "n", from: [0, 0, -20], to: [0, 0, 0], width: 6, major: true, appearAt: 200 },
+  { id: "s", from: [0, 0, 0], to: [0, 0, 20], width: 6, major: true, appearAt: 200 },
+  { id: "w", from: [-20, 0, 0], to: [0, 0, 0], width: 4, major: false, appearAt: 200 },
+  { id: "e", from: [0, 0, 0], to: [20, 0, 0], width: 4, major: false, appearAt: 200 },
 ];
 
-const DEAD_END: RoadSegment[] = [{ id: "only", from: [0, 0, 0], to: [0, 0, 30], width: 5, major: true }];
+const DEAD_END: RoadSegment[] = [{ id: "only", from: [0, 0, 0], to: [0, 0, 30], width: 5, major: true, appearAt: 200 }];
 
 describe("roadGraph", () => {
   it("joins segments that share an endpoint", () => {
@@ -74,7 +74,7 @@ describe("spawnCars", () => {
 
   it("returns nothing when there are no drivable roads", () => {
     expect(spawnCars([], 10, prngFor("s", "traffic"))).toEqual([]);
-    const stub: RoadSegment[] = [{ id: "x", from: [0, 0, 0], to: [1, 0, 0], width: 4, major: false }];
+    const stub: RoadSegment[] = [{ id: "x", from: [0, 0, 0], to: [1, 0, 0], width: 4, major: false, appearAt: 200 }];
     expect(spawnCars(stub, 10, prngFor("s", "traffic"))).toEqual([]);
   });
 

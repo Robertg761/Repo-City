@@ -32,7 +32,7 @@ interface Lay {
 }
 
 function layout(roads: readonly RoadSegment[]): Lay[] {
-  return roads.map((road, i) => {
+  return roads.map((road) => {
     const dx = road.to[0] - road.from[0];
     const dz = road.to[2] - road.from[2];
     const length = Math.hypot(dx, dz) || 0.001;
@@ -45,8 +45,8 @@ function layout(roads: readonly RoadSegment[]): Lay[] {
       angle: Math.atan2(dx, dz),
       width: Math.max(road.width, 1),
       major: road.major,
-      // Arterials first, then the side streets, all inside 300 ms.
-      appearAt: (road.major ? 0 : 110) + Math.min(i * 6, 170),
+      // The generator times the whole reveal (PLAN.md section 43).
+      appearAt: road.appearAt,
     };
   });
 }

@@ -70,13 +70,8 @@ export default function City({ city }: { city: CityModel }) {
 
       <Terrain size={size} atmosphere={atmosphere} />
 
-      {city.districts.map((district, index) => (
-        <DistrictGround
-          key={district.id}
-          district={district}
-          index={index}
-          atmosphere={atmosphere}
-        />
+      {city.districts.map((district) => (
+        <DistrictGround key={district.id} district={district} atmosphere={atmosphere} />
       ))}
 
       <Roads roads={city.roads} atmosphere={atmosphere} />

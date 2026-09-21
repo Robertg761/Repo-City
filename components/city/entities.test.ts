@@ -17,8 +17,8 @@ import type { Vec3 } from "@/types/city";
 const distance = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 describe("districtCenter", () => {
-  it("treats rect as min corner plus extent", () => {
-    expect(districtCenter({ x: -58, z: -58, w: 46, d: 46 })).toEqual([-35, 0, -35]);
+  it("treats rect as centre plus extent", () => {
+    expect(districtCenter({ x: -35, z: -35, w: 46, d: 46 })).toEqual([-35, 0, -35]);
   });
 });
 

@@ -20,11 +20,12 @@ export interface FocusTarget {
 }
 
 /**
- * District rects are min-corner + extent: the region covers
- * `[rect.x, rect.x + rect.w]` on x and `[rect.z, rect.z + rect.d]` on z.
+ * District rects are CENTRE + extent (see the world conventions at the top of
+ * `types/city.ts`): the region covers `[rect.x - rect.w / 2, rect.x + rect.w / 2]`
+ * on x and the same on z. The centre is therefore the rect's own `x`/`z`.
  */
 export function districtCenter(rect: { x: number; z: number; w: number; d: number }): Vec3 {
-  return [rect.x + rect.w / 2, 0, rect.z + rect.d / 2];
+  return [rect.x, 0, rect.z];
 }
 
 const clamp = (n: number, lo: number, hi: number) => (n < lo ? lo : n > hi ? hi : n);
@@ -60,12 +61,14 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
   }
   for (const l of city.landmarks) {
     if (l.id !== id) continue;
+    // `size` is the reserved plot the generator handed it (types/city.ts).
+    const [w, h, d] = l.size ?? [14, 10, 12];
     return {
       id,
       kind: "landmark",
       position: l.position,
-      lookAt: [l.position[0], l.position[1] + 4, l.position[2]],
-      radius: 8 + l.level * 1.5,
+      lookAt: [l.position[0], l.position[1] + h * 0.45, l.position[2]],
+      radius: Math.max(w, d) * 0.6,
     };
   }
   for (const i of city.incidents) {
@@ -75,17 +78,18 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
       kind: "incident",
       position: i.position,
       lookAt: [i.position[0], i.position[1] + 1.2, i.position[2]],
-      radius: 4,
+      radius: 5,
     };
   }
   for (const c of city.constructionSites) {
     if (c.id !== id) continue;
+    const [w, h, d] = c.size ?? [11, 12.6, 11];
     return {
       id,
       kind: "construction",
       position: c.position,
-      lookAt: [c.position[0], c.position[1] + 4, c.position[2]],
-      radius: 8,
+      lookAt: [c.position[0], c.position[1] + h * 0.4, c.position[2]],
+      radius: Math.max(w, d) * 0.7,
     };
   }
   for (const d of city.districts) {

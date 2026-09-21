@@ -11,11 +11,18 @@
  *   civic   the repo      town hall at the centre of the city
  *
  * Primitive assemblies only: no external models anywhere in this project.
+ *
+ * Every assembly below is modelled at the natural size recorded in
+ * `NATURAL_LANDMARK_SIZE` (lib/city/layout.ts). The generator reserves a plot
+ * for each landmark and reports it in `landmark.size`; this component scales
+ * the assembly uniformly into that plot, which is what guarantees a power
+ * station never lands on top of a block of buildings.
  */
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { Group, Mesh, MeshStandardMaterial } from "three";
+import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import type { Landmark } from "@/types/city";
 import {
   CIVIC_COLOR,
@@ -411,6 +418,11 @@ export default function LandmarkPiece({
   const handlers = useEntityHandlers(landmark.id);
   const reveal = useRevealGroup(landmark.appearAt);
 
+  const natural = NATURAL_LANDMARK_SIZE[landmark.landmarkType];
+  const fit = landmark.size
+    ? Math.min(landmark.size[0] / natural[0], landmark.size[2] / natural[2])
+    : 1;
+
   const skin: Skin = {
     wall: stateTint(desaturate(CIVIC_COLOR, atmosphere.desaturation), hovered, selected),
     roof: stateTint(desaturate(CIVIC_ROOF, atmosphere.desaturation), hovered, selected),
@@ -425,11 +437,13 @@ export default function LandmarkPiece({
       rotation-y={landmark.rotationY}
       {...handlers}
     >
-      {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
-      {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
-      {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
-      {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
-      {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
+      <group scale={fit}>
+        {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
+        {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
+        {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
+        {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
+        {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
+      </group>
     </group>
   );
 }

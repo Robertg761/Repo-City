@@ -333,15 +333,18 @@ export interface DistrictText {
   title: string;
   subtitle: string;
   description: string;
+  reason: string;
   sourceUrl: string;
 }
 
 export function districtText(plan: DistrictPlan, repo: RepositoryMeta): DistrictText {
   const path = plan.sourcePath.replace(/^\/+/, "");
+  const where = path ? plan.sourcePath : "the repository root";
   return {
     title: plan.name,
     subtitle: plan.sourcePath,
-    description: plan.purpose ?? `${plural(plan.fileCount, "file")} under ${plan.sourcePath}.`,
+    description: plan.purpose ?? `${plural(plan.fileCount, "file")} under ${where}.`,
+    reason: `${where} is one of the largest areas of the repository, with ${plural(plan.fileCount, "file")}; its size on the map follows that count.`,
     sourceUrl: path ? `${repo.url}/tree/${repo.defaultBranch}/${path}` : repo.url,
   };
 }

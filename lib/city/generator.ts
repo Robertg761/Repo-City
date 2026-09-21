@@ -10,11 +10,13 @@
  *   1 districts, 2 district regions, 3 major roads, 4 blocks, 5 buildings,
  *   6 landmarks, 7 incidents (then construction), 8 props.
  *
- * World conventions the renderer must match:
- *   +y up; `bounds.size` is the side of a square centred on the origin on XZ;
- *   a building's `position` is its base centre on y = 0 and `size` is
- *   [width, height, depth]; roads are centrelines with a `width`; incidents sit
- *   on a road centreline; `District.rect` uses `x`/`z` as the rect CENTRE.
+ * World conventions the renderer must match: written out in full at the top of
+ * `types/city.ts`. In short: +y up; `bounds.size` is the side of a square
+ * centred on the origin on XZ; a building's `position` is its base centre on
+ * y = 0 and `size` is [width, height, depth]; roads are centrelines with a
+ * `width`; incidents sit on a road centreline; `District.rect` uses `x`/`z` as
+ * the rect CENTRE; landmarks and construction sites carry the reserved plot
+ * they were given in `size`, and the renderer scales its assembly to fit.
  */
 
 import type {
@@ -34,9 +36,17 @@ import type {
   RoadSegment,
   Vec3,
 } from "@/types/city";
-import { buildingText, constructionText, incidentText, planLandmarks } from "./entities.ts";
+import {
+  buildingText,
+  constructionText,
+  districtText,
+  incidentText,
+  planLandmarks,
+} from "./entities.ts";
 import {
   CIVIC_BUILDING_SLOTS,
+  NATURAL_LANDMARK_SIZE,
+  ROAD_REVEAL,
   clamp,
   distanceToRoad,
   planLayout,
@@ -49,6 +59,7 @@ import {
   roadLength,
   round3,
   type CityLayout,
+  type LandmarkPlot,
   type Rect,
   type Slot,
 } from "./layout.ts";
@@ -71,22 +82,18 @@ export const LIMITS = {
 /**
  * Reveal schedule in milliseconds. The last thing appears before 3.3 s, so the
  * whole generation animation lands inside PLAN.md section 43's 2 to 4 seconds.
- * `RoadSegment` and `District` have no `appearAt` field in the type contract,
- * so the renderer derives theirs with `roadAppearAt`.
+ * Every entity carries its own `appearAt`, including roads and districts, so
+ * the renderer never invents a timing of its own.
  */
 export const REVEAL = {
   terrain: 0,
-  roads: [200, 600],
-  buildings: [600, 2200],
-  landmarks: [2200, 2600],
-  incidents: [2600, 3000],
+  roads: [ROAD_REVEAL.major[0], ROAD_REVEAL.minor[1]],
+  districts: [420, 640],
+  buildings: [700, 2300],
+  landmarks: [2300, 2650],
+  incidents: [2650, 3000],
   construction: [3000, 3300],
 } as const;
-
-/** Reveal delay for road `index` of `total`, matching `REVEAL.roads`. */
-export function roadAppearAt(index: number, total: number): number {
-  return spread(REVEAL.roads, index, total);
-}
 
 function spread(window: readonly number[], index: number, total: number): number {
   const [start, end] = window;
@@ -105,14 +112,22 @@ const ROOT_DISTRICT: DistrictPlan = {
 };
 
 /** Visual height per tier, before the seeded +/-15% jitter. */
-const TIER_HEIGHT: Record<number, number> = { 1: 1.5, 2: 2.5, 3: 4, 4: 6.5, 5: 10 };
+export const TIER_HEIGHT: Record<number, number> = { 1: 3.2, 2: 5.2, 3: 8, 4: 11.5, 5: 16 };
 
-const MIN_FOOTPRINT = 1.6;
-const MAX_FOOTPRINT = 4;
+export const MIN_FOOTPRINT = 3.4;
+export const MAX_FOOTPRINT = 8;
 /** Gap kept inside a slot cell so neighbouring footprints never touch. */
-const SLOT_GAP = 0.5;
-/** Minimum separation between two incidents (PLAN.md section 11 placement). */
-const INCIDENT_SPACING = 3;
+const SLOT_GAP = 1;
+/**
+ * Minimum separation between two incidents. The renderer draws an incident
+ * about six units across (two cars, cones and barricades), so anything closer
+ * would read as one pile-up instead of two issues.
+ */
+const INCIDENT_SPACING = 9;
+/** What the renderer draws a construction site at, before scaling. */
+const NATURAL_SITE = 11;
+/** Natural height of the crane, used to fill in `ConstructionSite.size`. */
+const NATURAL_SITE_HEIGHT = 12.6;
 
 // ---------------------------------------------------------------------------
 // Generator
@@ -182,6 +197,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     }
     usedSlots.set(plan.id, cursor);
 
+    const text = districtText(plan, repo);
     districts.push({
       id: plan.id,
       name: plan.name,
@@ -190,6 +206,10 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
       rect: { x: round3(rect.x), z: round3(rect.z), w: round3(rect.w), d: round3(rect.d) },
       colorIndex,
       buildingIds: [],
+      description: text.description,
+      reason: text.reason,
+      sourceUrl: text.sourceUrl,
+      appearAt: spread(REVEAL.districts, index, districtPlans.length),
     });
   });
 
@@ -222,10 +242,17 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
 
   // -- Stage 7: incidents, then construction -------------------------------
   const incidents = placeIncidents(analysis, layout, districtPlans, seed);
-  const construction = placeConstruction(analysis, layout, districtPlans, usedSlots, seed);
+  const construction = placeConstruction(
+    analysis,
+    layout,
+    districtPlans,
+    buildings,
+    usedSlots,
+    seed,
+  );
 
   // -- Stage 8: props ------------------------------------------------------
-  const trees = placeTrees(analysis, layout, usedSlots, seed);
+  const trees = placeTrees(analysis, layout, construction, usedSlots, seed);
   const lamps = placeLamps(layout);
 
   return {
@@ -256,18 +283,19 @@ function fallbackSlot(rect: Rect, index: number): Slot {
   const ring = 1 + Math.floor(index / 8);
   const angle = (index % 8) * (Math.PI / 4);
   return {
-    x: round3(rect.x + Math.cos(angle) * ring * 1.2),
-    z: round3(rect.z + Math.sin(angle) * ring * 1.2),
-    cellW: 1.6,
-    cellD: 1.6,
+    x: round3(rect.x + Math.cos(angle) * ring * 2.6),
+    z: round3(rect.z + Math.sin(angle) * ring * 2.6),
+    cellW: MIN_FOOTPRINT,
+    cellD: MIN_FOOTPRINT,
   };
 }
 
+/** A directory's footprint follows what it holds; a file's follows its tier. */
 function desiredFootprint(plan: BuildingPlan): number {
   const base =
     plan.kind === "directory"
-      ? 2 + 2 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40)
-      : MIN_FOOTPRINT + 0.6 * ((plan.tier - 1) / 4);
+      ? 4.4 + 3.6 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40)
+      : MIN_FOOTPRINT + 1.3 * ((plan.tier - 1) / 4);
   return clamp(base, MIN_FOOTPRINT, MAX_FOOTPRINT);
 }
 
@@ -286,7 +314,7 @@ function makeBuilding(
   // has squeezed the slot cell below that.
   const fit = (cell: number): number => {
     const wobbled = clamp(base * (1 + buildingPrng.range(-0.08, 0.08)), MIN_FOOTPRINT, MAX_FOOTPRINT);
-    return clamp(Math.min(wobbled, cell - SLOT_GAP), 0.6, MAX_FOOTPRINT);
+    return clamp(Math.min(wobbled, cell - SLOT_GAP), 1.4, MAX_FOOTPRINT);
   };
   const width = fit(slot.cellW);
   const depth = fit(slot.cellD);
@@ -336,18 +364,27 @@ function assignBuildingReveal(buildings: Building[], districts: District[]): voi
 // Stage 6: landmarks
 // ---------------------------------------------------------------------------
 
+/**
+ * The infrastructure landmarks stand on their reserved plots in the band
+ * between the district square and the ring road, one per compass point; the
+ * town hall stands at the centre of the civic square. `size` is the plot, in
+ * the landmark's own frame: the renderer scales its assembly into it, so a
+ * landmark can never overlap a building or a road (PLAN.md section 36).
+ */
 function placeLandmarks(analysis: RepoAnalysis, layout: CityLayout): Landmark[] {
   const specs = planLandmarks(analysis);
   return specs.map((spec, index) => {
-    const slot =
-      spec.landmarkType === "station"
-        ? layout.civic.stationSlot
-        : layout.civic.landmarkSlots[spec.landmarkType];
+    const plot: LandmarkPlot =
+      spec.landmarkType === "civic"
+        ? layout.civic.hall
+        : layout.landmarkPlots[spec.landmarkType];
+    const natural = NATURAL_LANDMARK_SIZE[spec.landmarkType];
+    const scale = Math.min(plot.w / natural[0], plot.d / natural[2]);
     return {
       id: `landmark-${spec.landmarkType}`,
       kind: "landmark" as const,
-      position: [slot.x, 0, slot.z] as Vec3,
-      rotationY: 0,
+      position: [plot.x, 0, plot.z] as Vec3,
+      rotationY: plot.rotationY,
       title: spec.title,
       subtitle: spec.subtitle,
       description: spec.description,
@@ -358,6 +395,7 @@ function placeLandmarks(analysis: RepoAnalysis, layout: CityLayout): Landmark[] 
       landmarkType: spec.landmarkType,
       level: spec.level,
       state: spec.state,
+      size: [round3(plot.w), round3(natural[1] * scale), round3(plot.d)] as Vec3,
     };
   });
 }
@@ -437,7 +475,7 @@ function placeIncidents(
       districtForText(`${issue.title} ${issue.bodyExcerpt}`, districtPlans);
     const rect = district ? (rectById.get(district.id) ?? null) : null;
     const candidates = rect
-      ? roadsNear(layout.roads, rect).slice(0, 12)
+      ? roadsNear(layout.roads, rect).slice(0, 24)
       : rotate(layout.roads, prng.int(0, Math.max(0, layout.roads.length - 1)));
     const spot = findRoadSpot(candidates, taken, prng);
     taken.push({ x: spot.x, z: spot.z });
@@ -472,7 +510,10 @@ function findRoadSpot(
   const phase = prng.int(0, samples - 1);
   let fallback: { x: number; z: number; heading: number } | null = null;
 
-  for (const road of candidates) {
+  // A stub between two junctions is no place for a crash scene; fall back to
+  // the full list only if nothing longer exists.
+  const roomy = candidates.filter((road) => roadLength(road) >= 14);
+  for (const road of roomy.length > 0 ? roomy : candidates) {
     const heading = roadHeading(road);
     for (let i = 0; i < samples; i++) {
       // Evenly spaced along the middle of the segment, from a seeded phase, so
@@ -494,6 +535,7 @@ function placeConstruction(
   analysis: RepoAnalysis,
   layout: CityLayout,
   districtPlans: DistrictPlan[],
+  buildings: Building[],
   usedSlots: Map<string, number>,
   seed: string,
 ): ConstructionSite[] {
@@ -503,29 +545,99 @@ function placeConstruction(
   const prng = prngFor(seed, "construction");
   const layoutById = new Map(layout.districts.map((d) => [d.id, d]));
   const sites: ConstructionSite[] = [];
+  // A site has to keep clear of everything already standing, and of the sites
+  // placed before it, so the obstacle list grows as we go.
+  const obstacles: Aabb[] = buildings.map(footprintOf);
+  for (const road of layout.roads) obstacles.push(roadFootprint(road));
 
   ranked.forEach((pull, index) => {
     const mentioned =
       districtForText(`${pull.title} ${pull.labels.join(" ")}`, districtPlans) ??
       districtPlans[prng.int(0, Math.max(0, districtPlans.length - 1))];
-    const slot = claimSlot(mentioned?.id, layoutById, usedSlots) ?? layout.civic.stationSlot;
+    const slot =
+      claimSlot(mentioned?.id, layoutById, usedSlots) ?? bandCorner(layout, index);
+
+    // The renderer draws an eleven unit site; it is scaled down to whatever is
+    // actually free here, which is usually a slot cell plus the gap around it.
+    const half = clamp(clearHalfExtent(slot.x, slot.z, obstacles, NATURAL_SITE / 2), 1.8, NATURAL_SITE / 2);
+    const side = round3(half * 2);
+    obstacles.push({
+      id: `construction-${pull.number}`,
+      minX: slot.x - half,
+      maxX: slot.x + half,
+      minZ: slot.z - half,
+      maxZ: slot.z + half,
+    });
 
     sites.push({
       id: `construction-${pull.number}`,
       kind: "construction",
       position: [round3(slot.x), 0, round3(slot.z)],
-      rotationY: round3(prng.range(-0.25, 0.25)),
+      // Square sites, square plots: a rotated site would poke out of its clear
+      // square, so only a whisker of rotation is allowed.
+      rotationY: round3(prng.range(-0.06, 0.06)),
       ...constructionText(pull, analysis.generatedAt),
       appearAt: spread(REVEAL.construction, index, ranked.length),
       state: pull.state,
       pull,
+      size: [side, round3((NATURAL_SITE_HEIGHT * side) / NATURAL_SITE), side],
     });
   });
 
   return sites;
 }
 
-/** Take the next free slot in a district, or in any district that has one. */
+/**
+ * Half the side of the largest axis-aligned square centred on `(x, z)` that
+ * touches none of `obstacles`. Everything here is axis aligned, so this is
+ * just the largest per-axis gap, minimised over the obstacles.
+ */
+function clearHalfExtent(x: number, z: number, obstacles: readonly Aabb[], cap: number): number {
+  let best = cap;
+  for (const box of obstacles) {
+    const gapX = Math.max(box.minX - x, x - box.maxX);
+    const gapZ = Math.max(box.minZ - z, z - box.maxZ);
+    const gap = Math.max(gapX, gapZ);
+    if (gap < best) best = gap;
+    if (best <= 0) return 0;
+  }
+  return best;
+}
+
+/** The road surface as a box, for clearance tests. */
+function roadFootprint(road: RoadSegment): Aabb {
+  const half = road.width / 2;
+  return {
+    id: road.id,
+    minX: Math.min(road.from[0], road.to[0]) - half,
+    maxX: Math.max(road.from[0], road.to[0]) + half,
+    minZ: Math.min(road.from[2], road.to[2]) - half,
+    maxZ: Math.max(road.from[2], road.to[2]) + half,
+  };
+}
+
+/**
+ * Last resort when every district slot is taken: the corners of the landmark
+ * band, which nothing else ever uses.
+ */
+function bandCorner(layout: CityLayout, index: number): Slot {
+  const r = layout.districtSide / 2 + layout.bandDepth / 2;
+  const corners: [number, number][] = [
+    [-r, -r],
+    [r, -r],
+    [r, r],
+    [-r, r],
+  ];
+  const [x, z] = corners[index % corners.length];
+  const ring = 1 + Math.floor(index / corners.length);
+  return { x: round3(x / ring), z: round3(z / ring), cellW: NATURAL_SITE, cellD: NATURAL_SITE };
+}
+
+/**
+ * Take a free slot in a district, preferring the roomiest one that is left:
+ * a construction site is the biggest single object in a district, so it wants
+ * the largest plot available.
+ */
 function claimSlot(
   preferredId: string | undefined,
   layoutById: Map<string, { slots: Slot[] }>,
@@ -537,10 +649,20 @@ function claimSlot(
   for (const id of order) {
     const slots = layoutById.get(id)?.slots ?? [];
     const cursor = usedSlots.get(id) ?? 0;
-    if (cursor < slots.length) {
-      usedSlots.set(id, cursor + 1);
-      return slots[cursor];
+    if (cursor >= slots.length) continue;
+    // Free slots run from `cursor` to the end; take the roomiest and close the
+    // gap by moving the one at the cursor into its place.
+    let best = cursor;
+    for (let i = cursor + 1; i < slots.length; i++) {
+      if (Math.min(slots[i].cellW, slots[i].cellD) > Math.min(slots[best].cellW, slots[best].cellD)) {
+        best = i;
+      }
     }
+    const chosen = slots[best];
+    slots[best] = slots[cursor];
+    slots[cursor] = chosen;
+    usedSlots.set(id, cursor + 1);
+    return chosen;
   }
   return null;
 }
@@ -559,6 +681,7 @@ function treeCount(analysis: RepoAnalysis): number {
 function placeTrees(
   analysis: RepoAnalysis,
   layout: CityLayout,
+  sites: readonly ConstructionSite[],
   usedSlots: Map<string, number>,
   seed: string,
 ): Vec3[] {
@@ -567,17 +690,43 @@ function placeTrees(
   const prng = prngFor(seed, "trees");
   const candidates: Vec3[] = [];
 
-  // Along the ring road, on the outside, clear of the transit station.
-  const ringRadius = layout.ringRadius + 2.6;
+  // Nothing grows on a landmark plot or a building site.
+  const keepOut: { x: number; z: number; radius: number }[] = [
+    ...Object.values(layout.landmarkPlots).map((plot) => ({
+      x: plot.x,
+      z: plot.z,
+      radius: Math.max(plot.w, plot.d) * 0.6,
+    })),
+    ...sites.map((site) => ({
+      x: site.position[0],
+      z: site.position[2],
+      radius: (site.size?.[0] ?? NATURAL_SITE) * 0.6,
+    })),
+  ];
+  const free = (x: number, z: number): boolean =>
+    keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius);
+
+  // Along the ring road, on the outside.
+  const ringRadius = layout.ringRadius + 5;
   const perimeter = 8 * ringRadius;
-  const ringCount = Math.max(8, Math.round(perimeter / 4));
-  const station = layout.civic.stationSlot;
+  const ringCount = Math.max(8, Math.round(perimeter / 8));
   for (let i = 0; i < ringCount; i++) {
     const t = (i + 0.5) / ringCount;
     const point = squarePerimeter(ringRadius, t);
-    const x = point.x + prng.range(-0.6, 0.6);
-    const z = point.z + prng.range(-0.6, 0.6);
-    if (Math.hypot(x - station.x, z - station.z) < 5) continue;
+    const x = point.x + prng.range(-1.2, 1.2);
+    const z = point.z + prng.range(-1.2, 1.2);
+    if (!free(x, z)) continue;
+    candidates.push([round3(x), 0, round3(z)]);
+  }
+
+  // In the landmark band, filling the space the landmarks do not use.
+  const bandRadius = layout.districtSide / 2 + layout.bandDepth * 0.55;
+  const bandCount = Math.max(8, Math.round((8 * bandRadius) / 11));
+  for (let i = 0; i < bandCount; i++) {
+    const point = squarePerimeter(bandRadius, (i + 0.25) / bandCount);
+    const x = point.x + prng.range(-1.5, 1.5);
+    const z = point.z + prng.range(-1.5, 1.5);
+    if (!free(x, z)) continue;
     candidates.push([round3(x), 0, round3(z)]);
   }
 
@@ -585,14 +734,15 @@ function placeTrees(
   for (const district of layout.districts) {
     for (const block of district.blocks) {
       const corners: [number, number][] = [
-        [rectMinX(block) - 0.3, rectMinZ(block) - 0.3],
-        [rectMaxX(block) + 0.3, rectMinZ(block) - 0.3],
-        [rectMinX(block) - 0.3, rectMaxZ(block) + 0.3],
-        [rectMaxX(block) + 0.3, rectMaxZ(block) + 0.3],
+        [rectMinX(block) - 0.7, rectMinZ(block) - 0.7],
+        [rectMaxX(block) + 0.7, rectMinZ(block) - 0.7],
+        [rectMinX(block) - 0.7, rectMaxZ(block) + 0.7],
+        [rectMaxX(block) + 0.7, rectMaxZ(block) + 0.7],
       ];
       for (const [x, z] of corners) {
-        const jx = round3(x + prng.range(-0.12, 0.12));
-        const jz = round3(z + prng.range(-0.12, 0.12));
+        if (!free(x, z)) continue;
+        const jx = round3(x + prng.range(-0.25, 0.25));
+        const jz = round3(z + prng.range(-0.25, 0.25));
         candidates.push([jx, 0, jz]);
       }
     }
@@ -603,11 +753,10 @@ function placeTrees(
     const cursor = usedSlots.get(district.id) ?? 0;
     for (let i = cursor; i < district.slots.length; i++) {
       const slot = district.slots[i];
-      candidates.push([
-        round3(slot.x + prng.range(-1, 1) * slot.cellW * 0.25),
-        0,
-        round3(slot.z + prng.range(-1, 1) * slot.cellD * 0.25),
-      ]);
+      const x = round3(slot.x + prng.range(-1, 1) * slot.cellW * 0.25);
+      const z = round3(slot.z + prng.range(-1, 1) * slot.cellD * 0.25);
+      if (!free(x, z)) continue;
+      candidates.push([x, 0, z]);
     }
   }
 
@@ -631,18 +780,18 @@ function squarePerimeter(r: number, t: number): { x: number; z: number } {
   return { x: -r, z: -from };
 }
 
-/** Street lamps every ~6 units along the major roads, set back from the kerb. */
+/** Street lamps every ~13 units along the major roads, set back from the kerb. */
 function placeLamps(layout: CityLayout): Vec3[] {
   const lamps: Vec3[] = [];
   const majors = layout.roads.filter((road) => road.major);
   for (const road of majors) {
     const length = roadLength(road);
-    if (length < 4) continue;
-    const count = Math.max(1, Math.floor(length / 6));
+    if (length < 8) continue;
+    const count = Math.max(1, Math.floor(length / 13));
     const dx = (road.to[0] - road.from[0]) / length;
     const dz = (road.to[2] - road.from[2]) / length;
     // Perpendicular, always to the same side of a given segment.
-    const offset = road.width / 2 + 0.45;
+    const offset = road.width / 2 + 0.9;
     for (let i = 0; i < count; i++) {
       const along = ((i + 0.5) * length) / count;
       lamps.push([
@@ -741,6 +890,60 @@ export function overlappingBuildings(city: CityModel): [string, string][] {
       const a = boxes[i];
       const b = boxes[j];
       if (a.minZ < b.maxZ - epsilon && b.minZ < a.maxZ - epsilon) hits.push([a.id, b.id]);
+    }
+  }
+  return hits;
+}
+
+/**
+ * The world-axis footprint of a reserved plot. Landmarks are only ever rotated
+ * by quarter turns, so the box is exact: a quarter turn swaps w and d.
+ */
+function plotBox(id: string, position: Vec3, size: Vec3, rotationY: number): Aabb {
+  const quarter = Math.abs(Math.sin(rotationY)) > 0.5;
+  const w = (quarter ? size[2] : size[0]) / 2;
+  const d = (quarter ? size[0] : size[2]) / 2;
+  return {
+    id,
+    minX: position[0] - w,
+    maxX: position[0] + w,
+    minZ: position[2] - d,
+    maxZ: position[2] + d,
+  };
+}
+
+/**
+ * Landmarks and construction sites that reach into a building or a road.
+ * The layout guarantees this is empty: landmarks stand on reserved plots in
+ * the band outside the district square, and a construction site is shrunk to
+ * the space that was actually free around its slot.
+ */
+export function obstructedPlots(city: CityModel): { id: string; against: string }[] {
+  const plots: Aabb[] = [
+    ...city.landmarks.map((l) =>
+      plotBox(l.id, l.position, l.size ?? [14, 10, 12], l.rotationY),
+    ),
+    ...city.constructionSites.map((s) =>
+      plotBox(s.id, s.position, s.size ?? [11, 12.6, 11], s.rotationY),
+    ),
+  ];
+  const obstacles: Aabb[] = [
+    ...city.buildings.map(footprintOf),
+    ...city.roads.map(roadFootprint),
+  ];
+  const hits: { id: string; against: string }[] = [];
+  const epsilon = 1e-6;
+  for (const plot of plots) {
+    for (const box of obstacles) {
+      if (
+        plot.minX < box.maxX - epsilon &&
+        box.minX < plot.maxX - epsilon &&
+        plot.minZ < box.maxZ - epsilon &&
+        box.minZ < plot.maxZ - epsilon
+      ) {
+        hits.push({ id: plot.id, against: box.id });
+        break;
+      }
     }
   }
   return hits;

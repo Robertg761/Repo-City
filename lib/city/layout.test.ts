@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  NATURAL_LANDMARK_SIZE,
   cityBoundsSize,
+  districtSquareSide,
   planLayout,
   rectMaxX,
   rectMaxZ,
@@ -29,9 +31,17 @@ const districts = (counts: number[]): LayoutDistrictInput[] =>
   counts.map((buildingCount, index) => ({ id: `d-${index}`, buildingCount }));
 
 describe("cityBoundsSize", () => {
-  it("is about 40 units for 20 buildings and about 110 for 300", () => {
-    expect(cityBoundsSize(20)).toBeCloseTo(40, 1);
-    expect(cityBoundsSize(300)).toBeCloseTo(110, 1);
+  it("frames a small town in about 130 units and a metropolis in about 230", () => {
+    expect(cityBoundsSize(10)).toBeGreaterThan(110);
+    expect(cityBoundsSize(10)).toBeLessThan(145);
+    expect(cityBoundsSize(300)).toBeGreaterThan(200);
+    expect(cityBoundsSize(300)).toBeLessThan(245);
+  });
+
+  it("leaves the landmark band, the ring road and a margin around the districts", () => {
+    for (const n of [1, 10, 90, 300, 600]) {
+      expect(cityBoundsSize(n) - districtSquareSide(n)).toBeCloseTo(65, 3);
+    }
   });
 
   it("never shrinks as the repository grows", () => {
@@ -56,7 +66,7 @@ describe("planLayout", () => {
     }
 
     const total = cells.reduce((sum, r) => sum + area(r), 0);
-    expect(total).toBeCloseTo(layout.treemapSide ** 2, 3);
+    expect(total).toBeCloseTo(layout.districtSide ** 2, 3);
   });
 
   it("reserves the cell nearest the origin for the civic centre", () => {
@@ -81,7 +91,7 @@ describe("planLayout", () => {
         }
         expect(area(cells[i])).toBeGreaterThan(0);
       }
-      expect(cells.reduce((sum, r) => sum + area(r), 0)).toBeCloseTo(layout.treemapSide ** 2, 3);
+      expect(cells.reduce((sum, r) => sum + area(r), 0)).toBeCloseTo(layout.districtSide ** 2, 3);
     }
   });
 
@@ -133,6 +143,69 @@ describe("planLayout", () => {
         previous = distance;
       }
     }
+  });
+
+  it("keeps the landmark plots outside the district square and inside the ring", () => {
+    const layout = planLayout(districts([37, 21, 12, 9, 6, 5]), 90);
+    const half = layout.districtSide / 2;
+    for (const plot of Object.values(layout.landmarkPlots)) {
+      const outer = Math.max(Math.abs(plot.x), Math.abs(plot.z));
+      expect(outer).toBeGreaterThan(half);
+      expect(outer).toBeLessThan(layout.ringRadius);
+      for (const district of layout.districts) {
+        expect(
+          Math.abs(plot.x - district.rect.x) < district.rect.w / 2 &&
+            Math.abs(plot.z - district.rect.z) < district.rect.d / 2,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("reserves a plot no bigger than the assembly the renderer draws", () => {
+    const layout = planLayout(districts([120, 61, 30, 14, 7, 2]), 234);
+    for (const [type, plot] of Object.entries(layout.landmarkPlots)) {
+      const natural = NATURAL_LANDMARK_SIZE[type as keyof typeof NATURAL_LANDMARK_SIZE];
+      expect(plot.w).toBeLessThanOrEqual(natural[0] + 1e-6);
+      expect(plot.d).toBeLessThanOrEqual(natural[2] + 1e-6);
+      // Uniform scale: the renderer never stretches an assembly.
+      expect(plot.w / natural[0]).toBeCloseTo(plot.d / natural[2], 3);
+    }
+  });
+
+  it("splits every road at its junctions so traffic can turn", () => {
+    const layout = planLayout(districts([37, 21, 12, 9, 6, 5]), 90);
+    for (const road of layout.roads) {
+      // No other road may cross this one anywhere but at a shared endpoint.
+      const horizontal = Math.abs(road.from[2] - road.to[2]) < 1e-6;
+      const lo = horizontal ? Math.min(road.from[0], road.to[0]) : Math.min(road.from[2], road.to[2]);
+      const hi = horizontal ? Math.max(road.from[0], road.to[0]) : Math.max(road.from[2], road.to[2]);
+      for (const other of layout.roads) {
+        if (other === road) continue;
+        const otherHorizontal = Math.abs(other.from[2] - other.to[2]) < 1e-6;
+        if (otherHorizontal === horizontal) continue;
+        const at = otherHorizontal ? other.from[2] : other.from[0];
+        const cross = otherHorizontal ? road.from[0] : road.from[2];
+        const oLo = otherHorizontal
+          ? Math.min(other.from[0], other.to[0])
+          : Math.min(other.from[2], other.to[2]);
+        const oHi = otherHorizontal
+          ? Math.max(other.from[0], other.to[0])
+          : Math.max(other.from[2], other.to[2]);
+        const crosses = at > lo + 1e-6 && at < hi - 1e-6 && cross >= oLo - 1e-6 && cross <= oHi + 1e-6;
+        expect(crosses).toBe(false);
+      }
+    }
+  });
+
+  it("times every road inside the reveal window", () => {
+    const layout = planLayout(districts([37, 21, 12, 9, 6, 5]), 90);
+    for (const road of layout.roads) {
+      expect(road.appearAt).toBeGreaterThanOrEqual(150);
+      expect(road.appearAt).toBeLessThanOrEqual(560);
+    }
+    const majors = layout.roads.filter((r) => r.major).map((r) => r.appearAt);
+    const minors = layout.roads.filter((r) => !r.major).map((r) => r.appearAt);
+    expect(Math.min(...majors)).toBeLessThanOrEqual(Math.min(...minors));
   });
 
   it("is a pure function of the district counts", () => {

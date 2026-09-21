@@ -12,7 +12,7 @@
  *     `[-size/2, +size/2]` on both x and z, +y is up.
  *   - a building's `position` is the centre of its base, on y = 0, and `size`
  *     is `[width, height, depth]`.
- *   - `district.rect` is min-corner plus extent: x..x+w, z..z+d.
+ *   - `district.rect` is CENTRE plus extent: x-w/2..x+w/2, z-d/2..z+d/2.
  *   - `road.width` is the full carriageway width in world units.
  */
 
@@ -53,12 +53,14 @@ function buildRoads(): RoadSegment[] {
     for (let i = 0; i < LINES.length - 1; i++) {
       const a = LINES[i];
       const b = LINES[i + 1];
+      const appearAt = major ? 160 + i * 20 : 340 + i * 24;
       roads.push({
         id: `road-v-${line}-${i}`,
         from: [line, 0, a],
         to: [line, 0, b],
         width,
         major,
+        appearAt,
       });
       roads.push({
         id: `road-h-${line}-${i}`,
@@ -66,6 +68,7 @@ function buildRoads(): RoadSegment[] {
         to: [b, 0, line],
         width,
         major,
+        appearAt,
       });
     }
   }
@@ -123,14 +126,11 @@ const DISTRICT_SPECS: DistrictSpec[] = [
 ];
 
 function districtRect(spec: DistrictSpec): District["rect"] {
-  const x = BANDS[spec.xBands[0]][0];
-  const z = BANDS[spec.zBands[0]][0];
-  return {
-    x,
-    z,
-    w: BANDS[spec.xBands[spec.xBands.length - 1]][1] - x,
-    d: BANDS[spec.zBands[spec.zBands.length - 1]][1] - z,
-  };
+  const x0 = BANDS[spec.xBands[0]][0];
+  const z0 = BANDS[spec.zBands[0]][0];
+  const x1 = BANDS[spec.xBands[spec.xBands.length - 1]][1];
+  const z1 = BANDS[spec.zBands[spec.zBands.length - 1]][1];
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0 };
 }
 
 /** Blocks that hold a construction site instead of houses. */
@@ -654,7 +654,7 @@ export const devCity: CityModel = {
     litWindowShare: 0.45,
   },
   bounds: { size: SIZE },
-  districts: DISTRICT_SPECS.map((spec) => {
+  districts: DISTRICT_SPECS.map((spec, index) => {
     const rect = districtRect(spec);
     return {
       id: spec.id,
@@ -664,6 +664,10 @@ export const devCity: CityModel = {
       rect,
       colorIndex: spec.colorIndex,
       buildingIds: [],
+      description: spec.purpose,
+      reason: `/${spec.sourcePath} is one of the largest areas of the repository; its size on the map follows its file count.`,
+      sourceUrl: `https://github.com/sample/repo-city/tree/main/${spec.sourcePath}`,
+      appearAt: 420 + index * 60,
     } satisfies District;
   }),
   buildings: buildBuildings(),

@@ -5,8 +5,9 @@
  * 8 and 42). The label is a drei `<Html>` overlay rather than `<Text>` so the
  * renderer never depends on a font download at runtime.
  *
- * `rect` is min-corner plus extent: the region covers `[x, x + w]` on x and
- * `[z, z + d]` on z.
+ * `rect` is CENTRE plus extent, matching the generator and drei's
+ * `planeGeometry`: the region covers `[x - w/2, x + w/2]` on x and
+ * `[z - d/2, z + d/2]` on z (see the world conventions in `types/city.ts`).
  */
 
 import { Html } from "@react-three/drei";
@@ -18,18 +19,14 @@ import { useEntityHandlers, useEntityState } from "./useEntity";
 
 interface DistrictGroundProps {
   district: District;
-  index: number;
   atmosphere: SceneAtmosphere;
 }
 
-/** Districts settle in right after the roads, before the buildings rise. */
-const districtAppearAt = (index: number) => 180 + index * 70;
-
-
-export default function DistrictGround({ district, index, atmosphere }: DistrictGroundProps) {
+export default function DistrictGround({ district, atmosphere }: DistrictGroundProps) {
   const { hovered, selected } = useEntityState(district.id);
   const handlers = useEntityHandlers(district.id);
-  const reveal = useRevealGroup(districtAppearAt(index));
+  // The generator schedules every reveal, districts included (section 43).
+  const reveal = useRevealGroup(district.appearAt);
   const [x, , z] = districtCenter(district.rect);
 
   const color = stateTint(
@@ -48,7 +45,7 @@ export default function DistrictGround({ district, index, atmosphere }: District
       {/* No entrance animation on the label: a CSS delay is one more thing
           that can be mid-flight when a screenshot is taken, and the tinted
           ground underneath already animates in. */}
-      <Html position={[0, 9, 0]} center distanceFactor={90} zIndexRange={[20, 0]}>
+      <Html position={[0, 15, 0]} center distanceFactor={130} zIndexRange={[20, 0]}>
         <div
           style={{
             pointerEvents: "none",
