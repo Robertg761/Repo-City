@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Failure copy (PLAN.md section 60), shown over the city rather than in place
- * of it: a failed survey never costs the user the world they were exploring.
+ * Failure copy (PLAN.md section 60), shown over the city viewport rather than
+ * in place of it: an error never replaces the one screen (section 0.2).
  *
  * The wording comes from `lib/client/errorCopy.ts`, so every code the server
  * can send has one agreed, plain sentence.

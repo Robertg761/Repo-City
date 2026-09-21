@@ -42,7 +42,7 @@ export default function AnalysisProgress() {
     <div
       aria-hidden={!surveying}
       aria-live="polite"
-      className={`glass pointer-events-none absolute left-1/2 top-24 z-10 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 p-4 transition-opacity duration-700 ${
+      className={`glass pointer-events-none absolute left-1/2 top-[45%] z-10 sm:top-24 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 p-4 transition-opacity duration-700 ${
         surveying ? "opacity-100" : "opacity-0"
       }`}
     >

@@ -39,7 +39,9 @@ export default function Inspector() {
   return (
     <aside
       aria-label="Selected object"
-      className="glass animate-panel-in pointer-events-auto absolute inset-x-2 bottom-2 z-30 max-h-[58vh] overflow-y-auto overscroll-contain p-4 text-sm text-white/80 sm:inset-x-auto sm:bottom-6 sm:right-4 sm:top-28 sm:max-h-none sm:w-[21rem]"
+      /* Bottom sheet on a phone; on a wider screen a right-hand panel that
+         starts below the health card and hugs its own content. */
+      className="glass animate-panel-in pointer-events-auto absolute inset-x-2 bottom-2 z-30 max-h-[52vh] overflow-y-auto overscroll-contain p-4 text-sm text-white/80 sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-[18rem] sm:max-h-[calc(100dvh-19.5rem)] sm:w-[21rem]"
     >
       {entity ? (
         <>
@@ -55,7 +57,9 @@ export default function Inspector() {
             </button>
           </div>
 
-          <p className="mt-2 text-[13px] text-white/55">{entity.subtitle}</p>
+          {entity.subtitle && entity.subtitle !== entity.title ? (
+            <p className="mt-2 break-words text-[13px] text-white/55">{entity.subtitle}</p>
+          ) : null}
           <h2 className="mt-0.5 text-base font-medium leading-snug text-white">{entity.title}</h2>
 
           {entity.description ? (

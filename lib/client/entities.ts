@@ -151,7 +151,10 @@ function resolveFromAnalysis(id: string, analysis: RepoAnalysis): ResolvedEntity
       kind: "building",
       label: "BUILDING",
       title: basename(building.path),
-      subtitle: building.path,
+      // A root-level file would otherwise repeat its own name as the subtitle.
+      subtitle: building.path === basename(building.path)
+        ? (district?.name ?? "Repository root")
+        : building.path,
       description: "",
       reason: building.role
         ? `This building stands out because ${building.role.toLowerCase()}.`

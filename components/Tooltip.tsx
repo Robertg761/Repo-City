@@ -50,7 +50,12 @@ export default function Tooltip() {
       }}
     >
       <p className="truncate text-[13px] font-medium text-white">{entity.title}</p>
-      <p className="truncate text-[11px] text-white/55">{entity.subtitle}</p>
+      <p className="truncate text-[11px] text-white/55">
+        {/* Two lines, always: a repeated subtitle gives way to the kind. */}
+        {entity.subtitle && entity.subtitle !== entity.title
+          ? entity.subtitle
+          : entity.label.toLowerCase()}
+      </p>
     </div>
   );
 }

@@ -237,3 +237,12 @@ async function loadFixture(
 
 /** Stable action handle; safe to call outside React and in effects. */
 export const useCityActions = () => useCityStore((s) => s.actions);
+
+/**
+ * Development-only console handle, e.g. `__repoCity.getState().actions.select("b-001")`.
+ * It is how the overlays and the camera rig are driven before picking works,
+ * and it is stripped from production builds.
+ */
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+  (window as unknown as { __repoCity?: typeof useCityStore }).__repoCity = useCityStore;
+}

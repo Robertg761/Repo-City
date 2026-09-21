@@ -40,7 +40,7 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
   const { health, confidence } = analysis.metrics;
 
   return (
-    <div className="glass pointer-events-auto w-[15.5rem] p-4 text-right animate-fade-in">
+    <div className="glass pointer-events-auto relative w-[min(16.5rem,52vw)] p-4 text-right animate-fade-in">
       <p className="eyebrow">City health</p>
 
       <div className="mt-1 flex items-baseline justify-end gap-2">
@@ -91,8 +91,11 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         How is this scored? {showBreakdown ? "−" : "+"}
       </button>
 
+      {/* The breakdown floats beside the card rather than growing it, so the
+          inspector below always starts in the same place. */}
       {showBreakdown ? (
-        <div className="mt-2 space-y-2 text-left">
+        <div className="glass absolute right-0 top-full z-40 mt-2 w-64 space-y-2 p-3 text-left sm:right-full sm:top-0 sm:mr-2 sm:mt-0">
+          <p className="eyebrow">What the city is reading</p>
           {BREAKDOWN.map(({ key, label, weight }) => {
             const value = Math.round((health.breakdown[key] ?? 0) * 100);
             return (
@@ -126,7 +129,9 @@ export default function CityHUD() {
 
   return (
     <>
-      <div className="pointer-events-none absolute left-4 top-4 z-20 max-w-[min(18rem,55vw)] select-none">
+      {/* On a phone the identity block and the health card sit below the repo
+          control rather than beside it; there is no room for three columns. */}
+      <div className="pointer-events-none absolute left-4 top-[7rem] z-20 max-w-[min(18rem,42vw)] select-none sm:top-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           Repo City
         </p>
@@ -153,7 +158,7 @@ export default function CityHUD() {
         ) : null}
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-20 flex justify-end">
+      <div className="pointer-events-none absolute right-4 top-[7rem] z-20 flex justify-end sm:top-4">
         {analysis ? (
           <HealthCard analysis={analysis} />
         ) : (
