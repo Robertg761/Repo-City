@@ -248,10 +248,13 @@ export function resolveEntity(
         kind: "district",
         label: "DISTRICT",
         title: district.name,
+        // PLAN.md section 8: a renamed district still shows where it came from.
         subtitle: district.sourcePath,
-        description: district.purpose ?? "",
-        reason: "Top-level directories become districts; their size follows their file count.",
-        sourceUrl: null,
+        description: district.purpose ?? district.description,
+        reason:
+          district.reason ||
+          "Top-level directories become districts; their size follows their file count.",
+        sourceUrl: district.sourceUrl,
         facts: [
           { label: "Path", value: district.sourcePath },
           { label: "Buildings", value: `${district.buildingIds.length}` },

@@ -60,7 +60,10 @@ export default function DistrictGround({ district, atmosphere }: DistrictGroundP
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "0.01em" }}>
             {district.name}
           </div>
-          <div style={{ fontSize: 15, opacity: 0.7 }}>/{district.sourcePath}</div>
+          {/* PLAN.md section 8: a renamed district still shows its source. */}
+          <div style={{ fontSize: 15, opacity: 0.7 }}>
+            {district.sourcePath.startsWith("/") ? district.sourcePath : `/${district.sourcePath}`}
+          </div>
         </div>
       </Html>
     </group>

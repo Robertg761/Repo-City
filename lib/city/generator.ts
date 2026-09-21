@@ -112,10 +112,10 @@ const ROOT_DISTRICT: DistrictPlan = {
 };
 
 /** Visual height per tier, before the seeded +/-15% jitter. */
-export const TIER_HEIGHT: Record<number, number> = { 1: 3.2, 2: 5.2, 3: 8, 4: 11.5, 5: 16 };
+export const TIER_HEIGHT: Record<number, number> = { 1: 4, 2: 6.5, 3: 9.5, 4: 13.5, 5: 18 };
 
-export const MIN_FOOTPRINT = 3.4;
-export const MAX_FOOTPRINT = 8;
+export const MIN_FOOTPRINT = 4;
+export const MAX_FOOTPRINT = 8.5;
 /** Gap kept inside a slot cell so neighbouring footprints never touch. */
 const SLOT_GAP = 1;
 /**
@@ -252,7 +252,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
   );
 
   // -- Stage 8: props ------------------------------------------------------
-  const trees = placeTrees(analysis, layout, construction, usedSlots, seed);
+  const trees = placeTrees(analysis, layout, construction, incidents, usedSlots, seed);
   const lamps = placeLamps(layout);
 
   return {
@@ -294,8 +294,8 @@ function fallbackSlot(rect: Rect, index: number): Slot {
 function desiredFootprint(plan: BuildingPlan): number {
   const base =
     plan.kind === "directory"
-      ? 4.4 + 3.6 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40)
-      : MIN_FOOTPRINT + 1.3 * ((plan.tier - 1) / 4);
+      ? 5 + 3.5 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40)
+      : MIN_FOOTPRINT + 1.4 * ((plan.tier - 1) / 4);
   return clamp(base, MIN_FOOTPRINT, MAX_FOOTPRINT);
 }
 
@@ -682,6 +682,7 @@ function placeTrees(
   analysis: RepoAnalysis,
   layout: CityLayout,
   sites: readonly ConstructionSite[],
+  incidents: readonly Incident[],
   usedSlots: Map<string, number>,
   seed: string,
 ): Vec3[] {
@@ -690,7 +691,7 @@ function placeTrees(
   const prng = prngFor(seed, "trees");
   const candidates: Vec3[] = [];
 
-  // Nothing grows on a landmark plot or a building site.
+  // Nothing grows on a landmark plot, a building site or a crash scene.
   const keepOut: { x: number; z: number; radius: number }[] = [
     ...Object.values(layout.landmarkPlots).map((plot) => ({
       x: plot.x,
@@ -701,6 +702,11 @@ function placeTrees(
       x: site.position[0],
       z: site.position[2],
       radius: (site.size?.[0] ?? NATURAL_SITE) * 0.6,
+    })),
+    ...incidents.map((incident) => ({
+      x: incident.position[0],
+      z: incident.position[2],
+      radius: INCIDENT_SPACING / 2,
     })),
   ];
   const free = (x: number, z: number): boolean =>

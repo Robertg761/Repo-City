@@ -168,10 +168,11 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         set({
           phase: "error",
           error: { code, message },
+          // Only the step that was actually in flight failed; the ones after
+          // it never ran, and a panel of eight red crosses claims work the
+          // server never attempted (PLAN.md section 44).
           stages: get().stages.map((stage) =>
-            stage.status === "pending" || stage.status === "running"
-              ? { ...stage, status: "failed" }
-              : stage,
+            stage.status === "running" ? { ...stage, status: "failed" } : stage,
           ),
         });
         console.error(`Repo City: analysis of ${trimmed} failed`, cause);

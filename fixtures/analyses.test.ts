@@ -1,0 +1,82 @@
+/**
+ * The committed reference analyses (PLAN.md sections 30 and 59).
+ *
+ * Each file is a real `RepoAnalysis` captured from `/api/analyze` against the
+ * live GitHub API. They are the demo's safety net: when GitHub rate-limits the
+ * hosted app and `FIXTURE_FALLBACK` is on, the route serves these instead
+ * (`lib/github/fixtures.ts`).
+ *
+ * This test is the contract between the captured data and the world layer: if
+ * a fixture stops parsing, or the generator stops accepting one, the fallback
+ * would fail in front of voters rather than here.
+ */
+
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import type { RepoAnalysis } from "@/types/analysis";
+import {
+  LIMITS,
+  buildingsOnRoads,
+  generateCity,
+  obstructedPlots,
+  overlappingBuildings,
+} from "@/lib/city/generator";
+
+const DIR = path.join(process.cwd(), "fixtures");
+
+const files = readdirSync(DIR)
+  .filter((name) => name.endsWith(".analysis.json"))
+  .sort();
+
+/** The reference set of PLAN.md section 59, which must stay committed. */
+const REQUIRED = [
+  "atom__atom.analysis.json",
+  "facebook__react.analysis.json",
+  "honojs__hono.analysis.json",
+  "microsoft__vscode.analysis.json",
+  "react__react.analysis.json",
+  "sindresorhus__p-limit.analysis.json",
+  "vercel__turborepo.analysis.json",
+];
+
+describe("committed analysis fixtures", () => {
+  it("covers the reference repository set", () => {
+    for (const name of REQUIRED) expect(files).toContain(name);
+  });
+
+  it.each(files)("%s parses and builds a city inside the section 37 limits", (name) => {
+    const raw = readFileSync(path.join(DIR, name), "utf8");
+    // Section 34: the response stays compact.
+    expect(raw.length).toBeLessThan(300_000);
+
+    const analysis = JSON.parse(raw) as RepoAnalysis;
+    expect(analysis.repo.fullName).toContain("/");
+    expect(analysis.districts.length).toBeGreaterThan(0);
+    expect(analysis.buildings.length).toBeGreaterThan(0);
+    // The route rewrites this to "fixture" when it serves the fallback; a
+    // captured file records how it was captured. `sample.analysis.json` is the
+    // hand-written W0 fixture and is honestly marked "fixture".
+    expect(analysis.source).toBe(name === "sample.analysis.json" ? "fixture" : "live");
+
+    const city = generateCity(analysis);
+    expect(city.buildings.length).toBeLessThanOrEqual(LIMITS.buildings);
+    expect(city.props.trees.length).toBeLessThanOrEqual(LIMITS.trees);
+    expect(city.vehicles.count).toBeLessThanOrEqual(LIMITS.vehicles);
+    expect(city.incidents.length).toBeLessThanOrEqual(LIMITS.incidents);
+    expect(city.constructionSites.length).toBeLessThanOrEqual(LIMITS.construction);
+    expect(city.landmarks.length).toBeGreaterThan(0);
+
+    // The geometric invariants hold for real repositories, not just the
+    // hand-written sample.
+    expect(overlappingBuildings(city)).toEqual([]);
+    expect(buildingsOnRoads(city)).toEqual([]);
+    expect(obstructedPlots(city)).toEqual([]);
+
+    // Every district is somewhere a user can go: it has a rect and buildings.
+    for (const district of city.districts) {
+      expect(district.rect.w).toBeGreaterThan(0);
+      expect(district.rect.d).toBeGreaterThan(0);
+    }
+  });
+});

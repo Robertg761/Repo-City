@@ -136,11 +136,11 @@ function place(target: Vec3, dir: Vec3, distance: number): Framing {
  *
  * The factor is empirical for the 35 degree vertical field of view set in
  * `CityCanvas` and for the corner-on view direction, which puts the city's
- * diagonal across the screen: at `size * 1.6` a square city fills the frame
+ * diagonal across the screen: at `size * 1.45` a square city fills the frame
  * with a little air around it.
  */
 export function overviewFraming(size: number): Framing {
-  const distance = clamp(size * 1.6, MIN_DISTANCE + 14, maxCameraDistance(size));
+  const distance = clamp(size * 1.45, MIN_DISTANCE + 14, maxCameraDistance(size));
   // The ground near the camera expands fast in screen space, so the aim point
   // sits a little towards the camera: it keeps the near corner of the city in
   // frame instead of spending the bottom of the screen on empty landscape.

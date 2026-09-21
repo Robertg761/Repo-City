@@ -40,7 +40,7 @@ describe("cityBoundsSize", () => {
 
   it("leaves the landmark band, the ring road and a margin around the districts", () => {
     for (const n of [1, 10, 90, 300, 600]) {
-      expect(cityBoundsSize(n) - districtSquareSide(n)).toBeCloseTo(65, 3);
+      expect(cityBoundsSize(n) - districtSquareSide(n)).toBeCloseTo(61, 3);
     }
   });
 

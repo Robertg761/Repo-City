@@ -119,7 +119,7 @@ const KERB = 1.4;
 /** Blocks are separated by minor roads; aim for this block side. */
 const TARGET_BLOCK = 22;
 /** Terrain kept outside the ring road, for the tree line. */
-const OUTER_MARGIN = 6;
+const OUTER_MARGIN = 4;
 /** Free space between the ring road and the landmark band. */
 const RING_GAP = 3;
 /** Depth of the landmark band, measured out from the district square. */
