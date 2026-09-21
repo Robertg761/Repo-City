@@ -1606,7 +1606,7 @@ Zod.
 
 ## AI
 
-Small provider adapter over `@anthropic-ai/sdk` (see section 28 for the model and method).
+Small provider-agnostic adapter, optional and disabled by default (see section 28).
 
 ## Pinned decisions
 
