@@ -313,7 +313,10 @@ describe("generateCity: ambience and traffic (PLAN.md sections 19 and 39)", () =
     expect(rebuilt.ambience.trafficDensity).toBeLessThan(city.ambience.trafficDensity);
     expect(rebuilt.ambience.warmth).toBeLessThan(city.ambience.warmth);
     expect(rebuilt.ambience.fog).toBeGreaterThan(city.ambience.fog);
-    expect(rebuilt.props.trees.length).toBeLessThan(city.props.trees.length);
+    // Section 19 lists vegetation among the abandoned signals, next to the
+    // quiet roads and the dimmer lighting: an archived city is being taken
+    // back by the greenery, so it never ends up with less of it.
+    expect(rebuilt.props.trees.length).toBeGreaterThanOrEqual(city.props.trees.length);
     // Never unreadable: saturation keeps a floor (PLAN.md section 39).
     expect(rebuilt.ambience.saturation).toBeGreaterThanOrEqual(0.3);
     expect(rebuilt.repository.archived).toBe(true);

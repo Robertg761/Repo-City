@@ -82,6 +82,8 @@ export const LIMITS = {
 
 /** Share of the tree budget that goes to the parks rather than the decoration. */
 const PARK_SHARE = 0.62;
+/** The same for an archived city, where the greenery is the whole point. */
+const ARCHIVED_PARK_SHARE = 0.8;
 
 /**
  * Reveal schedule in milliseconds. The last thing appears before 3.3 s, so the
@@ -709,7 +711,10 @@ function treeCount(analysis: RepoAnalysis, parkSlots: number): number {
   const { metrics } = analysis;
   const base = 34 + 11 * metrics.docs.strength + 0.26 * metrics.health.score;
   const green = base + Math.min(34, parkSlots * 0.45);
-  const scaled = metrics.archived ? green * 0.5 : green;
+  // An archived repository gets MORE greenery, not less: PLAN.md section 19
+  // lists vegetation alongside quiet roads and dimmer lighting, because the
+  // abandoned reading is nature taking the place back, not a bald grey plate.
+  const scaled = metrics.archived ? green * 1.15 : green;
   return Math.round(clamp(scaled, 0, LIMITS.trees));
 }
 
@@ -835,7 +840,16 @@ function placeTrees(
 
   // Parks: the slots no building claimed, planted district by district so the
   // quiet corners of a repository get the greenery rather than the busy ones.
-  const parks = plantParks(layout, parkSlots, want, prng, clear);
+  // An abandoned city is reclaimed from the inside: nearly all of its budget
+  // goes to the ground between the buildings rather than the ornamental ring.
+  const parks = plantParks(
+    layout,
+    parkSlots,
+    want,
+    analysis.metrics.archived ? ARCHIVED_PARK_SHARE : PARK_SHARE,
+    prng,
+    clear,
+  );
   const plaza = layout.civic.props.trees
     .map((spot) => [round3(spot.x), 0, round3(spot.z)] as Vec3)
     .filter(([x, , z]) => clear(x, z));
@@ -864,10 +878,11 @@ function plantParks(
   layout: CityLayout,
   parkSlots: Map<string, Slot[]>,
   want: number,
+  share: number,
   prng: Prng,
   clear: (x: number, z: number) => boolean,
 ): Vec3[] {
-  const budget = Math.round(want * PARK_SHARE);
+  const budget = Math.round(want * share);
   // A district's claim on the budget is its open ground weighted by how open
   // it is. A busy district with a few gaps between its towers does not read as
   // empty and does not need the trees; a district that is nine tenths grass
