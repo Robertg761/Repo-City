@@ -3,6 +3,7 @@ import {
   NATURAL_LANDMARK_SIZE,
   cityBoundsSize,
   districtSquareSide,
+  landmarkBandDepth,
   planLayout,
   rectMaxX,
   rectMaxZ,
@@ -31,17 +32,28 @@ const districts = (counts: number[]): LayoutDistrictInput[] =>
   counts.map((buildingCount, index) => ({ id: `d-${index}`, buildingCount }));
 
 describe("cityBoundsSize", () => {
-  it("frames a small town in about 130 units and a metropolis in about 230", () => {
-    expect(cityBoundsSize(10)).toBeGreaterThan(110);
-    expect(cityBoundsSize(10)).toBeLessThan(145);
+  it("frames a small town in about 110 units and a metropolis in about 230", () => {
+    expect(cityBoundsSize(10)).toBeGreaterThan(95);
+    expect(cityBoundsSize(10)).toBeLessThan(125);
     expect(cityBoundsSize(300)).toBeGreaterThan(200);
     expect(cityBoundsSize(300)).toBeLessThan(245);
   });
 
   it("leaves the landmark band, the ring road and a margin around the districts", () => {
     for (const n of [1, 10, 90, 300, 600]) {
-      expect(cityBoundsSize(n) - districtSquareSide(n)).toBeCloseTo(61, 3);
+      const surround = cityBoundsSize(n) - districtSquareSide(n);
+      // Ring road, its gap and the outer margin are fixed; the landmark band
+      // scales with the town, between 12 and 20 units deep.
+      expect(surround).toBeCloseTo(2 * (landmarkBandDepth(districtSquareSide(n)) + 10.5), 3);
+      expect(surround).toBeGreaterThanOrEqual(2 * (12 + 10.5) - 1e-6);
+      expect(surround).toBeLessThanOrEqual(2 * (20 + 10.5) + 1e-6);
     }
+  });
+
+  it("shrinks the landmark band with the town", () => {
+    expect(landmarkBandDepth(districtSquareSide(10))).toBeLessThan(
+      landmarkBandDepth(districtSquareSide(300)),
+    );
   });
 
   it("never shrinks as the repository grows", () => {

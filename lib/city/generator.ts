@@ -76,8 +76,12 @@ export const LIMITS = {
   vehicles: 40,
   incidents: 12,
   construction: 8,
-  lamps: 220,
+  /** Matches `LAMP_CAP` in `components/city/Props.tsx`: past it nothing draws. */
+  lamps: 120,
 } as const;
+
+/** Share of the tree budget that goes to the parks rather than the decoration. */
+const PARK_SHARE = 0.62;
 
 /**
  * Reveal schedule in milliseconds. The last thing appears before 3.3 s, so the
@@ -153,7 +157,24 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
   // Root landmark files live in the civic centre, not in their district
   // (PLAN.md section 8). Everything past the reserved civic slots falls back
   // into its own district rather than being dropped.
-  const civicPlans = allPlans.filter((b) => b.landmark !== null).slice(0, CIVIC_BUILDING_SLOTS);
+  const wanted = allPlans.filter((b) => b.landmark !== null).slice(0, CIVIC_BUILDING_SLOTS);
+
+  // -- Stages 2 to 4: regions, roads, blocks, slots ------------------------
+  const countsById = new Map<string, number>(districtPlans.map((d) => [d.id, 0]));
+  for (const plan of allPlans) {
+    const id = resolveDistrict(plan.districtId);
+    countsById.set(id, (countsById.get(id) ?? 0) + 1);
+  }
+  const layout = planLayout(
+    districtPlans.map((d) => ({ id: d.id, buildingCount: countsById.get(d.id) ?? 0 })),
+    allPlans.length,
+    { landmarkFiles: wanted.length },
+  );
+  const layoutById = new Map(layout.districts.map((d) => [d.id, d]));
+
+  // A cramped plaza may have room for fewer files than the repository has;
+  // the ones it cannot seat go back to their own district.
+  const civicPlans = wanted.slice(0, layout.civic.buildingSlots.length);
   const civicIds = new Set(civicPlans.map((b) => b.id));
   const districtPlansById = new Map<string, BuildingPlan[]>(districtPlans.map((d) => [d.id, []]));
   if (!districtPlansById.has(fallbackDistrictId)) districtPlansById.set(fallbackDistrictId, []);
@@ -161,16 +182,6 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     if (civicIds.has(plan.id)) continue;
     districtPlansById.get(resolveDistrict(plan.districtId))!.push(plan);
   }
-
-  // -- Stages 2 to 4: regions, roads, blocks, slots ------------------------
-  const layout = planLayout(
-    districtPlans.map((d) => ({
-      id: d.id,
-      buildingCount: districtPlansById.get(d.id)?.length ?? 0,
-    })),
-    allPlans.length,
-  );
-  const layoutById = new Map(layout.districts.map((d) => [d.id, d]));
 
   // -- Stage 5: buildings --------------------------------------------------
   const slotPrng = prngFor(seed, "layout");
@@ -252,8 +263,8 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
   );
 
   // -- Stage 8: props ------------------------------------------------------
-  const trees = placeTrees(analysis, layout, construction, incidents, usedSlots, seed);
-  const lamps = placeLamps(layout);
+  const trees = placeTrees(analysis, layout, landmarks, construction, incidents, usedSlots, seed);
+  const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis)].slice(0, LIMITS.lamps);
 
   return {
     repository: { fullName: repo.fullName, url: repo.url, archived: metrics.archived },
@@ -269,7 +280,12 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     incidents,
     constructionSites: construction,
     props: { trees, lamps },
-    vehicles: { count: vehicleCount(analysis, buildings.length) },
+    vehicles: {
+      count: vehicleCount(
+        analysis,
+        layout.roads.reduce((sum, road) => sum + roadLength(road), 0),
+      ),
+    },
     seed,
   };
 }
@@ -316,13 +332,18 @@ function makeBuilding(
     const wobbled = clamp(base * (1 + buildingPrng.range(-0.08, 0.08)), MIN_FOOTPRINT, MAX_FOOTPRINT);
     return clamp(Math.min(wobbled, cell - SLOT_GAP), 1.4, MAX_FOOTPRINT);
   };
-  const width = fit(slot.cellW);
-  const depth = fit(slot.cellD);
-  const height = TIER_HEIGHT[plan.tier] * (1 + buildingPrng.range(-0.15, 0.15));
+  // A civic plaza slot is a composition, not a parking space: the building
+  // fills its square cell, faces the town hall, and stays under the ceiling
+  // the plaza set for it. Everything else takes a footprint and some jitter.
+  const civic = slot.facing !== undefined;
+  const width = civic ? slot.cellW : fit(slot.cellW);
+  const depth = civic ? slot.cellD : fit(slot.cellD);
+  const raw = TIER_HEIGHT[plan.tier] * (1 + buildingPrng.range(-0.15, 0.15));
+  const height = Math.min(raw, slot.maxHeight ?? Infinity);
 
   // Jitter stays inside the slot cell, which is what keeps footprints disjoint.
-  const freeX = Math.max(0, (slot.cellW - width) / 2);
-  const freeZ = Math.max(0, (slot.cellD - depth) / 2);
+  const freeX = civic ? 0 : Math.max(0, (slot.cellW - width) / 2);
+  const freeZ = civic ? 0 : Math.max(0, (slot.cellD - depth) / 2);
   const x = slot.x + slotPrng.range(-1, 1) * freeX * 0.85;
   const z = slot.z + slotPrng.range(-1, 1) * freeZ * 0.85;
 
@@ -332,7 +353,7 @@ function makeBuilding(
     id: plan.id,
     kind: "building",
     position: [round3(x), 0, round3(z)],
-    rotationY: 0,
+    rotationY: slot.facing ?? 0,
     ...text,
     appearAt: 0,
     districtId,
@@ -671,33 +692,59 @@ function claimSlot(
 // Stage 8: props (PLAN.md sections 17, 18, 19 and 37)
 // ---------------------------------------------------------------------------
 
-function treeCount(analysis: RepoAnalysis): number {
+/**
+ * How many trees the city gets. Documentation and health set the baseline
+ * (PLAN.md sections 16 and 23); open parkland lifts it, because a city with a
+ * lot of unbuilt ground needs the greenery to explain the ground.
+ */
+function treeCount(analysis: RepoAnalysis, parkSlots: number): number {
   const { metrics } = analysis;
-  const base = 40 + 12 * metrics.docs.strength + 0.3 * metrics.health.score;
-  const scaled = metrics.archived ? base * 0.45 : base;
+  const base = 34 + 11 * metrics.docs.strength + 0.26 * metrics.health.score;
+  const green = base + Math.min(34, parkSlots * 0.45);
+  const scaled = metrics.archived ? green * 0.5 : green;
   return Math.round(clamp(scaled, 0, LIMITS.trees));
+}
+
+/** The slots in a district that no building and no construction site took. */
+function parkSlotsOf(layout: CityLayout, usedSlots: Map<string, number>): Map<string, Slot[]> {
+  const out = new Map<string, Slot[]>();
+  for (const district of layout.districts) {
+    const cursor = usedSlots.get(district.id) ?? 0;
+    out.set(district.id, district.slots.slice(cursor));
+  }
+  return out;
 }
 
 function placeTrees(
   analysis: RepoAnalysis,
   layout: CityLayout,
+  landmarks: readonly Landmark[],
   sites: readonly ConstructionSite[],
   incidents: readonly Incident[],
   usedSlots: Map<string, number>,
   seed: string,
 ): Vec3[] {
-  const want = treeCount(analysis);
+  const parkSlots = parkSlotsOf(layout, usedSlots);
+  let free = 0;
+  for (const slots of parkSlots.values()) free += slots.length;
+  const want = treeCount(analysis, free);
   if (want === 0) return [];
   const prng = prngFor(seed, "trees");
   const candidates: Vec3[] = [];
 
-  // Nothing grows on a landmark plot, a building site or a crash scene.
+  // Nothing grows on a landmark that was actually built, on a building site or
+  // on a crash scene. A landmark the repository did not earn -- no CI, so no
+  // power station -- leaves its plot empty, and an empty plot is planted.
+  const built = new Set(landmarks.map((l) => l.landmarkType));
   const keepOut: { x: number; z: number; radius: number }[] = [
-    ...Object.values(layout.landmarkPlots).map((plot) => ({
-      x: plot.x,
-      z: plot.z,
-      radius: Math.max(plot.w, plot.d) * 0.6,
-    })),
+    ...Object.entries(layout.landmarkPlots)
+      .filter(([type]) => built.has(type as Landmark["landmarkType"]))
+      .map(([, plot]) => ({
+        x: plot.x,
+        z: plot.z,
+        radius: Math.max(plot.w, plot.d) * 0.6,
+      })),
+    { x: layout.civic.hall.x, z: layout.civic.hall.z, radius: layout.civic.hall.w * 0.75 },
     ...sites.map((site) => ({
       x: site.position[0],
       z: site.position[2],
@@ -709,7 +756,7 @@ function placeTrees(
       radius: INCIDENT_SPACING / 2,
     })),
   ];
-  const free = (x: number, z: number): boolean =>
+  const clear = (x: number, z: number): boolean =>
     keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius);
 
   // Along the ring road, on the outside.
@@ -721,7 +768,7 @@ function placeTrees(
     const point = squarePerimeter(ringRadius, t);
     const x = point.x + prng.range(-1.2, 1.2);
     const z = point.z + prng.range(-1.2, 1.2);
-    if (!free(x, z)) continue;
+    if (!clear(x, z)) continue;
     candidates.push([round3(x), 0, round3(z)]);
   }
 
@@ -732,7 +779,7 @@ function placeTrees(
     const point = squarePerimeter(bandRadius, (i + 0.25) / bandCount);
     const x = point.x + prng.range(-1.5, 1.5);
     const z = point.z + prng.range(-1.5, 1.5);
-    if (!free(x, z)) continue;
+    if (!clear(x, z)) continue;
     candidates.push([round3(x), 0, round3(z)]);
   }
 
@@ -746,7 +793,7 @@ function placeTrees(
         [rectMaxX(block) + 0.7, rectMaxZ(block) + 0.7],
       ];
       for (const [x, z] of corners) {
-        if (!free(x, z)) continue;
+        if (!clear(x, z)) continue;
         const jx = round3(x + prng.range(-0.25, 0.25));
         const jz = round3(z + prng.range(-0.25, 0.25));
         candidates.push([jx, 0, jz]);
@@ -754,34 +801,100 @@ function placeTrees(
     }
   }
 
-  // Parks: slots that no building or construction site claimed.
-  const parks: Vec3[] = [];
-  for (const district of layout.districts) {
-    const cursor = usedSlots.get(district.id) ?? 0;
-    for (let i = cursor; i < district.slots.length; i++) {
-      const slot = district.slots[i];
-      // Two per free slot: one tree in the middle of an eight unit cell reads
-      // as a bald patch, a small cluster reads as a park.
-      for (const corner of [-1, 1]) {
-        const x = round3(slot.x + corner * slot.cellW * 0.22 + prng.range(-0.8, 0.8));
-        const z = round3(slot.z - corner * slot.cellD * 0.22 + prng.range(-0.8, 0.8));
-        if (!free(x, z)) continue;
-        parks.push([x, 0, z]);
-      }
+  // The four corners of the landmark band, which the compass leaves empty, and
+  // the plot of any landmark the repository did not earn.
+  const corner = layout.districtSide / 2 + layout.bandDepth * 0.5;
+  const groves: { x: number; z: number; radius: number }[] = [
+    { x: -corner, z: -corner, radius: layout.bandDepth * 0.34 },
+    { x: corner, z: -corner, radius: layout.bandDepth * 0.34 },
+    { x: -corner, z: corner, radius: layout.bandDepth * 0.34 },
+    { x: corner, z: corner, radius: layout.bandDepth * 0.34 },
+    ...Object.entries(layout.landmarkPlots)
+      .filter(([type]) => !built.has(type as Landmark["landmarkType"]))
+      .map(([, plot]) => ({ x: plot.x, z: plot.z, radius: Math.min(plot.w, plot.d) * 0.42 })),
+  ];
+  const groveTrees: Vec3[] = [];
+  for (const grove of groves) {
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2 + prng.range(-0.4, 0.4);
+      const radius = grove.radius * prng.range(0.25, 1);
+      const x = round3(grove.x + Math.cos(angle) * radius);
+      const z = round3(grove.z + Math.sin(angle) * radius);
+      if (!clear(x, z)) continue;
+      groveTrees.push([x, 0, z]);
     }
   }
 
-  if (candidates.length + parks.length <= want) return [...parks, ...candidates];
+  // Parks: the slots no building claimed, planted district by district so the
+  // quiet corners of a repository get the greenery rather than the busy ones.
+  const parks = plantParks(layout, parkSlots, want, prng, clear);
+  const plaza = layout.civic.props.trees
+    .map((spot) => [round3(spot.x), 0, round3(spot.z)] as Vec3)
+    .filter(([x, , z]) => clear(x, z));
 
-  // Parks go in first: an unused slot is a hole in the city, and a repository
-  // with few buildings has a lot of them. The rest is an even stride, so the
-  // selection stays mixed between the ring, the band and the block margins.
-  const chosen: Vec3[] = parks.slice(0, Math.ceil(want * 0.5));
-  const remaining = want - chosen.length;
+  // Order of precedence when the budget runs out: the plaza and the parks are
+  // the ones doing the explaining, the ring and the margins are decoration.
+  const kept: Vec3[] = [...plaza, ...parks, ...groveTrees];
+  if (kept.length >= want) return kept.slice(0, want);
+
+  const remaining = want - kept.length;
   for (let i = 0; i < remaining && i < candidates.length; i++) {
-    chosen.push(candidates[Math.floor((i * candidates.length) / remaining)]);
+    // An even stride, so the selection stays mixed between the ring, the band
+    // and the block margins rather than exhausting one of them.
+    kept.push(candidates[Math.floor((i * candidates.length) / remaining)]);
   }
-  return chosen;
+  return kept;
+}
+
+/**
+ * Plant the free slots. Each district's share of the park budget follows how
+ * much open ground it has, so a four-file district in a large region reads as
+ * a green quarter instead of a vacant lot, and trees go in as small clusters:
+ * one tree alone in a nine unit cell reads as a bald patch.
+ */
+function plantParks(
+  layout: CityLayout,
+  parkSlots: Map<string, Slot[]>,
+  want: number,
+  prng: Prng,
+  clear: (x: number, z: number) => boolean,
+): Vec3[] {
+  const budget = Math.round(want * PARK_SHARE);
+  // A district's claim on the budget is its open ground weighted by how open
+  // it is. A busy district with a few gaps between its towers does not read as
+  // empty and does not need the trees; a district that is nine tenths grass
+  // does, and gets several times the share per free slot.
+  const claims = layout.districts.map((district) => {
+    const slots = parkSlots.get(district.id) ?? [];
+    const total = district.slots.length || 1;
+    const openness = slots.length / total;
+    return { id: district.id, slots, claim: slots.length * (0.25 + 1.75 * openness) };
+  });
+  const totalClaim = claims.reduce((sum, c) => sum + c.claim, 0);
+  if (totalClaim <= 0) return [];
+
+  const out: Vec3[] = [];
+  for (const { slots, claim } of claims) {
+    if (slots.length === 0) continue;
+    const share = Math.round((budget * claim) / totalClaim);
+    if (share <= 0) continue;
+    // Clusters, not a lattice: one tree in the middle of a nine unit cell
+    // reads as a bald patch, three around its edge read as a copse.
+    const perSlot = clamp(Math.ceil(share / slots.length), 1, 4);
+    let planted = 0;
+    for (const slot of slots) {
+      if (planted >= share) break;
+      for (let i = 0; i < perSlot && planted < share; i++) {
+        const angle = (i / perSlot) * Math.PI * 2 + prng.range(-0.5, 0.5);
+        const x = round3(slot.x + Math.cos(angle) * slot.cellW * 0.3 + prng.range(-0.4, 0.4));
+        const z = round3(slot.z + Math.sin(angle) * slot.cellD * 0.3 + prng.range(-0.4, 0.4));
+        if (!clear(x, z)) continue;
+        out.push([x, 0, z]);
+        planted += 1;
+      }
+    }
+  }
+  return out;
 }
 
 /** Point at `t` (0..1) around a square of half-extent `r`, starting north-west. */
@@ -795,14 +908,29 @@ function squarePerimeter(r: number, t: number): { x: number; z: number } {
   return { x: -r, z: -from };
 }
 
-/** Street lamps every ~13 units along the major roads, set back from the kerb. */
-function placeLamps(layout: CityLayout): Vec3[] {
+/**
+ * Street lamps along the major roads, set back from the kerb.
+ *
+ * The spacing is solved rather than fixed. At a fixed thirteen units a large
+ * city ran past the renderer's cap part way round, so one quarter of it stood
+ * unlit while a small town was lit like a runway; here the whole network is
+ * spaced to land just under the cap, and a quiet repository gets its lamps
+ * thinned out (PLAN.md sections 19 and 39: activity reads as light).
+ */
+function placeLamps(layout: CityLayout, analysis: RepoAnalysis): Vec3[] {
   const lamps: Vec3[] = [];
   const majors = layout.roads.filter((road) => road.major);
+  const total = majors.reduce((sum, road) => sum + roadLength(road), 0);
+  const activity = analysis.metrics.archived
+    ? 0
+    : clamp(analysis.metrics.activity.score, 0, 1);
+  const target = clamp(total / 17, 18, LIMITS.lamps - 4) * (0.55 + 0.45 * activity);
+  const spacing = clamp(total / Math.max(1, target), 12, 34);
+
   for (const road of majors) {
     const length = roadLength(road);
     if (length < 8) continue;
-    const count = Math.max(1, Math.floor(length / 13));
+    const count = Math.max(1, Math.floor(length / spacing));
     const dx = (road.to[0] - road.from[0]) / length;
     const dz = (road.to[2] - road.from[2]) / length;
     // Perpendicular, always to the same side of a given segment.
@@ -818,6 +946,11 @@ function placeLamps(layout: CityLayout): Vec3[] {
     }
   }
   return lamps;
+}
+
+/** The civic plaza is lit by hand, not by the road pass that runs past it. */
+function plazaLamps(layout: CityLayout): Vec3[] {
+  return layout.civic.props.lamps.map((spot) => [round3(spot.x), 0, round3(spot.z)] as Vec3);
 }
 
 // ---------------------------------------------------------------------------
@@ -856,15 +989,23 @@ export function ambienceFor(analysis: RepoAnalysis): CityModel["ambience"] {
 }
 
 /**
- * Traffic follows activity, but a ten-building town with forty cars reads as a
- * traffic jam in an empty grid, so the fleet is also capped by the size of the
- * city it drives around.
+ * Traffic follows activity, scaled by the road network the cars drive on.
+ *
+ * Building count was the wrong yardstick: thirty-three cars looked deserted on
+ * three kilometres of arterial and gridlocked on one. Road length is what the
+ * eye is actually reading, so the fleet is a density on it -- roughly one car
+ * per seventy-five units of road at full activity -- and a quiet repository
+ * thins out from there. An archived city keeps a couple of cars rather than
+ * none: a frozen city reads as a bug, a nearly empty one reads as abandoned
+ * (PLAN.md section 19).
  */
-export function vehicleCount(analysis: RepoAnalysis, buildings: number): number {
+export function vehicleCount(analysis: RepoAnalysis, roadLengthTotal: number): number {
   const activity = clamp(analysis.metrics.activity.score, 0, 1);
-  const room = 4 + Math.round(buildings / 4);
-  if (analysis.metrics.archived) return Math.round(clamp(4 * activity, 0, Math.min(4, room)));
-  return Math.round(clamp(Math.min(6 + 34 * activity, room), 0, LIMITS.vehicles));
+  const room = clamp(roadLengthTotal / 75, 3, LIMITS.vehicles);
+  if (analysis.metrics.archived) {
+    return Math.round(clamp(room * 0.12 * (0.4 + activity), 0, 5));
+  }
+  return Math.round(clamp(room * (0.28 + 0.72 * activity), 2, LIMITS.vehicles));
 }
 
 // ---------------------------------------------------------------------------

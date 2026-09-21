@@ -52,6 +52,19 @@ export interface Slot {
   /** Maximum footprint the slot can hold, per axis. */
   cellW: number;
   cellD: number;
+  /**
+   * Set on the civic plaza only. The building fills its square cell exactly,
+   * faces the town hall at this quarter turn, and is capped at `maxHeight` so
+   * the hall stays the tallest thing on the plaza.
+   */
+  facing?: number;
+  maxHeight?: number;
+}
+
+/** A tree or a lamp the layout placed itself, on the XZ plane. */
+export interface PropSpot {
+  x: number;
+  z: number;
 }
 
 /**
@@ -81,6 +94,8 @@ export interface CivicLayout {
   hall: LandmarkPlot;
   /** Around the hall, for the root landmark files (README, the manifest...). */
   buildingSlots: Slot[];
+  /** Plaza planting and lighting: the ring positions no building claimed. */
+  props: { trees: PropSpot[]; lamps: PropSpot[] };
 }
 
 export interface CityLayout {
@@ -118,14 +133,44 @@ const MINOR_HALF = ROAD_MINOR_WIDTH / 2;
 const KERB = 1.4;
 /** Blocks are separated by minor roads; aim for this block side. */
 const TARGET_BLOCK = 22;
+/**
+ * Roughly how many buildings one block holds at a comfortable slot pitch. A
+ * district is given no more blocks than its buildings need: cutting a
+ * three-file district into four blocks turns one quiet corner into four empty
+ * lots with streets between them.
+ */
+const BUILDINGS_PER_BLOCK = 9;
+/** Widest slot pitch: a hair over the largest footprint the generator draws. */
+const MAX_SLOT_PITCH = 8.8;
 /** Terrain kept outside the ring road, for the tree line. */
 const OUTER_MARGIN = 4;
 /** Free space between the ring road and the landmark band. */
 const RING_GAP = 3;
-/** Depth of the landmark band, measured out from the district square. */
-const LANDMARK_BAND = 20;
+/** Deepest the landmark band ever gets, at the metropolis end of the range. */
+const LANDMARK_BAND_MAX = 20;
+/** Shallowest it gets: still room for a scaled-down station and a tree line. */
+const LANDMARK_BAND_MIN = 12;
 /** Fixed number of civic-centre slots for root landmark files. */
 export const CIVIC_BUILDING_SLOTS = 5;
+/** Breathing room between the town hall, the plaza buildings and the kerb. */
+const PLAZA_GAP = 2;
+/** Margin kept between the outermost plaza cell and the plaza kerb. */
+const PLAZA_SLACK = 0.4;
+/** How many plaza positions a degenerate row fits on each side of the hall. */
+const ROW_PER_SIDE = Math.ceil(CIVIC_BUILDING_SLOTS / 2);
+
+/**
+ * Depth of the band between the district square and the ring road.
+ *
+ * It scales with the town. A fixed twenty-unit band around a sixty-unit town
+ * put a full-size power station and a full-size transit terminal in a ring
+ * that was a third of the whole city: infrastructure the size of the place it
+ * serves. The band shrinks with the district square, and the landmark plots
+ * inside it shrink with the band (see `planLandmarkPlots`).
+ */
+export function landmarkBandDepth(districtSide: number): number {
+  return round3(clamp(4 + 0.12 * districtSide, LANDMARK_BAND_MIN, LANDMARK_BAND_MAX));
+}
 
 /**
  * The natural footprint and height of each landmark assembly in
@@ -178,12 +223,14 @@ export function districtSquareSide(totalBuildings: number): number {
 
 /**
  * Side of the world square: the district square plus the landmark band, the
- * ring road and a margin of open terrain. About 112 units for a ten-building
+ * ring road and a margin of open terrain. About 108 units for a ten-building
  * town, about 230 for a three-hundred-building metropolis.
  */
 export function cityBoundsSize(totalBuildings: number): number {
+  const districtSide = districtSquareSide(totalBuildings);
   return round3(
-    districtSquareSide(totalBuildings) + 2 * (LANDMARK_BAND + RING_GAP + MAJOR_HALF + OUTER_MARGIN),
+    districtSide +
+      2 * (landmarkBandDepth(districtSide) + RING_GAP + MAJOR_HALF + OUTER_MARGIN),
   );
 }
 
@@ -193,7 +240,11 @@ export function cityBoundsSize(totalBuildings: number): number {
 // ---------------------------------------------------------------------------
 
 export function districtWeight(buildingCount: number): number {
-  return Math.sqrt(Math.max(0, buildingCount) + 4);
+  // Sub-linear, so a large district never dwarfs the rest, but not as flat as
+  // a plain square root: at sqrt a four-building district claimed a quarter of
+  // the ground a hundred-building one did, and the difference read as an empty
+  // lot rather than a quiet quarter.
+  return Math.pow(Math.max(0, buildingCount) + 2, 0.8);
 }
 
 interface WeightedItem {
@@ -282,9 +333,15 @@ function squarify(items: WeightedItem[], bounds: Rect, out: Map<string, Rect>): 
 // Stage 2: district regions around a reserved civic centre
 // ---------------------------------------------------------------------------
 
-/** Side of the reserved civic centre cell, given the district square side. */
+/**
+ * Side of the reserved civic centre cell, given the district square side.
+ *
+ * It scales with the town rather than bottoming out at a fixed 26: on a
+ * sixty-unit district square a 26-unit civic cell was two fifths of the whole
+ * place, which left the districts as thin strips around a giant empty square.
+ */
 function civicSide(districtSide: number): number {
-  return round3(Math.max(10, Math.min(clamp(0.32 * districtSide, 26, 46), districtSide - 24)));
+  return round3(Math.max(10, Math.min(clamp(0.3 * districtSide, 18, 46), districtSide - 24)));
 }
 
 /**
@@ -328,20 +385,30 @@ function carveRegions(
   };
 }
 
-/** Spread districts over the regions so each region is close to its capacity. */
+/**
+ * Spread districts over the regions, then hand the heaviest group the largest
+ * region.
+ *
+ * The previous pass filled each region up to its share of the total area. One
+ * district heavier than any single region -- hono's `/src`, two thirds of the
+ * repository -- overshot its region and every later district piled into the
+ * others in arrival order, which left whole regions holding four files. Packing
+ * the groups by weight first and only then matching them to regions by size
+ * keeps the busy quarters and the quiet ones at comparable densities, which is
+ * what stops a small district reading as a vacant lot.
+ */
 function assignRegions(items: WeightedItem[], regions: Rect[]): WeightedItem[][] {
   const buckets: WeightedItem[][] = regions.map(() => []);
-  const totalArea = regions.reduce((sum, r) => sum + r.w * r.d, 0);
-  const totalWeight = items.reduce((sum, i) => sum + i.weight, 0) || 1;
-  const remaining = regions.map((r) => (r.w * r.d) / totalArea);
+  const load = regions.map(() => 0);
 
+  // Greedy least-loaded over the weight-sorted districts.
   for (const item of items) {
     let best = 0;
-    for (let i = 1; i < regions.length; i++) {
-      if (remaining[i] > remaining[best]) best = i;
+    for (let i = 1; i < buckets.length; i++) {
+      if (load[i] < load[best]) best = i;
     }
     buckets[best].push(item);
-    remaining[best] -= item.weight / totalWeight;
+    load[best] += item.weight;
   }
 
   // No empty regions: an empty cell would leave a hole in the city.
@@ -355,10 +422,24 @@ function assignRegions(items: WeightedItem[], regions: Rect[]): WeightedItem[][]
       }
     }
     if (donor === -1) break;
-    buckets[empty].push(buckets[donor].pop() as WeightedItem);
+    const moved = buckets[donor].pop() as WeightedItem;
+    buckets[empty].push(moved);
+    load[donor] -= moved.weight;
+    load[empty] += moved.weight;
   }
 
-  return buckets;
+  const byLoad = buckets
+    .map((bucket, index) => ({ bucket, load: load[index], index }))
+    .sort((a, b) => b.load - a.load || a.index - b.index);
+  const byArea = regions
+    .map((rect, index) => ({ area: rect.w * rect.d, index }))
+    .sort((a, b) => b.area - a.area || a.index - b.index);
+
+  const out: WeightedItem[][] = regions.map(() => []);
+  byArea.forEach((region, rank) => {
+    out[region.index] = byLoad[rank].bucket;
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,13 +597,28 @@ function splitAtJunctions(drafts: readonly RoadDraft[]): RoadDraft[] {
   return [...out.values()];
 }
 
-/** Subdivide a district into blocks, emitting the minor roads between them. */
-function subdivide(rect: Rect, roads: RoadSet): Rect[] {
+/**
+ * Subdivide a district into blocks, emitting the minor roads between them.
+ *
+ * The grid follows the district's area, then is coarsened until it has no more
+ * blocks than its buildings need. A district of three files laid over four
+ * blocks reads as four empty lots with streets through them; laid over one it
+ * reads as a small neighbourhood with a green around it, which is what a
+ * three-file corner of a repository honestly is.
+ */
+function subdivide(rect: Rect, roads: RoadSet, buildingCount: number): Rect[] {
   const usable = insetRect(rect, MAJOR_HALF + KERB);
   if (usable.w <= 1 || usable.d <= 1) return [];
 
-  const cols = Math.max(1, Math.round(usable.w / TARGET_BLOCK));
-  const rows = Math.max(1, Math.round(usable.d / TARGET_BLOCK));
+  let cols = Math.max(1, Math.round(usable.w / TARGET_BLOCK));
+  let rows = Math.max(1, Math.round(usable.d / TARGET_BLOCK));
+  const wanted = Math.max(1, Math.ceil(Math.max(0, buildingCount) / BUILDINGS_PER_BLOCK));
+  while (cols * rows > wanted && cols + rows > 2) {
+    if (cols >= rows && cols > 1) cols -= 1;
+    else if (rows > 1) rows -= 1;
+    else break;
+  }
+
   const cellW = usable.w / cols;
   const cellD = usable.d / rows;
 
@@ -588,7 +684,11 @@ function slotsForBlocks(blocks: Rect[], pitch: number): Slot[] {
 function planSlots(blocks: Rect[], buildingCount: number): Slot[] {
   const need = Math.max(1, Math.ceil((buildingCount + 2) * 1.1));
   const area = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-  let pitch = clamp(Math.sqrt(area / need), 5, 11);
+  // The pitch never exceeds a footprint by much: a sparse district keeps its
+  // buildings clustered around the district centre, where the slot order puts
+  // them, and the slots it never fills become parkland rather than stretching
+  // a handful of buildings thinly over the whole block.
+  let pitch = clamp(Math.sqrt(area / need), 5, MAX_SLOT_PITCH);
   let slots = slotsForBlocks(blocks, pitch);
   for (let guard = 0; guard < 32 && slots.length < need && pitch > 3; guard++) {
     pitch *= 0.92;
@@ -612,22 +712,156 @@ function orderSlots(slots: Slot[], centre: Rect): Slot[] {
 // Stage 6 support: the civic centre and the landmark band
 // ---------------------------------------------------------------------------
 
-function planCivic(civicRect: Rect): CivicLayout {
-  const side = Math.min(civicRect.w, civicRect.d);
-  const inner = side / 2 - (MAJOR_HALF + KERB);
-  // One square cell per root landmark file around the hall. The corner radius
-  // `q` then follows and guarantees that no two civic cells overlap:
-  // q >= cell and q >= (hall + cell) / 2.
-  const cell = round3(clamp(inner * 0.42, 1, 9));
-  const hall = round3(clamp(2 * (inner - cell), 3, NATURAL_LANDMARK_SIZE.civic[0]));
-  const q = round3(inner - cell / 2);
+/**
+ * Where the root landmark files stand, as offsets from the hall in units of
+ * the ring half-extents, ordered so that every count is symmetric about the
+ * plaza's north-south axis.
+ *
+ *   1 file   due north of the hall
+ *   2 files  flanking it, west and east
+ *   3 files  north, west, east
+ *   4 files  all four sides
+ *   5 files  an arc of three across the north, plus the two flankers
+ */
+const PLAZA_RING: readonly (readonly [number, number][])[] = [
+  [],
+  [[0, -1]],
+  [
+    [-1, 0],
+    [1, 0],
+  ],
+  [
+    [0, -1],
+    [-1, 0],
+    [1, 0],
+  ],
+  [
+    [0, -1],
+    [-1, 0],
+    [1, 0],
+    [0, 1],
+  ],
+  [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+  ],
+];
 
-  const slot = (x: number, z: number, size: number): Slot => ({
+/** Quarter turn that points a plaza building's entrance back at the hall. */
+function facingHall(x: number, z: number): number {
+  if (Math.abs(x) >= Math.abs(z)) return round3(x < 0 ? Math.PI / 2 : -Math.PI / 2);
+  return round3(z < 0 ? 0 : Math.PI);
+}
+
+/**
+ * The civic plaza (PLAN.md sections 10 and 36): the town hall in the middle,
+ * the root landmark files arranged around it on a symmetric ring, and trees
+ * and lamps on whatever the buildings leave.
+ *
+ * The old arrangement pinned five cells to the corners of the civic square
+ * whatever their size, so a small town got 2.4-unit footprints carrying
+ * 16-unit heights -- five pencils around a shed. Here the plaza is sized
+ * first, the hall takes a fixed share of it, and each file gets a square cell
+ * it fills exactly, a quarter turn that faces the hall, and a height ceiling
+ * below the hall's, so the composition reads as civic architecture at any
+ * scale.
+ *
+ * When the civic cell is a shallow full-width band (two or three districts)
+ * there is no room north or south of the hall, so the ring degenerates into a
+ * row along the band: an avenue of civic buildings rather than a ring.
+ */
+function planCivic(civicRect: Rect, landmarkFiles: number): CivicLayout {
+  const plaza = insetRect(civicRect, MAJOR_HALF + KERB);
+  const shortest = Math.max(1, Math.min(plaza.w, plaza.d));
+  const longest = Math.max(1, Math.max(plaza.w, plaza.d));
+  const count = clamp(Math.round(landmarkFiles), 0, CIVIC_BUILDING_SLOTS);
+
+  // The hall takes what is left after an arm for the files is reserved on the
+  // short axis. Sizing it first and the files second was what produced the
+  // pencils: a hall at four fifths of the plaza leaves nowhere to put them.
+  const wantCell = clamp(shortest * 0.16, 3, 8);
+  const ringHall = shortest - 2 * (PLAZA_GAP + wantCell) - PLAZA_SLACK;
+  // A ring needs a real arm on the short axis and a hall worth centring. Below
+  // that the civic cell is a shallow band, and the files line up along it.
+  const asRing = ringHall >= 6;
+  const hall = round3(
+    clamp(asRing ? ringHall : shortest - PLAZA_SLACK, 5, NATURAL_LANDMARK_SIZE.civic[0]),
+  );
+
+  // Room left between the hall and the kerb, on each axis.
+  const armShort = shortest / 2 - hall / 2 - PLAZA_GAP;
+  const armLong = longest / 2 - hall / 2 - PLAZA_GAP;
+
+  // On a band the files share one arm, so the cell is whatever a full row of
+  // them fits into; on a ring each cell has an arm to itself. The row is sized
+  // for the maximum either way, so the buildings and the plaza trees that fill
+  // the rest of the row land on one grid.
+  const cell = round3(
+    clamp(
+      asRing
+        ? Math.min(hall * 0.5, armShort - PLAZA_SLACK, 8)
+        : Math.min(hall * 0.5, 8, (armLong - (ROW_PER_SIDE - 1) * PLAZA_GAP) / ROW_PER_SIDE),
+      1,
+      8,
+    ),
+  );
+  const acrossX = plaza.w >= plaza.d;
+
+  // Ring half-extent: the hall, a gap, then half a cell.
+  const ring = round3(hall / 2 + PLAZA_GAP + cell / 2);
+  // Anything that would cross the kerb is dropped rather than built on the
+  // road; the generator puts the file that lost its place back in its own
+  // district, which is where it would have gone past the fifth slot anyway.
+  const inPlaza = ([x, z]: [number, number]): boolean =>
+    Math.abs(x) + cell / 2 <= plaza.w / 2 + 1e-6 && Math.abs(z) + cell / 2 <= plaza.d / 2 + 1e-6;
+  const spots: [number, number][] = (
+    asRing
+      ? PLAZA_RING[count].map(([ux, uz]) => [ux * ring, uz * ring] as [number, number])
+      : rowSpots(count, ring, cell, acrossX ? plaza.w : plaza.d, acrossX)
+  ).filter(inPlaza);
+
+  const maxHeight = round3(hall * 0.7);
+  const place = (x: number, z: number): Slot => ({
     x: round3(civicRect.x + x),
     z: round3(civicRect.z + z),
-    cellW: size,
-    cellD: size,
+    cellW: cell,
+    cellD: cell,
+    facing: facingHall(x, z),
+    maxHeight,
   });
+
+  // Trees on the ring positions no file claimed, so a two-file plaza is still
+  // a composition rather than a hall with two sheds and a lot of nothing.
+  const usedKeys = new Set(spots.map(([x, z]) => `${round3(x)},${round3(z)}`));
+  const allSpots: [number, number][] = asRing
+    ? ([...PLAZA_RING[CIVIC_BUILDING_SLOTS], [0, 1] as const] as (readonly [number, number])[]).map(
+        ([ux, uz]) => [ux * ring, uz * ring],
+      )
+    : rowSpots(CIVIC_BUILDING_SLOTS, ring, cell, acrossX ? plaza.w : plaza.d, acrossX);
+  const greens: PropSpot[] = allSpots
+    .filter((spot) => inPlaza(spot) && !usedKeys.has(`${round3(spot[0])},${round3(spot[1])}`))
+    .map(([x, z]) => ({ x: round3(civicRect.x + x), z: round3(civicRect.z + z) }));
+
+  // Lamps on the plaza diagonals, always clear of the ring positions.
+  const lampRadius = round3(ring * 0.72);
+  const lamps: PropSpot[] = [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]
+    .map(([ux, uz]) => ({
+      x: round3(civicRect.x + ux * lampRadius),
+      z: round3(civicRect.z + uz * lampRadius),
+    }))
+    .filter(
+      (spot) =>
+        Math.abs(spot.x - civicRect.x) + cell / 2 <= plaza.w / 2 &&
+        Math.abs(spot.z - civicRect.z) + cell / 2 <= plaza.d / 2,
+    );
 
   return {
     rect: civicRect,
@@ -638,14 +872,33 @@ function planCivic(civicRect: Rect): CivicLayout {
       d: hall,
       rotationY: 0,
     },
-    buildingSlots: [
-      slot(-q, -q, cell),
-      slot(q, -q, cell),
-      slot(-q, q, cell),
-      slot(q, q, cell),
-      slot(0, -q, cell),
-    ],
+    buildingSlots: spots.map(([x, z]) => place(x, z)),
+    props: { trees: greens, lamps },
   };
+}
+
+/**
+ * The degenerate ring: a row either side of the hall along whichever axis has
+ * the room, alternating so the result stays as symmetric as the count allows.
+ */
+function rowSpots(
+  count: number,
+  ring: number,
+  cell: number,
+  extent: number,
+  acrossX: boolean,
+): [number, number][] {
+  const out: [number, number][] = [];
+  // `cell` was already solved so that a row of `ROW_PER_SIDE` fits; the step
+  // only shrinks towards that, never below a cell, so two never overlap.
+  const room = extent / 2 - cell / 2 - ring;
+  const step = Math.max(cell + 0.2, Math.min(cell + PLAZA_GAP, room / (ROW_PER_SIDE - 1)));
+  for (let i = 0; i < count; i++) {
+    const sign = i % 2 === 0 ? -1 : 1;
+    const offset = round3(ring + Math.floor(i / 2) * step);
+    out.push(acrossX ? [sign * offset, 0] : [0, sign * offset]);
+  }
+  return out;
 }
 
 /**
@@ -656,7 +909,6 @@ function planCivic(civicRect: Rect): CivicLayout {
  */
 function planLandmarkPlots(
   districtSide: number,
-  band: number,
   ringRadius: number,
 ): Record<Exclude<LandmarkType, "civic">, LandmarkPlot> {
   const half = districtSide / 2;
@@ -703,11 +955,16 @@ function planLandmarkPlots(
  * Stages 1 to 4 of PLAN.md section 36. Deterministic and seed independent:
  * the same district ids and counts always produce the same rectangles.
  */
-export function planLayout(districts: LayoutDistrictInput[], totalBuildings: number): CityLayout {
+export function planLayout(
+  districts: LayoutDistrictInput[],
+  totalBuildings: number,
+  options: { landmarkFiles?: number } = {},
+): CityLayout {
   const size = cityBoundsSize(totalBuildings);
   const districtSide = districtSquareSide(totalBuildings);
   const half = districtSide / 2;
-  const ringRadius = round3(half + LANDMARK_BAND + RING_GAP);
+  const band = landmarkBandDepth(districtSide);
+  const ringRadius = round3(half + band + RING_GAP);
   const civic = civicSide(districtSide);
   const { civicRect, regions } = carveRegions(districtSide, civic, districts.length);
 
@@ -748,7 +1005,7 @@ export function planLayout(districts: LayoutDistrictInput[], totalBuildings: num
   for (const district of districts) {
     const rect = rects.get(district.id);
     if (!rect) continue;
-    const blocks = subdivide(rect, roads);
+    const blocks = subdivide(rect, roads, district.buildingCount);
     const slots = orderSlots(planSlots(blocks, district.buildingCount), rect);
     laidOut.push({ id: district.id, rect, blocks, slots });
   }
@@ -756,11 +1013,11 @@ export function planLayout(districts: LayoutDistrictInput[], totalBuildings: num
   return {
     size,
     districtSide,
-    bandDepth: LANDMARK_BAND,
+    bandDepth: band,
     ringRadius,
     districts: laidOut,
-    civic: planCivic(civicRect),
-    landmarkPlots: planLandmarkPlots(districtSide, LANDMARK_BAND, ringRadius),
+    civic: planCivic(civicRect, options.landmarkFiles ?? CIVIC_BUILDING_SLOTS),
+    landmarkPlots: planLandmarkPlots(districtSide, ringRadius),
     roads: roads.build(),
   };
 }
