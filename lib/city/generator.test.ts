@@ -243,8 +243,11 @@ describe("generateCity: limits (PLAN.md section 37)", () => {
 });
 
 describe("generateCity: ambience and traffic (PLAN.md sections 19 and 39)", () => {
-  it("counts vehicles from the activity score", () => {
-    expect(city.vehicles.count).toBe(Math.round(6 + 34 * fixture.metrics.activity.score));
+  it("counts vehicles from the activity score, capped by the size of the city", () => {
+    const fromActivity = Math.round(6 + 34 * fixture.metrics.activity.score);
+    const room = 4 + Math.round(city.buildings.length / 4);
+    expect(city.vehicles.count).toBe(Math.min(fromActivity, room));
+    expect(city.vehicles.count).toBeGreaterThan(0);
   });
 
   it("quiets and cools an archived repository", () => {

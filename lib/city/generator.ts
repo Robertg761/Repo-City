@@ -269,7 +269,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     incidents,
     constructionSites: construction,
     props: { trees, lamps },
-    vehicles: { count: vehicleCount(analysis) },
+    vehicles: { count: vehicleCount(analysis, buildings.length) },
     seed,
   };
 }
@@ -755,22 +755,31 @@ function placeTrees(
   }
 
   // Parks: slots that no building or construction site claimed.
+  const parks: Vec3[] = [];
   for (const district of layout.districts) {
     const cursor = usedSlots.get(district.id) ?? 0;
     for (let i = cursor; i < district.slots.length; i++) {
       const slot = district.slots[i];
-      const x = round3(slot.x + prng.range(-1, 1) * slot.cellW * 0.25);
-      const z = round3(slot.z + prng.range(-1, 1) * slot.cellD * 0.25);
-      if (!free(x, z)) continue;
-      candidates.push([x, 0, z]);
+      // Two per free slot: one tree in the middle of an eight unit cell reads
+      // as a bald patch, a small cluster reads as a park.
+      for (const corner of [-1, 1]) {
+        const x = round3(slot.x + corner * slot.cellW * 0.22 + prng.range(-0.8, 0.8));
+        const z = round3(slot.z - corner * slot.cellD * 0.22 + prng.range(-0.8, 0.8));
+        if (!free(x, z)) continue;
+        parks.push([x, 0, z]);
+      }
     }
   }
 
-  if (candidates.length <= want) return candidates;
-  // Even stride, so the selection stays mixed between ring, margins and parks.
-  const chosen: Vec3[] = [];
-  for (let i = 0; i < want; i++) {
-    chosen.push(candidates[Math.floor((i * candidates.length) / want)]);
+  if (candidates.length + parks.length <= want) return [...parks, ...candidates];
+
+  // Parks go in first: an unused slot is a hole in the city, and a repository
+  // with few buildings has a lot of them. The rest is an even stride, so the
+  // selection stays mixed between the ring, the band and the block margins.
+  const chosen: Vec3[] = parks.slice(0, Math.ceil(want * 0.5));
+  const remaining = want - chosen.length;
+  for (let i = 0; i < remaining && i < candidates.length; i++) {
+    chosen.push(candidates[Math.floor((i * candidates.length) / remaining)]);
   }
   return chosen;
 }
@@ -846,10 +855,16 @@ export function ambienceFor(analysis: RepoAnalysis): CityModel["ambience"] {
   };
 }
 
-export function vehicleCount(analysis: RepoAnalysis): number {
+/**
+ * Traffic follows activity, but a ten-building town with forty cars reads as a
+ * traffic jam in an empty grid, so the fleet is also capped by the size of the
+ * city it drives around.
+ */
+export function vehicleCount(analysis: RepoAnalysis, buildings: number): number {
   const activity = clamp(analysis.metrics.activity.score, 0, 1);
-  if (analysis.metrics.archived) return Math.round(clamp(4 * activity, 0, 4));
-  return Math.round(clamp(6 + 34 * activity, 0, LIMITS.vehicles));
+  const room = 4 + Math.round(buildings / 4);
+  if (analysis.metrics.archived) return Math.round(clamp(4 * activity, 0, Math.min(4, room)));
+  return Math.round(clamp(Math.min(6 + 34 * activity, room), 0, LIMITS.vehicles));
 }
 
 // ---------------------------------------------------------------------------
