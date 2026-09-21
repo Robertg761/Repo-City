@@ -93,11 +93,10 @@ export function createCuratedInterpreter(): Interpreter {
     if (!curated) return SKIPPED;
     return {
       status: "ok",
-      interpretation: sanitizeInterpretation(
-        curated,
-        knownPathsForInput(input),
-        input.districts,
-      ),
+      interpretation: {
+        ...sanitizeInterpretation(curated, knownPathsForInput(input), input.districts),
+        source: "curated",
+      },
     };
   };
 }

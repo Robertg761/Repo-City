@@ -6,7 +6,7 @@
  */
 
 import type { RepoAnalysis } from "@/types/analysis";
-import { prngFromString, type Prng } from "./prng";
+import { prngFromString, type Prng } from "./prng.ts";
 
 /** `${owner}/${name}@${headSha}` — must match `RepoAnalysis["seed"]`. */
 export function seedFor(analysis: RepoAnalysis): string {

@@ -18,6 +18,7 @@ import { analyzeRepository, AnalyzeError } from "@/lib/client/analyzeStream";
 import { errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
 import type { RepoAnalysis } from "@/types/analysis";
+import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
 
 export type Phase = "idle" | "analyzing" | "building" | "ready" | "error";
@@ -152,11 +153,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         if (controller.signal.aborted) return;
         set({ phase: "building", analysis });
 
-        // TODO(W5): const city = generateCity(analysis);
-        // `lib/city/generator.ts` turns the analysis into the CityModel. Until
-        // that workstream lands the canvas renders its placeholder scene, and
-        // the inspector falls back to reading the analysis directly.
-        const city: CityModel | null = null;
+        const city = generateCity(analysis);
 
         markStage("done", "done", city ? "City constructed" : "Placeholder city");
         set({ city, phase: "ready" });

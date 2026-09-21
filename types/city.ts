@@ -50,12 +50,15 @@ export interface Incident extends CityEntity {
   kind: "incident";
   state: IncidentState;
   issue: RankedIssue;
+  /** District the incident sits next to, when placement was path-related. */
+  districtId?: string;
 }
 
 export interface ConstructionSite extends CityEntity {
   kind: "construction";
   state: ConstructionState;
   pull: RankedPull;
+  districtId?: string;
 }
 
 export type LandmarkType = "power" | "fire" | "info" | "station" | "civic";
@@ -65,6 +68,9 @@ export interface Landmark extends CityEntity {
   landmarkType: LandmarkType;
   level: 0 | 1 | 2 | 3;
   state: string;
+  /** Footprint and height hint; renderer falls back to 4 x 4 (station 5 x 3). */
+  size?: Vec3;
+  districtId?: string;
 }
 
 export interface District {

@@ -98,7 +98,7 @@ export function createModelInterpreter(
         input.districts,
       );
       if (!interpretation.summary) return FAILED;
-      return { status: "ok", interpretation };
+      return { status: "ok", interpretation: { ...interpretation, source: "model" } };
     } catch {
       return FAILED;
     } finally {

@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "fixture": "node scripts/make-sample-fixture.ts"
+    "fixture": "node scripts/make-sample-fixture.ts",
+    "city:stats": "node scripts/city-stats.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.58",

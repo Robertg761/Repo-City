@@ -118,6 +118,8 @@ export interface AiInterpretation {
   /** 0..1 */
   organizationClarity: number;
   model: string;
+  /** Where the interpretation came from; curated files are labelled in the inspector. */
+  source?: "model" | "curated";
 }
 
 export type AiStatus = "ok" | "skipped" | "failed";
