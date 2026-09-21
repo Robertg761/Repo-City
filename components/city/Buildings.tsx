@@ -27,7 +27,7 @@ import {
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
-import { revealScale } from "./reveal";
+import { revealSettle } from "./reveal";
 import { useInstanceHandlers } from "./useEntity";
 import { useRevealClock } from "./useReveal";
 
@@ -66,15 +66,27 @@ function TierInstances({
     settled.current = false;
   }, [clock, group]);
 
+  // Heights are shared between the facades and their window bands within a
+  // frame. The buffer lives in a ref and is reused for the life of the group,
+  // so `useFrame` allocates nothing (PLAN.md section 63).
+  const heightBuffer = useRef(new Float32Array(0));
+
   useFrame(() => {
     const mesh = meshRef.current;
     if (!mesh || settled.current) return;
     const now = performance.now();
-    const heights: number[] = [];
     let done = true;
+    if (heightBuffer.current.length !== group.buildings.length) {
+      heightBuffer.current = new Float32Array(group.buildings.length);
+    }
+    const heights = heightBuffer.current;
 
-    group.buildings.forEach((b, i) => {
-      const grow = revealScale(now, clock.current, b.appearAt);
+    for (let i = 0; i < group.buildings.length; i++) {
+      const b = group.buildings[i];
+      // A settle rather than a plain ease-out: the building rises a few
+      // percent past its height and drops onto it, which reads as
+      // construction rather than inflation (PLAN.md section 43).
+      const grow = revealSettle(now, clock.current, b.appearAt);
       if (grow < 1) done = false;
       const height = Math.max(b.size[1] * grow, 0.0001);
       heights[i] = height;
@@ -84,12 +96,13 @@ function TierInstances({
       scratch.scale.set(visible ? b.size[0] : 0, height, visible ? b.size[2] : 0);
       scratch.updateMatrix();
       mesh.setMatrixAt(i, scratch.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
 
     const bandMesh = bandRef.current;
     if (bandMesh) {
-      bands.forEach((band, i) => {
+      for (let i = 0; i < bands.length; i++) {
+        const band = bands[i];
         const b = group.buildings[band.buildingIndex];
         const height = heights[band.buildingIndex] ?? 0;
         const visible = height > 0.01;
@@ -107,7 +120,7 @@ function TierInstances({
         );
         scratch.updateMatrix();
         bandMesh.setMatrixAt(i, scratch.matrix);
-      });
+      }
       bandMesh.instanceMatrix.needsUpdate = true;
     }
 
