@@ -4,129 +4,109 @@
  * The one persistent 3D viewport (PLAN.md section 0.2). Everything else in the
  * application overlays this canvas; nothing ever replaces it.
  *
- * W0 ships the scaffolding only: ground, lights, camera limits, and a handful
- * of placeholder blocks so the scene is visibly three-dimensional. W1 owns
- * `components/city/*` and replaces `<PlaceholderCity />` with the real
- * instanced city driven by `useCityStore().city`.
+ * This file owns the canvas, the camera and its limits (section 5), and the
+ * choice of which `CityModel` to render. Everything inside the scene lives in
+ * `components/city/*` and is driven purely by that model (section 34).
  *
  * Loaded through `next/dynamic` with `ssr: false` from `app/page.tsx`; three.js
  * must never run during server rendering.
  */
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { prngFor } from "@/lib/city/seed";
-
-const GROUND_SIZE = 400;
+import { useCityStore } from "@/store/useCityStore";
+import type { CityModel } from "@/types/city";
+import City from "@/components/city/City";
+import CameraRig from "@/components/city/CameraRig";
+import Lighting from "@/components/city/Lighting";
+import Terrain from "@/components/city/Terrain";
+import { atmosphere } from "@/components/city/palette";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
 
-interface PlaceholderBlock {
-  id: string;
-  position: [number, number, number];
-  size: [number, number, number];
-  color: string;
-}
+const EMPTY_SIZE = 120;
 
-const PALETTE = ["#d9d3c7", "#c8bfae", "#b9c7c2", "#cfc2b0", "#aab8bd"] as const;
+/** Neutral daylight for the empty stage, before any repository is analysed. */
+const EMPTY_ATMOSPHERE = atmosphere(
+  {
+    warmth: 0.55,
+    saturation: 0.6,
+    fog: 0.3,
+    trafficDensity: 0,
+    pedestrianDensity: 0,
+    litWindowShare: 0,
+  },
+  false,
+);
 
 /**
- * A deterministic stand-in skyline built from the fixture seed, so the shape of
- * the placeholder never changes between reloads or screenshots.
+ * The dev fixture city (`?dev=city`). It exists so the renderer can be built
+ * and screenshotted before the generator lands, and so a broken generator is
+ * immediately distinguishable from a broken renderer. Never in production.
  */
-function usePlaceholderBlocks(): PlaceholderBlock[] {
-  return useMemo(() => {
-    const prng = prngFor("sample/repo-city@fixture0001", "w0-placeholder");
-    const blocks: PlaceholderBlock[] = [];
-    for (let gx = -2; gx <= 2; gx++) {
-      for (let gz = -2; gz <= 2; gz++) {
-        if (gx === 0 && gz === 0) continue;
-        const height = prng.range(1.5, 9);
-        const width = prng.range(1.6, 3);
-        const depth = prng.range(1.6, 3);
-        blocks.push({
-          id: `placeholder-${gx}-${gz}`,
-          position: [gx * 6 + prng.range(-0.6, 0.6), height / 2, gz * 6 + prng.range(-0.6, 0.6)],
-          size: [width, height, depth],
-          color: prng.pick(PALETTE),
-        });
-      }
-    }
-    return blocks;
-  }, []);
+function useDevCity(hasRealCity: boolean): CityModel | null {
+  const [devCity, setDevCity] = useState<CityModel | null>(null);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production" || hasRealCity || devCity) return;
+    if (new URLSearchParams(window.location.search).get("dev") !== "city") return;
+
+    let cancelled = false;
+    void import("@/fixtures/dev.city").then((module) => {
+      if (!cancelled) setDevCity(module.devCity);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasRealCity, devCity]);
+
+  return devCity;
 }
 
-function PlaceholderCity() {
-  const blocks = usePlaceholderBlocks();
-
-  return (
-    <group>
-      {blocks.map((block) => (
-        <mesh key={block.id} position={block.position} castShadow receiveShadow>
-          <boxGeometry args={block.size} />
-          <meshStandardMaterial color={block.color} roughness={0.85} metalness={0} />
-        </mesh>
-      ))}
-
-      {/* Civic centre marker at the origin. */}
-      <mesh position={[0, 1.2, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[2.2, 2.6, 2.4, 8]} />
-        <meshStandardMaterial color="#8fa39b" roughness={0.7} />
-      </mesh>
-    </group>
-  );
-}
-
-function Ground() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <planeGeometry args={[GROUND_SIZE, GROUND_SIZE]} />
-      <meshStandardMaterial color="#7f8b76" roughness={1} metalness={0} />
-    </mesh>
-  );
-}
-
-function Lighting() {
+function EmptyStage() {
   return (
     <>
-      <hemisphereLight args={["#cfe3f2", "#6b6f5c", 0.85]} />
-      <directionalLight
-        castShadow
-        position={[38, 52, 22]}
-        intensity={2.1}
-        color="#fff3e0"
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-near={1}
-        shadow-camera-far={200}
-        shadow-camera-left={-70}
-        shadow-camera-right={70}
-        shadow-camera-top={70}
-        shadow-camera-bottom={-70}
-        shadow-bias={-0.0005}
+      <color attach="background" args={[EMPTY_ATMOSPHERE.background]} />
+      <fog
+        attach="fog"
+        args={[
+          EMPTY_ATMOSPHERE.background,
+          EMPTY_SIZE * EMPTY_ATMOSPHERE.fogNearFactor,
+          EMPTY_SIZE * EMPTY_ATMOSPHERE.fogFarFactor,
+        ]}
       />
+      <Lighting atmosphere={EMPTY_ATMOSPHERE} size={EMPTY_SIZE} />
+      <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
   );
 }
 
 export default function CityCanvas() {
+  const storeCity = useCityStore((s) => s.city);
+  const actions = useCityStore((s) => s.actions);
+  const devCity = useDevCity(storeCity !== null);
+  const city = storeCity ?? devCity;
+
   return (
     <Canvas
       shadows="soft"
       dpr={[1, 2]}
-      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 600 }}
+      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 2000 }}
       gl={{ antialias: true }}
+      // Clicking past every object is the same gesture as clicking bare
+      // ground: it clears the selection (PLAN.md section 6).
+      onPointerMissed={() => actions.select(null)}
       // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
     >
-      <color attach="background" args={["#b9d4e6"]} />
-      <fog attach="fog" args={["#b9d4e6", 120, 320]} />
+      {/* Keyed on the seed: a different repository revision is a different
+          city, and gets a fresh reveal. The Canvas itself never remounts, so
+          the WebGL context survives. */}
+      {city ? <City key={city.seed} city={city} /> : <EmptyStage />}
 
-      <Lighting />
-      <Ground />
-      <PlaceholderCity />
+      <CameraRig city={city} />
 
       <CameraControls
         makeDefault
