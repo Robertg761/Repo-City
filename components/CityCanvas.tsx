@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
+import { PCFShadowMap } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
@@ -92,7 +93,11 @@ export default function CityCanvas() {
 
   return (
     <Canvas
-      shadows="soft"
+      // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
+      // it falls back to `PCFShadowMap` and warns on every load. Ask for the
+      // supported filter directly; the softness now comes from the light's own
+      // radius and bias in `Lighting.tsx` (PLAN.md section 39).
+      shadows={{ type: PCFShadowMap }}
       dpr={[1, 2]}
       camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 2000 }}
       gl={{ antialias: true }}
