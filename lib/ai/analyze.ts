@@ -3,11 +3,7 @@ import path from "node:path";
 
 import { generateObject, type LanguageModel } from "ai";
 
-import {
-  CURATED_DIRECTORY,
-  createCuratedInterpreter,
-  loadCuratedInterpretation,
-} from "./curated";
+import { createCuratedInterpreter, loadCuratedInterpretation } from "./curated";
 import { knownPathsForInput } from "./paths";
 import { SYSTEM_PROMPT, buildUserMessage } from "./prompt";
 import { interpretationOutputSchema, sanitizeInterpretation } from "./schema";
@@ -112,9 +108,10 @@ let curatedFilesPresent: boolean | undefined;
 function hasCuratedFiles(): boolean {
   if (curatedFilesPresent === undefined) {
     try {
-      curatedFilesPresent = readdirSync(path.join(process.cwd(), CURATED_DIRECTORY)).some(
-        (file) => file.endsWith(".json"),
-      );
+      // Literal subfolder: see the note in `curated.ts`.
+      curatedFilesPresent = readdirSync(
+        path.join(process.cwd(), "fixtures", "interpretations"),
+      ).some((file) => file.endsWith(".json"));
     } catch {
       curatedFilesPresent = false;
     }

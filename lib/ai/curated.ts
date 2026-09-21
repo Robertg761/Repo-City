@@ -15,7 +15,7 @@ import { SKIPPED, type InterpretResult, type Interpreter } from "./types";
  * a live model response: every path is re-validated against the live tree at
  * request time, so a stale file degrades instead of lying.
  */
-export const CURATED_DIRECTORY = path.join("fixtures", "interpretations");
+export const CURATED_DIRECTORY = "fixtures/interpretations";
 
 const cache = new Map<string, Promise<AiInterpretation | null>>();
 
@@ -31,7 +31,10 @@ export function curatedFileName(fullName: string): string | null {
 }
 
 function curatedDirectory(): string {
-  return path.join(process.cwd(), CURATED_DIRECTORY);
+  // Written out literally rather than composed: the bundler's static analysis
+  // has to see the subfolder, or it traces the whole project into the
+  // serverless bundle for `/api/analyze` (Next 16 build warning).
+  return path.join(process.cwd(), "fixtures", "interpretations");
 }
 
 /**
