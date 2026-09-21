@@ -46,51 +46,70 @@ interface Skin {
   glow: number;
 }
 
-/** Three rising puffs, used by the power plant and the major incident. */
+/**
+ * A rising column of puffs, used by the power plant and the major incident.
+ * `height` and `puffs` are what turn a chimney's wisp into the smoke column a
+ * viewer can spot from the overview camera (PLAN.md sections 11, 14).
+ */
 export function Smoke({
   origin,
   color = "#cfd2d4",
   rate = 1,
   height = 7,
   spread = 0.8,
+  radius = 0.8,
+  puffs = 3,
+  opacity = 0.55,
 }: {
   origin: [number, number, number];
   color?: string;
   rate?: number;
   height?: number;
   spread?: number;
+  radius?: number;
+  puffs?: number;
+  opacity?: number;
 }) {
-  const puffs = useRef<(Mesh | null)[]>([]);
+  const meshes = useRef<(Mesh | null)[]>([]);
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime * rate;
-    puffs.current.forEach((puff, i) => {
-      if (!puff) return;
-      const phase = (t + i / 3) % 1;
+    const list = meshes.current;
+    for (let i = 0; i < list.length; i++) {
+      const puff = list[i];
+      if (!puff) continue;
+      const phase = (t + i / puffs) % 1;
       puff.position.set(
         origin[0] + Math.sin(phase * 3 + i) * spread * phase,
         origin[1] + phase * height,
         origin[2] + Math.cos(phase * 2.4 + i) * spread * phase,
       );
-      const scale = 0.35 + phase * 1.15;
-      puff.scale.setScalar(scale);
+      // Puffs keep growing as they rise, so the column widens with height the
+      // way a real plume does rather than reading as a string of beads.
+      puff.scale.setScalar(0.5 + phase * 1.6);
       const material = puff.material as MeshStandardMaterial;
-      material.opacity = 0.55 * (1 - phase);
-    });
+      material.opacity = opacity * (1 - phase * 0.92);
+    }
   });
 
   return (
     <group>
-      {[0, 1, 2].map((i) => (
+      {Array.from({ length: puffs }, (_, i) => (
         <mesh
           key={i}
           ref={(mesh) => {
-            puffs.current[i] = mesh;
+            meshes.current[i] = mesh;
           }}
           position={origin}
         >
-          <sphereGeometry args={[0.8, 8, 6]} />
-          <meshStandardMaterial color={color} transparent opacity={0.4} roughness={1} />
+          <sphereGeometry args={[radius, 10, 8]} />
+          <meshStandardMaterial
+            color={color}
+            transparent
+            opacity={opacity}
+            roughness={1}
+            depthWrite={false}
+          />
         </mesh>
       ))}
     </group>

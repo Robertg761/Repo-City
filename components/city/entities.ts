@@ -118,6 +118,12 @@ export interface Framing {
 const OVERVIEW_DIR: Vec3 = [1, 1.51, 1];
 /** A slightly lower angle for inspection, so facades stay visible. */
 const INSPECT_DIR: Vec3 = [1, 0.95, 1];
+/**
+ * Incidents and construction sites sit on the street, hemmed in by the blocks
+ * on either side: from a facade-height angle the building next door fills the
+ * frame instead of the thing that was clicked. Look down into the street.
+ */
+const STREET_INSPECT_DIR: Vec3 = [1, 1.9, 1];
 
 function place(target: Vec3, dir: Vec3, distance: number): Framing {
   const len = Math.hypot(dir[0], dir[1], dir[2]);
@@ -150,6 +156,11 @@ export function overviewFraming(size: number): Framing {
 
 /** A useful inspection distance for one entity, inside the camera limits. */
 export function inspectionFraming(focus: FocusTarget): Framing {
-  const distance = clamp(focus.radius * 3.4 + 12, MIN_DISTANCE + 2, MAX_DISTANCE - 20);
-  return place(focus.lookAt, INSPECT_DIR, distance);
+  const street = focus.kind === "incident" || focus.kind === "construction";
+  const distance = clamp(
+    focus.radius * 3.4 + (street ? 15 : 12),
+    MIN_DISTANCE + 2,
+    MAX_DISTANCE - 20,
+  );
+  return place(focus.lookAt, street ? STREET_INSPECT_DIR : INSPECT_DIR, distance);
 }
