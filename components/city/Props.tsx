@@ -30,6 +30,15 @@ const scratch = new Object3D();
 const TREE_CAP = 100;
 const LAMP_CAP = 120;
 
+/**
+ * Street lamps are the smallest thing in the city that still has to read as
+ * infrastructure. At the generator's scale a building is 4 to 8.5 units wide,
+ * so a lamp a little under three units tall sits at about the height of a
+ * first-floor window: present along the streets, never a row of bright pins
+ * standing over the blocks (PLAN.md section 4).
+ */
+const LAMP_HEIGHT = 2.7;
+
 interface TreeInstance {
   position: Vec3;
   scale: number;
@@ -96,10 +105,10 @@ export default function Props({
         if (grow < 1) done = false;
         scratch.rotation.set(0, 0, 0);
         scratch.scale.setScalar(grow);
-        scratch.position.set(position[0], 1.7 * grow, position[2]);
+        scratch.position.set(position[0], LAMP_HEIGHT * 0.5 * grow, position[2]);
         scratch.updateMatrix();
         pole.setMatrixAt(i, scratch.matrix);
-        scratch.position.set(position[0], 3.45 * grow, position[2]);
+        scratch.position.set(position[0], (LAMP_HEIGHT + 0.09) * grow, position[2]);
         scratch.updateMatrix();
         head.setMatrixAt(i, scratch.matrix);
       });
@@ -150,7 +159,7 @@ export default function Props({
             castShadow
             frustumCulled={false}
           >
-            <cylinderGeometry args={[0.08, 0.11, 3.4, 5]} />
+            <cylinderGeometry args={[0.07, 0.095, LAMP_HEIGHT, 5]} />
             <meshStandardMaterial
               color={desaturate(LAMP_POST, atmosphere.desaturation)}
               roughness={0.7}
@@ -158,11 +167,14 @@ export default function Props({
             />
           </instancedMesh>
           <instancedMesh ref={headRef} args={[undefined, undefined, lamps.length]} frustumCulled={false}>
-            <boxGeometry args={[0.44, 0.22, 0.44]} />
+            <boxGeometry args={[0.32, 0.16, 0.32]} />
             <meshStandardMaterial
               color={mix(WINDOW_COLOR, "#ffffff", 0.3)}
+              // Daylight: the lamps are lit fixtures, not beacons. The glow
+              // rises with the city's lit-window share, so a quiet city's
+              // lamps go dim with its windows.
+              emissiveIntensity={0.1 + atmosphere.windowGlow * 1.1}
               emissive={WINDOW_COLOR}
-              emissiveIntensity={0.3 + atmosphere.windowGlow * 1.6}
               toneMapped={false}
             />
           </instancedMesh>

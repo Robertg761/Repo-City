@@ -108,7 +108,12 @@ export function spawnCars(roads: readonly RoadSegment[], count: number, prng: Pr
       segment,
       forward,
       t: prng.next(),
-      speed: prng.range(5, 9),
+      // One world unit is about a metre and a half at the scale the generator
+      // builds to (see `types/city.ts`), so this is roughly 25 to 35 km/h:
+      // brisk enough to read as traffic, slow enough that a car crossing a
+      // twenty unit block between junctions takes about four seconds rather
+      // than darting from turn to turn.
+      speed: prng.range(4, 6.4),
       lane: Math.max(0.6, width * 0.22),
       colorIndex: prng.int(0, 5),
     });
