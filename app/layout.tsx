@@ -16,10 +16,34 @@ const geistMono = Geist_Mono({
 const PROMISE =
   "Paste any public GitHub repository and watch it become a living 3D city. Code becomes architecture, pull requests become construction, CI becomes infrastructure, and unresolved issues leave visible scars on the world. Fly through the entire project without ever leaving one screen.";
 
+/**
+ * The hero shot committed at `docs/screenshot.png`, addressed absolutely.
+ *
+ * Next only serves `public/`, so `docs/` has no production URL of its own and
+ * the raw GitHub URL is what actually resolves to the committed file. Link
+ * previews need an absolute URL anyway, so this costs nothing and keeps a
+ * second copy of the same PNG out of the repository.
+ */
+const OG_IMAGE = "https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png";
+
 export const metadata: Metadata = {
   title: "Repo City",
   description: PROMISE,
-  openGraph: { title: "Repo City", description: PROMISE, type: "website" },
+  openGraph: {
+    title: "Repo City",
+    description: PROMISE,
+    type: "website",
+    url: "https://repo-city-five.vercel.app",
+    siteName: "Repo City",
+    images: [
+      {
+        url: OG_IMAGE,
+        width: 1600,
+        height: 1000,
+        alt: "A GitHub repository rendered as a 3D city: districts named after directories, construction cranes over open pull requests, and a power plant for CI.",
+      },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
