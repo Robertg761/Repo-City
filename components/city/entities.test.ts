@@ -110,7 +110,9 @@ describe("the dev fixture", () => {
     expect(devCity.districts).toHaveLength(4);
     expect(devCity.buildings.length).toBeGreaterThanOrEqual(55);
     expect(devCity.buildings.length).toBeLessThanOrEqual(70);
-    expect(devCity.landmarks).toHaveLength(5);
+    // Five landmark types, plus the row of power stations that carries the
+    // CI states the main plant does not show.
+    expect(devCity.landmarks).toHaveLength(9);
     expect(devCity.vehicles.count).toBe(12);
   });
 
@@ -122,13 +124,21 @@ describe("the dev fixture", () => {
   });
 
   it("covers every landmark type", () => {
-    expect(devCity.landmarks.map((l) => l.landmarkType).sort()).toEqual([
+    expect([...new Set(devCity.landmarks.map((l) => l.landmarkType))].sort()).toEqual([
       "civic",
       "fire",
       "info",
       "power",
       "station",
     ]);
+  });
+
+  it("covers every CI state the power station can be in", () => {
+    const states = devCity.landmarks
+      .filter((l) => l.landmarkType === "power")
+      .map((l) => l.state)
+      .sort();
+    expect(states).toEqual(["failing", "healthy", "none", "recent-failure", "unknown"]);
   });
 
   it("has landmark-file buildings for the civic look", () => {

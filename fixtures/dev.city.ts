@@ -284,8 +284,63 @@ function buildBuildings(): Building[] {
   return raw.map((b, index) => ({ ...b, appearAt: appearAt.get(index) ?? 420 }));
 }
 
+/**
+ * The four CI states the main power station does not show. They stand in a
+ * row along the northern edge, outside the road grid, so the fixture's whole
+ * job -- every visual state the renderer can draw, exactly once -- holds for
+ * `RepoMetrics["ci"]["state"]` too (PLAN.md section 14). A real city only
+ * ever has one power landmark.
+ */
+const POWER_STATES: { state: string; at: number; title: string; reason: string }[] = [
+  {
+    state: "healthy",
+    at: -48,
+    title: "Power Station (healthy)",
+    reason: "The latest run of every workflow succeeded.",
+  },
+  {
+    state: "failing",
+    at: -16,
+    title: "Power Station (failing)",
+    reason: "More than two in five of the last fifty runs failed.",
+  },
+  {
+    state: "unknown",
+    at: 16,
+    title: "Power Station (unknown)",
+    reason: "A CI provider was detected, but no completed run was found.",
+  },
+  {
+    state: "none",
+    at: 48,
+    title: "Substation (no CI)",
+    reason: "No continuous integration was detected, which is not a fault.",
+  },
+];
+
 function buildLandmarks(): Landmark[] {
+  const utilities: Landmark[] = POWER_STATES.map((spec, index) => ({
+    id: `landmark-power-${spec.state}`,
+    kind: "landmark",
+    landmarkType: "power",
+    level: 2,
+    state: spec.state,
+    position: [spec.at, 0, -63],
+    rotationY: 0,
+    title: spec.title,
+    subtitle: "GitHub Actions",
+    description: "A power station in one of the states CI can report.",
+    reason: spec.reason,
+    sourceUrl: "https://github.com/sample/repo-city/actions",
+    visualState: spec.state,
+    // Two thirds of the natural plot: a row of five plants would otherwise
+    // be wider than the city they stand next to.
+    size: [11.5, 9, 8],
+    appearAt: 1820 + index * 30,
+  }));
+
   return [
+    ...utilities,
     {
       id: "landmark-civic",
       kind: "landmark",

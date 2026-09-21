@@ -21,7 +21,7 @@
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { AdditiveBlending, type Mesh, type MeshBasicMaterial } from "three";
+import type { Mesh, MeshBasicMaterial } from "three";
 import type { Incident } from "@/types/city";
 import {
   CONCRETE,
@@ -34,7 +34,7 @@ import {
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
-import { BlinkLight, Smoke } from "./Landmark";
+import { Beacon, BlinkLight, Smoke } from "./effects";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 
@@ -173,63 +173,6 @@ function HazardRing({
         toneMapped={false}
       />
     </mesh>
-  );
-}
-
-/**
- * A blinking lamp on a slim mast, with a soft additive halo so the blink
- * survives being three pixels wide. No point light: twelve incidents with a
- * light each would be twelve lights in every material in the city.
- */
-function Beacon({
-  position,
-  color,
-  rate = 2.4,
-  height = 4,
-  glowRadius = 0.9,
-}: {
-  position: [number, number, number];
-  color: string;
-  rate?: number;
-  height?: number;
-  glowRadius?: number;
-}) {
-  const glow = useRef<Mesh>(null);
-
-  useFrame(({ clock }) => {
-    const mesh = glow.current;
-    if (!mesh) return;
-    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * rate * Math.PI);
-    (mesh.material as MeshBasicMaterial).opacity = 0.1 + pulse * 0.3;
-    const scale = 0.8 + pulse * 0.4;
-    mesh.scale.setScalar(scale);
-  });
-
-  return (
-    <group position={position}>
-      <mesh position-y={height / 2} castShadow>
-        <cylinderGeometry args={[0.1, 0.14, height, 6]} />
-        <meshStandardMaterial color="#9aa0a0" roughness={0.6} metalness={0.25} />
-      </mesh>
-      {/* A small hood over the lamp, so the mast reads as equipment rather
-          than as a pin stuck in the road. */}
-      <mesh position-y={height + 0.62} castShadow>
-        <boxGeometry args={[0.7, 0.12, 0.42]} />
-        <meshStandardMaterial color="#9aa0a0" roughness={0.6} metalness={0.25} />
-      </mesh>
-      <BlinkLight position={[0, height + 0.24, 0]} color={color} rate={rate} radius={0.32} />
-      <mesh ref={glow} position-y={height + 0.24}>
-        <sphereGeometry args={[glowRadius, 12, 10]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.22}
-          depthWrite={false}
-          blending={AdditiveBlending}
-          toneMapped={false}
-        />
-      </mesh>
-    </group>
   );
 }
 

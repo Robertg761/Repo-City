@@ -21,7 +21,7 @@
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group, Mesh, MeshStandardMaterial } from "three";
+import type { Group, MeshStandardMaterial } from "three";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import type { Landmark } from "@/types/city";
 import {
@@ -36,6 +36,7 @@ import {
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
+import { Beacon, BlinkLight, Smoke, Sparks } from "./effects";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 
@@ -47,111 +48,45 @@ interface Skin {
 }
 
 /**
- * A rising column of puffs, used by the power plant and the major incident.
- * `height` and `puffs` are what turn a chimney's wisp into the smoke column a
- * viewer can spot from the overview camera (PLAN.md sections 11, 14).
+ * CI as the city's power infrastructure (PLAN.md section 14). `state` is
+ * exactly `RepoMetrics["ci"]["state"]`, and each value has to read from the
+ * overview without ever implying a failure the analysis did not find:
+ *
+ *   healthy         three clean stacks, a lit hall, a green board, and the
+ *                   occasional harmless arc across the switchyard
+ *   recent-failure  an amber beacon over the hall, one stack venting, sparks
+ *   failing         a red beacon, two stacks venting dark smoke, the third
+ *                   dead and leaning, dim unsteady windows
+ *   unknown         the plant, running, with an unlit board: there is a CI
+ *                   provider but no completed run to report
+ *   none            no plant at all, just the substation that keeps the
+ *                   lights on. Section 14: do not imply failure.
  */
-export function Smoke({
-  origin,
-  color = "#cfd2d4",
-  rate = 1,
-  height = 7,
-  spread = 0.8,
-  radius = 0.8,
-  puffs = 3,
-  opacity = 0.55,
-}: {
-  origin: [number, number, number];
-  color?: string;
-  rate?: number;
-  height?: number;
-  spread?: number;
-  radius?: number;
-  puffs?: number;
-  opacity?: number;
-}) {
-  const meshes = useRef<(Mesh | null)[]>([]);
-
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime * rate;
-    const list = meshes.current;
-    for (let i = 0; i < list.length; i++) {
-      const puff = list[i];
-      if (!puff) continue;
-      const phase = (t + i / puffs) % 1;
-      puff.position.set(
-        origin[0] + Math.sin(phase * 3 + i) * spread * phase,
-        origin[1] + phase * height,
-        origin[2] + Math.cos(phase * 2.4 + i) * spread * phase,
-      );
-      // Puffs keep growing as they rise, so the column widens with height the
-      // way a real plume does rather than reading as a string of beads.
-      puff.scale.setScalar(0.5 + phase * 1.6);
-      const material = puff.material as MeshStandardMaterial;
-      material.opacity = opacity * (1 - phase * 0.92);
-    }
-  });
-
-  return (
-    <group>
-      {Array.from({ length: puffs }, (_, i) => (
-        <mesh
-          key={i}
-          ref={(mesh) => {
-            meshes.current[i] = mesh;
-          }}
-          position={origin}
-        >
-          <sphereGeometry args={[radius, 10, 8]} />
-          <meshStandardMaterial
-            color={color}
-            transparent
-            opacity={opacity}
-            roughness={1}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/** A blinking emergency or warning lamp. */
-export function BlinkLight({
-  position,
-  color,
-  rate = 2.4,
-  radius = 0.34,
-}: {
-  position: [number, number, number];
-  color: string;
-  rate?: number;
-  radius?: number;
-}) {
-  const ref = useRef<Mesh>(null);
-
-  useFrame(({ clock }) => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * rate * Math.PI);
-    const material = mesh.material as MeshStandardMaterial;
-    material.emissiveIntensity = 0.25 + pulse * 2.6;
-    mesh.scale.setScalar(0.85 + pulse * 0.25);
-  });
-
-  return (
-    <mesh ref={ref} position={position}>
-      <sphereGeometry args={[radius, 10, 8]} />
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1} toneMapped={false} />
-    </mesh>
-  );
-}
-
 function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const state = landmark.state;
-  const troubled = state === "recent-failure" || state === "failing";
-  const stacks = state === "none" ? 0 : state === "unknown" ? 2 : 3;
-  const lean = state === "failing" ? 0.06 : 0;
+  const failing = state === "failing";
+  const recent = state === "recent-failure";
+  const troubled = failing || recent;
+  const bare = state === "none";
+  const windows = useRef<MeshStandardMaterial>(null);
+
+  // A failing plant's lights are unsteady; every other state holds a level.
+  useFrame(({ clock }) => {
+    const material = windows.current;
+    if (!material || !failing) return;
+    const t = clock.elapsedTime;
+    const dip = Math.sin(t * 9.1) * Math.sin(t * 2.7) > 0.55 ? 0.06 : 1;
+    material.emissiveIntensity = (0.12 + skin.glow * 0.5) * dip;
+  });
+
+  const stackColor = mix(skin.wall, "#ffffff", 0.2);
+  const board = failing
+    ? HAZARD_RED
+    : recent
+      ? WARNING_ORANGE
+      : state === "healthy"
+        ? "#5fd08a"
+        : "#7c8489";
 
   return (
     <group>
@@ -160,45 +95,147 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
         <meshStandardMaterial color={skin.roof} roughness={0.95} />
       </mesh>
 
-      <mesh position={[-2.5, 3, 0]} castShadow receiveShadow>
-        <boxGeometry args={[9, 5, 7.5]} />
-        <meshStandardMaterial color={skin.wall} roughness={0.8} />
-      </mesh>
-      <mesh position={[-2.5, 5.9, 0]} castShadow>
-        <boxGeometry args={[9.4, 0.9, 7.9]} />
-        <meshStandardMaterial color={skin.roof} roughness={0.85} />
-      </mesh>
-      <mesh position={[-2.5, 3, 3.85]}>
-        <boxGeometry args={[7.4, 1.6, 0.12]} />
-        <meshStandardMaterial
-          color={WINDOW_COLOR}
-          emissive={WINDOW_COLOR}
-          emissiveIntensity={troubled ? 0.15 : 0.35 + skin.glow}
-          toneMapped={false}
-        />
-      </mesh>
+      {/* The turbine hall and its stacks. A repository with no CI keeps the
+          substation below and loses these. */}
+      {!bare && (
+        <>
+          <mesh position={[-2.5, 3, 0]} castShadow receiveShadow>
+            <boxGeometry args={[9, 5, 7.5]} />
+            <meshStandardMaterial color={skin.wall} roughness={0.8} />
+          </mesh>
+          <mesh position={[-2.5, 5.9, 0]} castShadow>
+            <boxGeometry args={[9.4, 0.9, 7.9]} />
+            <meshStandardMaterial color={skin.roof} roughness={0.85} />
+          </mesh>
+          <mesh position={[-2.5, 3, 3.85]}>
+            <boxGeometry args={[7.4, 1.6, 0.12]} />
+            <meshStandardMaterial
+              ref={windows}
+              color={WINDOW_COLOR}
+              emissive={WINDOW_COLOR}
+              emissiveIntensity={troubled ? 0.12 + skin.glow * 0.5 : 0.35 + skin.glow}
+              toneMapped={false}
+            />
+          </mesh>
 
-      {Array.from({ length: stacks }, (_, i) => (
-        <group key={i} position={[4 + (i % 2) * 3.4, 0, -2.4 + i * 2.2]} rotation-z={lean}>
-          <mesh position-y={4.4} castShadow>
-            <cylinderGeometry args={[0.95, 1.25, 8.4, 10]} />
-            <meshStandardMaterial color={mix(skin.wall, "#ffffff", 0.2)} roughness={0.85} />
+          {[0, 1, 2].map((i) => {
+            // The third stack is the one that goes cold when CI is failing.
+            const dead = failing && i === 2;
+            return (
+              <group
+                key={i}
+                position={[4 + (i % 2) * 3.4, 0, -2.4 + i * 2.2]}
+                rotation-z={dead ? 0.07 : 0}
+              >
+                <mesh position-y={4.4} castShadow>
+                  <cylinderGeometry args={[0.95, 1.25, 8.4, 10]} />
+                  <meshStandardMaterial
+                    color={dead ? mix(stackColor, "#6d6660", 0.55) : stackColor}
+                    roughness={0.85}
+                  />
+                </mesh>
+                <mesh position-y={7.8}>
+                  <cylinderGeometry args={[1, 1, 0.7, 10]} />
+                  <meshStandardMaterial color={HAZARD_RED} roughness={0.7} />
+                </mesh>
+              </group>
+            );
+          })}
+        </>
+      )}
+
+      {/* The switchyard: transformers, a pylon and the status board. This is
+          the whole landmark when no CI was detected. */}
+      <group position={[bare ? 0 : 5.6, 0, 3.4]}>
+        {[-1.9, 1.9].map((x) => (
+          <group key={x} position={[x, 0, 0]}>
+            <mesh position-y={1.2} castShadow receiveShadow>
+              <boxGeometry args={[2.4, 1.8, 2.2]} />
+              <meshStandardMaterial
+                color={mix(skin.roof, "#7e8b90", 0.5)}
+                roughness={0.7}
+                metalness={0.2}
+              />
+            </mesh>
+            {[-0.6, 0.6].map((o) => (
+              <mesh key={o} position={[o, 2.5, 0]} castShadow>
+                <cylinderGeometry args={[0.16, 0.2, 1.2, 7]} />
+                <meshStandardMaterial color={mix(CONCRETE, "#ffffff", 0.3)} roughness={0.5} />
+              </mesh>
+            ))}
+          </group>
+        ))}
+        <mesh position-y={3.2} castShadow>
+          <boxGeometry args={[0.24, 6, 0.24]} />
+          <meshStandardMaterial color="#8d9497" roughness={0.6} metalness={0.3} />
+        </mesh>
+        {[4.6, 5.6].map((y) => (
+          <mesh key={y} position-y={y} castShadow>
+            <boxGeometry args={[4.4, 0.18, 0.18]} />
+            <meshStandardMaterial color="#8d9497" roughness={0.6} metalness={0.3} />
           </mesh>
-          <mesh position-y={7.8}>
-            <cylinderGeometry args={[1, 1, 0.7, 10]} />
-            <meshStandardMaterial color={HAZARD_RED} roughness={0.7} />
-          </mesh>
-        </group>
-      ))}
+        ))}
+
+        <mesh position={[0, 1.5, 1.9]} castShadow>
+          <boxGeometry args={[1.5, 0.9, 0.14]} />
+          <meshStandardMaterial color={mix(skin.roof, "#2f3a40", 0.7)} roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 1.5, 2.02]}>
+          <sphereGeometry args={[0.24, 10, 8]} />
+          <meshStandardMaterial
+            color={board}
+            emissive={board}
+            // Unlit for `unknown` and `none`: nothing to report is not a fault.
+            emissiveIntensity={state === "unknown" || bare ? 0 : 1.6}
+            toneMapped={false}
+          />
+        </mesh>
+      </group>
+
+      {/* Healthy: an occasional arc across the switchyard, the "subtle
+          electrical effect" of section 14, and nothing else. */}
+      {state === "healthy" && (
+        <Sparks position={[5.6, 5.2, 3.4]} color="#cfe8ff" rate={0.11} spread={1.4} count={3} />
+      )}
 
       {troubled && (
         <>
-          <BlinkLight
-            position={[-2.5, 6.9, 0]}
-            color={state === "failing" ? HAZARD_RED : WARNING_ORANGE}
-            rate={state === "failing" ? 3.2 : 1.6}
+          <Beacon
+            position={[-2.5, 6.4, 0]}
+            color={failing ? HAZARD_RED : WARNING_ORANGE}
+            rate={failing ? 3.2 : 1.6}
+            height={1.4}
+            glowRadius={failing ? 1.5 : 1.3}
           />
-          <Smoke origin={[4, 8.4, -2.4]} rate={state === "failing" ? 0.55 : 0.32} />
+          <Sparks
+            position={[5.6, 4.8, 3.4]}
+            color={failing ? "#ffd9a8" : "#cfe8ff"}
+            rate={failing ? 0.75 : 0.4}
+            spread={1.5}
+            count={5}
+          />
+          <Smoke
+            origin={[4, 8.6, -2.4]}
+            color={failing ? "#5e5b57" : "#8d8b87"}
+            rate={failing ? 0.42 : 0.3}
+            height={failing ? 15 : 11}
+            spread={1.5}
+            radius={0.85}
+            puffs={failing ? 7 : 5}
+            opacity={failing ? 0.5 : 0.36}
+          />
+          {failing && (
+            <Smoke
+              origin={[7.4, 8.6, -0.2]}
+              color="#6b6864"
+              rate={0.34}
+              height={13}
+              spread={1.6}
+              radius={0.8}
+              puffs={6}
+              opacity={0.42}
+            />
+          )}
         </>
       )}
     </group>
