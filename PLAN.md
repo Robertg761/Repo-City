@@ -2969,7 +2969,7 @@ export interface RepoMetrics {
   archived: boolean;
 }
 export interface RankedIssue extends IssueSummary { score: number; state: IncidentState; reason: string; relatedPath: string | null }
-export interface RankedPull extends PullSummary { score: number; state: ConstructionState; reason: string }
+export interface RankedPull extends Omit<PullSummary, "state"> { score: number; state: ConstructionState; reason: string }  // "completed" means merged; other states mean open
 
 export interface DistrictPlan { id: string; sourcePath: string; name: string; purpose: string | null; fileCount: number; weight: number }
 export interface BuildingPlan {
