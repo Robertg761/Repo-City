@@ -54,6 +54,24 @@ export default function City({ city }: { city: CityModel }) {
 
   const size = city.bounds.size;
 
+  /**
+   * Where each district's label hangs. A district full of eighteen unit
+   * towers needs its name higher than a district of sheds, or the DOM label
+   * lands across a facade (PLAN.md section 8).
+   */
+  const labelHeights = useMemo(() => {
+    const tallest = new Map<string, number>();
+    for (const building of city.buildings) {
+      const top = building.position[1] + building.size[1];
+      if (top > (tallest.get(building.districtId) ?? 0)) tallest.set(building.districtId, top);
+    }
+    const heights = new Map<string, number>();
+    for (const district of city.districts) {
+      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, 12));
+    }
+    return heights;
+  }, [city]);
+
   return (
     <RevealContext.Provider value={clock}>
       <color attach="background" args={[atmosphere.background]} />
@@ -71,7 +89,15 @@ export default function City({ city }: { city: CityModel }) {
       <Terrain size={size} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
-        <DistrictGround key={district.id} district={district} atmosphere={atmosphere} />
+        <DistrictGround
+          key={district.id}
+          district={district}
+          atmosphere={atmosphere}
+          labelY={labelHeights.get(district.id) ?? 12}
+          // The overview sits at about 1.45 times the city's side, so a label
+          // scaled off `bounds.size` reads the same in a town and a metropolis.
+          labelScale={size * 0.72}
+        />
       ))}
 
       <Roads roads={city.roads} atmosphere={atmosphere} />
