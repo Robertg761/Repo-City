@@ -1,0 +1,170 @@
+{
+  "summary": "Atom is an archived Electron text editor. src holds the editor core and the main process; the bundled first-party packages in packages are ordinary Atom packages that ship with the app. spec, script, resources and static carry the tests, the build pipeline, the installer assets and the stylesheets. The repository was archived in January 2023.",
+  "districts": [
+    {
+      "sourcePath": "/src",
+      "name": "The Old Works",
+      "purpose": "The editor core: the Atom environment, text editor, workspace, package manager, config, and the Electron main process.",
+      "evidence": [
+        "src/atom-environment.js",
+        "src/text-editor.js",
+        "src/workspace.js",
+        "src/package-manager.js",
+        "src/main-process/atom-application.js",
+        "src/config.js"
+      ]
+    },
+    {
+      "sourcePath": "/packages",
+      "name": "The Bundled Quarter",
+      "purpose": "First-party packages shipped inside the app: themes, syntax bundles, git diff, the welcome screen and the about pane.",
+      "evidence": [
+        "packages/one-dark-ui",
+        "packages/one-light-syntax",
+        "packages/git-diff",
+        "packages/welcome",
+        "packages/about",
+        "packages/line-ending-selector"
+      ]
+    },
+    {
+      "sourcePath": "/spec",
+      "name": "Proving Grounds",
+      "purpose": "The Jasmine suite: one spec per core module, plus main-process and integration specs and a large fixture library.",
+      "evidence": [
+        "spec/workspace-spec.js",
+        "spec/main-process",
+        "spec/integration",
+        "spec/fixtures",
+        "spec/helpers"
+      ]
+    },
+    {
+      "sourcePath": "/script",
+      "name": "The Shipyard",
+      "purpose": "The packaging pipeline: builds, code signing for macOS and Windows, installer creation and the Azure Pipelines definitions.",
+      "evidence": [
+        "script/lib/code-sign-on-mac.js",
+        "script/lib/code-sign-on-windows.js",
+        "script/lib/compress-artifacts.js",
+        "script/vsts",
+        "script/update-server"
+      ]
+    },
+    {
+      "sourcePath": "/resources",
+      "name": "The Sign Works",
+      "purpose": "Platform assets: application icons and the per-platform installer resources for Windows, macOS and Linux.",
+      "evidence": [
+        "resources/app-icons",
+        "resources/win",
+        "resources/mac",
+        "resources/linux"
+      ]
+    },
+    {
+      "sourcePath": "/static",
+      "name": "The Façade",
+      "purpose": "The application stylesheets and UI variables that the editor chrome is drawn with.",
+      "evidence": ["static/atom-ui", "static/core-ui", "static/variables"]
+    },
+    {
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "Build instructions per platform, contribution guidance, the apm REST API notes and the RFC archive.",
+      "evidence": [
+        "docs/build-instructions/linux.md",
+        "docs/contributing.md",
+        "docs/apm-rest-api.md",
+        "docs/rfcs/000-template.md"
+      ]
+    },
+    {
+      "sourcePath": "/exports",
+      "name": "The Gateway",
+      "purpose": "The public require surface that packages import: atom itself and the safe Electron re-exports.",
+      "evidence": [
+        "exports/atom.js",
+        "exports/clipboard.js",
+        "exports/shell.js",
+        "exports/ipc.js"
+      ]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "src/atom-environment.js",
+      "role": "The global atom object: it wires together config, commands, packages, the workspace and every registry.",
+      "evidence": ["src/initialize-application-window.js", "exports/atom.js"]
+    },
+    {
+      "path": "src/text-editor.js",
+      "role": "The editor model: buffers, cursors, selections and decorations, independent of how it is drawn.",
+      "evidence": ["src/text-editor-component.js", "src/text-editor-registry.js"]
+    },
+    {
+      "path": "src/text-editor-component.js",
+      "role": "The rendering half of the editor, which draws the model into the custom element.",
+      "evidence": ["src/text-editor-element.js"]
+    },
+    {
+      "path": "src/workspace.js",
+      "role": "Panes, docks and the item model behind everything the user sees in the window.",
+      "evidence": ["src/workspace-element.js", "src/workspace-center.js"]
+    },
+    {
+      "path": "src/package-manager.js",
+      "role": "Loads, activates and deactivates packages; the mechanism that made the editor hackable.",
+      "evidence": ["packages/welcome", "src/config.js"]
+    },
+    {
+      "path": "src/main-process/atom-application.js",
+      "role": "The Electron main process: window lifecycle, protocol handling, menus and auto-update.",
+      "evidence": [
+        "src/main-process/main.js",
+        "src/main-process/atom-window.js",
+        "src/main-process/auto-update-manager.js"
+      ]
+    },
+    {
+      "path": "src/tree-sitter-language-mode.js",
+      "role": "Tree-sitter powered syntax highlighting and indentation, the later of the two grammar engines.",
+      "evidence": ["src/tree-sitter-grammar.js", "src/tree-indenter.js"]
+    },
+    {
+      "path": "src/config.js",
+      "role": "The settings system: schema, defaults, scoped overrides and persistence.",
+      "evidence": ["src/config-schema.js", "src/config-file.js"]
+    },
+    {
+      "path": "exports/atom.js",
+      "role": "The module every community package required; the stable API boundary of the editor.",
+      "evidence": ["src/atom-environment.js"]
+    },
+    {
+      "path": "script/lib",
+      "role": "The build library: dependency installation, transpilation, snapshotting, signing and artefact compression.",
+      "evidence": [
+        "script/lib/clean-dependencies.js",
+        "script/lib/check-chromedriver-version.js",
+        "script/verify-snapshot-script"
+      ]
+    }
+  ],
+  "strengths": [
+    "The extension model is applied to the editor itself: the bundled UI lives in packages as ordinary Atom packages rather than as special cases.",
+    "The public API is a real boundary, with exports re-exporting only the parts of Electron packages were meant to touch.",
+    "Specs mirror src file for file, so the intended unit of behaviour is easy to locate.",
+    "The whole release pipeline, including code signing and installers for three platforms, is checked into script rather than held by a build machine.",
+    "Build instructions, contribution guidance and an RFC archive are all committed in docs."
+  ],
+  "concerns": [
+    "The repository is archived and has not been pushed to since January 2023; nothing here will be fixed.",
+    "Close to 1,000 issues and pull requests were open at the point the project was archived, so the tracker is a snapshot, not a queue.",
+    "CI ran on Azure Pipelines definitions under script/vsts, which no longer run; .github holds only issue bots, so the repository has no working build today.",
+    "src is a flat directory of over 100 files where the editor, the workspace and the grammar engines all sit at the same level.",
+    "Two grammar engines, the legacy TextMate path and tree-sitter, coexist in the core."
+  ],
+  "organizationClarity": 0.68,
+  "model": "claude-opus-5 (curated during development)"
+}
