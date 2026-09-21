@@ -1,0 +1,1503 @@
+{
+  "repo": {
+    "owner": "sample",
+    "name": "repo-city",
+    "fullName": "sample/repo-city",
+    "url": "https://github.com/sample/repo-city",
+    "description": "A sample mid-size TypeScript monorepo used as Repo City's offline fixture.",
+    "defaultBranch": "main",
+    "headSha": "fixture0001",
+    "stars": 1284,
+    "forks": 96,
+    "openIssuesCount": 23,
+    "archived": false,
+    "isFork": false,
+    "createdAt": "2023-11-13T12:00:00.000Z",
+    "pushedAt": "2026-09-18T12:00:00.000Z",
+    "license": "MIT",
+    "primaryLanguage": "TypeScript",
+    "topics": [
+      "typescript",
+      "monorepo",
+      "tooling",
+      "sample"
+    ]
+  },
+  "metrics": {
+    "scale": {
+      "files": 479,
+      "dirs": 63,
+      "languages": {
+        "TypeScript": 331,
+        "Markdown": 58,
+        "JSON": 41,
+        "JavaScript": 29,
+        "CSS": 12,
+        "Shell": 8
+      },
+      "tier": "medium"
+    },
+    "activity": {
+      "commitsLast30d": 24,
+      "commitsLast90d": 71,
+      "activeContributors90d": 4,
+      "lastPushDaysAgo": 3,
+      "score": 0.78
+    },
+    "issues": {
+      "open": 18,
+      "ranked": [
+        {
+          "number": 412,
+          "title": "Router drops the pending transition after a fast refresh",
+          "url": "https://github.com/sample/repo-city/issues/412",
+          "createdAt": "2026-07-19T12:00:00.000Z",
+          "updatedAt": "2026-09-19T12:00:00.000Z",
+          "comments": 27,
+          "labels": [
+            "bug",
+            "priority-high",
+            "router"
+          ],
+          "author": "mara-quinn",
+          "bodyExcerpt": "Navigating twice within one tick leaves src/router/dispatch.ts holding a stale transition, so the second navigation never resolves.",
+          "score": 8.21,
+          "state": "major",
+          "reason": "An unresolved bug carrying a high-severity label with heavy discussion activity.",
+          "relatedPath": "src/router"
+        },
+        {
+          "number": 398,
+          "title": "Cache eviction races with concurrent resolve() calls",
+          "url": "https://github.com/sample/repo-city/issues/398",
+          "createdAt": "2026-08-11T12:00:00.000Z",
+          "updatedAt": "2026-09-12T12:00:00.000Z",
+          "comments": 8,
+          "labels": [
+            "bug",
+            "cache"
+          ],
+          "author": "devon-oyelaran",
+          "bodyExcerpt": "Two resolve() calls that miss the same key can both write, and the loser's entry is what survives in src/cache.",
+          "score": 5.4,
+          "state": "collision",
+          "reason": "An unresolved bug with ongoing discussion but no severity label.",
+          "relatedPath": "src/cache"
+        },
+        {
+          "number": 233,
+          "title": "Windows paths are normalized twice in the codemod package",
+          "url": "https://github.com/sample/repo-city/issues/233",
+          "createdAt": "2025-12-08T12:00:00.000Z",
+          "updatedAt": "2026-02-19T12:00:00.000Z",
+          "comments": 4,
+          "labels": [
+            "bug",
+            "platform:windows"
+          ],
+          "author": "ines-hartmann",
+          "bodyExcerpt": "packages/codemod/transform rewrites backslashes and then rewrites the result, producing doubled separators.",
+          "score": 4.05,
+          "state": "stale",
+          "reason": "An unresolved bug that has gone untouched for more than 180 days.",
+          "relatedPath": "packages/codemod"
+        },
+        {
+          "number": 441,
+          "title": "Document the plugin resolution order",
+          "url": "https://github.com/sample/repo-city/issues/441",
+          "createdAt": "2026-09-03T12:00:00.000Z",
+          "updatedAt": "2026-09-15T12:00:00.000Z",
+          "comments": 3,
+          "labels": [
+            "documentation",
+            "good first issue"
+          ],
+          "author": "sam-ibrahim",
+          "bodyExcerpt": "docs/reference/plugins.md never states whether presets or explicit plugins win when both register the same hook.",
+          "score": 2.11,
+          "state": "minor",
+          "reason": "An open issue that is not labelled as a defect.",
+          "relatedPath": "docs/reference"
+        },
+        {
+          "number": 447,
+          "title": "CLI --verbose prints the config path twice",
+          "url": "https://github.com/sample/repo-city/issues/447",
+          "createdAt": "2026-09-10T12:00:00.000Z",
+          "updatedAt": "2026-09-17T12:00:00.000Z",
+          "comments": 1,
+          "labels": [
+            "cli"
+          ],
+          "author": "ren-takahashi",
+          "bodyExcerpt": "Cosmetic duplicate line in the packages/cli startup banner.",
+          "score": 1.28,
+          "state": "minor",
+          "reason": "An open issue that is not labelled as a defect.",
+          "relatedPath": "packages/cli"
+        }
+      ],
+      "staleShare": 0.22
+    },
+    "pulls": {
+      "open": 5,
+      "ranked": [
+        {
+          "number": 452,
+          "title": "Rework the resolver cache around a single write path",
+          "url": "https://github.com/sample/repo-city/pull/452",
+          "createdAt": "2026-09-09T12:00:00.000Z",
+          "updatedAt": "2026-09-20T12:00:00.000Z",
+          "mergedAt": null,
+          "draft": false,
+          "comments": 14,
+          "labels": [
+            "core",
+            "needs-review"
+          ],
+          "author": "devon-oyelaran",
+          "state": "active",
+          "score": 9.4,
+          "reason": "Open and updated within the last 14 days, so the site is under active construction."
+        },
+        {
+          "number": 301,
+          "title": "Add an experimental streaming loader",
+          "url": "https://github.com/sample/repo-city/pull/301",
+          "createdAt": "2026-04-23T12:00:00.000Z",
+          "updatedAt": "2026-05-26T12:00:00.000Z",
+          "mergedAt": null,
+          "draft": true,
+          "comments": 6,
+          "labels": [
+            "experimental"
+          ],
+          "author": "ines-hartmann",
+          "state": "abandoned",
+          "score": 3.1,
+          "reason": "Open with no update for more than 60 days, so construction has been abandoned."
+        },
+        {
+          "number": 448,
+          "title": "Tighten the plugin option schema",
+          "url": "https://github.com/sample/repo-city/pull/448",
+          "createdAt": "2026-09-05T12:00:00.000Z",
+          "updatedAt": "2026-09-16T12:00:00.000Z",
+          "mergedAt": "2026-09-16T12:00:00.000Z",
+          "draft": false,
+          "comments": 9,
+          "labels": [
+            "core"
+          ],
+          "author": "mara-quinn",
+          "state": "completed",
+          "score": 7.2,
+          "reason": "Merged within the last 14 days, so the building is newly completed."
+        }
+      ],
+      "staleShare": 0.2
+    },
+    "ci": {
+      "state": "healthy",
+      "provider": "github-actions",
+      "failureRate": 0.04,
+      "recentRuns": 50
+    },
+    "tests": {
+      "strength": 2,
+      "signals": [
+        "tests/ directory",
+        "vitest devDependency",
+        "test script in package.json"
+      ]
+    },
+    "docs": {
+      "strength": 3,
+      "signals": [
+        "README.md",
+        "docs/ directory",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "examples/"
+      ],
+      "readmeLength": 3184
+    },
+    "tooling": {
+      "signals": [
+        "eslint config",
+        "prettier config",
+        "tsconfig.json",
+        "build script"
+      ]
+    },
+    "releases": {
+      "count": 9,
+      "lastDaysAgo": 34,
+      "cadence": "occasional"
+    },
+    "health": {
+      "score": 72,
+      "band": "Healthy",
+      "breakdown": {
+        "maintenance": 0.72,
+        "reliability": 0.7,
+        "documentation": 0.85,
+        "organization": 0.66,
+        "responsiveness": 0.55
+      }
+    },
+    "confidence": {
+      "level": "medium",
+      "reasons": [
+        "Repository tree, commits, issues, pull requests and workflows were all available.",
+        "This is a committed fixture, not a live survey, so the ceiling is Medium."
+      ]
+    },
+    "archived": false
+  },
+  "districts": [
+    {
+      "id": "d-src",
+      "sourcePath": "/src",
+      "name": "Core District",
+      "purpose": "Runtime entry points, routing, and the shared application core.",
+      "fileCount": 168,
+      "weight": 1
+    },
+    {
+      "id": "d-packages",
+      "sourcePath": "/packages",
+      "name": "Packages District",
+      "purpose": "Independently published workspace packages.",
+      "fileCount": 121,
+      "weight": 0.74
+    },
+    {
+      "id": "d-docs",
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "Guides, API reference, and architecture notes.",
+      "fileCount": 46,
+      "weight": 0.31
+    },
+    {
+      "id": "d-tests",
+      "sourcePath": "/tests",
+      "name": "Safety District",
+      "purpose": "Integration and regression suites.",
+      "fileCount": 88,
+      "weight": 0.42
+    },
+    {
+      "id": "d-examples",
+      "sourcePath": "/examples",
+      "name": "Demo District",
+      "purpose": "Runnable sample projects kept in sync with the core.",
+      "fileCount": 37,
+      "weight": 0.19
+    },
+    {
+      "id": "d-scripts",
+      "sourcePath": "/scripts",
+      "name": "Operations District",
+      "purpose": "Release, codegen, and maintenance tooling.",
+      "fileCount": 19,
+      "weight": 0.12
+    }
+  ],
+  "buildings": [
+    {
+      "id": "b-001",
+      "path": "README.md",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 95.53,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": "Project overview and quick start",
+      "landmark": "readme"
+    },
+    {
+      "id": "b-002",
+      "path": "package.json",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 95.03,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "JSON",
+      "role": "Workspace manifest and scripts",
+      "landmark": "manifest"
+    },
+    {
+      "id": "b-003",
+      "path": "CONTRIBUTING.md",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 88.27,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": "Contribution workflow",
+      "landmark": "contributing"
+    },
+    {
+      "id": "b-004",
+      "path": "CHANGELOG.md",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 87.38,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": "Release history",
+      "landmark": "changelog"
+    },
+    {
+      "id": "b-005",
+      "path": "Dockerfile",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 88.33,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "Dockerfile",
+      "role": "Container build for the dev server",
+      "landmark": "dockerfile"
+    },
+    {
+      "id": "b-006",
+      "path": "src/render/context.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 66.27,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-007",
+      "path": "src/dispatch.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 81.33,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-008",
+      "path": "src/engine.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 99.08,
+      "tier": 5,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": "Highest-traffic module in its district",
+      "landmark": null
+    },
+    {
+      "id": "b-009",
+      "path": "src/scheduler.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 61.85,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-010",
+      "path": "src/runtime/options.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 76.25,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-011",
+      "path": "src/index.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 64.7,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-012",
+      "path": "src/dispatch.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 60.04,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-013",
+      "path": "src/parse/options.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 93.24,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-014",
+      "path": "src/context.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 91.13,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-015",
+      "path": "src/traverse.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 79.99,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-016",
+      "path": "src/runtime/plugins.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 95.97,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-017",
+      "path": "src/errors.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 95.5,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-018",
+      "path": "src/traverse.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 75.49,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-019",
+      "path": "src/resolve/engine.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 85.41,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-020",
+      "path": "src/compile.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 77.78,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-021",
+      "path": "src/serialize.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 67.83,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-022",
+      "path": "src/index.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 99.97,
+      "tier": 5,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": "Highest-traffic module in its district",
+      "landmark": null
+    },
+    {
+      "id": "b-023",
+      "path": "src/registry.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 80.41,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-024",
+      "path": "src/router/context.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 93.99,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-025",
+      "path": "src/state/scheduler.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 78.86,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-026",
+      "path": "src/render/diagnostics.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 97.54,
+      "tier": 5,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": "Highest-traffic module in its district",
+      "landmark": null
+    },
+    {
+      "id": "b-027",
+      "path": "src/options.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 65.9,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-028",
+      "path": "src/plugins.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 65.51,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-029",
+      "path": "src/runtime/logger.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 69.55,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-030",
+      "path": "src/compile.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 61.25,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-031",
+      "path": "src/logger.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 96.98,
+      "tier": 5,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": "Highest-traffic module in its district",
+      "landmark": null
+    },
+    {
+      "id": "b-032",
+      "path": "src/io/engine.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 79.29,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-033",
+      "path": "src/scheduler.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 68.01,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-034",
+      "path": "src/pipeline.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 78.15,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-035",
+      "path": "src/resolve/dispatch.tsx",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 94.69,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-036",
+      "path": "src/render/pipeline.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 72.27,
+      "tier": 3,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-037",
+      "path": "src/runtime/traverse.ts",
+      "kind": "file",
+      "districtId": "d-src",
+      "score": 89.67,
+      "tier": 4,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-038",
+      "path": "packages/cli/transform",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 48.86,
+      "tier": 2,
+      "descendantCount": 23,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-039",
+      "path": "packages/core/shared",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 62.8,
+      "tier": 2,
+      "descendantCount": 4,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-040",
+      "path": "packages/adapter/transform",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 49.64,
+      "tier": 2,
+      "descendantCount": 23,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-041",
+      "path": "packages/config/devtools",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 61.24,
+      "tier": 2,
+      "descendantCount": 15,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-042",
+      "path": "packages/cli/types",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 83.67,
+      "tier": 3,
+      "descendantCount": 6,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-043",
+      "path": "packages/preset/shared",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 56.97,
+      "tier": 2,
+      "descendantCount": 4,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-044",
+      "path": "packages/codemod/devtools",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 73.4,
+      "tier": 3,
+      "descendantCount": 28,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-045",
+      "path": "packages/cli/bundler",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 50.21,
+      "tier": 2,
+      "descendantCount": 9,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-046",
+      "path": "packages/plugin/testing",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 80.02,
+      "tier": 3,
+      "descendantCount": 12,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-047",
+      "path": "packages/config/bundler",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 59.35,
+      "tier": 2,
+      "descendantCount": 4,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-048",
+      "path": "packages/adapter/bundler",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 54.9,
+      "tier": 2,
+      "descendantCount": 20,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-049",
+      "path": "packages/adapter/types",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 48.62,
+      "tier": 2,
+      "descendantCount": 7,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-050",
+      "path": "packages/codemod/schema",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 80.24,
+      "tier": 3,
+      "descendantCount": 17,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-051",
+      "path": "packages/cli/eslint",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 75.05,
+      "tier": 3,
+      "descendantCount": 20,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-052",
+      "path": "packages/config/shared",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 79.96,
+      "tier": 3,
+      "descendantCount": 16,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-053",
+      "path": "packages/preset/eslint",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 61.92,
+      "tier": 2,
+      "descendantCount": 18,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-054",
+      "path": "packages/plugin/runtime",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 84.03,
+      "tier": 4,
+      "descendantCount": 26,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-055",
+      "path": "packages/core/eslint",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 44.7,
+      "tier": 1,
+      "descendantCount": 20,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-056",
+      "path": "packages/codemod/bundler",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 76.61,
+      "tier": 3,
+      "descendantCount": 9,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-057",
+      "path": "packages/preset/bundler",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 65.07,
+      "tier": 2,
+      "descendantCount": 4,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-058",
+      "path": "packages/config/runtime",
+      "kind": "directory",
+      "districtId": "d-packages",
+      "score": 69.05,
+      "tier": 3,
+      "descendantCount": 3,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-059",
+      "path": "docs/glossary.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 43.81,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-060",
+      "path": "docs/migration.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 51.15,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-061",
+      "path": "docs/concepts/getting-started.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 45.85,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-062",
+      "path": "docs/guides/migration.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 58.23,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-063",
+      "path": "docs/concepts/architecture.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 46.93,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-064",
+      "path": "docs/configuration.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 19.11,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-065",
+      "path": "docs/recipes/api.mdx",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 27.31,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "MDX",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-066",
+      "path": "docs/getting-started.md",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 21.5,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "Markdown",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-067",
+      "path": "docs/reference/getting-started.mdx",
+      "kind": "file",
+      "districtId": "d-docs",
+      "score": 18.61,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "MDX",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-068",
+      "path": "tests/smoke.spec.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 42.35,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-069",
+      "path": "tests/cli.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 35.66,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-070",
+      "path": "tests/fixtures/smoke.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 53.51,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-071",
+      "path": "tests/e2e/parser.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 42.49,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-072",
+      "path": "tests/fixtures/cache.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 36.92,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-073",
+      "path": "tests/plugins.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 48.97,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-074",
+      "path": "tests/cache.spec.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 51.74,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-075",
+      "path": "tests/e2e/cli.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 35.68,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-076",
+      "path": "tests/snapshot.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 26.92,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-077",
+      "path": "tests/parser.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 39.36,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-078",
+      "path": "tests/e2e/regression.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 50.98,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-079",
+      "path": "tests/smoke.test.ts",
+      "kind": "file",
+      "districtId": "d-tests",
+      "score": 63.74,
+      "tier": 2,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-080",
+      "path": "examples/minimal/server",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 12.76,
+      "tier": 1,
+      "descendantCount": 21,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-081",
+      "path": "examples/monorepo/server",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 25.78,
+      "tier": 1,
+      "descendantCount": 24,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-082",
+      "path": "examples/monorepo/shared",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 19.25,
+      "tier": 1,
+      "descendantCount": 9,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-083",
+      "path": "examples/minimal/shared",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 13.63,
+      "tier": 1,
+      "descendantCount": 3,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-084",
+      "path": "examples/monorepo/worker",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 28.23,
+      "tier": 1,
+      "descendantCount": 27,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-085",
+      "path": "examples/with-typescript/server",
+      "kind": "directory",
+      "districtId": "d-examples",
+      "score": 50.81,
+      "tier": 2,
+      "descendantCount": 19,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-086",
+      "path": "scripts/ci/bench.ts",
+      "kind": "file",
+      "districtId": "d-scripts",
+      "score": 23.45,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-087",
+      "path": "scripts/ci/changelog.ts",
+      "kind": "file",
+      "districtId": "d-scripts",
+      "score": 7.77,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-088",
+      "path": "scripts/verify.mjs",
+      "kind": "file",
+      "districtId": "d-scripts",
+      "score": 22.84,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "JavaScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-089",
+      "path": "scripts/bench.mjs",
+      "kind": "file",
+      "districtId": "d-scripts",
+      "score": 9.63,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "JavaScript",
+      "role": null,
+      "landmark": null
+    },
+    {
+      "id": "b-090",
+      "path": "scripts/bench.ts",
+      "kind": "file",
+      "districtId": "d-scripts",
+      "score": 25.4,
+      "tier": 1,
+      "descendantCount": 0,
+      "language": "TypeScript",
+      "role": null,
+      "landmark": null
+    }
+  ],
+  "ai": {
+    "summary": "A TypeScript monorepo with a clearly separated runtime core, a set of published workspace packages, and documentation kept alongside runnable examples. Test and release tooling exist but cover the core more thoroughly than the packages.",
+    "districts": [
+      {
+        "sourcePath": "/src",
+        "name": "Core District",
+        "purpose": "Runtime entry points, routing, and the shared application core.",
+        "evidence": [
+          "src/render/context.tsx",
+          "src/dispatch.ts",
+          "src/engine.ts"
+        ]
+      },
+      {
+        "sourcePath": "/packages",
+        "name": "Packages District",
+        "purpose": "Independently published workspace packages.",
+        "evidence": [
+          "packages/cli/transform",
+          "packages/core/shared",
+          "packages/adapter/transform"
+        ]
+      },
+      {
+        "sourcePath": "/docs",
+        "name": "Knowledge District",
+        "purpose": "Guides, API reference, and architecture notes.",
+        "evidence": [
+          "docs/glossary.md",
+          "docs/migration.md",
+          "docs/concepts/getting-started.md"
+        ]
+      },
+      {
+        "sourcePath": "/tests",
+        "name": "Safety District",
+        "purpose": "Integration and regression suites.",
+        "evidence": [
+          "tests/smoke.spec.ts",
+          "tests/cli.test.ts",
+          "tests/fixtures/smoke.test.ts"
+        ]
+      },
+      {
+        "sourcePath": "/examples",
+        "name": "Demo District",
+        "purpose": "Runnable sample projects kept in sync with the core.",
+        "evidence": [
+          "examples/minimal/server",
+          "examples/monorepo/server",
+          "examples/monorepo/shared"
+        ]
+      },
+      {
+        "sourcePath": "/scripts",
+        "name": "Operations District",
+        "purpose": "Release, codegen, and maintenance tooling.",
+        "evidence": [
+          "scripts/ci/bench.ts",
+          "scripts/ci/changelog.ts",
+          "scripts/verify.mjs"
+        ]
+      }
+    ],
+    "importantModules": [
+      {
+        "path": "src/router",
+        "role": "Navigation and transition scheduling",
+        "evidence": [
+          "src/router"
+        ]
+      },
+      {
+        "path": "src/cache",
+        "role": "Resolution cache shared by every entry point",
+        "evidence": [
+          "src/cache"
+        ]
+      },
+      {
+        "path": "packages/cli",
+        "role": "Published command line entry point",
+        "evidence": [
+          "packages/cli"
+        ]
+      },
+      {
+        "path": "docs",
+        "role": "Guides and API reference",
+        "evidence": [
+          "docs"
+        ]
+      }
+    ],
+    "strengths": [
+      "Documentation covers guides, reference and runnable examples.",
+      "Continuous integration is green across the recent run window.",
+      "Workspace packages have clear, single-purpose boundaries."
+    ],
+    "concerns": [
+      "One high-severity router bug has been open for two months with heavy discussion.",
+      "A draft pull request has been untouched for roughly four months.",
+      "Test coverage signals are present but thinner around the packages directory."
+    ],
+    "organizationClarity": 0.66,
+    "model": "claude-opus-5"
+  },
+  "aiStatus": "ok",
+  "seed": "sample/repo-city@fixture0001",
+  "warnings": [],
+  "generatedAt": "2026-09-21T12:00:00.000Z",
+  "source": "fixture"
+}
