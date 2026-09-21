@@ -10,10 +10,10 @@
  * WORLD CONVENTIONS. The generator and the renderer agree on exactly these:
  *
  *   - +y is up, the ground plane is y = 0, and the city is a square centred on
- *     the origin whose side is `bounds.size` (about 112 units for a ten-file
+ *     the origin whose side is `bounds.size` (about 108 units for a ten-file
  *     repository, about 230 for a three-hundred-building one).
  *   - A building's `position` is the CENTRE OF ITS BASE and `size` is
- *     `[width, height, depth]`: footprints run 3.4 to 8 units, heights 3 to 18.
+ *     `[width, height, depth]`: footprints run 3.4 to 8.5 units, heights 4.2 to 23.
  *   - Roads are centrelines: `from`/`to` with a full carriageway `width`,
  *     4.5 units for a minor road and 7 for a major one.
  *   - `District.rect` uses `x`/`z` as the rect CENTRE with `w`/`d` as the full
