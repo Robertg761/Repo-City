@@ -1,48 +1,108 @@
 "use client";
 
 /**
- * Top-centre repository entry (PLAN.md section 40). Entering another repository
- * regenerates the city inside the same screen; it never navigates.
- * W0 ships the skeleton; W6 owns the finished control.
+ * Top-centre repository entry (PLAN.md sections 3 and 40).
+ *
+ * Before a city exists this is a floating pill with the empty-state hint under
+ * it. Once a city stands, it collapses to "Analyze another repo" and expands
+ * again in place: entering another repository happens inside the same screen,
+ * never through navigation (section 0.2).
  */
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useCityStore } from "@/store/useCityStore";
 
 export default function RepoInput() {
   const [value, setValue] = useState("");
+  const [expanded, setExpanded] = useState(true);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const phase = useCityStore((s) => s.phase);
+  const analysis = useCityStore((s) => s.analysis);
   const analyze = useCityStore((s) => s.actions.analyze);
 
   const busy = phase === "analyzing" || phase === "building";
-  const hasCity = phase === "ready";
+  const hasCity = analysis !== null;
+  const showInput = expanded || !hasCity;
+
+  // Collapse as soon as there is a city to look at; the input is in the way of
+  // the skyline otherwise. Adjusted during render rather than in an effect,
+  // which is the pattern React documents for "state derived from a change".
+  const [sawCity, setSawCity] = useState(hasCity);
+  if (sawCity !== hasCity) {
+    setSawCity(hasCity);
+    if (hasCity && expanded) setExpanded(false);
+  }
+
+  // Autofocus on load, and again whenever the user reopens the control.
+  useEffect(() => {
+    if (showInput && !busy) inputRef.current?.focus();
+  }, [showInput, busy]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
-    void analyze(value);
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      inputRef.current?.focus();
+      return;
+    }
+    void analyze(trimmed);
   };
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="absolute left-1/2 top-5 flex w-[min(30rem,80vw)] -translate-x-1/2 items-center gap-2 rounded-full border border-white/20 bg-black/40 p-1.5 pl-4 backdrop-blur"
-    >
-      <input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        placeholder={hasCity ? "Analyze another repo" : "Enter GitHub repository"}
-        aria-label="GitHub repository"
-        spellCheck={false}
-        className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/40 focus:outline-none"
-      />
-      <button
-        type="submit"
-        disabled={busy}
-        className="shrink-0 rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-slate-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {busy ? "Surveying" : "Survey"}
-      </button>
-    </form>
+    <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex flex-col items-center px-4">
+      {showInput ? (
+        <div className="pointer-events-auto flex w-full max-w-[30rem] flex-col items-center animate-fade-in">
+          <form
+            onSubmit={onSubmit}
+            className="glass flex w-full items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5"
+          >
+            <input
+              ref={inputRef}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && hasCity) setExpanded(false);
+              }}
+              placeholder="Enter a GitHub repository"
+              aria-label="GitHub repository"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={busy}
+              className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/45 focus:outline-none disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className="shrink-0 rounded-full bg-accent px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#1a1206] transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? "Surveying" : "Survey"}
+            </button>
+          </form>
+
+          <p className="mt-2 text-center text-xs text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+            <span className="text-white/55">Example </span>
+            <span className="font-mono text-white/80">github.com/facebook/react</span>
+          </p>
+
+          {/* Empty state, PLAN.md section 3. */}
+          {!hasCity && phase === "idle" ? (
+            <p className="mt-1 text-center text-xs text-white/65 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+              Paste any public GitHub repository and watch it become a city.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="glass hud-button pointer-events-auto animate-fade-in px-4 py-2"
+        >
+          Analyze another repo
+        </button>
+      )}
+    </div>
   );
 }

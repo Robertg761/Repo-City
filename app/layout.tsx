@@ -12,10 +12,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/** Description is PLAN.md section 69, the final product promise. */
+const PROMISE =
+  "Paste any public GitHub repository and watch it become a living 3D city. Code becomes architecture, pull requests become construction, CI becomes infrastructure, and unresolved issues leave visible scars on the world. Fly through the entire project without ever leaving one screen.";
+
 export const metadata: Metadata = {
   title: "Repo City",
-  description:
-    "Paste any public GitHub repository and watch it become a living 3D city, all on one screen.",
+  description: PROMISE,
+  openGraph: { title: "Repo City", description: PROMISE, type: "website" },
 };
 
 export const viewport: Viewport = {

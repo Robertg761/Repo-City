@@ -1,47 +1,169 @@
 "use client";
 
 /**
- * Top-left identity block and top-right health readout (PLAN.md section 40).
- * W0 ships the skeleton; W6 owns the finished HUD.
+ * Top-left identity block and top-right health card (PLAN.md sections 40, 23,
+ * 24, 25 and 19).
+ *
+ * The health readout is framed throughout as Repo City's visualisation of the
+ * repository, not an audit of it: the band names come from section 24, the
+ * confidence line from section 25, and an archived repository is called
+ * "Archived repository", never "bad repository" (section 19).
  */
 
+import { useState } from "react";
+import { describeRepository } from "@/lib/client/descriptors";
+import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
 import { useCityStore } from "@/store/useCityStore";
+
+const BAND_TONES: Record<RepoMetrics["health"]["band"], string> = {
+  Critical: "text-rose-300",
+  Struggling: "text-orange-300",
+  Mixed: "text-accent",
+  Healthy: "text-emerald-300",
+  Thriving: "text-emerald-200",
+};
+
+const CONFIDENCE_LABELS = { low: "Low", medium: "Medium", high: "High" } as const;
+
+/** PLAN.md section 23: the weights behind the score, shown when asked. */
+const BREAKDOWN: { key: keyof RepoMetrics["health"]["breakdown"]; label: string; weight: number }[] =
+  [
+    { key: "maintenance", label: "Maintenance", weight: 30 },
+    { key: "reliability", label: "Reliability infrastructure", weight: 25 },
+    { key: "documentation", label: "Documentation", weight: 20 },
+    { key: "organization", label: "Organization", weight: 15 },
+    { key: "responsiveness", label: "Responsiveness", weight: 10 },
+  ];
+
+function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const { health, confidence } = analysis.metrics;
+
+  return (
+    <div className="glass pointer-events-auto w-[15.5rem] p-4 text-right animate-fade-in">
+      <p className="eyebrow">City health</p>
+
+      <div className="mt-1 flex items-baseline justify-end gap-2">
+        <span className="text-5xl font-light leading-none tabular-nums text-white">
+          {health.score}
+        </span>
+        <span className={`text-sm font-medium ${BAND_TONES[health.band]}`}>{health.band}</span>
+      </div>
+
+      {/* Confidence with its reasons on hover or keyboard focus (section 25). */}
+      <div className="group relative mt-1 flex justify-end">
+        <button
+          type="button"
+          className="cursor-help text-[11px] text-white/60 underline decoration-dotted underline-offset-4 hover:text-white/90 focus-visible:text-white/90 focus:outline-none"
+        >
+          Confidence: {CONFIDENCE_LABELS[confidence.level]}
+        </button>
+        <div className="glass pointer-events-none absolute right-0 top-6 z-30 hidden w-64 p-3 text-left text-[11px] leading-relaxed text-white/75 group-hover:block group-focus-within:block">
+          <p className="eyebrow mb-1.5">How certain is this?</p>
+          <ul className="space-y-1">
+            {confidence.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap justify-end gap-1.5">
+        {describeRepository(analysis.metrics).map((chip) => (
+          <span key={chip} className="chip">
+            {chip}
+          </span>
+        ))}
+      </div>
+
+      {analysis.source === "fixture" ? (
+        <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-white/40">
+          Cached snapshot
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShowBreakdown((open) => !open)}
+        className="mt-3 text-[11px] text-white/55 transition hover:text-white focus-visible:text-white focus:outline-none"
+        aria-expanded={showBreakdown}
+      >
+        How is this scored? {showBreakdown ? "−" : "+"}
+      </button>
+
+      {showBreakdown ? (
+        <div className="mt-2 space-y-2 text-left">
+          {BREAKDOWN.map(({ key, label, weight }) => {
+            const value = Math.round((health.breakdown[key] ?? 0) * 100);
+            return (
+              <div key={key}>
+                <div className="flex items-baseline justify-between gap-2 text-[11px] text-white/65">
+                  <span>{label}</span>
+                  <span className="tabular-nums text-white/45">{weight}%</span>
+                </div>
+                <div className="mt-1 h-1 rounded-full bg-white/12">
+                  <div
+                    className="h-1 rounded-full bg-accent"
+                    style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          <p className="pt-1 text-[10px] leading-relaxed text-white/45">
+            Repo City turns public repository signals into a city. This is a visualization, not
+            a software audit.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function CityHUD() {
   const analysis = useCityStore((s) => s.analysis);
   const phase = useCityStore((s) => s.phase);
-  const health = analysis?.metrics.health ?? null;
-  const confidence = analysis?.metrics.confidence ?? null;
 
   return (
     <>
-      <div className="pointer-events-none absolute left-5 top-5 select-none">
-        <p className="text-xs font-semibold tracking-[0.35em] text-white/90 drop-shadow">
-          REPO CITY
+      <div className="pointer-events-none absolute left-4 top-4 z-20 max-w-[min(18rem,55vw)] select-none">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+          Repo City
         </p>
-        <p className="mt-1 text-sm text-white/70 drop-shadow">
-          {analysis?.repo.fullName ?? "no repository surveyed"}
-        </p>
+        {analysis ? (
+          <a
+            href={analysis.repo.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            /* An external link out to GitHub, not in-app navigation: the city
+               screen stays exactly where it is (PLAN.md section 0.2). */
+            className="pointer-events-auto mt-1 inline-block truncate text-sm text-white/85 underline decoration-white/25 underline-offset-4 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] transition hover:text-white hover:decoration-white/60"
+          >
+            {analysis.repo.fullName}
+          </a>
+        ) : (
+          <p className="mt-1 text-sm text-white/70 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+            {phase === "analyzing" ? "surveying repository" : "no repository surveyed"}
+          </p>
+        )}
         {analysis?.repo.archived ? (
-          <p className="mt-1 text-xs uppercase tracking-widest text-amber-200/90">
+          <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-accent drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
             Archived repository
           </p>
         ) : null}
       </div>
 
-      <div className="pointer-events-none absolute right-5 top-5 select-none text-right">
-        <p className="text-xs font-semibold tracking-[0.3em] text-white/70 drop-shadow">
-          CITY HEALTH
-        </p>
-        <p className="text-4xl font-light tabular-nums text-white drop-shadow">
-          {health ? health.score : phase === "analyzing" ? "··" : "--"}
-        </p>
-        {health ? (
-          <p className="text-xs uppercase tracking-widest text-white/70">{health.band}</p>
-        ) : null}
-        {confidence ? (
-          <p className="text-[11px] text-white/50">Confidence: {confidence.level}</p>
-        ) : null}
+      <div className="pointer-events-none absolute right-4 top-4 z-20 flex justify-end">
+        {analysis ? (
+          <HealthCard analysis={analysis} />
+        ) : (
+          <div className="glass w-[9.5rem] p-4 text-right">
+            <p className="eyebrow">City health</p>
+            <p className="mt-1 text-4xl font-light leading-none text-white/35">
+              {phase === "analyzing" || phase === "building" ? "··" : "––"}
+            </p>
+          </div>
+        )}
       </div>
     </>
   );
