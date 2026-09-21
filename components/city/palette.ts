@@ -109,8 +109,10 @@ export const RUST = "#9a7b5f";
 
 /** Hover brightens, selection pushes to a warm accent (PLAN.md section 42). */
 export function stateTint(base: string, hovered: boolean, selected: boolean): string {
-  if (selected) return mix(base, SELECT, 0.55);
-  if (hovered) return mix(base, HIGHLIGHT, 0.4);
+  // Enough to read at overview distance, not so much that the entity stops
+  // looking like a building: the ground ring carries the rest of the signal.
+  if (selected) return mix(base, SELECT, 0.38);
+  if (hovered) return mix(base, HIGHLIGHT, 0.28);
   return base;
 }
 
@@ -153,9 +155,11 @@ export function atmosphere(ambience: CityModel["ambience"], archived: boolean): 
 
   return {
     background,
-    // Heavy fog pulls the far plane in; light fog keeps the whole city crisp.
-    fogNearFactor: 1.5 - fog * 0.9,
-    fogFarFactor: 4.2 - fog * 2.3,
+    // Both planes are multiples of `bounds.size`, and the overview sits at
+    // about 1.75 of it: the near plane starts just short of the city so haze
+    // reads as depth rather than as a dirty window.
+    fogNearFactor: 2 - fog * 1.1,
+    fogFarFactor: 5.6 - fog * 2.6,
     sunColor: mix(COOL_SUN, WARM_SUN, warmth),
     // Floor of ~1.5 so a struggling city is still lit well enough to read.
     sunIntensity: 1.55 + warmth * 0.75 - fog * 0.25,

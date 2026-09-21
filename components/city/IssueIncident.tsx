@@ -131,7 +131,7 @@ function Fire({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
       <mesh ref={outer} position-y={0.8}>
-        <coneGeometry args={[0.8, 2, 7]} />
+        <coneGeometry args={[0.75, 2.6, 7]} />
         <meshStandardMaterial
           color="#f2803a"
           emissive="#ff6a1f"
@@ -140,7 +140,7 @@ function Fire({ position }: { position: [number, number, number] }) {
         />
       </mesh>
       <mesh ref={inner} position-y={0.66}>
-        <coneGeometry args={[0.55, 1.5, 6]} />
+        <coneGeometry args={[0.5, 1.9, 6]} />
         <meshStandardMaterial
           color="#ffd66b"
           emissive="#ffc14d"
@@ -148,7 +148,7 @@ function Fire({ position }: { position: [number, number, number] }) {
           toneMapped={false}
         />
       </mesh>
-      <pointLight position={[0, 1.4, 0]} color="#ff8a3c" intensity={14} distance={16} decay={2} />
+      <pointLight position={[0, 1.6, 0]} color="#ff8a3c" intensity={7} distance={11} decay={2} />
     </group>
   );
 }
@@ -182,7 +182,7 @@ export default function IssueIncident({
       {/* A dark patch under every incident: it reads from the overview. */}
       <mesh rotation-x={-Math.PI / 2} position-y={0.11}>
         <circleGeometry args={incident.state === "minor" ? [1.6, 18] : [2.9, 22]} />
-        <meshStandardMaterial color={mix("#4a4a46", marker, 0.18)} roughness={1} />
+        <meshStandardMaterial color={mix("#4c4f4b", marker, 0.1)} roughness={1} />
       </mesh>
 
       {incident.state === "minor" && (

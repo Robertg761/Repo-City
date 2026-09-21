@@ -154,8 +154,8 @@ export default function ConstructionSitePiece({
             />
           </mesh>
           <mesh rotation-x={-Math.PI / 2} position-y={0.08}>
-            <ringGeometry args={[SITE * 0.46, SITE * 0.5, 40]} />
-            <meshBasicMaterial color={HIGHLIGHT} transparent opacity={0.8} toneMapped={false} />
+            <ringGeometry args={[SITE * 0.38, SITE * 0.41, 40]} />
+            <meshBasicMaterial color={HIGHLIGHT} transparent opacity={0.35} toneMapped={false} />
           </mesh>
         </>
       ) : (

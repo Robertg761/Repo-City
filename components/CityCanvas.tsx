@@ -19,6 +19,7 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
 import CameraRig from "@/components/city/CameraRig";
+import { maxCameraDistance } from "@/components/city/entities";
 import Lighting from "@/components/city/Lighting";
 import Terrain from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
@@ -111,7 +112,8 @@ export default function CityCanvas() {
       <CameraControls
         makeDefault
         minDistance={10}
-        maxDistance={160}
+        // Far enough to frame the whole city, no further (PLAN.md section 5).
+        maxDistance={maxCameraDistance(city?.bounds.size ?? EMPTY_SIZE)}
         // Stop just short of the horizon so the camera can never slip under
         // the ground plane (PLAN.md section 5).
         maxPolarAngle={Math.PI * 0.48}

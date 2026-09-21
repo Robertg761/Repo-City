@@ -5,6 +5,7 @@ import {
   districtCenter,
   focusTargetFor,
   inspectionFraming,
+  maxCameraDistance,
   overviewFraming,
 } from "./entities";
 import { splitBuildings } from "./instances";
@@ -52,9 +53,15 @@ describe("framing", () => {
       const f = overviewFraming(size);
       const d = distance(f.position, f.target);
       expect(d).toBeGreaterThanOrEqual(MIN_DISTANCE);
-      expect(d).toBeLessThanOrEqual(MAX_DISTANCE);
+      expect(d).toBeLessThanOrEqual(maxCameraDistance(size));
       expect(f.position[1]).toBeGreaterThan(f.target[1]);
     }
+  });
+
+  it("never lets the zoom-out cap fall below the placeholder's 160 units", () => {
+    expect(maxCameraDistance(10)).toBe(MAX_DISTANCE);
+    expect(maxCameraDistance(128)).toBeGreaterThan(MAX_DISTANCE);
+    expect(maxCameraDistance(400)).toBeGreaterThan(maxCameraDistance(128));
   });
 
   it("looks down at roughly 45 to 55 degrees by default", () => {

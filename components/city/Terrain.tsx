@@ -41,7 +41,7 @@ export default function Terrain({ size, atmosphere }: TerrainProps) {
         onClick={clearSelection}
         onPointerMove={clearHover}
       >
-        <planeGeometry args={[size * 2.4, size * 2.4]} />
+        <planeGeometry args={[size * 2.2, size * 2.2]} />
         <meshStandardMaterial color={atmosphere.terrainColor} roughness={1} metalness={0} />
       </mesh>
 

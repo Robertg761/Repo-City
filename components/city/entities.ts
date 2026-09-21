@@ -31,6 +31,19 @@ const clamp = (n: number, lo: number, hi: number) => (n < lo ? lo : n > hi ? hi 
 
 /** Camera limits from `<CameraControls>` in `CityCanvas` (PLAN.md section 5). */
 export const MIN_DISTANCE = 10;
+
+/**
+ * "Prevent zooming so far away the city disappears" (section 5) has to be a
+ * function of the city: a 130 unit city cannot be framed from 160 units at a
+ * 35 degree field of view, and a hard cap there would leave the corners of
+ * every large repository permanently off screen. 160 stays the floor, which is
+ * the limit the placeholder scene shipped with.
+ */
+export function maxCameraDistance(size: number): number {
+  return Math.max(160, size * 1.9);
+}
+
+/** The cap used when no model is loaded. */
 export const MAX_DISTANCE = 160;
 
 export function focusTargetFor(city: CityModel, id: string): FocusTarget | null {
@@ -114,14 +127,25 @@ function place(target: Vec3, dir: Vec3, distance: number): Framing {
   };
 }
 
-/** The default city composition, recomputed from `bounds.size`. */
+/**
+ * The default city composition, recomputed from `bounds.size`.
+ *
+ * The factor is empirical for the 35 degree vertical field of view set in
+ * `CityCanvas` and for the corner-on view direction, which puts the city's
+ * diagonal across the screen: at `size * 1.6` a square city fills the frame
+ * with a little air around it.
+ */
 export function overviewFraming(size: number): Framing {
-  const distance = clamp(size * 0.62, MIN_DISTANCE + 14, MAX_DISTANCE - 5);
-  return place([0, Math.min(size * 0.04, 6), 0], OVERVIEW_DIR, distance);
+  const distance = clamp(size * 1.6, MIN_DISTANCE + 14, maxCameraDistance(size));
+  // The ground near the camera expands fast in screen space, so the aim point
+  // sits a little towards the camera: it keeps the near corner of the city in
+  // frame instead of spending the bottom of the screen on empty landscape.
+  const bias = size * 0.05;
+  return place([bias, Math.min(size * 0.02, 3), bias], OVERVIEW_DIR, distance);
 }
 
 /** A useful inspection distance for one entity, inside the camera limits. */
 export function inspectionFraming(focus: FocusTarget): Framing {
-  const distance = clamp(focus.radius * 3.1 + 8, MIN_DISTANCE + 2, MAX_DISTANCE - 20);
+  const distance = clamp(focus.radius * 3.4 + 12, MIN_DISTANCE + 2, MAX_DISTANCE - 20);
   return place(focus.lookAt, INSPECT_DIR, distance);
 }
