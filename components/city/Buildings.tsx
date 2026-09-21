@@ -49,7 +49,10 @@ function TierInstances({
   const hoveredId = useCityStore((s) => s.hoveredId);
   const selectedId = useCityStore((s) => s.selectedId);
 
-  const bands = useMemo(() => windowBands(group.buildings), [group]);
+  const bands = useMemo(
+    () => windowBands(group.buildings, 600, atmosphere.litWindowShare),
+    [group, atmosphere.litWindowShare],
+  );
   const baseColors = useMemo(
     () =>
       group.buildings.map((b) =>

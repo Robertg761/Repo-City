@@ -67,13 +67,25 @@ export interface WindowBand {
  * Lit window stripes: one thin emissive band per storey band, as a second
  * instanced mesh. Cheap, reads from the default camera, and invisible from
  * directly overhead, which is what a texture on a box cannot manage.
+ *
+ * `share` below 1 leaves some of them unlit: an archived repository's city
+ * keeps its shape but loses most of its lit windows (PLAN.md section 19).
  */
-export function windowBands(buildings: readonly Building[], cap = 600): WindowBand[] {
+export function windowBands(
+  buildings: readonly Building[],
+  cap = 600,
+  /** Share of bands to keep, 0..1. Dropped deterministically, never randomly. */
+  share = 1,
+): WindowBand[] {
   const bands: WindowBand[] = [];
+  const keep = share >= 1 ? 100 : Math.round(Math.max(0, share) * 100);
   for (let i = 0; i < buildings.length && bands.length < cap; i++) {
     const height = buildings[i].size[1];
     const count = Math.max(0, Math.min(3, Math.floor(height / 2.6)));
     for (let k = 0; k < count && bands.length < cap; k++) {
+      // A cheap stable hash of the band's address: the same city always goes
+      // dark in the same windows (PLAN.md section 35).
+      if ((i * 37 + k * 53 + ((i * i) % 11)) % 100 >= keep) continue;
       bands.push({
         buildingIndex: i,
         fraction: (k + 1) / (count + 1),

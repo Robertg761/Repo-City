@@ -131,6 +131,12 @@ export interface SceneAtmosphere {
   desaturation: number;
   /** 0..1 emissive strength for lit windows. */
   windowGlow: number;
+  /**
+   * 0..1 share of the window bands actually drawn. Brightness alone cannot
+   * say "half this office block went home": an archived city needs fewer lit
+   * windows, not only dimmer ones (PLAN.md section 19).
+   */
+  litWindowShare: number;
 }
 
 const COOL_SUN = "#cfe0ff";
@@ -169,5 +175,10 @@ export function atmosphere(ambience: CityModel["ambience"], archived: boolean): 
     terrainColor: desaturate(mix(COOL_TERRAIN, WARM_TERRAIN, warmth), desaturation),
     desaturation,
     windowGlow: clamp01(ambience.litWindowShare) * (archived ? 0.25 : 1),
+    // A live city keeps most of its bands whatever its activity; an archived
+    // one keeps a third of them, so the facades go quiet without going dark.
+    litWindowShare: archived
+      ? 0.3 + clamp01(ambience.litWindowShare) * 0.2
+      : 0.62 + clamp01(ambience.litWindowShare) * 0.38,
   };
 }
