@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { planDistricts } from "./districts";
-import { MAX_BUILDINGS, MIN_PER_DISTRICT, selectBuildings, tierForRank } from "./fileSelection";
+import {
+  LANDMARK_TIER,
+  MAX_BUILDINGS,
+  MIN_PER_DISTRICT,
+  TIER_SHARES,
+  selectBuildings,
+  tierForRank,
+} from "./fileSelection";
 import { pruneTree } from "./tree";
 import { archivedSnapshot } from "./__fixtures__/archived.snapshot";
 import { treeFromPaths } from "./__fixtures__/helpers";
@@ -175,16 +182,98 @@ describe("selectBuildings (PLAN.md section 9)", () => {
   });
 });
 
+/** How many buildings `tierForRank` puts in each tier, tier 1 first. */
+function histogram(total: number): number[] {
+  const counts = [0, 0, 0, 0, 0];
+  for (let rank = 0; rank < total; rank++) counts[tierForRank(rank, total) - 1] += 1;
+  return counts;
+}
+
 describe("tierForRank", () => {
   it("is a pyramid: a few towers, many low buildings", () => {
     const total = 200;
-    const counts = new Map<number, number>();
-    for (let rank = 0; rank < total; rank++) {
-      const tier = tierForRank(rank, total);
-      counts.set(tier, (counts.get(tier) ?? 0) + 1);
-    }
-    expect(counts.get(5)!).toBeLessThan(counts.get(1)!);
+    const counts = histogram(total);
+    expect(counts[4]).toBeLessThan(counts[0]);
     expect(tierForRank(0, total)).toBe(5);
     expect(tierForRank(total - 1, total)).toBe(1);
+  });
+
+  it("follows the rank quantiles for a city of any size", () => {
+    for (const total of [40, 90, 150, 231, 300]) {
+      const counts = histogram(total);
+      expect(counts.reduce((a, b) => a + b, 0)).toBe(total);
+      [1, 2, 3, 4, 5].forEach((tier) => {
+        const share = counts[tier - 1] / total;
+        expect(
+          Math.abs(share - TIER_SHARES[tier as keyof typeof TIER_SHARES]),
+          `tier ${tier} of ${total} is ${(share * 100).toFixed(1)}%`,
+        ).toBeLessThan(0.04);
+      });
+    }
+  });
+
+  it("never turns the skyline upside down", () => {
+    for (let total = 1; total <= 320; total++) {
+      const counts = histogram(total);
+      expect(counts.reduce((a, b) => a + b, 0)).toBe(total);
+      // Under five buildings there is no pyramid to speak of: a one-file
+      // repository is a single tower and a two-file one is a tower and a shed.
+      if (total < 5) continue;
+      for (let tier = 5; tier > 1; tier--) {
+        expect(counts[tier - 1], `total ${total}, tier ${tier}`).toBeLessThanOrEqual(
+          counts[tier - 2],
+        );
+      }
+    }
+  });
+
+  it("gives a city of twenty or more buildings at least two towers", () => {
+    for (let total = 20; total <= 320; total += 7) {
+      expect(histogram(total)[4], `total ${total}`).toBeGreaterThanOrEqual(2);
+    }
+    // Below that one tower is enough, but there is always one.
+    for (let total = 1; total < 20; total++) {
+      expect(histogram(total)[4], `total ${total}`).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+describe("tiers on a real selection", () => {
+  it("keeps the 5,000 entry tree on the quantiles, landmarks aside", () => {
+    const { buildings } = selectFor(syntheticTree(5000));
+    const ranked = buildings.filter((b) => !b.landmark);
+    expect(ranked.length).toBeGreaterThan(75);
+
+    const counts = [0, 0, 0, 0, 0];
+    for (const building of ranked) counts[building.tier - 1] += 1;
+    [1, 2, 3, 4, 5].forEach((tier) => {
+      const share = counts[tier - 1] / ranked.length;
+      expect(
+        Math.abs(share - TIER_SHARES[tier as keyof typeof TIER_SHARES]),
+        `tier ${tier} is ${(share * 100).toFixed(1)}%`,
+      ).toBeLessThan(0.04);
+    });
+  });
+
+  it("keeps the root landmark files off the skyline and under the town hall", () => {
+    const { buildings } = selectFor(
+      treeFromPaths([
+        "README.md",
+        "package.json",
+        "CONTRIBUTING.md",
+        "src/index.ts",
+        "src/router.ts",
+        "docs/guide.md",
+      ]),
+    );
+    const landmarks = buildings.filter((b) => b.landmark);
+    expect(landmarks.length).toBeGreaterThan(0);
+    for (const landmark of landmarks) {
+      expect(landmark.tier).toBe(LANDMARK_TIER[landmark.landmark!]);
+      // The town hall is the tallest thing on the plaza.
+      expect(landmark.tier).toBeLessThanOrEqual(3);
+    }
+    // A landmark file no longer eats the tallest tier from the real code.
+    expect(buildings.some((b) => !b.landmark && b.tier === 5)).toBe(true);
   });
 });

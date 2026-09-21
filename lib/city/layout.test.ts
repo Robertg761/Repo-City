@@ -3,6 +3,7 @@ import {
   NATURAL_LANDMARK_SIZE,
   cityBoundsSize,
   districtSquareSide,
+  landmarkBandDepth,
   planLayout,
   rectMaxX,
   rectMaxZ,
@@ -31,17 +32,28 @@ const districts = (counts: number[]): LayoutDistrictInput[] =>
   counts.map((buildingCount, index) => ({ id: `d-${index}`, buildingCount }));
 
 describe("cityBoundsSize", () => {
-  it("frames a small town in about 130 units and a metropolis in about 230", () => {
-    expect(cityBoundsSize(10)).toBeGreaterThan(110);
-    expect(cityBoundsSize(10)).toBeLessThan(145);
+  it("frames a small town in about 110 units and a metropolis in about 230", () => {
+    expect(cityBoundsSize(10)).toBeGreaterThan(95);
+    expect(cityBoundsSize(10)).toBeLessThan(125);
     expect(cityBoundsSize(300)).toBeGreaterThan(200);
     expect(cityBoundsSize(300)).toBeLessThan(245);
   });
 
   it("leaves the landmark band, the ring road and a margin around the districts", () => {
     for (const n of [1, 10, 90, 300, 600]) {
-      expect(cityBoundsSize(n) - districtSquareSide(n)).toBeCloseTo(61, 3);
+      const surround = cityBoundsSize(n) - districtSquareSide(n);
+      // Ring road, its gap and the outer margin are fixed; the landmark band
+      // scales with the town, between 12 and 20 units deep.
+      expect(surround).toBeCloseTo(2 * (landmarkBandDepth(districtSquareSide(n)) + 10.5), 3);
+      expect(surround).toBeGreaterThanOrEqual(2 * (12 + 10.5) - 1e-6);
+      expect(surround).toBeLessThanOrEqual(2 * (20 + 10.5) + 1e-6);
     }
+  });
+
+  it("shrinks the landmark band with the town", () => {
+    expect(landmarkBandDepth(districtSquareSide(10))).toBeLessThan(
+      landmarkBandDepth(districtSquareSide(300)),
+    );
   });
 
   it("never shrinks as the repository grows", () => {
@@ -206,6 +218,73 @@ describe("planLayout", () => {
     const majors = layout.roads.filter((r) => r.major).map((r) => r.appearAt);
     const minors = layout.roads.filter((r) => !r.major).map((r) => r.appearAt);
     expect(Math.min(...majors)).toBeLessThanOrEqual(Math.min(...minors));
+  });
+
+  it("keeps quiet districts at a comparable density to busy ones", () => {
+    // The failure this guards is a district with four files laid over a region
+    // sized for forty: it renders as an empty lot with a name floating over it.
+    for (const counts of [
+      [163, 35, 24, 5, 4], // hono
+      [118, 38, 22, 11, 6, 5, 2], // vscode
+      [122, 80, 40, 16, 16, 12, 6, 5, 3], // atom
+      [90, 39, 16, 8, 7, 3, 2, 2, 1], // turborepo
+      [9, 1], // p-limit
+    ]) {
+      const total = counts.reduce((a, b) => a + b, 0);
+      const layout = planLayout(districts(counts), total);
+      const densities = layout.districts.map(
+        (d, index) => (counts[index] + 1) / (d.rect.w * d.rect.d),
+      );
+      const spread = Math.max(...densities) / Math.min(...densities);
+      expect(spread, `counts ${counts.join(",")} spread ${spread.toFixed(1)}x`).toBeLessThan(6);
+    }
+  });
+
+  it("arranges the civic plaza symmetrically about the hall", () => {
+    for (const counts of [[163, 35, 24, 5, 4], [40, 20, 12], [9, 1]]) {
+      const total = counts.reduce((a, b) => a + b, 0);
+      for (let files = 1; files <= 5; files++) {
+        const layout = planLayout(districts(counts), total, { landmarkFiles: files });
+        const { hall, buildingSlots, rect } = layout.civic;
+        expect(buildingSlots.length).toBeGreaterThan(0);
+        expect(buildingSlots.length).toBeLessThanOrEqual(files);
+
+        for (const slot of buildingSlots) {
+          // Square cells, so the quarter turn that faces the hall leaves the
+          // footprint the geometry checks use unchanged.
+          expect(slot.cellW).toBeCloseTo(slot.cellD, 6);
+          expect(slot.maxHeight).toBeLessThan(hall.w);
+          // Clear of the hall and inside the plaza.
+          const dx = Math.abs(slot.x - hall.x);
+          const dz = Math.abs(slot.z - hall.z);
+          expect(Math.max(dx, dz)).toBeGreaterThan((hall.w + slot.cellW) / 2);
+          expect(dx + slot.cellW / 2).toBeLessThanOrEqual(rect.w / 2 - ROAD_MAJOR_WIDTH / 2);
+          expect(dz + slot.cellD / 2).toBeLessThanOrEqual(rect.d / 2 - ROAD_MAJOR_WIDTH / 2);
+        }
+
+        // No two cells overlap.
+        for (let i = 0; i < buildingSlots.length; i++) {
+          for (let j = i + 1; j < buildingSlots.length; j++) {
+            const a = buildingSlots[i];
+            const b = buildingSlots[j];
+            expect(
+              Math.abs(a.x - b.x) >= (a.cellW + b.cellW) / 2 - 1e-6 ||
+                Math.abs(a.z - b.z) >= (a.cellD + b.cellD) / 2 - 1e-6,
+            ).toBe(true);
+          }
+        }
+
+        // As symmetric about the hall as the count allows: every position has
+        // its mirror, bar the odd one out on a row plaza.
+        const offsets = buildingSlots.map((s) => Math.round((s.x - hall.x) * 100) / 100 + 0);
+        const unpaired = offsets.filter(
+          (x) => offsets.filter((y) => Math.abs(y + x) < 1e-9).length === 0,
+        );
+        expect(unpaired.length, `files ${files}, offsets ${offsets.join(",")}`).toBeLessThanOrEqual(
+          1,
+        );
+      }
+    }
   });
 
   it("is a pure function of the district counts", () => {

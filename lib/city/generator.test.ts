@@ -15,6 +15,7 @@ import {
   overlappingBuildings,
   REVEAL,
   TIER_HEIGHT,
+  vehicleCount,
 } from "./generator";
 
 const fixture = sampleAnalysis as unknown as RepoAnalysis;
@@ -96,16 +97,58 @@ describe("generateCity: geometry", () => {
 
   it("scales heights by tier with at most 15 percent jitter", () => {
     for (const building of city.buildings) {
+      // The civic plaza sizes its own buildings: square cells cut to the plaza
+      // and a height ceiling that keeps them under the town hall.
+      if (building.plan.landmark !== null) continue;
       const base = TIER_HEIGHT[building.tier];
       expect(building.size[1]).toBeGreaterThanOrEqual(base * 0.85 - 1e-3);
       expect(building.size[1]).toBeLessThanOrEqual(base * 1.15 + 1e-3);
-      // Footprints stay in the documented 3.4 to 8 unit band.
+      // Footprints stay under the documented maximum. The floor is the slot:
+      // a crowded district squeezes its cells, and a footprint that would not
+      // fit its cell is what puts two buildings through each other.
       expect(building.size[0]).toBeLessThanOrEqual(MAX_FOOTPRINT);
       expect(building.size[2]).toBeLessThanOrEqual(MAX_FOOTPRINT);
-      expect(Math.min(building.size[0], building.size[2])).toBeGreaterThanOrEqual(
-        MIN_FOOTPRINT - 1e-9,
+      expect(Math.min(building.size[0], building.size[2])).toBeGreaterThan(1.4 - 1e-9);
+    }
+
+    // Most of the city is still built at the documented size: the squeezed
+    // cells are the exception, not the rule.
+    const widths = city.buildings
+      .filter((b) => b.plan.landmark === null)
+      .map((b) => Math.min(b.size[0], b.size[2]))
+      .sort((a, b) => a - b);
+    expect(widths[Math.floor(widths.length / 2)]).toBeGreaterThanOrEqual(MIN_FOOTPRINT - 1e-9);
+  });
+
+  it("composes the civic plaza around the town hall", () => {
+    const hall = city.landmarks.find((l) => l.landmarkType === "civic");
+    expect(hall).toBeDefined();
+    const plaza = city.buildings.filter((b) => b.plan.landmark !== null);
+    expect(plaza.length).toBeGreaterThan(0);
+
+    const hallHeight = hall!.size![1];
+    const radii = new Set<number>();
+    for (const building of plaza) {
+      // Square footprints, so the quarter turn that faces the hall never
+      // changes the footprint the geometry checks reason about.
+      expect(building.size[0]).toBeCloseTo(building.size[2], 3);
+      // A quarter turn, and it points back at the hall. Rotations are stored
+      // to three decimals, so half a milliradian of slop is the exact answer.
+      expect(Math.abs(Math.sin(2 * building.rotationY))).toBeLessThan(2e-3);
+      // Nothing on the plaza out-tops the hall.
+      expect(building.size[1]).toBeLessThan(hallHeight);
+      radii.add(
+        Math.round(
+          Math.hypot(
+            building.position[0] - hall!.position[0],
+            building.position[2] - hall!.position[2],
+          ) * 10,
+        ),
       );
     }
+    // Symmetric: every plaza building stands the same distance from the hall,
+    // or on one of the two rows of a band plaza.
+    expect(radii.size).toBeLessThanOrEqual(Math.ceil(plaza.length / 2));
   });
 
   it("stands the root landmark files in the civic centre", () => {
@@ -243,11 +286,22 @@ describe("generateCity: limits (PLAN.md section 37)", () => {
 });
 
 describe("generateCity: ambience and traffic (PLAN.md sections 19 and 39)", () => {
-  it("counts vehicles from the activity score, capped by the size of the city", () => {
-    const fromActivity = Math.round(6 + 34 * fixture.metrics.activity.score);
-    const room = 4 + Math.round(city.buildings.length / 4);
-    expect(city.vehicles.count).toBe(Math.min(fromActivity, room));
+  it("counts vehicles from the activity score, scaled by the road network", () => {
+    const roads = city.roads.reduce(
+      (sum, road) => sum + Math.hypot(road.to[0] - road.from[0], road.to[2] - road.from[2]),
+      0,
+    );
+    expect(city.vehicles.count).toBe(vehicleCount(fixture, roads));
     expect(city.vehicles.count).toBeGreaterThan(0);
+    expect(city.vehicles.count).toBeLessThanOrEqual(LIMITS.vehicles);
+  });
+
+  it("scales the fleet with the road network, not with the building count", () => {
+    const quiet = { ...fixture, metrics: { ...fixture.metrics } };
+    // Same repository, ten times the streets: ten times busier, up to the cap.
+    expect(vehicleCount(quiet, 2800)).toBeGreaterThan(vehicleCount(quiet, 900));
+    // A small town never reads as gridlocked.
+    expect(vehicleCount(quiet, 900)).toBeLessThan(20);
   });
 
   it("quiets and cools an archived repository", () => {
@@ -259,7 +313,10 @@ describe("generateCity: ambience and traffic (PLAN.md sections 19 and 39)", () =
     expect(rebuilt.ambience.trafficDensity).toBeLessThan(city.ambience.trafficDensity);
     expect(rebuilt.ambience.warmth).toBeLessThan(city.ambience.warmth);
     expect(rebuilt.ambience.fog).toBeGreaterThan(city.ambience.fog);
-    expect(rebuilt.props.trees.length).toBeLessThan(city.props.trees.length);
+    // Section 19 lists vegetation among the abandoned signals, next to the
+    // quiet roads and the dimmer lighting: an archived city is being taken
+    // back by the greenery, so it never ends up with less of it.
+    expect(rebuilt.props.trees.length).toBeGreaterThanOrEqual(city.props.trees.length);
     // Never unreadable: saturation keeps a floor (PLAN.md section 39).
     expect(rebuilt.ambience.saturation).toBeGreaterThanOrEqual(0.3);
     expect(rebuilt.repository.archived).toBe(true);

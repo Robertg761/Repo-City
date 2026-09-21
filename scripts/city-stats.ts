@@ -61,6 +61,10 @@ export function asciiMap(city: CityModel): string {
     grid[row(z)][col(x)] = glyph;
   };
 
+  // Props go down first: everything else is allowed to draw over them.
+  for (const lamp of city.props.lamps) put(lamp[0], lamp[2], "'");
+  for (const tree of city.props.trees) put(tree[0], tree[2], "t");
+
   for (const road of city.roads) {
     const length = Math.hypot(road.to[0] - road.from[0], road.to[2] - road.from[2]);
     const steps = Math.max(2, Math.ceil(length * 3));
@@ -128,8 +132,41 @@ function report(city: CityModel): string {
     `overlapping buildings   ${pairs.length === 0 ? "none" : `${pairs.length}: ${pairs.slice(0, 5).map((p) => p.join("/")).join(" ")}`}`,
     `buildings on a road     ${onRoads.length === 0 ? "none" : `${onRoads.length}: ${onRoads.slice(0, 5).map((h) => `${h.id}(${h.clearance})`).join(" ")}`}`,
     `obstructed plots        ${blocked.length === 0 ? "none" : `${blocked.length}: ${blocked.slice(0, 5).map((h) => `${h.id}/${h.against}`).join(" ")}`}`,
+    "",
+    districtTable(city),
   ];
   return lines.join("\n");
+}
+
+/**
+ * Per district: how much ground it holds, how much of it is built on, and how
+ * much greenery landed there. A district whose built share is near zero and
+ * whose tree count is near zero is the "empty rectangle" failure mode.
+ */
+function districtTable(city: CityModel): string {
+  const rows = [
+    "district                 buildings   region    built%   trees",
+  ];
+  for (const district of city.districts) {
+    const inside = city.buildings.filter((b) => b.districtId === district.id);
+    const area = district.rect.w * district.rect.d;
+    const footprint = inside.reduce((sum, b) => sum + b.size[0] * b.size[2], 0);
+    const trees = city.props.trees.filter(
+      (t) =>
+        Math.abs(t[0] - district.rect.x) <= district.rect.w / 2 &&
+        Math.abs(t[2] - district.rect.z) <= district.rect.d / 2,
+    ).length;
+    rows.push(
+      [
+        district.sourcePath.padEnd(24),
+        String(inside.length).padStart(9),
+        `${Math.round(district.rect.w)}x${Math.round(district.rect.d)}`.padStart(9),
+        `${((100 * footprint) / Math.max(1, area)).toFixed(1)}%`.padStart(9),
+        String(trees).padStart(7),
+      ].join(""),
+    );
+  }
+  return rows.join("\n");
 }
 
 function main(): void {
@@ -140,7 +177,9 @@ function main(): void {
 
   console.log(report(city));
   console.log("");
-  console.log("# major road  + minor road  1-5 building tier  ! incident  C construction");
+  console.log(
+    "# major road  + minor road  1-5 building tier  ! incident  C construction  t tree  ' lamp",
+  );
   console.log("P power  F fire  I info  S station  H city hall");
   console.log("");
   console.log(asciiMap(city));
