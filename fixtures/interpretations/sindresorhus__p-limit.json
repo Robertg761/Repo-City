@@ -1,0 +1,85 @@
+{
+  "summary": "p-limit is a single-purpose library: one function that runs promise-returning functions with a concurrency limit. Sixteen files, no source directory, no build step. index.js holds the whole implementation, index.d.ts holds the types, and test.js, index.test-d.ts and benchmark.js check behaviour, types and speed respectively.",
+  "districts": [
+    {
+      "sourcePath": "/",
+      "name": "The Whole Town",
+      "purpose": "The library is the repository root: implementation, types, tests, benchmark, readme and recipes sit side by side.",
+      "evidence": [
+        "index.js",
+        "index.d.ts",
+        "test.js",
+        "index.test-d.ts",
+        "benchmark.js",
+        "readme.md"
+      ]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "The Measuring Yard",
+      "purpose": "A single benchmark harness used by benchmark.js to compare concurrency strategies.",
+      "evidence": ["scripts/benchmarker.js", "benchmark.js"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "One workflow that runs the tests, plus the security policy.",
+      "evidence": [".github/workflows/main.yml", ".github/security.md"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "index.js",
+      "role": "The entire implementation: a yocto-queue of pending calls, an active counter, and a resumeNext step that starts the next call as one finishes.",
+      "evidence": ["index.d.ts", "package.json"]
+    },
+    {
+      "path": "index.d.ts",
+      "role": "The public contract: pLimit, limitFunction, the LimitFunction type with activeCount, pendingCount, concurrency, map and clearQueue.",
+      "evidence": ["index.js", "index.test-d.ts"]
+    },
+    {
+      "path": "test.js",
+      "role": "The behaviour suite: concurrency limits, argument passing, queue clearing and error propagation.",
+      "evidence": ["index.js"]
+    },
+    {
+      "path": "index.test-d.ts",
+      "role": "Type-level tests, so the .d.ts is checked rather than merely shipped.",
+      "evidence": ["index.d.ts"]
+    },
+    {
+      "path": "benchmark.js",
+      "role": "Timed comparison of the limiter under load, run against the harness in scripts.",
+      "evidence": ["scripts/benchmarker.js"]
+    },
+    {
+      "path": "readme.md",
+      "role": "The full documentation: install, usage, the API for every exported member and the caveats.",
+      "evidence": ["recipes.md"]
+    },
+    {
+      "path": "recipes.md",
+      "role": "Worked patterns for common cases, kept out of the readme so the API reference stays short.",
+      "evidence": ["readme.md"]
+    },
+    {
+      "path": "package.json",
+      "role": "Declares the package as ESM with one runtime dependency, yocto-queue.",
+      "evidence": ["index.js"]
+    }
+  ],
+  "strengths": [
+    "One file does one thing: the concurrency limiter is small enough to read in a sitting, and there is no build step between source and published package.",
+    "Types are tested, not just declared: index.test-d.ts checks index.d.ts the way test.js checks index.js.",
+    "The library carries exactly one runtime dependency, so the install footprint of using it is nearly nothing.",
+    "Documentation is split between a reference readme and a recipes file, which keeps the API listing readable.",
+    "Zero open issues, with CI on every push through a single workflow."
+  ],
+  "concerns": [
+    "Everything lives at the repository root, so the project has no structure to grow into if it ever gains a second module.",
+    "The queue behaviour is subtle (a promise is enqueued to preserve execution context) and that reasoning lives only in comments inside index.js."
+  ],
+  "organizationClarity": 0.95,
+  "model": "claude-opus-5 (curated during development)"
+}

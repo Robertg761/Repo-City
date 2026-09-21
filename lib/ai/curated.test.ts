@@ -26,12 +26,22 @@ describe("fixtures/interpretations", () => {
   it("covers the reference repositories from PLAN.md section 59", async () => {
     const repositories = await listCuratedRepositories();
     expect(repositories.length).toBe(files.length);
-    expect(repositories).toContain("honojs/hono");
-    expect(repositories).toContain("vitejs/vite");
-    expect(repositories).toContain("react/react");
-    expect(repositories).toContain("facebook/react");
-    expect(repositories).toContain("vercel/turborepo");
-    expect(repositories).toContain("atom/atom");
+    for (const repository of [
+      "honojs/hono",
+      "vitejs/vite",
+      "react/react",
+      "facebook/react",
+      "vercel/turborepo",
+      "atom/atom",
+      "microsoft/vscode",
+      "tj/commander.js",
+      "sindresorhus/p-limit",
+      "facebookarchive/flux",
+      "facebook/flux",
+      "pnpm/pnpm",
+    ]) {
+      expect(repositories).toContain(repository);
+    }
   });
 
   it.each(files)("%s is a valid AiInterpretation", async (file) => {
@@ -46,8 +56,9 @@ describe("fixtures/interpretations", () => {
     expect(file).toMatch(/^[a-z0-9._-]+__[a-z0-9._-]+\.json$/);
 
     // Section 8 shape: enough districts to make a city, never more than the
-    // planner can produce.
-    expect(interpretation.districts.length).toBeGreaterThanOrEqual(4);
+    // planner can produce. Three is the floor because a repository as small as
+    // p-limit genuinely has only two top-level directories plus the root.
+    expect(interpretation.districts.length).toBeGreaterThanOrEqual(3);
     expect(interpretation.districts.length).toBeLessThanOrEqual(LIMITS.districts);
     expect(interpretation.importantModules.length).toBeGreaterThanOrEqual(6);
 
@@ -68,10 +79,17 @@ describe("fixtures/interpretations", () => {
     }
   });
 
-  it("keeps facebook__react.json identical to react__react.json", async () => {
+  // GitHub answers a renamed repository with a 301 and a new `full_name`
+  // (facebook/react is now react/react, facebook/flux is now
+  // facebookarchive/flux). Whichever name the ingestion layer ends up using,
+  // the interpretation must be the same.
+  it.each([
+    ["react__react.json", "facebook__react.json"],
+    ["facebookarchive__flux.json", "facebook__flux.json"],
+  ])("keeps %s and %s identical", async (canonicalFile, aliasFile) => {
     const [canonical, alias] = await Promise.all([
-      readFile(path.join(directory, "react__react.json"), "utf8"),
-      readFile(path.join(directory, "facebook__react.json"), "utf8"),
+      readFile(path.join(directory, canonicalFile), "utf8"),
+      readFile(path.join(directory, aliasFile), "utf8"),
     ]);
     expect(alias).toBe(canonical);
   });

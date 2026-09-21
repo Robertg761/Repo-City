@@ -1,0 +1,136 @@
+{
+  "summary": "Flux is an archived architecture library, and the library is the smallest part of it. src holds fourteen files: a Dispatcher, two store base classes, a React container and a legacy mixin. Around that sit 106 files of worked examples, a Docusaurus site, translated docs and a checked-in dist build. Archived in March 2023.",
+  "districts": [
+    {
+      "sourcePath": "/src",
+      "name": "The Old Works",
+      "purpose": "The library itself: the dispatcher, the store base classes, the React container and one shared utility.",
+      "evidence": [
+        "src/Dispatcher.js",
+        "src/stores/FluxStore.js",
+        "src/stores/FluxReduceStore.js",
+        "src/container/FluxContainer.js",
+        "src/FluxStoreGroup.js",
+        "src/FluxMixinLegacy.js"
+      ]
+    },
+    {
+      "sourcePath": "/examples",
+      "name": "The Showrooms",
+      "purpose": "Complete applications showing the pattern end to end: TodoMVC, async flows, Flow typing, logging and Jest containers.",
+      "evidence": [
+        "examples/flux-todomvc/src/data/TodoStore.js",
+        "examples/flux-todomvc/src/data/TodoDispatcher.js",
+        "examples/flux-async",
+        "examples/flux-flow",
+        "examples/flux-logging",
+        "examples/flux-concepts"
+      ]
+    },
+    {
+      "sourcePath": "/website",
+      "name": "The Visitor Centre",
+      "purpose": "The Docusaurus site that published the documentation, with its own package and build.",
+      "evidence": [
+        "website/docusaurus.config.js",
+        "website/sidebars.js",
+        "website/src",
+        "website/static"
+      ]
+    },
+    {
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "The architecture explanation: overview, in-depth overview, dispatcher reference and Flux Utils, partly translated to Korean.",
+      "evidence": [
+        "docs/Overview.md",
+        "docs/In-Depth-Overview.md",
+        "docs/Dispatcher.md",
+        "docs/Flux-Utils.md",
+        "docs/Overview.ko-KR.md"
+      ]
+    },
+    {
+      "sourcePath": "/dist",
+      "name": "The Loading Dock",
+      "purpose": "Pre-built browser bundles committed to the repository alongside the source.",
+      "evidence": ["dist/Flux.js", "dist/Flux.min.js", "dist/FluxUtils.js"]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "The Works Yard",
+      "purpose": "The small build and release helpers driven by the Gulpfile.",
+      "evidence": ["scripts", "Gulpfile.js", "package.json"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "A single Node workflow, the last automation the project ran.",
+      "evidence": [".github/workflows/node.js.yml"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "src/Dispatcher.js",
+      "role": "The whole idea in one file: registered callbacks, single dispatch, and waitFor to order store updates.",
+      "evidence": ["src/__tests__/Dispatcher-test.js", "docs/Dispatcher.md"]
+    },
+    {
+      "path": "src/stores/FluxStore.js",
+      "role": "The store base class: registers with a dispatcher, tracks change state and emits to subscribers.",
+      "evidence": ["src/stores/__tests__/FluxStore-test.js", "src/utils/abstractMethod.js"]
+    },
+    {
+      "path": "src/stores/FluxReduceStore.js",
+      "role": "A store defined as a reduce over actions, the shape most later state libraries adopted.",
+      "evidence": ["src/stores/__tests__/FluxReduceStore-test.js", "docs/Flux-Utils.md"]
+    },
+    {
+      "path": "src/container/FluxContainer.js",
+      "role": "Wraps a React component so it re-renders when the stores it declares change.",
+      "evidence": [
+        "src/container/FluxContainerSubscriptions.js",
+        "src/container/__tests__/FluxContainer-test.js"
+      ]
+    },
+    {
+      "path": "src/FluxStoreGroup.js",
+      "role": "Batches a set of stores so listeners are told once after all of them have updated.",
+      "evidence": ["src/__tests__/FluxStoreGroup-test.js"]
+    },
+    {
+      "path": "src/FluxMixinLegacy.js",
+      "role": "The pre-container mixin API, kept for components written before FluxContainer existed.",
+      "evidence": ["src/container/FluxContainer.js"]
+    },
+    {
+      "path": "index.js",
+      "role": "The package entry point that re-exports the dispatcher and the utils surface.",
+      "evidence": ["utils.js", "package.json"]
+    },
+    {
+      "path": "examples/flux-todomvc",
+      "role": "The reference application: actions, dispatcher, stores and containers laid out as the docs describe.",
+      "evidence": [
+        "examples/flux-todomvc/src/data/TodoActions.js",
+        "examples/flux-todomvc/src/containers/AppContainer.js",
+        "examples/flux-todomvc/README.md"
+      ]
+    }
+  ],
+  "strengths": [
+    "The library is small enough to read completely: the dispatcher is one file and the store hierarchy is four.",
+    "Every concept in the documentation has a matching runnable example, which is why the pattern spread as far as it did.",
+    "Tests sit in __tests__ directories beside the modules they cover, one per class.",
+    "The documentation explains an architecture rather than an API, and it survives independently of this code."
+  ],
+  "concerns": [
+    "The repository is archived and was last pushed in March 2023; the project is finished, not paused.",
+    "Examples outweigh the library by roughly seven to one, so the repository size says nothing about the code you would depend on.",
+    "Built bundles are committed under dist, so the repository carries generated output next to its source.",
+    "The Korean translations cover only part of the documentation, and nothing keeps them in step with the English originals.",
+    "FluxMixinLegacy is a second, older way to do the same thing, retained inside a library this small."
+  ],
+  "organizationClarity": 0.85,
+  "model": "claude-opus-5 (curated during development)"
+}
