@@ -1,0 +1,156 @@
+{
+  "summary": "Turborepo is a Rust build system for JavaScript monorepos. The tool itself is a workspace of about twenty crates, with turborepo-lib holding the run pipeline, task graph and hashing. Around it sit npm-published JavaScript packages, a documentation site, and four large fixture directories: examples, integration tests, lockfile fixtures and template apps.",
+  "districts": [
+    {
+      "sourcePath": "/crates",
+      "name": "The Foundry",
+      "purpose": "The Rust workspace: CLI shim, run pipeline, task engine, caching, source control integration, daemon and terminal UI.",
+      "evidence": [
+        "crates/turborepo/src/main.rs",
+        "crates/turborepo-lib/src/run/mod.rs",
+        "crates/turborepo-lib/src/task_hash.rs",
+        "crates/turborepo-cache/src/lib.rs",
+        "crates/turborepo-daemon/src/lib.rs",
+        "crates/turborepo-ui/src/lib.rs"
+      ]
+    },
+    {
+      "sourcePath": "/packages",
+      "name": "The Distributors",
+      "purpose": "Everything published to npm around the binary: create-turbo, codemods, generators, the ESLint plugin and the telemetry client.",
+      "evidence": [
+        "packages/create-turbo",
+        "packages/turbo-codemod",
+        "packages/turbo-gen",
+        "packages/eslint-plugin-turbo",
+        "packages/turbo-ignore",
+        "packages/turbo-types"
+      ]
+    },
+    {
+      "sourcePath": "/examples",
+      "name": "The Showrooms",
+      "purpose": "Runnable starter monorepos, one per ecosystem, kept building so create-turbo always produces a working workspace.",
+      "evidence": [
+        "examples/basic",
+        "examples/kitchen-sink",
+        "examples/with-svelte",
+        "examples/with-tailwind",
+        "examples/with-nestjs"
+      ]
+    },
+    {
+      "sourcePath": "/turborepo-tests",
+      "name": "Proving Grounds",
+      "purpose": "End-to-end integration suites that run the real binary against generated monorepos.",
+      "evidence": ["turborepo-tests/integration", "turborepo-tests/README.md"]
+    },
+    {
+      "sourcePath": "/lockfile-tests",
+      "name": "The Archives",
+      "purpose": "Recorded lockfiles from every supported package manager, used to check dependency resolution against real files.",
+      "evidence": [
+        "lockfile-tests/fixtures",
+        "lockfile-tests/check-lockfiles.ts",
+        "lockfile-tests/types.ts"
+      ]
+    },
+    {
+      "sourcePath": "/apps",
+      "name": "Knowledge District",
+      "purpose": "The documentation site and the internal factory app that generates repository content.",
+      "evidence": ["apps/docs", "apps/factory", "docs/link-checker/src/validate-docs-links.ts"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Workflows for Rust tests, JS package tests, linting, release gating and refreshing the examples on release.",
+      "evidence": [
+        ".github/workflows/turborepo-test.yml",
+        ".github/workflows/test-js-packages.yml",
+        ".github/workflows/turborepo-release.yml",
+        ".github/workflows/release-review-gate.yml",
+        ".github/workflows/update-examples-on-release.yml"
+      ]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "Maintenance Depot",
+      "purpose": "Repository chores: formatting, version bookkeeping and release helpers invoked by CI.",
+      "evidence": ["scripts", "version.txt", "RELEASE.md"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "crates/turborepo/src/main.rs",
+      "role": "The binary entry point; a thin shell that hands straight to turborepo-lib.",
+      "evidence": ["crates/turborepo-lib/src/lib.rs", "crates/turborepo-lib/src/shim.rs"]
+    },
+    {
+      "path": "crates/turborepo-lib/src/run/mod.rs",
+      "role": "One turbo run: resolves scope, builds the task graph, then executes it with caching.",
+      "evidence": [
+        "crates/turborepo-lib/src/run/builder.rs",
+        "crates/turborepo-lib/src/run/scope/mod.rs",
+        "crates/turborepo-lib/src/run/watch.rs"
+      ]
+    },
+    {
+      "path": "crates/turborepo-lib/src/engine/mod.rs",
+      "role": "The task dependency graph: what may run, in what order, and what can run in parallel.",
+      "evidence": [
+        "crates/turborepo-lib/src/engine/loader.rs",
+        "crates/turborepo-engine/src/lib.rs"
+      ]
+    },
+    {
+      "path": "crates/turborepo-lib/src/task_hash.rs",
+      "role": "Computes the hash that decides a cache hit; the idea the whole tool rests on.",
+      "evidence": ["crates/turborepo-cache/src/lib.rs", "crates/turborepo-scm/src/lib.rs"]
+    },
+    {
+      "path": "crates/turborepo-cache/src/lib.rs",
+      "role": "Local and remote cache storage and retrieval for task outputs.",
+      "evidence": ["crates/turborepo-lib/src/task_hash.rs"]
+    },
+    {
+      "path": "crates/turborepo-repository/src/lib.rs",
+      "role": "Workspace discovery: finds packages, package managers and the dependency graph between them.",
+      "evidence": ["crates/turborepo-lockfiles/src/lib.rs", "lockfile-tests/fixtures"]
+    },
+    {
+      "path": "crates/turborepo-lib/src/cli/args.rs",
+      "role": "The full command line surface, with snapshot tests pinning the help output.",
+      "evidence": ["crates/turborepo-lib/src/cli/mod.rs"]
+    },
+    {
+      "path": "crates/turborepo-daemon/src/lib.rs",
+      "role": "The background daemon that keeps file watching warm between runs.",
+      "evidence": ["crates/turborepo-filewatch", "crates/turborepo-lib/src/devtools.rs"]
+    },
+    {
+      "path": "crates/turborepo-ui/src/lib.rs",
+      "role": "Terminal output: the task list, interleaved logs and the interactive run view.",
+      "evidence": ["crates/turborepo-process"]
+    },
+    {
+      "path": "packages/turbo-codemod",
+      "role": "Migrations that rewrite turbo.json and package scripts when the configuration format changes.",
+      "evidence": ["packages/turbo-workspaces", "turbo.json"]
+    }
+  ],
+  "strengths": [
+    "The Rust workspace is cut along real seams: caching, source control, lockfiles, file watching and the daemon are each their own crate.",
+    "Correctness is pinned by recorded artefacts rather than prose: lockfile fixtures for every package manager and snapshot tests for the CLI help.",
+    "Every published example is a real workspace that CI refreshes on release, so the getting-started path cannot rot silently.",
+    "Breaking configuration changes ship with codemods, so upgrading is a command rather than a manual edit.",
+    "Only 13 open issues against a repository of this size suggests the tracker is actively groomed."
+  ],
+  "concerns": [
+    "Fixtures dominate the tree: examples, lockfile-tests, turborepo-tests and apps together outweigh the source by several times, so the top level hides where the code is.",
+    "turborepo-lib is a catch-all crate holding the CLI, run pipeline, engine and hashing while the surrounding crates stay narrow.",
+    "The repository mixes two toolchains, Rust and pnpm JavaScript, so a contributor needs both set up before anything builds."
+  ],
+  "organizationClarity": 0.76,
+  "model": "claude-opus-5 (curated during development)"
+}

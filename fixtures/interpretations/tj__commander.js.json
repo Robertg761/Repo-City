@@ -1,0 +1,127 @@
+{
+  "summary": "Commander is a command-line argument parser in six files. lib holds the whole library: Command, Option, Argument, Help, errors and did-you-mean suggestions. Everything else is verification and explanation, with 133 test files, 45 runnable examples, long-form docs including a Chinese translation, and hand-written TypeScript typings that are themselves type-tested.",
+  "districts": [
+    {
+      "sourcePath": "/lib",
+      "name": "The Foundry",
+      "purpose": "The entire library: the command tree, options, arguments, help rendering, error types and similar-name suggestions.",
+      "evidence": [
+        "lib/command.js",
+        "lib/option.js",
+        "lib/argument.js",
+        "lib/help.js",
+        "lib/error.js",
+        "lib/suggestSimilar.js"
+      ]
+    },
+    {
+      "sourcePath": "/tests",
+      "name": "Proving Grounds",
+      "purpose": "One test file per behaviour, named after the feature it pins, plus fixture programs for subcommand execution.",
+      "evidence": [
+        "tests/options.variadic.test.js",
+        "tests/options.required.test.js",
+        "tests/useColor.test.js",
+        "tests/fixtures",
+        "tests/testHelpers.js"
+      ]
+    },
+    {
+      "sourcePath": "/examples",
+      "name": "The Showrooms",
+      "purpose": "Forty-five small runnable programs, one per feature, that double as the fastest way to learn the API.",
+      "evidence": [
+        "examples/pizza",
+        "examples/split.js",
+        "examples/options-variadic.js",
+        "examples/pm",
+        "examples/positional-options.js"
+      ]
+    },
+    {
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "Long-form explanations that outgrew the readme: parsing and hooks, options and help in depth, terminology, deprecations and the release policy.",
+      "evidence": [
+        "docs/parsing-and-hooks.md",
+        "docs/options-in-depth.md",
+        "docs/help-in-depth.md",
+        "docs/terminology.md",
+        "docs/release-policy.md",
+        "docs/zh-CN"
+      ]
+    },
+    {
+      "sourcePath": "/typings",
+      "name": "The Drafting Office",
+      "purpose": "Hand-written TypeScript declarations with their own type tests, kept beside a JavaScript implementation.",
+      "evidence": ["typings/index.d.ts", "typings/index.test-d.ts"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Two workflows: the test matrix and CodeQL analysis.",
+      "evidence": [
+        ".github/workflows/tests.yml",
+        ".github/workflows/codeql-analysis.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md"
+      ]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "lib/command.js",
+      "role": "The Command class: subcommands, parsing, action handlers, hooks and the program lifecycle. Almost the whole library.",
+      "evidence": ["index.js", "lib/option.js", "lib/argument.js"]
+    },
+    {
+      "path": "lib/option.js",
+      "role": "Option definitions: flags, negation, variadic values, defaults, presets, choices and environment variable sources.",
+      "evidence": ["tests/options.preset.test.js", "tests/options.variadic.test.js"]
+    },
+    {
+      "path": "lib/argument.js",
+      "role": "Positional argument definitions, including required, optional and variadic forms.",
+      "evidence": ["docs/terminology.md"]
+    },
+    {
+      "path": "lib/help.js",
+      "role": "Help text generation: layout, wrapping, sorting and the hooks that let a program override any of it.",
+      "evidence": ["docs/help-in-depth.md", "tests/useColor.test.js"]
+    },
+    {
+      "path": "lib/error.js",
+      "role": "CommanderError and InvalidArgumentError, the typed failures a program can catch instead of exiting.",
+      "evidence": ["lib/command.js"]
+    },
+    {
+      "path": "lib/suggestSimilar.js",
+      "role": "The did-you-mean suggestion shown after an unknown option or command.",
+      "evidence": ["lib/command.js"]
+    },
+    {
+      "path": "index.js",
+      "role": "The package entry point: re-exports the library and the default program instance.",
+      "evidence": ["lib/command.js", "package.json"]
+    },
+    {
+      "path": "typings/index.d.ts",
+      "role": "The TypeScript surface, maintained by hand against the JavaScript implementation.",
+      "evidence": ["typings/index.test-d.ts"]
+    }
+  ],
+  "strengths": [
+    "The library is six small files with one clear responsibility each, which is rare for a parser used this widely.",
+    "Tests are named after behaviour (options.variadic, options.required, useColor), so the suite reads as a specification.",
+    "Every feature has a runnable example, which makes the documentation checkable rather than merely written.",
+    "The hand-written typings carry their own type tests, so the TypeScript surface cannot drift silently.",
+    "A published release policy and a deprecations document set expectations for breaking changes."
+  ],
+  "concerns": [
+    "lib/command.js carries most of the library, so nearly every change lands in the same file.",
+    "The typings are maintained separately from the JavaScript, which is a manual synchronisation step on every API change.",
+    "Documentation exists in three places at once: the readme, docs and the examples directory, with the Chinese translation to keep in step as well."
+  ],
+  "organizationClarity": 0.9,
+  "model": "claude-opus-5 (curated during development)"
+}

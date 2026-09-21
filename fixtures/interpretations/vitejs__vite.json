@@ -1,0 +1,155 @@
+{
+  "summary": "Vite is a build tool split into a dev server and a Rollup-based production build. Nearly all of it lives in packages/vite/src/node, with a browser-side HMR client and a module runner beside it. The largest directory is not source at all: playground holds hundreds of small apps used as end-to-end fixtures.",
+  "districts": [
+    {
+      "sourcePath": "/packages",
+      "name": "The Works",
+      "purpose": "The published packages: the vite core (dev server, build, plugins, optimizer), the create-vite scaffolder and plugin-legacy.",
+      "evidence": [
+        "packages/vite/src/node/index.ts",
+        "packages/vite/src/node/server/index.ts",
+        "packages/vite/src/node/build.ts",
+        "packages/create-vite/src/index.ts",
+        "packages/plugin-legacy/src/index.ts"
+      ]
+    },
+    {
+      "sourcePath": "/playground",
+      "name": "Proving Grounds",
+      "purpose": "Hundreds of miniature applications, one per feature, driven as end-to-end tests of the real dev server and build.",
+      "evidence": [
+        "playground/hmr",
+        "playground/css",
+        "playground/optimize-deps",
+        "playground/ssr-deps",
+        "playground/worker",
+        "vitest.config.e2e.ts"
+      ]
+    },
+    {
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "The VitePress documentation site: guides, the config reference, the blog and the migration notes.",
+      "evidence": [
+        "docs/guide",
+        "docs/config",
+        "docs/changes",
+        "docs/.vitepress",
+        "docs/team.md"
+      ]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "Release Yard",
+      "purpose": "Release plumbing: changelog extraction, version preparation and the publish steps CI runs.",
+      "evidence": [
+        "scripts/prepare-release.ts",
+        "scripts/publishCI.ts",
+        "scripts/extract-changelog.ts",
+        "scripts/releaseUtils.ts"
+      ]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Thirteen workflows covering CI, releases, security scanning and a large amount of issue triage automation.",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/publish.yml",
+        ".github/workflows/ecosystem-ci-trigger.yml",
+        ".github/workflows/semgrep.yml",
+        ".github/SECURITY.md"
+      ]
+    },
+    {
+      "sourcePath": "/patches",
+      "name": "The Patchworks",
+      "purpose": "Three pnpm patches applied to dependencies the project needs to change before use.",
+      "evidence": [
+        "patches/chokidar@3.6.0.patch",
+        "patches/sirv@3.0.2.patch",
+        "patches/dotenv-expand@13.0.0.patch"
+      ]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "packages/vite/src/node/index.ts",
+      "role": "The public Node API surface; everything a plugin author or embedder can import.",
+      "evidence": ["packages/vite/src/node/internalIndex.ts", "packages/vite/src/node/plugin.ts"]
+    },
+    {
+      "path": "packages/vite/src/node/config.ts",
+      "role": "Loads, merges and normalises vite.config files into the resolved config every other module reads.",
+      "evidence": ["packages/vite/src/node/env.ts", "packages/vite/src/node/nativeConfigCompat.ts"]
+    },
+    {
+      "path": "packages/vite/src/node/server/index.ts",
+      "role": "The dev server: middleware stack, websocket, file watching and the transform pipeline.",
+      "evidence": [
+        "packages/vite/src/node/server/transformRequest.ts",
+        "packages/vite/src/node/server/ws.ts",
+        "packages/vite/src/node/server/warmup.ts"
+      ]
+    },
+    {
+      "path": "packages/vite/src/node/server/moduleGraph.ts",
+      "role": "The module graph that HMR walks to decide what to invalidate and what to reload.",
+      "evidence": [
+        "packages/vite/src/node/server/hmr.ts",
+        "packages/vite/src/node/server/mixedModuleGraph.ts"
+      ]
+    },
+    {
+      "path": "packages/vite/src/node/server/pluginContainer.ts",
+      "role": "Runs Rollup-style plugin hooks during development so dev and build share one plugin contract.",
+      "evidence": ["packages/vite/src/node/plugin.ts", "packages/vite/src/node/plugins"]
+    },
+    {
+      "path": "packages/vite/src/node/build.ts",
+      "role": "The production build: Rollup configuration, asset handling and the library build mode.",
+      "evidence": ["packages/vite/src/node/external.ts", "packages/vite/src/node/preview.ts"]
+    },
+    {
+      "path": "packages/vite/src/node/optimizer",
+      "role": "Dependency pre-bundling, which converts CommonJS and deep dependency graphs into cacheable ESM.",
+      "evidence": ["packages/vite/src/node/nodeResolve.ts", "packages/vite/src/node/packages.ts"]
+    },
+    {
+      "path": "packages/vite/src/client/client.ts",
+      "role": "The browser-side runtime injected into every page: it applies HMR updates and draws the error overlay.",
+      "evidence": [
+        "packages/vite/src/client/overlay.ts",
+        "packages/vite/src/client/clientEntry.ts"
+      ]
+    },
+    {
+      "path": "packages/vite/src/module-runner/runner.ts",
+      "role": "Executes modules outside the browser, which is how SSR and framework integrations reuse the dev pipeline.",
+      "evidence": [
+        "packages/vite/src/module-runner/index.ts",
+        "packages/vite/src/module-runner/evaluatedModules.ts",
+        "packages/vite/src/shared/ssrTransform.ts"
+      ]
+    },
+    {
+      "path": "packages/vite/src/node/cli.ts",
+      "role": "The vite, vite build and vite preview commands.",
+      "evidence": ["packages/vite/src/node/shortcuts.ts", "packages/vite/src/node/logger.ts"]
+    }
+  ],
+  "strengths": [
+    "Dev and build share one plugin contract through pluginContainer, so a plugin written once behaves the same in both modes.",
+    "The end-to-end suite is the product: playground runs real applications against the real server instead of mocking the pipeline.",
+    "The public API is explicit, with index.ts and internalIndex.ts separating what is supported from what is internal.",
+    "Documentation is a first-class directory with guides, a full config reference and migration notes for each breaking change.",
+    "Thirteen workflows cover CI, release, security scanning and the ecosystem CI that tests downstream frameworks."
+  ],
+  "concerns": [
+    "packages/vite/src/node is a wide flat directory of roughly 25 top-level files plus server, plugins, ssr and optimizer, so the core has no obvious reading order.",
+    "playground is the largest directory in the repository by a wide margin, which makes the tree hard to skim and the test suite expensive to run.",
+    "Both the dev server and the production build live in one package, so anything published moves the whole tool at once."
+  ],
+  "organizationClarity": 0.78,
+  "model": "claude-opus-5 (curated during development)"
+}

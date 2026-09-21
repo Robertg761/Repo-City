@@ -1,0 +1,165 @@
+{
+  "summary": "Hono is an HTTP framework built on Web Standards. A small core in src (hono.ts, context.ts, compose.ts) sits behind four interchangeable router implementations, a large catalogue of opt-in middleware, and one adapter per runtime, so the same app runs on Bun, Deno, workerd, Lambda and Node.",
+  "districts": [
+    {
+      "sourcePath": "/src",
+      "name": "The Foundry",
+      "purpose": "The framework itself: the app class, the request context, middleware composition, the routers, the JSX renderer and the runtime adapters.",
+      "evidence": [
+        "src/hono.ts",
+        "src/context.ts",
+        "src/compose.ts",
+        "src/router/smart-router/router.ts",
+        "src/adapter/bun/index.ts",
+        "src/jsx/index.ts"
+      ]
+    },
+    {
+      "sourcePath": "/runtime-tests",
+      "name": "Proving Grounds",
+      "purpose": "Integration suites that boot the framework on each supported runtime instead of mocking it.",
+      "evidence": [
+        "runtime-tests/deno/hono.test.ts",
+        "runtime-tests/bun/index.test.tsx",
+        "runtime-tests/node/index.test.ts",
+        "runtime-tests/workerd/index.ts"
+      ]
+    },
+    {
+      "sourcePath": "/benchmarks",
+      "name": "Speed Trials",
+      "purpose": "Standalone packages that time the routers, JSX rendering and query parsing against other frameworks.",
+      "evidence": [
+        "benchmarks/routers/package.json",
+        "benchmarks/routers/README.md",
+        "benchmarks/jsx",
+        "benchmarks/query-param"
+      ]
+    },
+    {
+      "sourcePath": "/perf-measures",
+      "name": "Instrument Yard",
+      "purpose": "Bundle size and type-check budgets recorded on every run so performance regressions show up as numbers.",
+      "evidence": [
+        "perf-measures/bundle-check/scripts/check-bundle-size.ts",
+        "perf-measures/type-check/client.ts",
+        "perf-measures/.octocov.consolidated.perf-measures.yml"
+      ]
+    },
+    {
+      "sourcePath": "/build",
+      "name": "The Works",
+      "purpose": "The release pipeline: it builds the many published entry points and validates them before they ship.",
+      "evidence": [
+        "build/build.ts",
+        "build/validate-exports.ts",
+        "build/remove-private-fields.ts"
+      ]
+    },
+    {
+      "sourcePath": "/docs",
+      "name": "Knowledge District",
+      "purpose": "Contribution rules, the code of conduct and the migration guide; the user manual lives on a separate site.",
+      "evidence": [
+        "docs/CONTRIBUTING.md",
+        "docs/MIGRATION.md",
+        "docs/CODE_OF_CONDUCT.md"
+      ]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Five workflows covering continuous integration, autofix, code review, stale issues and releases.",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/autofix.yml"
+      ]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "src/hono.ts",
+      "role": "The Hono application class, assembled from hono-base and the default router; this is what an app imports first.",
+      "evidence": ["src/hono-base.ts", "src/index.ts"]
+    },
+    {
+      "path": "src/context.ts",
+      "role": "The Context object handed to every handler: request access, response helpers and per-request state.",
+      "evidence": ["src/request.ts", "src/context.test.ts"]
+    },
+    {
+      "path": "src/compose.ts",
+      "role": "Builds the onion-shaped middleware chain that wraps each matched handler.",
+      "evidence": ["src/compose.test.ts", "src/hono-base.ts"]
+    },
+    {
+      "path": "src/router.ts",
+      "role": "The Router interface every routing implementation satisfies; the seam that makes routing swappable.",
+      "evidence": ["src/router/utils.ts"]
+    },
+    {
+      "path": "src/router/smart-router/router.ts",
+      "role": "Picks between the other routers at first request by trying them and keeping the one that fits the route set.",
+      "evidence": ["src/router/smart-router/index.ts"]
+    },
+    {
+      "path": "src/router/reg-exp-router/router.ts",
+      "role": "Compiles all routes into one regular expression for constant-time matching; the fastest of the four.",
+      "evidence": [
+        "src/router/reg-exp-router/trie.ts",
+        "src/router/reg-exp-router/matcher.ts",
+        "src/router/reg-exp-router/node.ts"
+      ]
+    },
+    {
+      "path": "src/router/trie-router/router.ts",
+      "role": "Trie-based router used when routes are too dynamic for the regexp router to pre-compile.",
+      "evidence": ["src/router/trie-router/node.ts"]
+    },
+    {
+      "path": "src/adapter",
+      "role": "One folder per platform (Bun, Deno, Cloudflare, Lambda, Netlify, Vercel, service worker), each a separate published entry point.",
+      "evidence": [
+        "src/adapter/cloudflare-workers/index.ts",
+        "src/adapter/aws-lambda/index.ts",
+        "src/adapter/deno/index.ts",
+        "src/adapter/vercel/index.ts"
+      ]
+    },
+    {
+      "path": "src/middleware",
+      "role": "The opt-in middleware catalogue: auth, CORS, CSRF, caching, compression, ETag, JWT, logging and more.",
+      "evidence": [
+        "src/middleware/cors/index.ts",
+        "src/middleware/jwt/index.ts",
+        "src/middleware/basic-auth/index.ts",
+        "src/middleware/etag/index.ts"
+      ]
+    },
+    {
+      "path": "src/client/client.ts",
+      "role": "The typed RPC client that mirrors a server's route types back to the caller.",
+      "evidence": ["src/client/index.ts", "src/client/types.ts"]
+    },
+    {
+      "path": "src/jsx/index.ts",
+      "role": "The built-in JSX runtime used for server rendering and, through src/jsx/dom, on the client.",
+      "evidence": ["src/jsx/base.ts", "src/jsx/dom/index.ts"]
+    }
+  ],
+  "strengths": [
+    "The core is genuinely small: hono.ts, context.ts and compose.ts carry the framework and everything else is opt-in.",
+    "Routing is pluggable behind one Router interface, with four implementations and a smart router that chooses between them.",
+    "Runtime support is isolated in src/adapter, so a new platform is a new folder rather than a change to the core.",
+    "Tests sit beside the code as src/*.test.ts, and runtime-tests additionally boots the framework on Deno, Bun, Node, workerd, Fastly and Lambda.",
+    "Bundle size and type-check cost are measured in perf-measures on an ongoing basis, not just at release time."
+  ],
+  "concerns": [
+    "The middleware catalogue and the adapters live in the same repository as the core, so the published surface is wide and every release moves all of it.",
+    "Almost the whole codebase sits under one src directory; the meaningful structure is a level deeper, which makes the top level look flatter than the project is.",
+    "The user-facing documentation lives on a separate site, so this repository's docs folder only covers contribution and migration."
+  ],
+  "organizationClarity": 0.92,
+  "model": "claude-opus-5 (curated during development)"
+}

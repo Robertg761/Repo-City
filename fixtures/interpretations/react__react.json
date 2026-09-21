@@ -1,0 +1,152 @@
+{
+  "summary": "React is two projects in one repository. packages holds the runtime: a shared reconciler with one package per renderer (DOM, native, server, test) plus the devtools. compiler holds the React Compiler, its own workspace with a Babel plugin, an ESLint plugin and Rust crates. fixtures and scripts carry the test applications and the release tooling.",
+  "districts": [
+    {
+      "sourcePath": "/packages",
+      "name": "The Reconciler Works",
+      "purpose": "The runtime itself: the fiber reconciler, the host renderers built on it, the scheduler and the devtools.",
+      "evidence": [
+        "packages/react/index.js",
+        "packages/react-reconciler/src/ReactFiberWorkLoop.js",
+        "packages/react-dom/index.js",
+        "packages/scheduler/src/SchedulerMinHeap.js",
+        "packages/react-devtools-shared",
+        "packages/shared"
+      ]
+    },
+    {
+      "sourcePath": "/compiler",
+      "name": "The Foundry",
+      "purpose": "The React Compiler: a separate workspace with its own packages, Rust crates, docs and playground apps.",
+      "evidence": [
+        "compiler/packages/babel-plugin-react-compiler/package.json",
+        "compiler/packages/eslint-plugin-react-compiler/package.json",
+        "compiler/crates",
+        "compiler/apps",
+        "compiler/docs",
+        "compiler/README.md"
+      ]
+    },
+    {
+      "sourcePath": "/fixtures",
+      "name": "Proving Grounds",
+      "purpose": "Small standalone applications used to exercise DOM behaviour, server rendering, packaging and devtools by hand.",
+      "evidence": [
+        "fixtures/dom",
+        "fixtures/flight",
+        "fixtures/ssr",
+        "fixtures/packaging",
+        "fixtures/view-transition"
+      ]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "Release Yard",
+      "purpose": "The build, Jest, Rollup, error-code and release scripts that turn this monorepo into published packages.",
+      "evidence": ["scripts/jest", "scripts/release", "ReactVersions.js"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Workflows split by area: runtime build and test, compiler Rust and TypeScript, devtools regression runs and release automation.",
+      "evidence": [
+        ".github/workflows/runtime_build_and_test.yml",
+        ".github/workflows/compiler_rust.yml",
+        ".github/workflows/devtools_regression_tests.yml",
+        ".github/workflows/runtime_release_from_ci.yml",
+        ".github/workflows/runtime_fuzz_tests.yml"
+      ]
+    },
+    {
+      "sourcePath": "/flow-typed",
+      "name": "The Annex",
+      "purpose": "Flow type declarations for third-party modules, which the runtime type-checks against.",
+      "evidence": ["flow-typed", "flow-typed.config.json"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "packages/react-reconciler/src/ReactFiberWorkLoop.js",
+      "role": "The heart of React: schedules, renders and commits fiber work, and decides what can be interrupted.",
+      "evidence": [
+        "packages/react-reconciler/src/ReactFiberLane.js",
+        "packages/react-reconciler/src/ReactFiberBeginWork.js",
+        "packages/react-reconciler/src/ReactFiberCompleteWork.js"
+      ]
+    },
+    {
+      "path": "packages/react-reconciler/src/ReactFiberHooks.js",
+      "role": "Every built-in hook, implemented against the fiber currently being rendered.",
+      "evidence": ["packages/react-reconciler/src/ReactFiberBeginWork.js"]
+    },
+    {
+      "path": "packages/react/index.js",
+      "role": "The react package entry point: the component and hook API, deliberately thin over the reconciler.",
+      "evidence": [
+        "packages/react/src/ReactBaseClasses.js",
+        "packages/react/index.stable.js",
+        "packages/react/index.experimental.js"
+      ]
+    },
+    {
+      "path": "packages/react-dom",
+      "role": "The DOM renderer entry, with the host-specific work in react-dom-bindings.",
+      "evidence": ["packages/react-dom/index.js", "packages/react-dom-bindings"]
+    },
+    {
+      "path": "packages/react-server",
+      "role": "The server rendering core shared by the Flight and Fizz server bundlers.",
+      "evidence": [
+        "packages/react-server-dom-webpack",
+        "packages/react-server-dom-parcel",
+        "packages/react-client"
+      ]
+    },
+    {
+      "path": "packages/scheduler",
+      "role": "The cooperative scheduler: a priority min-heap that yields work back to the browser between units.",
+      "evidence": [
+        "packages/scheduler/src/SchedulerMinHeap.js",
+        "packages/scheduler/src/SchedulerPriorities.js"
+      ]
+    },
+    {
+      "path": "packages/shared",
+      "role": "Feature flags and invariants imported by every package; the seam where build variants diverge.",
+      "evidence": ["packages/scheduler/src/SchedulerFeatureFlags.js"]
+    },
+    {
+      "path": "packages/react-devtools-shared",
+      "role": "The devtools implementation, shared by the browser extensions and the standalone shell.",
+      "evidence": ["packages/react-devtools-extensions", "packages/react-devtools-shell"]
+    },
+    {
+      "path": "compiler/packages/babel-plugin-react-compiler",
+      "role": "The compiler proper: a Babel plugin that memoises component output automatically.",
+      "evidence": [
+        "compiler/packages/babel-plugin-react-compiler/package.json",
+        "compiler/packages/react-compiler-runtime"
+      ]
+    },
+    {
+      "path": "packages/react-native-renderer",
+      "role": "The React Native host renderer, built on the same reconciler as the DOM renderer.",
+      "evidence": ["packages/react-reconciler/src/ReactFiberWorkLoop.js"]
+    }
+  ],
+  "strengths": [
+    "One reconciler, many renderers: DOM, native, server and test all sit on the same fiber core rather than forking it.",
+    "The public surface is deliberately thin; packages/react barely contains logic and defers to the reconciler.",
+    "Build variants (stable, experimental, www) are expressed as feature flags and separate index files rather than branches.",
+    "CI is split by area, so a compiler change and a runtime change do not have to run each other's suites.",
+    "Release, versioning and error-code tooling are checked in under scripts instead of living in a maintainer's shell history."
+  ],
+  "concerns": [
+    "Two projects share one repository: compiler is a separate workspace with its own yarn.lock and packages, which doubles the tree a newcomer has to read.",
+    "packages holds around 40 packages and react-devtools-shared alone is larger than most of the runtime, so package count is a poor guide to importance.",
+    "The reconciler's meaning lives in a few very large files such as ReactFiberWorkLoop.js and ReactFiberHooks.js, which the directory layout does not signal.",
+    "Over 1,300 open issues and pull requests are attached to the repository, so the tracker is a firehose rather than a work queue."
+  ],
+  "organizationClarity": 0.7,
+  "model": "claude-opus-5 (curated during development)"
+}

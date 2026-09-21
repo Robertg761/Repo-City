@@ -1,0 +1,162 @@
+{
+  "summary": "VS Code is a very large Electron application organised by layer rather than by feature. src/vs splits into base, platform, editor, workbench and sessions, each allowed to depend only on the layers below it. extensions holds the built-in extensions, which use the same public API third parties do, and build, cli and test carry the packaging pipeline, the Rust CLI and the automation suites.",
+  "districts": [
+    {
+      "sourcePath": "/src",
+      "name": "The Layered City",
+      "purpose": "The application: base utilities, platform services, the Monaco editor, the workbench shell and the sessions layer, plus the public API declarations.",
+      "evidence": [
+        "src/vs/base",
+        "src/vs/platform/instantiation/common/instantiation.ts",
+        "src/vs/editor/editor.api.ts",
+        "src/vs/workbench/workbench.common.main.ts",
+        "src/vs/sessions/LAYERS.md",
+        "src/vscode-dts/vscode.d.ts"
+      ]
+    },
+    {
+      "sourcePath": "/extensions",
+      "name": "The Extension Quarter",
+      "purpose": "Built-in extensions such as git, TypeScript, markdown, emmet and the language features, written against the same API third-party extensions use.",
+      "evidence": [
+        "extensions/git",
+        "extensions/typescript-language-features",
+        "extensions/markdown-language-features",
+        "extensions/emmet",
+        "extensions/vscode-api-tests",
+        "extensions/json-language-features"
+      ]
+    },
+    {
+      "sourcePath": "/build",
+      "name": "The Shipyard",
+      "purpose": "The packaging pipeline: gulp tasks, per-platform installers, the Azure Pipelines definitions and the bundler configurations.",
+      "evidence": [
+        "build/lib",
+        "build/azure-pipelines",
+        "build/win32",
+        "build/darwin",
+        "build/linux",
+        "gulpfile.mjs"
+      ]
+    },
+    {
+      "sourcePath": "/test",
+      "name": "Proving Grounds",
+      "purpose": "Out-of-process suites: smoke tests that drive a real build, the automation driver, sanity checks and component fixtures.",
+      "evidence": [
+        "test/smoke",
+        "test/automation",
+        "test/sanity",
+        "test/componentFixtures",
+        "test/mcp"
+      ]
+    },
+    {
+      "sourcePath": "/cli",
+      "name": "The Rust Annex",
+      "purpose": "The separately compiled command-line launcher and tunnel client, the only Rust in the repository.",
+      "evidence": ["cli/Cargo.toml", "cli/src"]
+    },
+    {
+      "sourcePath": "/resources",
+      "name": "The Sign Works",
+      "purpose": "Icons, platform assets and the file associations that make an installed build look native on each operating system.",
+      "evidence": ["resources", "product.json"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Workflows and a large amount of issue automation, which a tracker of this size cannot operate without.",
+      "evidence": [
+        ".github/workflows/codeql.yml",
+        ".github/workflows/monaco-editor.yml",
+        ".github/workflows/pr-darwin-test.yml",
+        ".github/workflows/component-fixtures.yml"
+      ]
+    },
+    {
+      "sourcePath": "/scripts",
+      "name": "The Depot",
+      "purpose": "Developer entry points: run the app from source, run tests, and the helper scripts contributors call daily.",
+      "evidence": ["scripts", "CONTRIBUTING.md", ".vscode-test.js"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "src/vs/base",
+      "role": "The bottom layer: collections, events, disposables, async helpers and DOM utilities, with no dependency on anything above it.",
+      "evidence": ["src/vs/nls.ts", "src/vs/amdX.ts"]
+    },
+    {
+      "path": "src/vs/platform/instantiation/common/instantiation.ts",
+      "role": "The dependency injection system every service in the product is registered and resolved through.",
+      "evidence": ["src/vs/platform", "src/vs/workbench/workbench.common.main.ts"]
+    },
+    {
+      "path": "src/vs/editor/editor.api.ts",
+      "role": "The Monaco editor's public surface, which is published as a standalone package from this same source.",
+      "evidence": ["src/vs/monaco.d.ts", ".github/workflows/monaco-editor.yml"]
+    },
+    {
+      "path": "src/vs/editor/common/model/textModel.ts",
+      "role": "The text model: the buffer, line handling and decorations that everything in the editor reads from.",
+      "evidence": ["src/vs/editor/editor.api.ts"]
+    },
+    {
+      "path": "src/vs/workbench/workbench.common.main.ts",
+      "role": "The workbench entry point that registers the contributions making up the visible application.",
+      "evidence": ["src/vs/workbench/api/common/extHost.api.impl.ts"]
+    },
+    {
+      "path": "src/vs/workbench/api/common/extHost.api.impl.ts",
+      "role": "Implements the vscode module extensions import; the boundary between the product and extension code.",
+      "evidence": [
+        "src/vscode-dts/vscode.d.ts",
+        "src/vs/workbench/services/extensions/common/extensionHostManager.ts",
+        "extensions/vscode-api-tests"
+      ]
+    },
+    {
+      "path": "src/vs/code/electron-main/main.ts",
+      "role": "The Electron main process entry: lifecycle, windows and the desktop application shell.",
+      "evidence": ["src/main.ts"]
+    },
+    {
+      "path": "src/server-main.ts",
+      "role": "The server entry used by remote development and the browser build, sharing the workbench with the desktop app.",
+      "evidence": ["src/server-cli.ts", "remote"]
+    },
+    {
+      "path": "src/vscode-dts/vscode.d.ts",
+      "role": "The stable extension API declaration; the proposed API files beside it are the staging area for new surface.",
+      "evidence": ["src/vscode-dts", "extensions/vscode-api-tests"]
+    },
+    {
+      "path": "src/vs/sessions",
+      "role": "The newest top-level layer, documented in place with LAYERS.md and LAYOUT.md describing its own rules.",
+      "evidence": ["src/vs/sessions/LAYERS.md", "src/vs/sessions/LAYOUT.md"]
+    },
+    {
+      "path": "extensions/git",
+      "role": "The built-in git integration, and the clearest example of what the extension API can carry.",
+      "evidence": ["extensions/github", "extensions/github-authentication"]
+    }
+  ],
+  "strengths": [
+    "The layer rule is the architecture: base, platform, editor, workbench and sessions may only depend downwards, which is what keeps a codebase this size navigable.",
+    "Built-in features are extensions using the public API, so the extension surface is exercised by the product itself.",
+    "The same source produces a desktop app, a server for remote development, a browser build and the standalone Monaco editor.",
+    "Testing runs at several levels: unit tests inside src, API tests as an extension, and smoke tests that drive a real build through the automation driver.",
+    "The proposed API mechanism gives new extension surface a staging area instead of shipping it as stable immediately."
+  ],
+  "concerns": [
+    "Nineteen thousand files with src/vs/workbench alone holding nearly five thousand; no newcomer can hold the tree in their head, and the layer documentation is the only usable map.",
+    "Over 21,000 open issues and pull requests are attached to the repository, so the tracker is a corpus rather than a work queue.",
+    "extensions/copilot is more than half of the extensions directory, which unbalances what looks like a directory of peers.",
+    "The repository mixes TypeScript, Rust and several bundlers (gulp, vite, rspack appear side by side under build), so the build story is layered rather than single.",
+    "Source and tests are split between in-tree unit tests and the separate test directory, so the suite for a given change is not always obvious."
+  ],
+  "organizationClarity": 0.8,
+  "model": "claude-opus-5 (curated during development)"
+}

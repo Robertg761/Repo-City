@@ -1,0 +1,164 @@
+{
+  "summary": "The pnpm repository holds two package managers at once. pnpm11 is the TypeScript v11 CLI, split into many small packages grouped by concern. pnpm is the Rust v12 rewrite, an 88-crate workspace where new features now land. pnpr is a separate Rust server that resolves dependencies remotely, and .changeset carries the release notes for all of it.",
+  "districts": [
+    {
+      "sourcePath": "/pnpm",
+      "name": "The New Foundry",
+      "purpose": "The Rust v12 CLI (pacquet): an 88-crate workspace covering resolution, the store, lockfiles, workspaces and the command surface.",
+      "evidence": [
+        "pnpm/crates/cli/src/lib.rs",
+        "pnpm/crates/lockfile/src/lib.rs",
+        "pnpm/crates/store-dir/src/lib.rs",
+        "pnpm/crates/workspace-state/src/lib.rs",
+        "pnpm/README.md",
+        "Cargo.toml"
+      ]
+    },
+    {
+      "sourcePath": "/pnpm11",
+      "name": "The Old Works",
+      "purpose": "The TypeScript v11 CLI, kept for bug fixes only, grouped into installing, deps, resolving, lockfile, store, workspace and cli packages.",
+      "evidence": [
+        "pnpm11/pnpm/pnpm.cjs",
+        "pnpm11/installing/deps-installer",
+        "pnpm11/lockfile",
+        "pnpm11/resolving",
+        "pnpm11/workspace",
+        "pnpm11/__fixtures__"
+      ]
+    },
+    {
+      "sourcePath": "/pnpr",
+      "name": "The Remote Depot",
+      "purpose": "A Rust server that resolves a project's dependencies server-side and streams back a lockfile, with a TypeScript client beside it.",
+      "evidence": [
+        "pnpr/crates/pnpr/Cargo.toml",
+        "pnpr/crates/oci/Cargo.toml",
+        "pnpr/crates/osv/Cargo.toml",
+        "pnpr/client/src/index.ts",
+        "pnpr/client/README.md",
+        "pnpr/.fixtures"
+      ]
+    },
+    {
+      "sourcePath": "/.changeset",
+      "name": "The Records Office",
+      "purpose": "Several hundred pending changeset files, one per change, which assemble into the release notes and version bumps.",
+      "evidence": [".changeset", "RELEASING.md"]
+    },
+    {
+      "sourcePath": "/.github",
+      "name": "Civic Offices",
+      "purpose": "Fifty-plus workflow and config files: CI, benchmarks, ecosystem end-to-end runs, security audit, Docker images and release PRs.",
+      "evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/benchmark.yml",
+        ".github/workflows/ecosystem-e2e.yml",
+        ".github/workflows/cargo-equivalence.yml",
+        ".github/workflows/audit.yml",
+        ".github/workflows/create-release-pr.yml"
+      ]
+    },
+    {
+      "sourcePath": "/__patches__",
+      "name": "The Patchworks",
+      "purpose": "Patched dependencies applied through pnpm's own patch mechanism, dogfooding the feature.",
+      "evidence": ["__patches__", ".pnpmfile.cjs"]
+    },
+    {
+      "sourcePath": "/docker",
+      "name": "The Container Yard",
+      "purpose": "The published Docker images for running pnpm in CI.",
+      "evidence": ["docker", ".github/workflows/docker.yml"]
+    }
+  ],
+  "importantModules": [
+    {
+      "path": "pnpm/crates/cli/src/lib.rs",
+      "role": "The v12 command surface: parses arguments and dispatches to the command crates.",
+      "evidence": ["pnpm/crates/config/Cargo.toml", "pnpm/crates/auth-commands/Cargo.toml"]
+    },
+    {
+      "path": "pnpm/crates/lockfile/src/lib.rs",
+      "role": "Reading, writing and comparing pnpm-lock.yaml, the file the whole install pipeline is anchored to.",
+      "evidence": [
+        "pnpm/crates/lockfile-verification/src/lib.rs",
+        "pnpm/crates/lockfile-import/src/lib.rs",
+        "pnpm/crates/lockfile-preferred-versions/src/lib.rs"
+      ]
+    },
+    {
+      "path": "pnpm/crates/store-dir/src/lib.rs",
+      "role": "The content-addressable store, the reason pnpm installs are fast and share disk between projects.",
+      "evidence": ["pnpm/crates/crypto-hash/Cargo.toml", "pnpm/crates/tarball/Cargo.toml"]
+    },
+    {
+      "path": "pnpm/crates/install-coordinator",
+      "role": "Drives one install: resolve, fetch, link, and run lifecycle scripts in the right order.",
+      "evidence": [
+        "pnpm/crates/executor/Cargo.toml",
+        "pnpm/crates/deps-restorer/Cargo.toml",
+        "pnpm/crates/real-hoist/Cargo.toml"
+      ]
+    },
+    {
+      "path": "pnpm/crates/resolving-npm-resolver",
+      "role": "Resolves npm registry specifiers; git, jsr, tarball, local and catalog resolvers sit beside it as separate crates.",
+      "evidence": [
+        "pnpm/crates/resolving-git-resolver/Cargo.toml",
+        "pnpm/crates/resolving-jsr-specifier-parser/Cargo.toml",
+        "pnpm/crates/resolving-resolver-base/Cargo.toml",
+        "pnpm/crates/catalogs-resolver/Cargo.toml"
+      ]
+    },
+    {
+      "path": "pnpm/crates/workspace-projects-graph",
+      "role": "Builds the graph of workspace projects that filtering and the task scheduler both walk.",
+      "evidence": [
+        "pnpm/crates/workspace-projects-filter/Cargo.toml",
+        "pnpm/crates/workspace-task-scheduler/Cargo.toml",
+        "pnpm-workspace.yaml"
+      ]
+    },
+    {
+      "path": "pnpm11/pnpm/pnpm.cjs",
+      "role": "The v11 entry point, still the published binary for the TypeScript line.",
+      "evidence": ["pnpm11/pnpm/bundle.ts", "pnpm11/pnpm/package.json"]
+    },
+    {
+      "path": "pnpm11/installing",
+      "role": "The v11 install pipeline: client, context, dependency installer and resolver packages.",
+      "evidence": [
+        "pnpm11/installing/deps-installer/package.json",
+        "pnpm11/installing/deps-resolver/package.json",
+        "pnpm11/installing/commands/package.json"
+      ]
+    },
+    {
+      "path": "pnpr/client/src/index.ts",
+      "role": "The TypeScript client that posts a project's manifests to the pnpr server and receives a resolved lockfile.",
+      "evidence": ["pnpr/client/README.md", "pnpr/client/src/installSharedSideEffects.ts"]
+    },
+    {
+      "path": "pnpm/crates/diagnostics",
+      "role": "Shared error reporting, so a failure in any crate reaches the user as one consistent message.",
+      "evidence": ["pnpm/crates/default-reporter/Cargo.toml", "pnpm/crates/reporter/Cargo.toml"]
+    }
+  ],
+  "strengths": [
+    "The Rust workspace is cut into narrow crates named after what they do, so resolution, store, lockfile and workspace concerns never blur into one another.",
+    "The rewrite is staged in the open: pnpm/README.md states which version gets features, which gets fixes, and how bugs in both are handled.",
+    "A cargo-equivalence workflow exists to compare the two implementations rather than trusting that the rewrite behaves the same.",
+    "Releases are assembled from per-change changesets instead of a hand-edited changelog.",
+    "CI is unusually broad for a package manager: benchmarks, ecosystem end-to-end runs, security audit and Docker publishing all run from this repository."
+  ],
+  "concerns": [
+    "Two complete implementations of the same tool live side by side, so a bug present in both has to be fixed twice in two languages.",
+    "Nearly 1,100 open issues and pull requests sit against the repository, which is a lot of surface for a tool in the middle of a rewrite.",
+    "Around 550 pending changeset files suggests releases batch a great deal of change at once.",
+    "Eighty-eight crates plus the v11 package set is a lot of top-level vocabulary before a newcomer can find where an install actually starts.",
+    "Contributors need both a Rust toolchain and a Node toolchain before either half of the repository builds."
+  ],
+  "organizationClarity": 0.72,
+  "model": "claude-opus-5 (curated during development)"
+}
