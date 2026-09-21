@@ -1436,13 +1436,15 @@ Example:
 
 Each significant interpretation should reference supporting files/paths where practical.
 
-Implementation decisions:
+Implementation decisions (revised 2026-09-21: Robert will not fund runtime API tokens):
 
-* Provider: Anthropic API through `@anthropic-ai/sdk`. Model from env `AI_MODEL`, default `claude-opus-5`. Use structured outputs (`output_config.format` with the Zod schema from `lib/ai/schema.ts`) so the response is schema-valid without post-hoc repair. Use `output_config.effort: "low"` for this task; it is interpretation, not deep reasoning. Enable server-side refusal fallbacks (`fallbacks: "default"` with the matching beta header) so a rare refusal still returns a usable response.
+* **The runtime AI call is optional and ships disabled.** The deployed demo runs with `AI_PROVIDER=none`. The deterministic path is the product; the AI layer is a plug-in for anyone who deploys their own copy with a key.
+* Provider-agnostic adapter in `lib/ai/` using the Vercel AI SDK (`ai` package, `generateObject` with the Zod schema from `lib/ai/schema.ts`). Providers wired: `anthropic` (`@ai-sdk/anthropic`), `openai` (`@ai-sdk/openai`), `google` (`@ai-sdk/google`), and `openai-compatible` (`@ai-sdk/openai-compatible`, for local models such as Ollama or LM Studio). Env: `AI_PROVIDER` (default `none`), `AI_MODEL`, `AI_API_KEY`, `AI_BASE_URL` (openai-compatible only). Do not install `@anthropic-ai/sdk` directly.
 * Input budget: at most roughly 25k tokens. Send the pruned tree as an indented path list (depth 3, max 600 lines), README up to 6k characters, up to 3 manifests up to 2k characters each, workflow file names and job names only, plus the deterministic metrics summary. Never send issue bodies or source files in the MVP.
-* Timeout: 25 seconds. On timeout, error, or schema failure, `aiStatus` becomes `failed` and the deterministic path continues. Set `export const maxDuration = 60` on the route handler so the hosting platform does not cut the request short.
+* Timeout: 25 seconds. On timeout, error, or schema failure, `aiStatus` becomes `failed` and the deterministic path continues. When `AI_PROVIDER=none`, `aiStatus` is `skipped`. Set `export const maxDuration = 60` on the route handler.
 * The schema includes an `organizationClarity` number from 0 to 1 and, per district and module, an `evidence` array of paths. Any evidence path not present in the tree is dropped before use.
-* The agent implementing this must load the Claude API reference skill and follow its TypeScript structured-output example rather than writing the request from memory.
+* **Curated interpretations for the reference repositories.** For the repos in section 59, the build agents read the real repository and write `fixtures/interpretations/<owner>__<repo>.json` conforming to `AiInterpretation` with `model` set to the agent's model name. When `AI_PROVIDER=none` and a curated file exists for the analyzed repo, the server merges it with `aiStatus: "ok"` and the inspector labels it "curated interpretation". This is development-time AI use and is declared in `AI_MODELS.md`. Every evidence path in a curated file is validated against the live tree at request time, same as a model response, so a stale interpretation degrades instead of lying.
+* Testing W4 without a key: `openai-compatible` against a local Ollama instance if one is available; otherwise unit tests mock the provider and assert schema validation, timeout, and fallback behaviour.
 
 ---
 
@@ -1524,7 +1526,7 @@ Caching and abuse controls (the hosted app runs on Robert's tokens and is used b
 
 * Server-side in-memory cache of the completed `RepoAnalysis` keyed by `owner/repo`, 15 minute TTL, in `lib/cache.ts`. Serverless instances do not share memory, so additionally pass `next: { revalidate: 600 }` on every GitHub `fetch` so the platform data cache dedupes repeated repos across instances.
 * Per-IP best-effort limit of 10 analyses per 10 minutes in `lib/ratelimit.ts`. Best effort is acceptable.
-* Env `AI_ENABLED=false` disables the AI call entirely without redeploying. Env `AI_MAX_PER_HOUR` (default 60) caps AI calls per instance per hour; over the cap, `aiStatus` is `skipped`.
+* Env `AI_PROVIDER=none` (the default, and the setting on the hosted demo) disables the AI call entirely. Env `AI_MAX_PER_HOUR` (default 60) caps AI calls per instance per hour when a provider is configured; over the cap, `aiStatus` is `skipped`.
 * Committed fixtures in `fixtures/` hold full `RepoAnalysis` JSON for the demo repositories. Env `FIXTURE_FALLBACK=true` serves a fixture when GitHub returns a rate-limit error for one of those repos, so the demo cannot die during voting. The HUD shows a small "cached snapshot" note when this happens.
 
 ---
@@ -1551,9 +1553,10 @@ Commit a `.env.example` with placeholder values only:
 
 ```text
 GITHUB_TOKEN=
-ANTHROPIC_API_KEY=
-AI_MODEL=claude-opus-5
-AI_ENABLED=true
+AI_PROVIDER=none          # none | anthropic | openai | google | openai-compatible
+AI_MODEL=
+AI_API_KEY=
+AI_BASE_URL=              # openai-compatible only
 AI_MAX_PER_HOUR=60
 FIXTURE_FALLBACK=true
 ```
@@ -3105,7 +3108,7 @@ Each milestone has an executable check, not a feeling.
 | W0 done | `pnpm build` passes; hosted URL shows the canvas; `types/` matches section 71 |
 | Monday | fixture city renders; orbit, pan, zoom, click-to-inspect work on the hosted URL |
 | Tuesday | `/api/analyze` returns valid `RepoAnalysis` for three reference repos in under 15 seconds each; the three cities are visibly different in a screenshot |
-| Wednesday | every incident, construction site, and landmark in the inspector links to a real GitHub URL; AI failure (`AI_ENABLED=false`) still renders the full city |
+| Wednesday | every incident, construction site, and landmark in the inspector links to a real GitHub URL; the default `AI_PROVIDER=none` renders the full city; curated interpretations load for the reference repos |
 | Thursday | all eleven test cases in section 53 pass manually; feature freeze commit tagged `freeze` |
 | Friday | section 70 audit fully checked; submission recorded with timestamp |
 
@@ -3123,6 +3126,6 @@ Automated tests required in the MVP (Vitest):
 
 1. Confirm the Yard #3 check-in completed before kickoff (section 0.12).
 2. Approve flipping `Robertg761/Repo-City` to public (section 0.9).
-3. Provide `GITHUB_TOKEN` (fine-grained, public read only) and `ANTHROPIC_API_KEY` in Vercel and in a local `.env.local`. Confirm whether the runtime model stays `claude-opus-5` or moves to `claude-sonnet-5` for cost.
+3. Provide `GITHUB_TOKEN` (fine-grained, public read only) for Vercel and a local `.env.local`. No AI key: decided 2026-09-21, runtime AI ships disabled and multi-provider.
 4. Name the model that drafted the original plan, for `AI_MODELS.md`.
 5. Confirm the Vercel account and project name to deploy to. The Vercel CLI is not installed locally.

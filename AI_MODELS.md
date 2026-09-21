@@ -10,7 +10,8 @@ Hackyard Yard #3 requires an accurate model declaration at submission. Every age
 
 ## Runtime (inside the product)
 
-- Claude Opus 5 (`claude-opus-5`) via the Anthropic API — architecture interpretation feature (district naming, module roles, strengths, concerns). Configurable through `AI_MODEL`.
+- None on the hosted demo. The architecture-interpretation feature is an optional, provider-agnostic adapter (`AI_PROVIDER=none` by default). Anyone deploying their own copy can point it at Anthropic, OpenAI, Google, or an OpenAI-compatible local model.
+- Curated interpretations for the reference repositories in `fixtures/interpretations/` were written by the development agents listed above; each file records its `model`.
 
 ## Not used
 

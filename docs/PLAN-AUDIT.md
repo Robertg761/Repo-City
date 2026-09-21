@@ -51,7 +51,7 @@ Verdict: the original plan is strong on product thinking, scope discipline, and 
 
 ## D. Risks that remain after the fixes
 
-1. **AI cost exposure during voting.** Opus 5 at roughly 25k input tokens per uncached analysis is about 15 cents per new repo. The kill switch and hourly cap bound it. Sonnet 5 would cut it by more than half; that is Robert's call.
+1. **AI cost exposure during voting.** Resolved 2026-09-21: Robert declined runtime API spend. The hosted demo runs with `AI_PROVIDER=none`; the adapter is multi-provider for self-hosters; reference repos get agent-curated interpretations committed as fixtures (PLAN.md section 28).
 2. **Vercel function timeout.** The plan sets `maxDuration = 60`; if the account plan enforces a lower ceiling, the AI stage must move to a second request. W2 verifies this on the first deploy.
 3. **Merge conflicts between W1 and W6.** Both touch UI. Ownership is split by file (canvas versus overlays) and the store shape is fixed in W0, which should keep conflicts small.
 4. **Look and feel.** No amount of contract work makes the city beautiful. Thursday's polish pass is the only budget for that; the schedule protects it by freezing features Thursday night.
