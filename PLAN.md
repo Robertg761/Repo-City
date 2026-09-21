@@ -97,7 +97,7 @@ Project-specific code must be produced during this build window.
 
 **Practical note:** kickoff is mid-afternoon Monday in Newfoundland, so Monday is a half day. Effective build time is roughly four days, not five. The daily goals in sections 50 to 54 are milestones, not a strict serial schedule; see section 72 for how the work is parallelized across agents.
 
-**Timing log:** GitHub repository `Robertg761/Repo-City` created 2026-09-21 18:21 UTC. Local repository initialized 2026-09-21 18:24 UTC. Both after kickoff. Keep this log updated with the first-commit time.
+**Timing log:** GitHub repository `Robertg761/Repo-City` created 2026-09-21 18:21 UTC. Local repository initialized 2026-09-21 18:24 UTC. First commit (planning documents) 2026-09-21 19:41 UTC. Repository made public 2026-09-21 19:41 UTC. All after kickoff.
 
 ---
 
@@ -225,7 +225,7 @@ A repository created before kickoff does not automatically disqualify an entry, 
 
 A fresh post-kickoff repo avoids unnecessary ambiguity.
 
-**Status:** `https://github.com/Robertg761/Repo-City` exists, was created after kickoff, is empty, and is currently **private**. It must be switched to public before submission. Switching early is preferred so the timing display matches the whole history:
+**Status:** `https://github.com/Robertg761/Repo-City` was created after kickoff and switched to public on 2026-09-21 with:
 
 ```bash
 gh repo edit Robertg761/Repo-City --visibility public --accept-visibility-change-consequences
