@@ -71,25 +71,14 @@ describe("resolveEntity", () => {
     ]);
     expect(resolved?.tags).toEqual(["bug", "priority-high", "router"]);
     expect(resolved?.reason).toMatch(/unresolved bug/);
-    expect(resolved?.provisional).toBe(false);
   });
 
-  it("falls back to the analysis for building ids before the generator lands", () => {
-    const resolved = resolveEntity("b-001", null, analysis, NOW);
-
-    expect(resolved?.label).toBe("BUILDING");
-    expect(resolved?.title).toBe("README.md");
-    expect(resolved?.provisional).toBe(true);
-    expect(resolved?.sourceUrl).toBe("https://github.com/sample/repo-city/blob/main/README.md");
-    expect(resolved?.facts[0]).toEqual({ label: "Path", value: "README.md" });
-  });
-
-  it("resolves districts from the analysis fallback", () => {
-    const resolved = resolveEntity("d-src", null, analysis, NOW);
-
-    expect(resolved?.label).toBe("DISTRICT");
-    expect(resolved?.title).toBe("Core District");
-    expect(resolved?.subtitle).toBe("/src");
+  it("resolves nothing without a city model", () => {
+    // The store builds a `CityModel` for every successful analysis, so the
+    // analysis-only fallback that used to live here is gone: ids resolve
+    // from the model or not at all.
+    expect(resolveEntity("b-001", null, analysis, NOW)).toBeNull();
+    expect(resolveEntity("d-src", null, analysis, NOW)).toBeNull();
   });
 
   it("returns null for an unknown id", () => {

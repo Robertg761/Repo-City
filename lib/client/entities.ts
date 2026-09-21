@@ -30,11 +30,6 @@ export interface ResolvedEntity {
   facts: EntityFact[];
   /** Issue or pull request labels, rendered as chips. */
   tags: string[];
-  /**
-   * True when the entity was reconstructed from `analysis` because the city
-   * model is not available yet (see `resolveFromAnalysis`).
-   */
-  provisional: boolean;
 }
 
 const LANDMARK_LABELS: Record<LandmarkType, string> = {
@@ -76,11 +71,6 @@ function relativeDays(iso: string, now = Date.now()): string {
   if (days === 0) return "today";
   if (days === 1) return "yesterday";
   return `${days.toLocaleString("en-US")} days ago`;
-}
-
-function basename(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
 }
 
 function strengthLabel(strength: 0 | 1 | 2 | 3): string {
@@ -133,62 +123,6 @@ function landmarkFacts(type: LandmarkType, analysis: RepoAnalysis | null): Entit
   ];
 }
 
-/**
- * Fallback used until `lib/city/generator.ts` (W5) lands and the store holds a
- * real `CityModel`. It reads `analysis` directly so the overlays can be built
- * and demoed now; ids are the plan ids (`b-*` buildings, `d-*` districts).
- * Delete nothing else when the generator arrives - `resolveEntity` prefers the
- * city model whenever one exists.
- */
-function resolveFromAnalysis(id: string, analysis: RepoAnalysis): ResolvedEntity | null {
-  const building = analysis.buildings.find((candidate) => candidate.id === id);
-  if (building) {
-    const district = analysis.districts.find((d) => d.id === building.districtId);
-    const ref = analysis.repo.defaultBranch;
-    const kindPath = building.kind === "file" ? "blob" : "tree";
-    return {
-      id,
-      kind: "building",
-      label: "BUILDING",
-      title: basename(building.path),
-      // A root-level file would otherwise repeat its own name as the subtitle.
-      subtitle: building.path === basename(building.path)
-        ? (district?.name ?? "Repository root")
-        : building.path,
-      description: "",
-      reason: building.role
-        ? `This building stands out because ${building.role.toLowerCase()}.`
-        : "Building height and footprint follow how central this path is to the repository.",
-      sourceUrl: `${analysis.repo.url}/${kindPath}/${ref}/${building.path}`,
-      facts: buildingFacts(building.path, building.kind, district?.name ?? null, building.tier, building.role),
-      tags: [],
-      provisional: true,
-    };
-  }
-
-  const district = analysis.districts.find((candidate) => candidate.id === id);
-  if (district) {
-    return {
-      id,
-      kind: "district",
-      label: "DISTRICT",
-      title: district.name,
-      subtitle: district.sourcePath,
-      description: district.purpose ?? "",
-      reason: "Top-level directories become districts; their size follows their file count.",
-      sourceUrl: null,
-      facts: [
-        { label: "Path", value: district.sourcePath },
-        { label: "Files", value: district.fileCount.toLocaleString("en-US") },
-      ],
-      tags: [],
-      provisional: true,
-    };
-  }
-
-  return null;
-}
-
 function buildingFacts(
   path: string,
   kind: "file" | "directory",
@@ -206,6 +140,12 @@ function buildingFacts(
   return facts;
 }
 
+/**
+ * Ids are resolved from the city model, which the store builds for every
+ * successful analysis (live, cached and fixture alike), so an id the model
+ * does not know belongs to no entity. `analysis` is still read, but only for
+ * the landmark facts: those come from the metrics, not from the geometry.
+ */
 export function resolveEntity(
   id: string | null,
   city: CityModel | null,
@@ -234,7 +174,6 @@ export function resolveEntity(
           ...(issue.author ? [{ label: "Reported by", value: issue.author }] : []),
         ],
         tags: issue.labels,
-        provisional: false,
       };
     }
 
@@ -260,7 +199,6 @@ export function resolveEntity(
           },
         ],
         tags: pull.labels,
-        provisional: false,
       };
     }
 
@@ -277,7 +215,6 @@ export function resolveEntity(
         sourceUrl: landmark.sourceUrl,
         facts: landmarkFacts(landmark.landmarkType, analysis),
         tags: [],
-        provisional: false,
       };
     }
 
@@ -301,7 +238,6 @@ export function resolveEntity(
           building.plan.role,
         ),
         tags: [],
-        provisional: false,
       };
     }
 
@@ -321,10 +257,9 @@ export function resolveEntity(
           { label: "Buildings", value: `${district.buildingIds.length}` },
         ],
         tags: [],
-        provisional: false,
       };
     }
   }
 
-  return analysis ? resolveFromAnalysis(id, analysis) : null;
+  return null;
 }

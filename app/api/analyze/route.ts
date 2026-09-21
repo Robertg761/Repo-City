@@ -117,7 +117,9 @@ function handle(request: NextRequest, input: string): Response {
         setCachedAnalysis(requestedName, analysis);
       }
 
-      emit(stageLine({ id: "done", status: "done", detail: analysis.repo.fullName }));
+      // `analyzeSnapshot` already emitted the single `done` stage for this
+      // request (PLAN.md section 44); a second one here would draw a duplicate
+      // row in the progress panel.
       emit({ type: "result", analysis });
     } catch (error) {
       const code = errorCodeOf(error);
@@ -141,8 +143,10 @@ function handle(request: NextRequest, input: string): Response {
 /**
  * Cache and fixture hits still walk the HUD through the same stages, filled
  * from the stored analysis so every line stays factual (PLAN.md section 44).
+ * `note` says where the analysis came from and rides on the `discover` line,
+ * so the `done` line stays identical to the one a live survey writes.
  */
-function replayStages(emit: Emit, analysis: RepoAnalysis, doneDetail: string): void {
+function replayStages(emit: Emit, analysis: RepoAnalysis, note: string): void {
   // Counts are read defensively: a hand-written fixture is allowed to be
   // sparse, and a missing number must not turn a working fallback into a
   // crash halfway through the stream.
@@ -150,7 +154,11 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, doneDetail: string): v
   const count = (value: number | undefined): string => (value ?? 0).toLocaleString("en-US");
 
   const events: AnalyzeEvent[] = [
-    stageLine({ id: "discover", status: "done", detail: analysis.repo?.fullName ?? "" }),
+    stageLine({
+      id: "discover",
+      status: "done",
+      detail: `${analysis.repo?.fullName ?? ""} (${note})`,
+    }),
     stageLine({ id: "tree", status: "done", detail: `${count(metrics.scale?.files)} files mapped` }),
     stageLine({
       id: "issues",
@@ -176,8 +184,16 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, doneDetail: string): v
     events.push(stageLine({ id: "ai", status: "failed", detail: "interpretation unavailable" }));
   }
 
-  events.push(stageLine({ id: "done", status: "done", detail: doneDetail }));
+  // The same terminal line a live survey ends on: `analyzeSnapshot` reports
+  // the health score there, and a replay must not look different.
+  events.push(stageLine({ id: "done", status: "done", detail: doneDetail(analysis) }));
   for (const event of events) emit(event);
+}
+
+/** The `done` detail, always the health score, on every path. */
+function doneDetail(analysis: RepoAnalysis): string | undefined {
+  const score = analysis.metrics?.health?.score;
+  return typeof score === "number" ? `${score}` : undefined;
 }
 
 function ciDetail(analysis: RepoAnalysis): string {

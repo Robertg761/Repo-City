@@ -92,6 +92,20 @@ const post = (body: unknown, headers: Record<string, string> = {}): NextRequest 
 const eventsOf = async (response: Response): Promise<AnalyzeEvent[]> =>
   readEvents(response.body as ReadableStream<Uint8Array>);
 
+/** Every `done` stage line in a stream: the panel must only ever draw one. */
+const doneStages = (events: AnalyzeEvent[]): AnalyzeEvent[] =>
+  events.filter((event) => event.type === "stage" && event.id === "done");
+
+/**
+ * The detail of the last line for a stage. The fallback path emits `discover`
+ * twice - the live attempt starts it, the replay finishes it - so the last one
+ * is the one the panel ends up showing.
+ */
+const stageDetail = (events: AnalyzeEvent[], id: string): string | undefined => {
+  const stage = events.findLast((event) => event.type === "stage" && event.id === id);
+  return stage?.type === "stage" ? stage.detail : undefined;
+};
+
 beforeEach(() => {
   clearAnalysisCache();
   resetRateLimit();
@@ -220,6 +234,8 @@ describe("/api/analyze success", () => {
     expect(stages[0]).toMatchObject({ id: "discover", status: "running" });
     expect(events.at(-1)).toMatchObject({ type: "result" });
     expect(stages.at(-1)).toMatchObject({ id: "done", status: "done" });
+    // The analysis emits `done`; the route must not add a second one.
+    expect(doneStages(events)).toHaveLength(1);
     expect(results[0]).toMatchObject({
       type: "result",
       analysis: { repo: { fullName: "honojs/hono" }, source: "live" },
@@ -240,9 +256,25 @@ describe("/api/analyze success", () => {
     expect(calls).toBe(0);
     expect(events.filter((event) => event.type === "stage").length).toBeGreaterThanOrEqual(7);
     expect(events.at(-1)).toMatchObject({ type: "result" });
-    expect(
-      events.find((event) => event.type === "stage" && event.id === "done"),
-    ).toMatchObject({ detail: "cached survey" });
+    expect(doneStages(events)).toHaveLength(1);
+    // The replay says where the analysis came from on the `discover` line, so
+    // its `done` line can stay identical to a live survey's.
+    expect(stageDetail(events, "discover")).toBe("honojs/hono (cached survey)");
+  });
+
+  it("emits the done stage exactly once, with the same detail, fresh and cached", async () => {
+    const fresh = await eventsOf(await GET(get("honojs/hono")));
+    const cached = await eventsOf(await GET(get("honojs/hono")));
+
+    const result = fresh.at(-1);
+    const score = result?.type === "result" ? result.analysis.metrics.health.score : null;
+    expect(typeof score).toBe("number");
+
+    for (const events of [fresh, cached]) {
+      const done = doneStages(events);
+      expect(done).toHaveLength(1);
+      expect(done[0]).toEqual({ type: "stage", id: "done", status: "done", detail: `${score}` });
+    }
   });
 });
 
@@ -285,9 +317,8 @@ describe("/api/analyze fixture fallback", () => {
       expect(
         events.find((event) => event.type === "stage" && event.id === "tree"),
       ).toMatchObject({ detail: "470 files mapped" });
-      expect(
-        events.find((event) => event.type === "stage" && event.id === "done"),
-      ).toMatchObject({ detail: "cached snapshot" });
+      expect(stageDetail(events, "discover")).toBe("honojs/hono (cached snapshot)");
+      expect(doneStages(events)).toHaveLength(1);
     } finally {
       process.chdir(cwd);
     }
