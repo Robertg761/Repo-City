@@ -1501,6 +1501,7 @@ Endpoint plan (REST v3, all requests fired in parallel after the first one, roug
 
 Known gotchas that must be handled:
 
+* Renamed or transferred repositories return a 301 to `/repositories/{id}` (verified: `facebook/react` now redirects to `react/react`). Follow the redirect, then use the `full_name` from the response as the canonical name for caching, the seed, the HUD, and all follow-up requests. Never build later URLs from the user's typed input.
 * The issues endpoint returns pull requests too. Drop every item with a `pull_request` key.
 * The tree endpoint sets `truncated: true` above 100,000 entries or 7 MB. Continue with what was returned, lower confidence, and add a warning.
 * Contributors and Actions endpoints can return 204 or 202 with no body on very new or very large repositories. Treat as empty.
