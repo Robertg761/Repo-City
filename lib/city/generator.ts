@@ -431,7 +431,10 @@ function placeIncidents(
   const incidents: Incident[] = [];
 
   ranked.forEach((issue, index) => {
-    const district = districtForPath(issue.relatedPath, districtPlans);
+    // Section 11: the related path first, then any path the issue text names.
+    const district =
+      districtForPath(issue.relatedPath, districtPlans) ??
+      districtForText(`${issue.title} ${issue.bodyExcerpt}`, districtPlans);
     const rect = district ? (rectById.get(district.id) ?? null) : null;
     const candidates = rect
       ? roadsNear(layout.roads, rect).slice(0, 12)
