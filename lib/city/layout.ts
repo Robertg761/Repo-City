@@ -140,8 +140,12 @@ const TARGET_BLOCK = 22;
  * lots with streets between them.
  */
 const BUILDINGS_PER_BLOCK = 9;
-/** Widest slot pitch: a hair over the largest footprint the generator draws. */
-const MAX_SLOT_PITCH = 8.8;
+/**
+ * Spacing between building slots. One value for the whole city, so density
+ * reads the same in a busy district and a quiet one; a district that cannot
+ * fit its buildings at it re-grids tighter (see `planSlots`).
+ */
+const TARGET_PITCH = 7.2;
 /** Terrain kept outside the ring road, for the tree line. */
 const OUTER_MARGIN = 4;
 /** Free space between the ring road and the landmark band. */
@@ -154,6 +158,12 @@ const LANDMARK_BAND_MIN = 12;
 export const CIVIC_BUILDING_SLOTS = 5;
 /** Breathing room between the town hall, the plaza buildings and the kerb. */
 const PLAZA_GAP = 2;
+/**
+ * Smallest share of a pair of pinwheel arms one of them may take. At a half
+ * the regions are symmetric and a quiet district gets the same ground as a
+ * busy one; below about 0.4 the civic square stops reading as central.
+ */
+const REGION_SHARE_MIN = 0.4;
 /** Margin kept between the outermost plaza cell and the plaza kerb. */
 const PLAZA_SLACK = 0.4;
 /** How many plaza positions a degenerate row fits on each side of the hall. */
@@ -356,26 +366,51 @@ function carveRegions(
   districtSide: number,
   civic: number,
   districtCount: number,
+  loads?: readonly number[],
 ): { civicRect: Rect; regions: Rect[] } {
   const h = districtSide / 2;
   const c = civic / 2;
+  const arms = districtSide - civic;
+
+  /**
+   * Divide the two arms either side of the civic cell between the two groups
+   * that will stand on them. Bounded, so the civic cell only ever slides by a
+   * fraction of its own width and always keeps the origin inside it: a
+   * metropolis with two thirds of its files in one directory should not push
+   * its town hall into a corner to say so.
+   */
+  const split = (a = 1, b = 1): [number, number] => {
+    const sum = a + b;
+    const share = sum > 0 ? clamp(a / sum, REGION_SHARE_MIN, 1 - REGION_SHARE_MIN) : 0.5;
+    const first = arms * share;
+    return [first, arms - first];
+  };
 
   if (districtCount >= 4) {
+    const [north] = split(loads?.[0], loads?.[1]);
+    const [west] = split(loads?.[2], loads?.[3]);
+    const z0 = -h + north;
+    const z1 = z0 + civic;
+    const x0 = -h + west;
+    const x1 = x0 + civic;
     return {
-      civicRect: rectFromBounds(-c, -c, c, c),
+      civicRect: rectFromBounds(x0, z0, x1, z1),
       regions: [
-        rectFromBounds(-h, -h, h, -c), // north
-        rectFromBounds(-h, c, h, h), // south
-        rectFromBounds(-h, -c, -c, c), // west
-        rectFromBounds(c, -c, h, c), // east
+        rectFromBounds(-h, -h, h, z0), // north
+        rectFromBounds(-h, z1, h, h), // south
+        rectFromBounds(-h, z0, x0, z1), // west
+        rectFromBounds(x1, z0, h, z1), // east
       ],
     };
   }
 
   if (districtCount >= 2) {
+    const [north] = split(loads?.[0], loads?.[1]);
+    const z0 = -h + north;
+    const z1 = z0 + civic;
     return {
-      civicRect: rectFromBounds(-h, -c, h, c),
-      regions: [rectFromBounds(-h, -h, h, -c), rectFromBounds(-h, c, h, h)],
+      civicRect: rectFromBounds(-h, z0, h, z1),
+      regions: [rectFromBounds(-h, -h, h, z0), rectFromBounds(-h, z1, h, h)],
     };
   }
 
@@ -683,12 +718,13 @@ function slotsForBlocks(blocks: Rect[], pitch: number): Slot[] {
  */
 function planSlots(blocks: Rect[], buildingCount: number): Slot[] {
   const need = Math.max(1, Math.ceil((buildingCount + 2) * 1.1));
-  const area = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-  // The pitch never exceeds a footprint by much: a sparse district keeps its
-  // buildings clustered around the district centre, where the slot order puts
-  // them, and the slots it never fills become parkland rather than stretching
-  // a handful of buildings thinly over the whole block.
-  let pitch = clamp(Math.sqrt(area / need), 5, MAX_SLOT_PITCH);
+  // One pitch for the whole city, tightened only where a district cannot fit
+  // its buildings at it. Spacing the slots to fill the available ground was
+  // what turned a quiet district into a car park: thirty-five buildings at an
+  // even nine-unit pitch across a 149 by 52 region read as sprawl, while the
+  // same thirty-five around the district centre read as a village with a green
+  // around it, which is what the slot order and the park pass then deliver.
+  let pitch = TARGET_PITCH;
   let slots = slotsForBlocks(blocks, pitch);
   for (let guard = 0; guard < 32 && slots.length < need && pitch > 3; guard++) {
     pitch *= 0.92;
@@ -966,13 +1002,20 @@ export function planLayout(
   const band = landmarkBandDepth(districtSide);
   const ringRadius = round3(half + band + RING_GAP);
   const civic = civicSide(districtSide);
-  const { civicRect, regions } = carveRegions(districtSide, civic, districts.length);
 
   const items: WeightedItem[] = districts
     .map((d) => ({ id: d.id, weight: districtWeight(d.buildingCount) }))
     .sort((a, b) => b.weight - a.weight || (a.id < b.id ? -1 : 1));
 
-  const buckets = assignRegions(items, regions);
+  // Two passes: group the districts against a symmetric carve, then cut the
+  // pinwheel again to what those groups actually weigh. Grouping first is what
+  // lets the cuts be weight-aware at all, and because a heavier group was
+  // already matched to a larger region the second carve preserves the pairing.
+  const symmetric = carveRegions(districtSide, civic, districts.length);
+  const buckets = assignRegions(items, symmetric.regions);
+  const loads = buckets.map((bucket) => bucket.reduce((sum, item) => sum + item.weight, 0));
+  const { civicRect, regions } = carveRegions(districtSide, civic, districts.length, loads);
+
   const rects = new Map<string, Rect>();
   for (let i = 0; i < regions.length; i++) {
     squarify(buckets[i], regions[i], rects);

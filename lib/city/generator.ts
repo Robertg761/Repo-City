@@ -115,8 +115,16 @@ const ROOT_DISTRICT: DistrictPlan = {
   weight: 1,
 };
 
-/** Visual height per tier, before the seeded +/-15% jitter. */
-export const TIER_HEIGHT: Record<number, number> = { 1: 4, 2: 6.5, 3: 9.5, 4: 13.5, 5: 18 };
+/**
+ * Visual height per tier, before the seeded +/-15% jitter.
+ *
+ * The spread is deliberately wider than a linear ramp. From the default
+ * camera a city is read at a shallow angle, which foreshortens height hard:
+ * at a four-to-one range between the shortest and tallest tier the skyline
+ * still flattened into one mass. Six-to-one is the exaggeration PLAN.md
+ * section 4 allows, and it is what makes rank legible from the opening shot.
+ */
+export const TIER_HEIGHT: Record<number, number> = { 1: 4.2, 2: 7, 3: 11, 4: 16, 5: 23 };
 
 export const MIN_FOOTPRINT = 4;
 export const MAX_FOOTPRINT = 8.5;
