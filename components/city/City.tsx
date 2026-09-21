@@ -23,12 +23,20 @@ import Roads from "./Roads";
 import SelectionRing from "./SelectionRing";
 import Terrain from "./Terrain";
 import Traffic from "./Traffic";
+import { REFERENCE_ASPECT, aspectWiden } from "./entities";
 import { splitBuildings } from "./instances";
 import { atmosphere as buildAtmosphere } from "./palette";
 import { revealEnd } from "./reveal";
 import { RevealContext, useRevealTicker } from "./useReveal";
 
-export default function City({ city }: { city: CityModel }) {
+export default function City({
+  city,
+  aspect = REFERENCE_ASPECT,
+}: {
+  city: CityModel;
+  /** Canvas width over height: a narrow viewport watches from further back. */
+  aspect?: number;
+}) {
   const atmosphere = useMemo(
     () => buildAtmosphere(city.ambience, city.repository.archived),
     [city],
@@ -53,6 +61,9 @@ export default function City({ city }: { city: CityModel }) {
   );
 
   const size = city.bounds.size;
+  // The overview pulls back on a narrow screen, so the haze has to pull back
+  // with it or a phone shows a city behind frosted glass (PLAN.md section 39).
+  const fogReach = size * aspectWiden(aspect);
 
   /**
    * Where each district's label hangs. A district full of eighteen unit
@@ -79,8 +90,8 @@ export default function City({ city }: { city: CityModel }) {
         attach="fog"
         args={[
           atmosphere.background,
-          size * atmosphere.fogNearFactor,
-          size * atmosphere.fogFarFactor,
+          fogReach * atmosphere.fogNearFactor,
+          fogReach * atmosphere.fogFarFactor,
         ]}
       />
 

@@ -34,14 +34,29 @@ const clamp = (n: number, lo: number, hi: number) => (n < lo ? lo : n > hi ? hi 
 export const MIN_DISTANCE = 10;
 
 /**
+ * The viewport shape the framing below is tuned for: a desktop canvas a
+ * little wider than 16:10. Anything narrower -- a phone held upright, a
+ * half-width window -- is limited by its horizontal field of view, not its
+ * vertical one, and has to sit further back to hold the same city.
+ */
+export const REFERENCE_ASPECT = 1.6;
+
+/** How much further back a viewport of this shape has to sit. Never less than 1. */
+export function aspectWiden(aspect: number): number {
+  if (!(aspect > 0) || aspect >= REFERENCE_ASPECT) return 1;
+  // Capped: past this the city is a postage stamp and the fog eats it.
+  return Math.min(REFERENCE_ASPECT / aspect, 2.1);
+}
+
+/**
  * "Prevent zooming so far away the city disappears" (section 5) has to be a
  * function of the city: a 130 unit city cannot be framed from 160 units at a
  * 35 degree field of view, and a hard cap there would leave the corners of
  * every large repository permanently off screen. 160 stays the floor, which is
  * the limit the placeholder scene shipped with.
  */
-export function maxCameraDistance(size: number): number {
-  return Math.max(160, size * 1.9);
+export function maxCameraDistance(size: number, aspect = REFERENCE_ASPECT): number {
+  return Math.max(160, size * 1.9) * aspectWiden(aspect);
 }
 
 /** The cap used when no model is loaded. */
@@ -145,8 +160,12 @@ function place(target: Vec3, dir: Vec3, distance: number): Framing {
  * diagonal across the screen: at `size * 1.45` a square city fills the frame
  * with a little air around it.
  */
-export function overviewFraming(size: number): Framing {
-  const distance = clamp(size * 1.45, MIN_DISTANCE + 14, maxCameraDistance(size));
+export function overviewFraming(size: number, aspect = REFERENCE_ASPECT): Framing {
+  const distance = clamp(
+    size * 1.45 * aspectWiden(aspect),
+    MIN_DISTANCE + 14,
+    maxCameraDistance(size, aspect),
+  );
   // The ground near the camera expands fast in screen space, so the aim point
   // sits a little towards the camera: it keeps the near corner of the city in
   // frame instead of spending the bottom of the screen on empty landscape.

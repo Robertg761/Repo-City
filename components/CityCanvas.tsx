@@ -20,7 +20,7 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
 import CameraRig from "@/components/city/CameraRig";
-import { maxCameraDistance } from "@/components/city/entities";
+import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities";
 import Lighting from "@/components/city/Lighting";
 import Terrain from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
@@ -67,6 +67,28 @@ function useDevCity(hasRealCity: boolean): CityModel | null {
   return devCity;
 }
 
+/**
+ * Canvas width over height, kept current across resizes and rotations. A
+ * phone held upright frames the city from further back than a desktop window
+ * does, because it is the horizontal field of view that runs out first
+ * (PLAN.md section 5).
+ */
+function useViewportAspect(): number {
+  const [aspect, setAspect] = useState(REFERENCE_ASPECT);
+
+  useEffect(() => {
+    const measure = () => {
+      const { innerWidth: w, innerHeight: h } = window;
+      if (w > 0 && h > 0) setAspect(w / h);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  return aspect;
+}
+
 function EmptyStage() {
   return (
     <>
@@ -90,6 +112,7 @@ export default function CityCanvas() {
   const actions = useCityStore((s) => s.actions);
   const devCity = useDevCity(storeCity !== null);
   const city = storeCity ?? devCity;
+  const aspect = useViewportAspect();
 
   return (
     <Canvas
@@ -110,15 +133,15 @@ export default function CityCanvas() {
       {/* Keyed on the seed: a different repository revision is a different
           city, and gets a fresh reveal. The Canvas itself never remounts, so
           the WebGL context survives. */}
-      {city ? <City key={city.seed} city={city} /> : <EmptyStage />}
+      {city ? <City key={city.seed} city={city} aspect={aspect} /> : <EmptyStage />}
 
-      <CameraRig city={city} />
+      <CameraRig city={city} aspect={aspect} />
 
       <CameraControls
         makeDefault
         minDistance={10}
         // Far enough to frame the whole city, no further (PLAN.md section 5).
-        maxDistance={maxCameraDistance(city?.bounds.size ?? EMPTY_SIZE)}
+        maxDistance={maxCameraDistance(city?.bounds.size ?? EMPTY_SIZE, aspect)}
         // Stop just short of the horizon so the camera can never slip under
         // the ground plane (PLAN.md section 5).
         maxPolarAngle={Math.PI * 0.48}
