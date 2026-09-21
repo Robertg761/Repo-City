@@ -107,18 +107,88 @@ function scoreCandidate(
 }
 
 /**
- * Tier from score rank on a log scale, clamped to 5 visual tiers
- * (PLAN.md section 9 step 5). Rank 0 is the tallest building.
+ * Share of the buildings in each tier, tallest first: 5% tier 5, 10% tier 4,
+ * 15% tier 3, 25% tier 2 and the remaining 45% tier 1 (PLAN.md section 9
+ * step 5, "height maps to score rank").
+ *
+ * A pure log curve on the rank put two thirds of a large repository into
+ * tier 1 and left exactly two towers, which is a flat skyline with a spike in
+ * it rather than a city. Rank quantiles give the same silhouette at every
+ * repository size: a handful of towers, a visible mid-rise, a low majority.
+ */
+export const TIER_SHARES = { 5: 0.05, 4: 0.1, 3: 0.15, 2: 0.25, 1: 0.45 } as const;
+
+/** Cumulative share of the buildings at or above each tier, tallest first. */
+const CUMULATIVE = [
+  TIER_SHARES[5],
+  TIER_SHARES[5] + TIER_SHARES[4],
+  TIER_SHARES[5] + TIER_SHARES[4] + TIER_SHARES[3],
+  TIER_SHARES[5] + TIER_SHARES[4] + TIER_SHARES[3] + TIER_SHARES[2],
+] as const;
+
+/**
+ * Smallest tier 5 count. A city of twenty or more buildings always gets at
+ * least two towers, so the eye has something to read a skyline against; below
+ * that one is enough, and a single-building repository is all tower.
+ */
+function minTallest(total: number): number {
+  if (total >= 20) return 2;
+  return total >= 2 ? 1 : total;
+}
+
+/**
+ * How many buildings sit at or above tiers 5, 4, 3 and 2, in that order.
+ *
+ * The quantiles are the target; two guards keep them honest on small repos.
+ * Each cut has to clear the one above it, so no tier vanishes once the city is
+ * big enough to fill it, and each tier has to be at least as populous as the
+ * one above, so the counts always form a pyramid rather than an hourglass.
+ */
+export function tierCuts(total: number): [number, number, number, number] {
+  if (total <= 0) return [0, 0, 0, 0];
+  const cuts: number[] = [];
+  const minimums = [minTallest(total), 6, 10, 14];
+  for (let i = 0; i < 4; i++) {
+    const above = i === 0 ? 0 : cuts[i - 1];
+    const gap = i === 0 ? minimums[0] : above + (total >= minimums[i] ? 1 : 0);
+    // Pyramid: this tier holds at least as many as the one above it.
+    const pyramid = i === 0 ? 0 : above + (above - (i >= 2 ? cuts[i - 2] : 0));
+    cuts.push(Math.max(gap, pyramid, Math.round(CUMULATIVE[i] * total)));
+  }
+  // Clamp back down from the bottom so the cuts stay inside the city.
+  cuts[3] = Math.min(cuts[3], total);
+  for (let i = 2; i >= 0; i--) cuts[i] = Math.min(cuts[i], cuts[i + 1]);
+  return cuts as [number, number, number, number];
+}
+
+/**
+ * Tier from score rank (PLAN.md section 9 step 5). Rank 0 is the tallest.
+ * Root landmark files are ranked separately: see `LANDMARK_TIER`.
  */
 export function tierForRank(rank: number, total: number): BuildingTier {
   if (total <= 1) return 5;
-  const t = 1 - Math.log2(rank + 1) / Math.log2(total + 1);
-  if (t >= 0.8) return 5;
-  if (t >= 0.6) return 4;
-  if (t >= 0.4) return 3;
-  if (t >= 0.2) return 2;
+  const [c5, c4, c3, c2] = tierCuts(total);
+  if (rank < c5) return 5;
+  if (rank < c4) return 4;
+  if (rank < c3) return 3;
+  if (rank < c2) return 2;
   return 1;
 }
+
+/**
+ * Root landmark files stand on the civic plaza, not in a district, and they
+ * score far above everything else because of the section 9 landmark bonus.
+ * Ranking them with the rest handed the whole of tier 5 to a README and a
+ * package.json; they get their own fixed heights instead, all below the town
+ * hall's, so the plaza reads as civic architecture around a centrepiece.
+ */
+export const LANDMARK_TIER: Record<LandmarkFile, BuildingTier> = {
+  manifest: 3,
+  readme: 3,
+  contributing: 2,
+  changelog: 2,
+  dockerfile: 2,
+};
 
 function dominantLanguage(blobs: readonly TreeEntry[]): string | null {
   const counts = countLanguages(blobs);
@@ -195,6 +265,17 @@ export function selectBuildings(
   const selected = pickWithDistrictFloor(candidates, districts, max);
   selected.sort(byScore);
 
+  // Rank the ordinary buildings among themselves: the landmark files carry a
+  // +6 civic bonus that would otherwise buy them the whole of tier 5.
+  const rankOf = new Map<Candidate, number>();
+  let rank = 0;
+  for (const candidate of selected) {
+    if (candidate.landmark) continue;
+    rankOf.set(candidate, rank);
+    rank += 1;
+  }
+  const ranked = rank;
+
   const width = Math.max(3, String(selected.length).length);
   return selected.map((candidate, index) => ({
     id: `b-${String(index + 1).padStart(width, "0")}`,
@@ -202,7 +283,9 @@ export function selectBuildings(
     kind: candidate.kind,
     districtId: candidate.districtId,
     score: round(candidate.score, 2),
-    tier: tierForRank(index, selected.length),
+    tier: candidate.landmark
+      ? LANDMARK_TIER[candidate.landmark]
+      : tierForRank(rankOf.get(candidate) ?? 0, ranked),
     descendantCount: candidate.descendantCount,
     language: candidate.language,
     role: null,
