@@ -3129,4 +3129,4 @@ Automated tests required in the MVP (Vitest):
 2. Approve flipping `Robertg761/Repo-City` to public (section 0.9).
 3. Provide `GITHUB_TOKEN` (fine-grained, public read only) for Vercel and a local `.env.local`. No AI key: decided 2026-09-21, runtime AI ships disabled and multi-provider.
 4. Name the model that drafted the original plan, for `AI_MODELS.md`.
-5. Confirm the Vercel account and project name to deploy to. The Vercel CLI is not installed locally.
+5. Hosting: Vercel project `repo-city` on team `robertg761s-projects`, production URL `https://repo-city-five.vercel.app` (the bare `repo-city.vercel.app` belongs to an unrelated project). Deployment protection limited to previews so production is public. Deploys run from the CLI with `vercel deploy --prod --yes` until the Vercel GitHub app is installed.
