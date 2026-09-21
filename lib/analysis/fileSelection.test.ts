@@ -107,6 +107,57 @@ describe("selectBuildings (PLAN.md section 9)", () => {
     expect(buildings.find((b) => b.path === "docs/faq.md")?.language).toBe("Markdown");
   });
 
+  it("spreads a p-limit sized repository over more than one district", () => {
+    // Nine files, two thin directories: without a `/` district every building
+    // would pile into the one-file /scripts district.
+    const { districts, buildings } = selectFor(
+      treeFromPaths([
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "package.json",
+        "readme.md",
+        "license",
+        "test/test.js",
+        "test/test.d.ts",
+        "scripts/release.js",
+      ]),
+    );
+
+    expect(districts.length).toBeGreaterThanOrEqual(2);
+    const root = districts.filter((d) => d.sourcePath === "/");
+    expect(root).toHaveLength(1);
+
+    expect(buildings).toHaveLength(9);
+    for (const district of districts) {
+      const count = buildings.filter((b) => b.districtId === district.id).length;
+      expect(count, `district ${district.id} is empty`).toBeGreaterThan(0);
+      expect(count).toBeGreaterThanOrEqual(Math.min(MIN_PER_DISTRICT, district.fileCount));
+    }
+
+    // The six root files, landmarks included, live in the `/` district.
+    const rootBuildings = buildings.filter((b) => b.districtId === root[0].id);
+    expect(rootBuildings.map((b) => b.path).sort()).toEqual([
+      "index.d.ts",
+      "index.js",
+      "index.test-d.ts",
+      "license",
+      "package.json",
+      "readme.md",
+    ]);
+    expect(
+      buildings
+        .filter((b) => b.landmark !== null)
+        .map((b) => b.landmark)
+        .sort(),
+    ).toEqual(["manifest", "readme"]);
+    // No district ends up holding the whole city.
+    for (const district of districts) {
+      const count = buildings.filter((b) => b.districtId === district.id).length;
+      expect(count).toBeLessThan(buildings.length);
+    }
+  });
+
   it("builds a whole tiny repository as files", () => {
     const { buildings } = selectFor(archivedSnapshot.tree.entries);
     expect(buildings).toHaveLength(13); // 14 paths minus the excluded .gitignore

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_DISTRICTS, districtForPath, planDistricts } from "./districts";
+import { MAX_DISTRICTS, MIN_DISTRICTS, districtForPath, planDistricts } from "./districts";
 import { pruneTree } from "./tree";
 import { archivedSnapshot } from "./__fixtures__/archived.snapshot";
 import { treeFromPaths } from "./__fixtures__/helpers";
@@ -8,6 +8,23 @@ import { midSnapshot } from "./__fixtures__/mid.snapshot";
 import { syntheticTree } from "./__fixtures__/syntheticTree";
 
 const plan = (paths: string[]) => planDistricts(pruneTree(treeFromPaths(paths)));
+
+/**
+ * `sindresorhus/p-limit` in miniature: a handful of root files, one test
+ * directory and a one-file `scripts` directory. The shape that used to collapse
+ * into a single district holding every building.
+ */
+const P_LIMIT = [
+  "index.js",
+  "index.d.ts",
+  "index.test-d.ts",
+  "package.json",
+  "readme.md",
+  "license",
+  "test/test.js",
+  "test/test.d.ts",
+  "scripts/release.js",
+];
 
 describe("planDistricts (PLAN.md section 8)", () => {
   it("ranks top-level directories by file count, biggest first", () => {
@@ -78,7 +95,50 @@ describe("planDistricts (PLAN.md section 8)", () => {
   it("never returns zero districts, even for a root-only repository", () => {
     const districts = plan(["README.md", "index.js", "package.json"]);
     expect(districts).toHaveLength(1);
-    expect(districts[0]).toMatchObject({ sourcePath: "/", name: "Outskirts" });
+    // Nothing nested is left over, so the one district is the root files' own.
+    expect(districts[0]).toMatchObject({ sourcePath: "/", name: "Root", fileCount: 3 });
+  });
+
+  it("gives the root files their own district in a p-limit sized repository", () => {
+    const districts = plan(P_LIMIT);
+    expect(districts.length).toBeGreaterThanOrEqual(2);
+    const root = districts.filter((d) => d.sourcePath === "/");
+    expect(root).toHaveLength(1);
+    expect(root[0]).toMatchObject({ id: "d-root", name: "Root", fileCount: 6 });
+    expect(districts.map((d) => d.sourcePath)).toEqual(["/test", "/scripts", "/"]);
+    // The one-file /scripts district keeps its one file and nothing else.
+    expect(districts.find((d) => d.sourcePath === "/scripts")?.fileCount).toBe(1);
+  });
+
+  it("never plans two districts with the same source path", () => {
+    // A single top-level directory whose children are promoted leaves the files
+    // sitting directly in `src` uncovered: Outskirts and the root files both
+    // want `/`, and they have to share it.
+    const districts = plan([
+      "README.md",
+      "package.json",
+      "src/index.ts",
+      "src/a/one.ts",
+      "src/a/two.ts",
+      "src/b/three.ts",
+    ]);
+    expect(districts.map((d) => d.sourcePath)).toEqual(["/src/a", "/src/b", "/"]);
+    const shared = districts.at(-1);
+    // 1 uncovered nested file (src/index.ts) plus the 2 root files.
+    expect(shared).toMatchObject({ sourcePath: "/", name: "Outskirts", fileCount: 3 });
+    expect(districts.filter((d) => d.sourcePath === "/")).toHaveLength(1);
+  });
+
+  it("leaves repositories with enough directories alone", () => {
+    const districts = plan([
+      "README.md",
+      "package.json",
+      "src/index.ts",
+      "docs/guide.md",
+      "tests/index.test.ts",
+    ]);
+    expect(districts).toHaveLength(MIN_DISTRICTS);
+    expect(districts.every((d) => d.sourcePath !== "/")).toBe(true);
   });
 
   it("keeps the archived fixture down to three small districts", () => {
@@ -109,6 +169,23 @@ describe("districtForPath", () => {
 
   it("puts root-level files in the first district, the civic center", () => {
     expect(districtForPath("README.md", districts).id).toBe(districts[0].id);
+  });
+
+  it("puts root-level files in the / district when the repository is tiny", () => {
+    const tiny = plan(P_LIMIT);
+    const root = tiny.find((d) => d.sourcePath === "/")!;
+    expect(root.id).not.toBe(tiny[0].id);
+    for (const path of ["index.js", "package.json", "readme.md", "license"]) {
+      expect(districtForPath(path, tiny).id).toBe(root.id);
+    }
+    expect(districtForPath("test/test.js", tiny).id).toBe("d-test");
+    expect(districtForPath("scripts/release.js", tiny).id).toBe("d-scripts");
+  });
+
+  it("keeps root-level files in the civic center once three directories exist", () => {
+    const archived = planDistricts(pruneTree(archivedSnapshot.tree.entries));
+    expect(archived).toHaveLength(MIN_DISTRICTS);
+    expect(districtForPath("README.md", archived).id).toBe(archived[0].id);
   });
 
   it("puts uncovered nested paths in Outskirts when one exists", () => {

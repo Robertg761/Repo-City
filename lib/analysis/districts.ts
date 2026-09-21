@@ -3,8 +3,14 @@
  *
  * Top-level directories become districts, ranked by descendant file count.
  * Everything a chosen district does not cover collapses into one Outskirts
- * district at `/`. Root-level files belong to the civic center, so they never
- * create a district of their own.
+ * district at `/`. Root-level files belong to the civic center, so in a
+ * repository with enough directories they never create a district of their own.
+ *
+ * The exception is a repository too small to fill `MIN_DISTRICTS` directory
+ * districts, where `sindresorhus/p-limit` is the canonical case: folding its
+ * five root files into a one-file `/scripts` district gives a city that is one
+ * district holding everything. There the root files get the single `/` district
+ * for themselves, shared with Outskirts when that would exist too.
  *
  * Deterministic: same tree in, same districts out, same order.
  */
@@ -17,9 +23,12 @@ import { blobsOf, round, segments } from "./tree";
 export const MIN_DISTRICTS = 3;
 export const MAX_DISTRICTS = 8;
 
-/** Source path of the catch-all district. */
+/** Source path of the catch-all district. There is never more than one. */
 export const OUTSKIRTS_PATH = "/";
 export const OUTSKIRTS_NAME = "Outskirts";
+
+/** Name of the `/` district when it holds root-level files and nothing else. */
+export const ROOT_NAME = "Root";
 
 /**
  * Deterministic names for the directory conventions the plan calls out
@@ -154,16 +163,24 @@ export function planDistricts(entries: readonly TreeEntry[]): DistrictPlan[] {
 
   const chosen = candidates.slice(0, MAX_DISTRICTS);
 
-  // Anything not covered by a chosen district, excluding root-level files
-  // (civic center), becomes Outskirts.
-  const outskirtsFiles = files.filter((blob) => {
+  // Nested paths no chosen district covers. These are the Outskirts proper.
+  const uncoveredFiles = files.filter((blob) => {
     const parts = segments(blob.path);
-    if (parts.length < 2) return false; // root-level file -> civic center
+    if (parts.length < 2) return false; // root-level file, handled below
     return !chosen.some((c) => blob.path.startsWith(`${c.path}/`));
   }).length;
 
+  // Root-level files are civic-center material and normally have no district
+  // (PLAN.md section 8). Below the minimum, though, attributing them to the
+  // biggest directory district would bury the whole repository in one place, so
+  // they take the `/` district instead — sharing it with Outskirts if needed,
+  // because two districts may never claim the same source path.
+  const rootFiles = files.filter((blob) => segments(blob.path).length < 2).length;
+  const rootNeedsDistrict = chosen.length < MIN_DISTRICTS && rootFiles > 0;
+  const catchAllFiles = uncoveredFiles + (rootNeedsDistrict ? rootFiles : 0);
+
   const taken = new Set<string>();
-  const maxCount = Math.max(1, ...chosen.map((c) => c.fileCount), outskirtsFiles);
+  const maxCount = Math.max(1, ...chosen.map((c) => c.fileCount), catchAllFiles);
 
   const districts: DistrictPlan[] = chosen.map((c) => ({
     id: districtIdFor(c.path, taken),
@@ -174,20 +191,21 @@ export function planDistricts(entries: readonly TreeEntry[]): DistrictPlan[] {
     weight: round(c.fileCount / maxCount, 3),
   }));
 
-  if (outskirtsFiles > 0) {
+  if (catchAllFiles > 0) {
+    const coversNested = uncoveredFiles > 0;
     districts.push({
-      id: districtIdFor("outskirts", taken),
+      id: districtIdFor(coversNested ? "outskirts" : "root", taken),
       sourcePath: OUTSKIRTS_PATH,
-      name: OUTSKIRTS_NAME,
+      name: coversNested ? OUTSKIRTS_NAME : ROOT_NAME,
       purpose: null,
-      fileCount: outskirtsFiles,
-      weight: round(outskirtsFiles / maxCount, 3),
+      fileCount: catchAllFiles,
+      weight: round(catchAllFiles / maxCount, 3),
     });
   }
 
   if (districts.length === 0) {
-    // A repository of nothing but root-level files still needs somewhere to put
-    // its landmarks, and `districts[0]` is the documented home for them.
+    // An empty tree still needs somewhere to put whatever arrives later, and
+    // `districts[0]` is the documented home for landmarks.
     districts.push({
       id: "d-outskirts",
       sourcePath: OUTSKIRTS_PATH,
@@ -202,11 +220,27 @@ export function planDistricts(entries: readonly TreeEntry[]): DistrictPlan[] {
 }
 
 /**
+ * The `/` district when it is the home of the root-level files, else `null`.
+ *
+ * Read back from source paths alone, so `districtForPath` and `planDistricts`
+ * cannot disagree and an AI rename (allowed by PLAN.md section 8) cannot move a
+ * building: below `MIN_DISTRICTS` directory districts, `planDistricts` gave the
+ * root files the `/` district, so that is where they belong.
+ */
+function rootDistrictOf(districts: readonly DistrictPlan[]): DistrictPlan | null {
+  const directories = districts.filter((d) => d.sourcePath !== OUTSKIRTS_PATH).length;
+  if (directories >= MIN_DISTRICTS) return null;
+  return districts.find((d) => d.sourcePath === OUTSKIRTS_PATH) ?? null;
+}
+
+/**
  * The district a path belongs to, matching the longest district source path.
  *
- * Root-level files are civic-center material and have no district of their own,
- * so they are attributed to `districts[0]` — the convention W0 already used for
- * the landmark buildings in `fixtures/sample.analysis.json`. Uncovered nested
+ * Root-level files are civic-center material and normally have no district of
+ * their own, so they are attributed to `districts[0]` — the convention W0
+ * already used for the landmark buildings in `fixtures/sample.analysis.json`.
+ * In a repository too small for `MIN_DISTRICTS` directory districts they go to
+ * the `/` district `planDistricts` created for them instead. Uncovered nested
  * paths go to Outskirts when it exists.
  */
 export function districtForPath(path: string, districts: readonly DistrictPlan[]): DistrictPlan {
@@ -222,6 +256,6 @@ export function districtForPath(path: string, districts: readonly DistrictPlan[]
     }
   }
   if (best) return best;
-  if (segments(p).length < 2) return districts[0];
+  if (segments(p).length < 2) return rootDistrictOf(districts) ?? districts[0];
   return districts.find((d) => d.sourcePath === OUTSKIRTS_PATH) ?? districts[0];
 }
