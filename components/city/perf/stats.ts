@@ -15,8 +15,13 @@ import type { QualityTier } from "../quality";
 export const WINDOW_MS = 5000;
 /** Upper bound on samples kept, whatever the frame rate. */
 export const WINDOW_MAX = 600;
-/** A gap this long is a stall (tab hidden, debugger), not a frame. */
-export const STALL_MS = 1000;
+/**
+ * A gap this long is a stall (a debugger pause, a laptop lid), not a frame.
+ * It is generous on purpose: a software renderer really does take a second
+ * or two per frame, and those frames are the measurement. A hidden tab is
+ * handled by `gap()` rather than by this threshold.
+ */
+export const STALL_MS = 10_000;
 
 /**
  * Linear-interpolated percentile, `p` in 0..100, of an unsorted list. NaN for
@@ -75,6 +80,14 @@ export class FrameWindow {
     this.intervals.push(interval);
     this.cpu.push(cpuMs);
     this.trim(now);
+  }
+
+  /**
+   * The next push starts a new interval instead of closing one: call it when
+   * the tab comes back into view, since rAF did not run while it was hidden.
+   */
+  gap(): void {
+    this.last = null;
   }
 
   /** Forget everything, for a measurement that should start clean. */

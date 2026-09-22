@@ -94,6 +94,22 @@ describe("the rolling frame window", () => {
     expect(window.frames).toBe(61);
   });
 
+  it("keeps a software renderer's slow frames: they are the measurement", () => {
+    const window = new FrameWindow(20_000);
+    run(window, 1400, 12);
+    expect(window.stats().samples).toBe(11);
+    expect(window.stats().fps).toBeCloseTo(1000 / 1400);
+  });
+
+  it("does not count the time a hidden tab was away as a frame", () => {
+    const window = new FrameWindow(60_000);
+    const t = run(window, 20, 30);
+    window.gap();
+    run(window, 20, 30, t + 4000);
+    expect(window.stats().frameP95).toBe(20);
+    expect(window.stats().samples).toBe(58);
+  });
+
   it("reports main-thread time separately from the interval", () => {
     const window = new FrameWindow();
     run(window, 33, 20, 0, 4);

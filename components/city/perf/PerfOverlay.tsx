@@ -85,7 +85,8 @@ function PerfProbe() {
     panel.setAttribute("data-perf-overlay", "");
     Object.assign(panel.style, {
       position: "fixed",
-      left: "8px",
+      // Bottom right: the legend and the dev tools button hold the left.
+      right: "8px",
       bottom: "8px",
       zIndex: "9999",
       margin: "0",
@@ -101,6 +102,12 @@ function PerfProbe() {
 
     const target = handle();
     if (target) target.perfClear = () => frames.clear();
+
+    // rAF does not run in a hidden tab; the gap is absence, not a frame.
+    const onVisibility = () => {
+      if (!document.hidden) frames.gap();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const scratch = new Vector2();
     let frameStart = 0;
@@ -151,6 +158,7 @@ function PerfProbe() {
     return () => {
       offBefore();
       offAfter();
+      document.removeEventListener("visibilitychange", onVisibility);
       shadowMap.render = renderShadows;
       info.autoReset = autoReset;
       panel.remove();
