@@ -110,10 +110,38 @@ describe("blockedStretches", () => {
   it("closes a segment with no room to pull in from either end", () => {
     const short = [road("stub", [0, 0], [0, 14])];
     const { stretches, bySegment } = blockedStretches(roadGraph(short), [incident("minor", 0, 7, 0)]);
-    expect(stretches).toEqual([
-      { segment: 0, start: 0, end: 14, closed: true, causes: ["incident-minor"] },
-    ]);
+    expect(stretches).toHaveLength(1);
+    expect(stretches[0].closed).toBe(true);
+    // Shut as a whole, but the stretch still says where the scene is.
+    expect(stretches[0].start).toBeCloseTo(7 + INCIDENT_FOOTPRINT.minor.minZ);
+    expect(stretches[0].end).toBeCloseTo(7 + INCIDENT_FOOTPRINT.minor.maxZ);
     expect(bySegment[0]).toEqual(stretches);
+  });
+
+  it("closes a junction a scene comes within a car's reach of", () => {
+    const graph = roadGraph(CROSS);
+    // A collision on the north arm stopping 1.6 short of the junction: clear
+    // of the side roads' lanes, but a car turning across the junction would
+    // put its nose into it.
+    const at = -1.6 - INCIDENT_FOOTPRINT.collision.maxZ;
+    const { bySegment } = blockedStretches(graph, [incident("collision", 0, at, 0)]);
+    const [n, s, w, e] = bySegment;
+    expect(n[0].end).toBeCloseTo(18.4);
+    // Every other road into the junction is shut across the junction's box,
+    // the widest lane band there.
+    const box = laneOffset(6) + CAR_HALF_WIDTH;
+    expect(s).toMatchObject([{ start: 0, closed: false }]);
+    expect(s[0].end).toBeCloseTo(box);
+    expect(e[0].end).toBeCloseTo(box);
+    expect(w[0].start).toBeCloseTo(20 - box);
+    expect(w[0].causes).toEqual(n[0].causes);
+  });
+
+  it("leaves a junction open when the scene stops a car's reach short of it", () => {
+    const graph = roadGraph(CROSS);
+    const at = -6 - INCIDENT_FOOTPRINT.collision.maxZ;
+    const { bySegment } = blockedStretches(graph, [incident("collision", 0, at, 0)]);
+    expect(bySegment.map((list) => list.length)).toEqual([1, 0, 0, 0]);
   });
 
   it("blocks nothing for a clear road network", () => {

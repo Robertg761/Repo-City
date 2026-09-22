@@ -63,32 +63,52 @@ const incident = (
 });
 
 /**
- * How far along its own segment a car's body reaches, as `[near, far]` from
- * the segment's `from` end: its centre, plus the body's half length and half
- * width projected onto the road, which covers a car swung across the road
- * halfway through a U-turn as well as one driving straight.
+ * The blocked stretch a car's body is in, if any. The body is the longest in
+ * the fleet, at the car's pose, so a car swung across the road halfway round
+ * a U-turn counts as well as one driving straight. The stretches checked are
+ * its own segment's and those of every segment meeting it at either end: a
+ * car crossing a junction has its nose over the next road before it gets
+ * there. A stretch covers its segment's lanes, and both it and the body are
+ * rectangles, so this is a separating-axis test on their four axes.
  */
-function bodySpan(graph: RoadGraph, one: Car): [number, number] {
-  const road = graph.segments[one.segment];
-  const length = graph.lengths[one.segment];
-  const ux = (road.to[0] - road.from[0]) / length;
-  const uz = (road.to[2] - road.from[2]) / length;
+function trespass(graph: RoadGraph, blocks: Blockages, one: Car): string | null {
   const pose = carPose(graph, one);
-  const along = (pose.x - road.from[0]) * ux + (pose.z - road.from[2]) * uz;
   const hx = Math.sin(pose.angle);
   const hz = Math.cos(pose.angle);
-  const cos = Math.abs(hx * ux + hz * uz);
-  const sin = Math.abs(hx * uz - hz * ux);
-  const extent = CAR_HALF_LENGTH * cos + CAR_HALF_WIDTH * sin;
-  return [along - extent, along + extent];
-}
-
-/** The blocked stretch a car's body is in, if any. */
-function trespass(graph: RoadGraph, blocks: Blockages, one: Car): string | null {
-  const [near, far] = bodySpan(graph, one);
-  for (const stretch of blocks.bySegment[one.segment]) {
-    if (far > stretch.start + 1e-6 && near < stretch.end - 1e-6) {
-      return `segment ${one.segment} [${stretch.start.toFixed(2)}, ${stretch.end.toFixed(2)}] body [${near.toFixed(2)}, ${far.toFixed(2)}]`;
+  const [fromKey, toKey] = graph.nodeKeys[one.segment];
+  const nearby = new Set([
+    one.segment,
+    ...(graph.byNode.get(fromKey) ?? []),
+    ...(graph.byNode.get(toKey) ?? []),
+  ]);
+  for (const segment of nearby) {
+    const road = graph.segments[segment];
+    const length = graph.lengths[segment];
+    if (length <= 0.001) continue;
+    const ux = (road.to[0] - road.from[0]) / length;
+    const uz = (road.to[2] - road.from[2]) / length;
+    const band = laneOffset(road.width) + CAR_HALF_WIDTH;
+    for (const stretch of blocks.bySegment[segment]) {
+      const mid = (stretch.start + stretch.end) / 2;
+      const half = (stretch.end - stretch.start) / 2;
+      const dx = pose.x - (road.from[0] + ux * mid);
+      const dz = pose.z - (road.from[2] + uz * mid);
+      const axes: [number, number][] = [
+        [ux, uz],
+        [-uz, ux],
+        [hx, hz],
+        [-hz, hx],
+      ];
+      const apart = axes.some(([ax, az]) => {
+        const gap = Math.abs(dx * ax + dz * az);
+        const stretchReach = half * Math.abs(ux * ax + uz * az) + band * Math.abs(-uz * ax + ux * az);
+        const bodyReach =
+          CAR_HALF_LENGTH * Math.abs(hx * ax + hz * az) + CAR_HALF_WIDTH * Math.abs(-hz * ax + hx * az);
+        return gap >= stretchReach + bodyReach - 1e-6;
+      });
+      if (!apart) {
+        return `on segment ${one.segment} at t ${one.t.toFixed(3)}, into segment ${segment} [${stretch.start.toFixed(2)}, ${stretch.end.toFixed(2)}]`;
+      }
     }
   }
   return null;
@@ -263,18 +283,19 @@ describe("advanceCar", () => {
 describe("routing round blocked roads", () => {
   // A collision on the east arm, far enough out that a car can pull in from
   // the junction and stop short; road works on the west arm, too close to
-  // the junction for that.
+  // the junction for that, though not so close that they close it.
   const graph = roadGraph(CROSS);
   const blocks = blockedStretches(graph, [
     incident(14, 0, "collision", Math.PI / 2),
-    incident(-8, 0, "minor", Math.PI / 2),
+    incident(-10.7, 0, "minor", Math.PI / 2),
   ]);
 
   it("knows which ends of a segment a car can still pull into", () => {
     // East arm, 20 long, scene from x = 7.2: room from the junction, none from the far end.
     expect(enterable(graph, 3, true, blocks)).toBe(true);
     expect(enterable(graph, 3, false, blocks)).toBe(false);
-    // West arm, scene from x = -9.6 to -2.2: the other way round.
+    // West arm, scene from x = -12.3 to -4.5: the other way round, and the
+    // scene far enough from the junction to leave it open.
     expect(enterable(graph, 2, false, blocks)).toBe(false);
     expect(enterable(graph, 2, true, blocks)).toBe(true);
     // Without blockages everything is open.

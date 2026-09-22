@@ -15,9 +15,10 @@
  * closes the carriageway for both, which is what every incident does anyway,
  * and it spares the traffic a lane-change manoeuvre it has no way of drawing.
  *
- * A segment with no usable way in from either end -- no room for a car to
- * pull in, stop short of the cones and turn round -- is reported as one
- * whole-segment closure.
+ * A scene near a junction closes the junction too, to every road meeting
+ * there. A segment with no usable way in from either end -- no room for a car
+ * to pull in, stop short of the cones and turn round -- is a whole-segment
+ * closure, and its stretches say so.
  *
  * Pure, no three.js: unit tested.
  */
@@ -55,8 +56,10 @@ export interface BlockedStretch {
   start: number;
   end: number;
   /**
-   * True when the whole segment is shut: `start` is 0 and `end` its length,
-   * and no car may enter it from either end.
+   * True when the whole segment is shut: its blockages leave no room to pull
+   * in from either end, so no car may enter it at all. Every stretch on a
+   * shut segment carries the flag; `start` and `end` still say where the
+   * obstruction actually is.
    */
   closed: boolean;
   /** Ids of the obstacles responsible. */
@@ -76,20 +79,20 @@ export interface Blockages {
 /**
  * Each incident scene's extent on the ground, in the incident's frame. These
  * mirror `incidentDecor.ts` -- the cones, the wrecks, the barricades and the
- * emergency vehicle parked along the road -- symmetrically in `x` so that both
- * variants are covered, with a little over for the wing mirrors. A test holds
- * them to the decor's actual bounding boxes, so a scene that grows fails
- * loudly rather than letting cars drive through the new part.
+ * emergency vehicles `incidentLayout` parks along the road -- symmetrically in
+ * `x` so both variants are covered, with a little over. A test holds them to
+ * the decor's actual bounding boxes, so a scene that grows fails loudly
+ * rather than letting cars drive through the new part.
  */
 export const INCIDENT_FOOTPRINT: Record<IncidentState, LocalRect> = {
-  // Pothole and cones in the middle; the works lorry parked ahead at z = 4.
-  minor: { minX: -2.7, maxX: 2.7, minZ: -1.6, maxZ: 5.8 },
+  // Pothole and cones in the middle; the works lorry parked ahead at z = 4.3.
+  minor: { minX: -2.7, maxX: 2.7, minZ: -1.6, maxZ: 6.2 },
   // Ambulance behind at z = -5, police car ahead at z = 4.8.
   collision: { minX: -2.8, maxX: 2.8, minZ: -6.8, maxZ: 6.5 },
-  // Barricade lines at z = -3.2 and z = 3, tow truck at z = 4.3.
-  stale: { minX: -4, maxX: 4, minZ: -3.5, maxZ: 6.1 },
-  // Barricades at z = +-4.2 and the fire engine at z = 6.
-  major: { minX: -3.1, maxX: 3.1, minZ: -4.4, maxZ: 8.7 },
+  // Barricade lines at z = -3.2 and z = 3, tow truck outside them at z = 6.05.
+  stale: { minX: -4, maxX: 4, minZ: -3.5, maxZ: 8.1 },
+  // Barricades at z = +-4.2 and the fire engine outside the cordon at z = 7.1.
+  major: { minX: -3.1, maxX: 3.1, minZ: -4.4, maxZ: 9.8 },
 };
 
 /** The side of the square a construction site is modelled on (`constructionDecor.ts`). */
@@ -203,16 +206,35 @@ function coverage(graph: RoadGraph, segment: number, obstacle: Obstacle): [numbe
   return end > start ? [start, end] : null;
 }
 
+/** Sort a segment's stretches and merge the ones that overlap, pooling their causes. */
+function merge(hits: BlockedStretch[]): BlockedStretch[] {
+  hits.sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: BlockedStretch[] = [];
+  for (const hit of hits) {
+    const last = merged[merged.length - 1];
+    if (last && hit.start <= last.end) {
+      last.end = Math.max(last.end, hit.end);
+      for (const id of hit.causes) if (!last.causes.includes(id)) last.causes.push(id);
+    } else {
+      merged.push({ ...hit, causes: [...hit.causes] });
+    }
+  }
+  return merged;
+}
+
 /**
  * The blocked stretches for a road network and the obstacles on it. Cheap
  * enough to run once per city: segments times obstacles, twenty-odd
  * obstacles at most.
+ *
+ * JUNCTIONS. A car crossing a junction has its nose over the next road before
+ * it leaves its own, so a stretch that comes within a car's reach of a
+ * junction closes the junction: every other segment meeting there gets a
+ * stretch over the junction's own box at that end, and its traffic stops
+ * short of the junction rather than squeezing past the scene.
  */
 export function blockedStretches(graph: RoadGraph, obstacles: readonly Obstacle[]): Blockages {
-  const bySegment: BlockedStretch[][] = graph.segments.map(() => []);
-  const stretches: BlockedStretch[] = [];
-
-  graph.segments.forEach((road, segment) => {
+  const own: BlockedStretch[][] = graph.segments.map((_, segment) => {
     const hits: BlockedStretch[] = [];
     for (const obstacle of obstacles) {
       const covered = coverage(graph, segment, obstacle);
@@ -220,39 +242,60 @@ export function blockedStretches(graph: RoadGraph, obstacles: readonly Obstacle[
         hits.push({ segment, start: covered[0], end: covered[1], closed: false, causes: [obstacle.id] });
       }
     }
-    if (hits.length === 0) return;
+    return merge(hits);
+  });
 
-    hits.sort((a, b) => a.start - b.start || a.end - b.end);
-    const merged: BlockedStretch[] = [];
-    for (const hit of hits) {
-      const last = merged[merged.length - 1];
-      if (last && hit.start <= last.end) {
-        last.end = Math.max(last.end, hit.end);
-        for (const id of hit.causes) if (!last.causes.includes(id)) last.causes.push(id);
-      } else {
-        merged.push(hit);
+  // How far a junction's box reaches along each road meeting there: the
+  // widest lane band among them.
+  const junctionReach = (node: string): number =>
+    Math.max(
+      0,
+      ...(graph.byNode.get(node) ?? []).map(
+        (i) => laneOffset(graph.segments[i].width) + CAR_HALF_WIDTH,
+      ),
+    );
+
+  const all: BlockedStretch[][] = own.map((list) => [...list]);
+  own.forEach((list, segment) => {
+    if (list.length === 0) return;
+    const length = graph.lengths[segment];
+    const reach = reachFor(graph.segments[segment].width);
+    const ends: [string, BlockedStretch, number][] = [
+      [graph.nodeKeys[segment][0], list[0], list[0].start],
+      [graph.nodeKeys[segment][1], list[list.length - 1], length - list[list.length - 1].end],
+    ];
+    for (const [node, stretch, gap] of ends) {
+      if (gap >= reach) continue;
+      const box = junctionReach(node);
+      for (const other of graph.byNode.get(node) ?? []) {
+        if (other === segment) continue;
+        const otherLength = graph.lengths[other];
+        if (otherLength <= 0.001) continue;
+        const atFrom = graph.nodeKeys[other][0] === node;
+        all[other].push({
+          segment: other,
+          start: atFrom ? 0 : Math.max(0, otherLength - box),
+          end: atFrom ? Math.min(otherLength, box) : otherLength,
+          closed: false,
+          causes: [...stretch.causes],
+        });
       }
     }
+  });
 
+  const bySegment: BlockedStretch[][] = [];
+  const stretches: BlockedStretch[] = [];
+  all.forEach((hits, segment) => {
+    const list = merge(hits);
+    bySegment.push(list);
+    if (list.length === 0) return;
     // Room to pull in from an end, stop short and turn round: without it on
     // either side, nobody can use the segment at all.
     const length = graph.lengths[segment];
-    const reach = reachFor(road.width);
-    const fromEnd = merged[0].start - reach >= MIN_ROOM;
-    const toEnd = length - merged[merged.length - 1].end - reach >= MIN_ROOM;
-    const list: BlockedStretch[] =
-      fromEnd || toEnd
-        ? merged
-        : [
-            {
-              segment,
-              start: 0,
-              end: length,
-              closed: true,
-              causes: [...new Set(merged.flatMap((s) => s.causes))],
-            },
-          ];
-    bySegment[segment] = list;
+    const reach = reachFor(graph.segments[segment].width);
+    const fromEnd = list[0].start - reach >= MIN_ROOM;
+    const toEnd = length - list[list.length - 1].end - reach >= MIN_ROOM;
+    if (!fromEnd && !toEnd) for (const stretch of list) stretch.closed = true;
     stretches.push(...list);
   });
 
