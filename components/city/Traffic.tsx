@@ -12,7 +12,7 @@
  *
  * COST. One instanced draw per body type present, one more for that type's
  * lamps, and a single instanced mesh carrying every wheel in the city: about
- * eleven draw calls for the whole fleet, whatever its size. Nothing in the
+ * thirteen draw calls for the whole fleet, whatever its size. Nothing in the
  * frame loop allocates (section 63).
  *
  * Traffic starts once the reveal has finished: it is step 8 of section 43.
@@ -34,6 +34,7 @@ import {
   wheelGeometry,
   type VehicleBody,
 } from "./models/vehicles/shapes";
+import { tintedMaterial } from "./models/props/material";
 import { MAX_CARS, advanceCar, carPose, roadGraph, spawnCars } from "./traffic";
 import { useRevealClock } from "./useReveal";
 
@@ -81,6 +82,11 @@ export default function Traffic({
       })),
     };
   }, [city]);
+
+  // One material for every body type: the paint mask lets the car's colour
+  // reach the paintwork and nothing else (`models/props/material.ts`).
+  const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }), []);
+  useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
 
   const bodyRefs = useRef<(InstancedMesh | null)[]>([]);
   const lampRefs = useRef<(InstancedMesh | null)[]>([]);
@@ -177,8 +183,10 @@ export default function Traffic({
   if (cars.length === 0) return null;
 
   // Lamps brighten with the city's lit windows: at dusk a street of tail
-  // lights, at noon two dull dots (PLAN.md section 39).
-  const lampTint = mix("#5f5f5f", "#ffffff", atmosphere.windowGlow);
+  // lights, at noon pale lenses and dull red glass (PLAN.md section 39). The
+  // floor is high enough that a lamp never reads as a hole in the car, and an
+  // archived city, whose windows are mostly dark, drives with its lights low.
+  const lampTint = mix("#9c9a94", "#ffffff", atmosphere.windowGlow);
 
   return (
     <group>
@@ -192,7 +200,7 @@ export default function Traffic({
             castShadow
             frustumCulled={false}
           >
-            <meshStandardMaterial vertexColors roughness={0.5} metalness={0.08} />
+            <primitive object={bodyMaterial} attach="material" />
           </instancedMesh>
           <instancedMesh
             ref={(mesh) => {

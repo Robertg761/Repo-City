@@ -3,10 +3,12 @@ import {
   BODY_SPECS,
   CAR_COLORS,
   MAX_BODY_WIDTH,
+  TAXI_COLOR,
   VEHICLE_BODIES,
   bodyGeometry,
   fleetLooks,
   lightsGeometry,
+  paintFor,
   parkedGeometry,
   wheelGeometry,
 } from "./shapes";
@@ -65,8 +67,45 @@ describe("merged geometry", () => {
           4 * triangleCount(wheelGeometry()),
       ),
     );
-    expect(heaviest).toBeLessThan(400);
-    expect(heaviest * 40).toBeLessThan(16000);
+    expect(heaviest).toBeLessThan(520);
+    expect(heaviest * 40).toBeLessThan(21000);
+    for (const kind of VEHICLE_BODIES) {
+      expect(triangleCount(bodyGeometry(kind))).toBeLessThan(240);
+    }
+  });
+
+  it("keeps arches and bumpers inside the widest body", () => {
+    // The arches and bumpers stand proud of the paintwork so they read from
+    // the side; they still may not push a car out of its lane.
+    for (const kind of VEHICLE_BODIES) {
+      const geometry = bodyGeometry(kind);
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox!;
+      expect(box.max.x - box.min.x).toBeLessThanOrEqual(MAX_BODY_WIDTH);
+      expect(box.min.y).toBeGreaterThan(0);
+      // Nothing hangs more than a bumper's depth past the spec's length.
+      expect(box.max.z).toBeLessThan(BODY_SPECS[kind].length / 2 + 0.05);
+      expect(box.min.z).toBeGreaterThan(-BODY_SPECS[kind].length / 2 - 0.05);
+    }
+  });
+
+  it("gives every body a distinct silhouette", () => {
+    const heights = VEHICLE_BODIES.filter((kind) => kind !== "taxi").map((kind) => {
+      const geometry = bodyGeometry(kind);
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox!;
+      return `${box.max.y.toFixed(2)}x${(box.max.z - box.min.z).toFixed(2)}`;
+    });
+    expect(new Set(heights).size).toBe(heights.length);
+  });
+
+  it("puts the taxi's sign and the bus's board in the lamps, not the paint", () => {
+    expect(triangleCount(lightsGeometry("taxi"))).toBeGreaterThan(
+      triangleCount(lightsGeometry("sedan")),
+    );
+    expect(triangleCount(lightsGeometry("bus"))).toBeGreaterThan(
+      triangleCount(lightsGeometry("van")),
+    );
   });
 
   it("bakes the wheels into a parked vehicle", () => {
@@ -96,6 +135,19 @@ describe("fleetLooks", () => {
       expect(look.colorIndex).toBeGreaterThanOrEqual(0);
       expect(look.colorIndex).toBeLessThan(CAR_COLORS.length);
     }
+  });
+
+  it("paints taxis yellow, buses in a livery and the rest mostly neutral", () => {
+    const prng = prngFor("s", "paint");
+    for (let i = 0; i < 20; i++) expect(paintFor("taxi", prng)).toBe(TAXI_COLOR);
+    const liveries = new Set(Array.from({ length: 60 }, () => paintFor("bus", prng)));
+    expect(liveries.size).toBeLessThanOrEqual(3);
+    const sedans = Array.from({ length: 400 }, () => paintFor("sedan", prng));
+    expect(sedans).not.toContain(TAXI_COLOR);
+    const neutral = sedans.filter((index) => index < 4).length / sedans.length;
+    expect(neutral).toBeGreaterThan(0.35);
+    expect(neutral).toBeLessThan(0.65);
+    expect(new Set(sedans).size).toBeGreaterThan(8);
   });
 
   it("gives a city with a handful of cars a mix of shapes", () => {

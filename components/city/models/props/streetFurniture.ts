@@ -19,7 +19,7 @@ import type { Prng } from "@/lib/city/prng";
 import type { CityModel, RoadSegment, Vec3 } from "@/types/city";
 import { desaturate } from "../../palette";
 import { geometryCache, mergeParts, toneKey, type Part } from "./geometry";
-import { parkedGeometry, type VehicleBody } from "../vehicles/shapes";
+import { paintFor, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
 
 /** Section 37's "tiny props" allowance, over and above the trees and lamps. */
 export const SMALL_PROP_BUDGET = 150;
@@ -245,12 +245,13 @@ export function placeStreetProps(city: CityModel, prng: Prng): StreetProps {
   walk(longRoads, 17, 3.1, (x, z, angle, side) => {
     if (result.parked.length >= budget.parked) return false;
     if (prng.next() < 0.45) return false;
+    const body = PARKED_BODIES[prng.int(0, PARKED_BODIES.length - 1)];
     result.parked.push({
       position: [x, 0, z],
       rotationY: angle + (side > 0 ? Math.PI : 0) + prng.range(-0.04, 0.04),
       scale: 1,
-      body: PARKED_BODIES[prng.int(0, PARKED_BODIES.length - 1)],
-      colorIndex: prng.int(0, 7),
+      body,
+      colorIndex: paintFor(body, prng),
     });
     return true;
   });
