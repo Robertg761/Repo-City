@@ -35,6 +35,11 @@ import { atmosphere as buildAtmosphere } from "./palette";
 import { cityRevealEnd } from "./reveal";
 import { RevealContext, useRevealTicker } from "./useReveal";
 
+/** The lowest a district label hangs: over a city's low-rise blocks. */
+const LABEL_FLOOR = 12;
+/** The same over a village's cottages. */
+const VILLAGE_LABEL_FLOOR = 7.5;
+
 /**
  * Development only: the renderer and camera on `window.__repoCityRenderer`
  * and `window.__repoCityCamera`, so a driver can read `renderer.info` (draw
@@ -91,6 +96,10 @@ export default function City({
    * towers needs its name higher than a district of sheds, or the DOM label
    * lands across a facade (PLAN.md section 8).
    */
+  const tier = city.settlement?.tier;
+  // A village is cottages three to five units tall: its lane names hang just
+  // over the roofs, not twelve units up in the sky.
+  const labelFloor = tier === "village" ? VILLAGE_LABEL_FLOOR : LABEL_FLOOR;
   const labelHeights = useMemo(() => {
     const tallest = new Map<string, number>();
     for (const building of city.buildings) {
@@ -99,10 +108,10 @@ export default function City({
     }
     const heights = new Map<string, number>();
     for (const district of city.districts) {
-      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, 12));
+      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, labelFloor));
     }
     return heights;
-  }, [city]);
+  }, [city, labelFloor]);
 
   return (
     <RevealContext.Provider value={clock}>
@@ -126,7 +135,8 @@ export default function City({
           key={district.id}
           district={district}
           atmosphere={atmosphere}
-          labelY={labelHeights.get(district.id) ?? 12}
+          labelY={labelHeights.get(district.id) ?? labelFloor}
+          settlement={tier}
           // The overview sits at about 1.45 times the city's side, so a label
           // scaled off `bounds.size` reads the same in a town and a metropolis.
           labelScale={size * 0.72}
@@ -135,13 +145,13 @@ export default function City({
 
       <Roads roads={city.roads} atmosphere={atmosphere} />
 
-      <Buildings buildings={instanced} atmosphere={atmosphere} />
+      <Buildings buildings={instanced} atmosphere={atmosphere} settlement={tier} roads={city.roads} />
       {civic.map((building) => (
         <CivicBuilding key={building.id} building={building} atmosphere={atmosphere} />
       ))}
 
       {city.landmarks.map((landmark) => (
-        <LandmarkPiece key={landmark.id} landmark={landmark} atmosphere={atmosphere} />
+        <LandmarkPiece key={landmark.id} landmark={landmark} atmosphere={atmosphere} settlement={tier} />
       ))}
 
       {city.incidents.map((incident) => (

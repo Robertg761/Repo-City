@@ -14,6 +14,8 @@ import {
   nextRide,
   roadGraph,
   spawnCars,
+  tractorsFor,
+  TRACTOR_SHARE,
   type Car,
   type RoadGraph,
 } from "./traffic";
@@ -518,5 +520,26 @@ describe("a fleet driving past the fixture incidents", () => {
   it("drives the same way every time for a given seed", () => {
     const [, city] = cities[1];
     expect(drive(city, 30).cars).toEqual(drive(city, 30).cars);
+  });
+});
+
+describe("tractors (PLAN.md 76.5)", () => {
+  it("keeps them out of any settlement that does not allow them", () => {
+    expect(tractorsFor(40, false, prngFor("s", "tractors")).some(Boolean)).toBe(false);
+  });
+
+  it("puts a few into a village fleet, and at least one", () => {
+    const picks = tractorsFor(10, true, prngFor("village", "tractors"));
+    expect(picks).toHaveLength(10);
+    expect(picks.filter(Boolean).length).toBeGreaterThanOrEqual(1);
+    let total = 0;
+    for (let i = 0; i < 200; i++) total += tractorsFor(10, true, prngFor(`v${i}`, "tractors")).filter(Boolean).length;
+    expect(total / 2000).toBeGreaterThan(TRACTOR_SHARE * 0.7);
+    expect(total / 2000).toBeLessThan(TRACTOR_SHARE * 1.6);
+  });
+
+  it("is deterministic for a seed", () => {
+    expect(tractorsFor(10, true, prngFor("a", "tractors"))).toEqual(tractorsFor(10, true, prngFor("a", "tractors")));
+    expect(tractorsFor(0, true, prngFor("a", "tractors"))).toEqual([]);
   });
 });

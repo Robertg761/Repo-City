@@ -52,6 +52,26 @@ export function carCap(tier: SettlementTier | undefined): number {
 }
 
 /**
+ * The share of a village fleet that is tractors (PLAN.md 76.5: "10, tractors
+ * allowed"). Only settlements whose `vehicles.tractors` is set get any.
+ */
+export const TRACTOR_SHARE = 0.25;
+/** A tractor's cruising speed, as a share of the car it replaces. */
+export const TRACTOR_PACE = 0.55;
+
+/**
+ * Which cars in a fleet are tractors, seeded from its own stream so choosing
+ * them moves nothing else. A settlement that allows tractors and has two or
+ * more vehicles always gets at least one.
+ */
+export function tractorsFor(count: number, allowed: boolean, prng: Prng): boolean[] {
+  if (!allowed || count <= 0) return Array.from({ length: Math.max(0, count) }, () => false);
+  const picks = Array.from({ length: count }, () => prng.next() < TRACTOR_SHARE);
+  if (count >= 2 && !picks.some(Boolean)) picks[prng.int(0, count - 1)] = true;
+  return picks;
+}
+
+/**
  * Half the length of the longest body in the fleet (the bus, 4.5 units; see
  * `models/vehicles/shapes.ts`). The traffic maths does not know which body a
  * car has, so every car keeps the bus's distance.
