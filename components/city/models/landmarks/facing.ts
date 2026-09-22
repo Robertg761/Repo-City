@@ -3,11 +3,12 @@
  *
  * Every model in this directory puts its entrance, its signage and its yard
  * on +z, and `planLandmarkPlots` rotates each plot so that +z faces the city
- * centre. The inspection camera, though, always approaches from the same
- * world corner -- `INSPECT_DIR` in `components/city/entities.ts` is
- * `[1, 0.95, 1]` -- so on two of the four compass plots the front of the
- * landmark would face away from the viewer who just clicked it, and clicking
- * a fire station would show its back wall.
+ * centre. The default view, though, looks from one world corner --
+ * `INSPECT_DIR` in `components/city/entities.ts` is `[1, 0.95, 1]`, and an
+ * inspection flight keeps whatever bearing the user is on, which starts there
+ * -- so on two of the four compass plots the front of the landmark would face
+ * away from the viewer who just clicked it, and clicking a fire station
+ * without orbiting first would show its back wall.
  *
  * So the assembly takes a half turn on those plots and fronts the ring road
  * instead of the district square. A landmark plot is a rectangle and a half
