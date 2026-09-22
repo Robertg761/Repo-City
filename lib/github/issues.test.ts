@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GhIssue } from "@/types/github";
-import { BODY_EXCERPT_LENGTH, excerpt, mapIssue, mapIssues, mapLabels } from "./issues";
+import { BODY_EXCERPT_LENGTH, excerpt, mapIssue, mapIssues, mapLabels, pullItemStats } from "./issues";
 
 const issue = (overrides: Partial<GhIssue> = {}): GhIssue => ({
   number: 7,
@@ -45,6 +45,17 @@ describe("mapIssue", () => {
     expect(mapped?.bodyExcerpt).toBe("");
   });
 
+  it("reads reactions, assignees and milestone when GitHub sends them", () => {
+    const person = { login: "cy", id: 3, avatar_url: "", html_url: "", type: "User" };
+    const mapped = mapIssue(
+      issue({ reactions: { total_count: 14 }, assignees: [person, person], milestone: { title: "v5" } }),
+    );
+    expect(mapped?.reactions).toBe(14);
+    expect(mapped?.assignees).toBe(2);
+    expect(mapped?.milestone).toBe("v5");
+    expect(mapIssue(issue({ milestone: null }))?.milestone).toBeNull();
+  });
+
   it("falls back to createdAt when updatedAt is absent", () => {
     const mapped = mapIssue(issue({ updated_at: undefined as unknown as string }));
     expect(mapped?.updatedAt).toBe("2026-09-01T10:00:00Z");
@@ -59,6 +70,26 @@ describe("mapIssues", () => {
       issue({ number: 3 }),
     ]);
     expect(mapped.map((item) => item.number)).toEqual([1, 3]);
+  });
+});
+
+describe("pullItemStats", () => {
+  it("keeps the issue view of pull requests, and only those", () => {
+    const stats = pullItemStats([
+      issue({ number: 1 }),
+      issue({ number: 2, comments: 8, reactions: { total_count: 3 }, pull_request: { url: "", html_url: "" } }),
+      issue({ number: 3, comments: 1, pull_request: { url: "", html_url: "" } }),
+    ]);
+    expect([...stats.entries()]).toEqual([
+      [2, { comments: 8, reactions: 3 }],
+      [3, { comments: 1, reactions: undefined }],
+    ]);
+  });
+
+  it("keeps the first sighting of a number across pages", () => {
+    const stats = pullItemStats([issue({ number: 2, comments: 8, pull_request: { url: "", html_url: "" } })]);
+    pullItemStats([issue({ number: 2, comments: 99, pull_request: { url: "", html_url: "" } })], stats);
+    expect(stats.get(2)?.comments).toBe(8);
   });
 });
 

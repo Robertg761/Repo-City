@@ -15,8 +15,12 @@ import type { RepoAnalysis } from "@/types/analysis";
 
 /** PLAN.md section 30. */
 export const ANALYSIS_TTL_MS = 15 * 60 * 1000;
-/** Bounds memory on a long-lived instance; oldest entries are evicted first. */
-export const MAX_ENTRIES = 50;
+/**
+ * Bounds memory on a long-lived instance; oldest entries are evicted first.
+ * 30 rather than 50 since a giant repository's analysis carries its whole open
+ * backlog, 0.5 to 0.9 MB (PLAN.md section 76.6).
+ */
+export const MAX_ENTRIES = 30;
 
 export interface CacheEntry<T> {
   value: T;

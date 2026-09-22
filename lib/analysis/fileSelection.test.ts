@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { planDistricts } from "./districts";
+import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
+import type { SettlementTier } from "@/types/analysis";
 import {
+  BUILDING_CAP,
   LANDMARK_TIER,
   MAX_BUILDINGS,
   MIN_PER_DISTRICT,
   TIER_SHARES,
   selectBuildings,
+  tierCuts,
   tierForRank,
 } from "./fileSelection";
 import { pruneTree } from "./tree";
@@ -275,5 +279,87 @@ describe("tiers on a real selection", () => {
     }
     // A landmark file no longer eats the tallest tier from the real code.
     expect(buildings.some((b) => !b.landmark && b.tier === 5)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------ settlement budgets (76.5) */
+
+function selectTier(entries: ReturnType<typeof treeFromPaths>, tier: SettlementTier) {
+  const pruned = pruneTree(entries);
+  const districts = planDistricts(pruned);
+  const params = SETTLEMENT_PARAMS[tier];
+  return {
+    districts,
+    buildings: selectBuildings(pruned, districts, {
+      min: params.buildings.min,
+      max: params.buildings.max,
+      shares: params.tierShares,
+    }),
+  };
+}
+
+describe("selectBuildings with a settlement budget (PLAN.md 76.5)", () => {
+  const TIERS: SettlementTier[] = ["village", "town", "city", "metropolis"];
+
+  it.each(TIERS)("keeps a large %s inside its budget", (tier) => {
+    const { max } = SETTLEMENT_PARAMS[tier].buildings;
+    for (const size of [5_000, 40_000]) {
+      const { buildings } = selectTier(syntheticTree(size), tier);
+      expect(buildings.length).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it("fills a metropolis past its 300-building floor", () => {
+    // Without the floor, a tree like react's falls through to depth 2 and
+    // leaves a big plate with a hundred buildings on it (76.2).
+    for (const size of [5_000, 40_000]) {
+      const { buildings } = selectTier(syntheticTree(size), "metropolis");
+      expect(buildings.length).toBeGreaterThanOrEqual(SETTLEMENT_PARAMS.metropolis.buildings.min);
+      expect(buildings.length).toBeLessThanOrEqual(BUILDING_CAP);
+    }
+  });
+
+  it("builds a small village and a town of folders from the same 136 files", () => {
+    const village = selectTier(midSnapshot.tree.entries, "village").buildings;
+    const town = selectTier(midSnapshot.tree.entries, "town").buildings;
+    expect(village.length).toBeLessThanOrEqual(40);
+    expect(town.length).toBeGreaterThanOrEqual(30);
+    expect(town.length).toBeLessThanOrEqual(120);
+    expect(town.some((b) => b.kind === "directory")).toBe(true);
+  });
+
+  it("gives the city tier exactly today's selection", () => {
+    for (const entries of [midSnapshot.tree.entries, syntheticTree(5000), archivedSnapshot.tree.entries]) {
+      expect(selectTier(entries, "city").buildings).toEqual(selectFor(entries).buildings);
+    }
+  });
+
+  it("never exceeds the absolute cap of 450, whatever the budget asks", () => {
+    const pruned = pruneTree(syntheticTree(40_000));
+    const districts = planDistricts(pruned);
+    const buildings = selectBuildings(pruned, districts, { min: 900, max: 900 });
+    expect(buildings.length).toBe(BUILDING_CAP);
+  });
+
+  it("clamps a floor above the cap down to the cap", () => {
+    const pruned = pruneTree(midSnapshot.tree.entries);
+    const districts = planDistricts(pruned);
+    expect(selectBuildings(pruned, districts, { min: 500, max: 40 }).length).toBeLessThanOrEqual(40);
+  });
+
+  it.each(TIERS)("follows the %s tier shares on a large repository", (tier) => {
+    const shares = SETTLEMENT_PARAMS[tier].tierShares;
+    const total = SETTLEMENT_PARAMS[tier].buildings.max;
+    const counts = [0, 0, 0, 0, 0];
+    for (let rank = 0; rank < total; rank++) counts[tierForRank(rank, total, shares) - 1] += 1;
+    ([1, 2, 3, 4, 5] as const).forEach((level) => {
+      expect(Math.abs(counts[level - 1] / total - shares[level])).toBeLessThan(0.04);
+    });
+  });
+
+  it("gives the metropolis more towers than the city, and the city more than the village", () => {
+    const towers = (tier: SettlementTier) => tierCuts(200, SETTLEMENT_PARAMS[tier].tierShares)[0];
+    expect(towers("metropolis")).toBeGreaterThan(towers("city"));
+    expect(towers("city")).toBeGreaterThan(towers("village"));
   });
 });

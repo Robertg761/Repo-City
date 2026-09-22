@@ -14,13 +14,17 @@ import type {
   CiState,
   ConstructionState,
   DistrictPlan,
+  IncidentForm,
   IncidentState,
   RankedIssue,
   RankedPull,
   RepoAnalysis,
   RepoMetrics,
+  SettlementTier,
+  WorksForm,
 } from "@/types/analysis";
-import type { LandmarkDetail, LandmarkType } from "@/types/city";
+import type { LandmarkDetail, LandmarkType, OverflowCount } from "@/types/city";
+import { pullModifiers, wantsVolunteer } from "../analysis/forms.ts";
 import type { RepositoryMeta } from "@/types/repository";
 
 /** The fields every `CityEntity` needs, before geometry is attached. */
@@ -50,7 +54,16 @@ const daysBetween = (fromIso: string, toIso: string): number => {
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${count(n)} ${n === 1 ? one : many}`;
 
-const count = (n: number): string => n.toLocaleString("en-US");
+/**
+ * `n.toLocaleString("en-US")`, with integers formatted by hand: the ICU call
+ * costs tens of microseconds, and a metropolis writes a few thousand of these
+ * for its crowd. The output is the same string.
+ */
+const count = (n: number): string => {
+  if (!Number.isSafeInteger(n)) return n.toLocaleString("en-US");
+  const digits = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return n < 0 ? `-${digits}` : digits;
+};
 
 const basename = (path: string): string => {
   const trimmed = path.replace(/\/+$/, "");
@@ -220,8 +233,316 @@ export function constructionText(pull: RankedPull, generatedAt: string): EntityT
 }
 
 // ---------------------------------------------------------------------------
+// The crowd: every other open issue and pull request (PLAN.md 76.7 and 76.10)
+// ---------------------------------------------------------------------------
+
+/** The inspector subtitle of a crowd incident: what it looks like in the street. */
+export const INCIDENT_FORM_LABEL: Record<IncidentForm, string> = {
+  fire: "Fire",
+  collision: "Fender-bender",
+  wreck: "Abandoned wreck",
+  pothole: "Pothole",
+  roadblock: "Roadblock",
+  survey: "Survey pegs",
+  signpost: "Signpost",
+};
+
+/** The inspector subtitle of a crowd works object. */
+export const WORKS_FORM_LABEL: Record<WorksForm, string> = {
+  site: "Construction site",
+  scaffold: "Scaffolding",
+  trench: "Trench",
+  van: "Utility works",
+  hoarding: "Hoarding",
+};
+
+/**
+ * Why an issue has this shape: one sentence per form, naming the rule in
+ * `lib/analysis/forms.ts` that chose it (PLAN.md 76.7).
+ */
+const ISSUE_FORM_RULE: Record<IncidentForm, string> = {
+  fire: "A fire, because the issue is marked major or security-related, or it is a severe bug drawing heavy discussion.",
+  wreck: "An abandoned wreck, because the issue has gone stale or nobody has touched it for a year.",
+  collision: "A fender-bender, because the issue is an unresolved bug.",
+  roadblock:
+    "A roadblock, because the issue is blocked, on hold or waiting on an answer: the road stays closed until someone replies.",
+  signpost: "A signpost, because the issue is about the documentation, the website or an example.",
+  survey:
+    "Survey pegs, because the issue proposes a feature: the ground is marked out and nothing is built yet.",
+  pothole: "A pothole: routine upkeep that no other rule claimed.",
+};
+
+/** The severity rule behind the state, as `classifyIssue` applies it. */
+const ISSUE_STATE_RULE: Record<IncidentState, string> = {
+  major: "Its labels mark it a severe bug and its discussion is heavy.",
+  collision: "It is labelled a bug.",
+  stale: "It is a bug that has stayed open for more than 180 days.",
+  minor: "It carries no bug label.",
+};
+
+/**
+ * The generated "why" of a crowd issue: its form rule, its state rule and,
+ * for a "good first issue" or "help wanted", the volunteer flag.
+ */
+export function crowdIssueReason(form: IncidentForm, state: IncidentState, labels: string[]): string {
+  const volunteer = wantsVolunteer(labels)
+    ? " It is marked for volunteers, so anyone can fill it in."
+    : "";
+  return `${ISSUE_FORM_RULE[form]} ${ISSUE_STATE_RULE[state]}${volunteer}`;
+}
+
+const PULL_FORM_RULE: Record<WorksForm, string> = {
+  site: "A construction site with a crane: one of the pull requests ranked high enough to be drawn in full.",
+  scaffold:
+    "Scaffolding, because the pull request changes the code itself and no other works rule matched.",
+  trench:
+    "A trench in the road, because the pull request changes the build, CI or tooling rather than the product.",
+  van: "A utility van, because the pull request comes from a bot or updates dependencies.",
+  hoarding: "A hoarding round an empty plot, because the pull request is still a draft.",
+};
+
+/** The recency rule behind the state, as `classifyPull` applies it. */
+const PULL_STATE_RULE: Record<ConstructionState, string> = {
+  active: "It was updated in the last 14 days, so work is going on.",
+  slow: "It was last updated 15 to 59 days ago, so the work is slow.",
+  abandoned: "Nobody has touched it for 60 days or more, so the works stand idle.",
+  completed: "It has been merged.",
+};
+
+/**
+ * The generated "why" of a crowd pull request: form rule, state rule, then
+ * the review and CI modifiers `pullModifiers` draws (the state ones, rust and
+ * dimming, are already said by the state rule).
+ */
+export function crowdPullReason(
+  form: WorksForm,
+  state: ConstructionState,
+  review: RankedPull["review"],
+  checks: RankedPull["checks"],
+): string {
+  const signals = pullModifiers({ review, checks, state })
+    .filter((modifier) => modifier.id !== "abandoned" && modifier.id !== "slow")
+    .map((modifier) => modifier.sentence);
+  return [PULL_FORM_RULE[form], PULL_STATE_RULE[state], ...signals].join(" ");
+}
+
+/** How a crowd object found its place, for the last sentence of its "why". */
+export interface CrowdPlacement {
+  /** What anchored it: a building by path, a district by path or by title, or nothing. */
+  anchor: "building" | "district-path" | "district-text" | "none";
+  /** The anchor building's path or the anchor district's name. */
+  near: string | null;
+  /** The related path the issue or pull request named. */
+  path: string | null;
+  /** Anchored, but every spot within reach was taken, so it stands elsewhere. */
+  displaced: boolean;
+  /** A lane-closing form that had to wait on the kerb. */
+  kerbed: boolean;
+  /** Scaffolding: the path of the building it stands on. */
+  host: string | null;
+  /** Scaffolding that became a trench, and why. */
+  demoted: "cap" | "no-facade" | null;
+  tier: SettlementTier;
+}
+
+/**
+ * The placement sentence. Generated from what the placement actually did,
+ * never free-form (PLAN.md section 12).
+ */
+export function placementSentence(kind: "issue" | "pull", p: CrowdPlacement): string {
+  const noun = kind === "issue" ? "issue" : "pull request";
+  const verb = kind === "issue" ? "names" : "touches";
+  const word = SETTLEMENT_WORD[p.tier];
+  const parts: string[] = [];
+
+  if (p.host && !p.demoted) {
+    parts.push(
+      p.anchor === "building" && p.near === p.host
+        ? `It stands on ${p.host} because the pull request touches ${p.path ?? p.host}.`
+        : p.near
+          ? `It stands on ${p.host}, the nearest building with a free face to ${p.near}.`
+          : `It names no path the ${word} knows, so it stands on ${p.host}, where there was room.`,
+    );
+    return parts.join(" ");
+  }
+
+  if (p.demoted) {
+    const where = p.near ?? p.host;
+    parts.push(
+      p.demoted === "cap"
+        ? `Scaffolding is capped at 35% of the buildings, so the road${where ? ` near ${where}` : ""} is dug up instead.`
+        : `No facade${where ? ` near ${where}` : ""} was free for scaffolding, so the road is dug up instead.`,
+    );
+  } else if (p.anchor === "none") {
+    parts.push(`The ${noun} names no path the ${word} knows, so it stands where the streets had room.`);
+  } else if (p.displaced) {
+    parts.push(
+      `The ${noun} points at ${p.near}, but every spot near it was taken, so it stands where the streets had room.`,
+    );
+  } else if (p.anchor === "building") {
+    parts.push(`It stands beside ${p.near} because the ${noun} ${verb} ${p.path ?? p.near}.`);
+  } else if (p.anchor === "district-path") {
+    parts.push(`It stands in ${p.near} because the ${noun} ${verb} ${p.path ?? "a path there"}.`);
+  } else {
+    parts.push(`It stands in ${p.near} because the ${noun}'s title mentions a path there.`);
+  }
+
+  if (p.kerbed) {
+    parts.push(
+      "It waits on the kerb rather than in the lane: no more than a quarter of the streets may be closed at once, and never a road that is the only way through.",
+    );
+  }
+  return parts.join(" ");
+}
+
+/** Inspector copy for a crowd incident. `issue.reason` is `crowdIssueReason`. */
+export function crowdIncidentText(
+  issue: RankedIssue,
+  form: IncidentForm,
+  generatedAt: string,
+  placement: CrowdPlacement,
+): EntityText {
+  const age = daysBetween(issue.createdAt, generatedAt);
+  const reactions = issue.reactions ?? 0;
+  const facts = [
+    `open ${plural(age, "day")}`,
+    plural(issue.comments, "comment"),
+    reactions > 0 ? plural(reactions, "reaction") : null,
+    issue.author ? `reported by ${issue.author}` : null,
+    issue.labels.length > 0 ? `labelled ${issue.labels.slice(0, 3).join(", ")}` : null,
+  ].filter((part): part is string => part !== null);
+
+  return {
+    title: `Issue #${issue.number}`,
+    subtitle: INCIDENT_FORM_LABEL[form],
+    description: `${issue.title} — ${facts.join(", ")}.`,
+    reason: `${issue.reason} ${placementSentence("issue", placement)}`,
+    sourceUrl: issue.url,
+    visualState: issue.state,
+  };
+}
+
+/** Inspector copy for a crowd works object. `pull.reason` is `crowdPullReason`. */
+export function crowdConstructionText(
+  pull: RankedPull,
+  form: WorksForm,
+  generatedAt: string,
+  placement: CrowdPlacement,
+): EntityText {
+  const touched = daysBetween(pull.updatedAt, generatedAt);
+  const opened = daysBetween(pull.createdAt, generatedAt);
+  const byline = pull.author ? ` by ${pull.author}` : "";
+  const facts = [
+    pull.draft ? "still a draft" : null,
+    `opened ${opened === 0 ? "today" : `${plural(opened, "day")} ago`}`,
+    `last touched ${touched === 0 ? "today" : `${plural(touched, "day")} ago`}`,
+    pull.comments > 0 ? plural(pull.comments, "comment") : null,
+    (pull.reactions ?? 0) > 0 ? plural(pull.reactions ?? 0, "reaction") : null,
+  ].filter((part): part is string => part !== null);
+
+  return {
+    title: `Pull Request #${pull.number}`,
+    subtitle: WORKS_FORM_LABEL[form],
+    description: `${pull.title}${byline} — ${facts.join(", ")}.`,
+    reason: `${pull.reason} ${placementSentence("pull", placement)}`,
+    sourceUrl: pull.url,
+    visualState: pull.state,
+  };
+}
+
+/** What `overflowText` needs to explain the queue. */
+export interface OverflowFacts {
+  issues: OverflowCount;
+  pulls: OverflowCount;
+  exact: boolean;
+  /** How many of each the survey actually reached (heroes plus backlog). */
+  surveyed: { issues: number; pulls: number };
+  tier: SettlementTier;
+  repoUrl: string;
+}
+
+/**
+ * Copy for the queue at the city limits (PLAN.md 76.8 and 76.9). The title is
+ * the signboard. The reason says which limit hid what: the survey's reach,
+ * the ground the settlement has, or both.
+ */
+export function overflowText(facts: OverflowFacts): EntityText {
+  const { issues, pulls, exact, surveyed, tier, repoUrl } = facts;
+  const word = SETTLEMENT_WORD[tier];
+  const about = exact ? "" : "about ";
+
+  const line = (c: OverflowCount, one: string, many: string): string =>
+    `${count(c.drawn)} of ${about}${count(c.total)} open ${c.total === 1 ? one : many} ${
+      c.drawn === 1 ? "is" : "are"
+    } drawn in the ${word}; ${about}${count(c.hidden)} more ${c.hidden === 1 ? "waits" : "wait"} in the queue.`;
+
+  const sign =
+    issues.hidden > 0
+      ? `+${count(issues.hidden)} more open ${issues.hidden === 1 ? "issue" : "issues"}`
+      : `+${count(pulls.hidden)} more open ${pulls.hidden === 1 ? "pull request" : "pull requests"}`;
+
+  const limits = (c: OverflowCount, reached: number, many: string): string | null => {
+    if (c.hidden === 0) return null;
+    const clauses: string[] = [];
+    if (reached < c.total) {
+      clauses.push(`the survey reached ${count(reached)} of the ${about}${count(c.total)} open ${many}`);
+    }
+    if (c.drawn < Math.min(reached, c.total)) {
+      clauses.push(`the ${word} had room for ${count(c.drawn)} of the ${count(Math.min(reached, c.total))} it was given`);
+    }
+    if (clauses.length === 0) return null;
+    const text = clauses.join(", and ");
+    return `For ${many}, ${text}.`;
+  };
+
+  const reasons = [
+    "Every open issue and pull request is drawn as its own object until the survey or the ground runs out; everything past that waits here, counted but not drawn.",
+    limits(issues, surveyed.issues, "issues"),
+    limits(pulls, surveyed.pulls, "pull requests"),
+    exact
+      ? null
+      : "The totals are estimates from GitHub's open issue count, which counts pull requests too.",
+  ].filter((part): part is string => part !== null);
+
+  return {
+    title: sign,
+    subtitle: `Queue at the ${word} limits`,
+    description: [
+      issues.total > 0 ? capitalise(line(issues, "issue", "issues")) : null,
+      pulls.total > 0 ? capitalise(line(pulls, "pull request", "pull requests")) : null,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(" "),
+    reason: reasons.join(" "),
+    sourceUrl: issues.hidden > 0 ? `${repoUrl}/issues` : `${repoUrl}/pulls`,
+    visualState: "queue",
+  };
+}
+
+const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+// ---------------------------------------------------------------------------
 // Landmarks (PLAN.md sections 14, 15, 16, 20 and 23)
 // ---------------------------------------------------------------------------
+
+/**
+ * The civic landmark's title follows the settlement (PLAN.md 76.10). A
+ * metropolis keeps "CITY HALL": a greater city is still run from one hall.
+ */
+export const CIVIC_TITLE: Record<SettlementTier, string> = {
+  village: "VILLAGE CHAPEL",
+  town: "TOWN HALL",
+  city: "CITY HALL",
+  metropolis: "CITY HALL",
+};
+
+/** The word a sentence uses for the settlement. A metropolis reads as a city. */
+export const SETTLEMENT_WORD: Record<SettlementTier, string> = {
+  village: "village",
+  town: "town",
+  city: "city",
+  metropolis: "city",
+};
 
 export interface LandmarkSpec extends EntityText {
   landmarkType: LandmarkType;
@@ -290,7 +611,10 @@ const signalList = (signals: string[]): string =>
  * answer: no CI means no power grid (section 62), not a broken one, and a
  * repository with no tests, no docs or no releases simply lacks that building.
  */
-export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
+export function planLandmarks(
+  analysis: RepoAnalysis,
+  tier: SettlementTier = "city",
+): LandmarkSpec[] {
   const { metrics, repo, districts } = analysis;
   const specs: LandmarkSpec[] = [];
 
@@ -394,12 +718,12 @@ export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
     landmarkType: "civic",
     level: band === "Critical" || band === "Struggling" ? 1 : band === "Mixed" ? 2 : 3,
     state: band.toLowerCase(),
-    title: "CITY HALL",
+    title: CIVIC_TITLE[tier],
     subtitle: repo.fullName,
-    description: `${band} city, health ${Math.round(metrics.health.score)} of 100.${
+    description: `${band} ${SETTLEMENT_WORD[tier]}, health ${Math.round(metrics.health.score)} of 100.${
       metrics.archived ? " This repository is archived." : ""
     }`,
-    reason: `Health ${Math.round(metrics.health.score)} of 100 puts the city in the "${band}" band; its strongest dimension is ${strongest}.`,
+    reason: `Health ${Math.round(metrics.health.score)} of 100 puts the ${SETTLEMENT_WORD[tier]} in the "${band}" band; its strongest dimension is ${strongest}.`,
     sourceUrl: repo.url,
     visualState: band.toLowerCase(),
   });
