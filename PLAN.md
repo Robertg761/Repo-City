@@ -3130,3 +3130,19 @@ Automated tests required in the MVP (Vitest):
 3. Provide `GITHUB_TOKEN` (fine-grained, public read only) for Vercel and a local `.env.local`. No AI key: decided 2026-09-21, runtime AI ships disabled and multi-provider.
 4. Name the model that drafted the original plan, for `AI_MODELS.md`.
 5. Hosting: Vercel project `repo-city` on team `robertg761s-projects`, production URL `https://repo-city-five.vercel.app` (the bare `repo-city.vercel.app` belongs to an unrelated project). Deployment protection limited to previews so production is public. Deploys run from the CLI with `vercel deploy --prod --yes` until the Vercel GitHub app is installed.
+
+---
+
+# 75. Enhancement round (Tuesday, September 22)
+
+The MVP and polish rounds shipped on Monday. Robert's direction for Tuesday: richer 3D models, more beauty, more detail, while keeping the section 4 art direction (stylized low-poly diorama, procedural geometry, no downloaded asset packs) and the section 63 performance order. Five parallel agents, disjoint ownership:
+
+| Agent | Owns | Goal |
+|---|---|---|
+| E1 Buildings | `components/city/Buildings.tsx`, `Building.tsx`, `components/city/models/buildings/**` | Architectural archetypes by tier and role, facade detail, rooftop props, per-district palettes, still instanced |
+| E2 Landmarks | `components/city/Landmark.tsx`, `components/city/models/landmarks/**` | Detailed power plant with pylons and lines, fire station with bays, visitor centre, transit station with trains, town hall, civic file buildings |
+| E3 Life | `Traffic.tsx`, `Props.tsx`, `IssueIncident.tsx`, `ConstructionSite.tsx`, `components/city/models/{vehicles,props}/**`, new `Pedestrians.tsx` | Vehicle variety with wheels, emergency vehicles, pedestrians, tree species, street furniture, richer incidents and construction |
+| E4 Atmosphere | `CityCanvas.tsx`, `Lighting.tsx`, `Terrain.tsx`, `Roads.tsx`, `effects.tsx`, `palette.ts`, new `Environment.tsx`, `SelectionRing.tsx` | Sky, sun, tone mapping, sidewalks and road markings, ambient occlusion and bloom behind an automatic quality tier, optional time-of-day |
+| E5 Depth | `lib/city/**`, `lib/analysis/**`, `types/**` (additive), HUD and inspector components, `lib/client/**`, `fixtures/interpretations/**` | Forks as highways, stars as visitor traffic, releases as arriving trains, richer inspector facts, deeper curated interpretations |
+
+Performance gate for the round: 60 fps on the 300-building city on a discrete GPU, and an automatic quality step-down (no post-processing, smaller shadow map) when the first three seconds average worse than 25 ms per frame. Every agent screenshots before and after and keeps section 37 limits.
