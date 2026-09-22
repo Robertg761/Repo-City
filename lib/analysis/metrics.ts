@@ -170,7 +170,9 @@ function issueReason(
   isSevere: boolean,
   comments: number,
 ): string {
-  const days = Math.floor(ageDays);
+  // Separated, because this sentence sits directly under a facts list that
+  // formats the same number with `toLocaleString` (QA-2026-09-21 bug 6).
+  const days = Math.floor(ageDays).toLocaleString("en-US");
   switch (state) {
     case "major":
       return "An unresolved bug carrying a high-severity label with heavy discussion activity.";
@@ -269,14 +271,15 @@ export function classifyPull(
 }
 
 function pullReason(state: RankedPull["state"], days: number, draft: boolean): string {
-  const whole = Math.floor(days);
+  const value = Math.floor(days);
+  const whole = value.toLocaleString("en-US");
   switch (state) {
     case "completed":
-      return `Merged ${whole} day${whole === 1 ? "" : "s"} ago: a newly finished building.`;
+      return `Merged ${whole} day${value === 1 ? "" : "s"} ago: a newly finished building.`;
     case "active":
       return draft
-        ? `An open draft pull request updated ${whole} day${whole === 1 ? "" : "s"} ago.`
-        : `An open pull request updated ${whole} day${whole === 1 ? "" : "s"} ago: active construction.`;
+        ? `An open draft pull request updated ${whole} day${value === 1 ? "" : "s"} ago.`
+        : `An open pull request updated ${whole} day${value === 1 ? "" : "s"} ago: active construction.`;
     case "abandoned":
       return `An open pull request untouched for ${whole} days: construction has stopped.`;
     default:
