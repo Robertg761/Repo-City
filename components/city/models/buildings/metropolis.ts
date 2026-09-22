@@ -27,9 +27,11 @@
  * roughness for the renderer if it ever gives these shapes their own
  * material.
  *
- * Every builder publishes `windows` exactly where the glass cells are, so the
- * lit-window pass lights curtain-wall panes rather than punching a grid of
- * dark holes into the glass.
+ * Every builder publishes `windows` exactly where the glass cells of every
+ * third storey are, so the lit-window pass lights curtain-wall panes rather
+ * than punching a grid of dark holes into the glass, and a tower asks that
+ * pass for about as many windows as the city's crowned tower does (about a
+ * hundred), not three times as many.
  *
  * Pure arrays, no three.js. Unit tested (`metropolis.test.ts`).
  */
@@ -41,6 +43,7 @@ import {
   addPanel,
   addQuad,
   emptyDraft,
+  type Facing,
   type MeshDraft,
   type Panel,
   type Rgb3,
@@ -109,6 +112,14 @@ interface CurtainSpec {
   spandrel: number;
   /** Colour of the spandrels; the wall for ribbon windows, the frame for glass. */
   spandrelColor?: Rgb3;
+  /**
+   * Publish the cells of every nth storey as windows. The lit-window pass
+   * shares one budget across the whole city, and a curtain wall has three
+   * times the cells a stone tower has windows.
+   */
+  litEvery?: number;
+  /** The faces whose cells are published as windows; all four by default. */
+  litFaces?: readonly Facing[];
   /** Where on the whole tower's height this shaft sits, for the glass grade. */
   gradeFrom?: number;
   gradeTo?: number;
@@ -209,12 +220,14 @@ function addCurtainWall(draft: MeshDraft, spec: CurtainSpec): Panel[] {
   // The glass cells, as window panels on each face.
   const windows: Panel[] = [];
   const glassH = band - spandrel;
-  for (const facing of FACINGS) {
+  for (const facing of spec.litFaces ?? FACINGS) {
     const alongX = facing === "+z" || facing === "-z";
     const half = alongX ? spec.hx : spec.hz;
     const plane = alongX ? spec.hz : spec.hx;
     const cell = (2 * half) / (spec.mullions + 1);
     for (let i = 0; i < spec.bands; i++) {
+      // Every `litEvery`th storey, counting down from the top one.
+      if ((spec.bands - 1 - i) % (spec.litEvery ?? 1) !== 0) continue;
       const v = spec.y0 + band * i + spandrel + glassH / 2;
       for (let k = 0; k <= spec.mullions; k++) {
         const u = -half + cell * (k + 0.5);
@@ -319,6 +332,7 @@ export function towerGlass(): ArchetypeModel {
     bands: 18,
     mullions: 3,
     spandrel: 0.14,
+    litEvery: 3,
     gradeFrom: 0.05,
     gradeTo: 0.95,
   });
@@ -345,25 +359,26 @@ export function towerTwin(): ArchetypeModel {
   addBox(draft, { y: podium, w: 1.02, h: 0.012, d: 1.02, color: TRIM, skipBottom: true });
   addParapet(draft, { y: podium + 0.012, h: 0.014, w: 1.0, d: 1.0 });
 
-  // Podium ribbon windows above the lobby.
-  const windows: Panel[] = [];
+  // Podium ribbon windows above the lobby: dark glass, never lit, so the
+  // shafts keep the lit-window budget.
   for (const facing of FACINGS) {
     for (let r = 0; r < 2; r++) {
       for (let c = 0; c < 4; c++) {
-        windows.push({ facing, u: -0.33 + c * 0.22, v: 0.08 + r * 0.045, w: 0.17, h: 0.028, plane: 0.5 });
+        addPanel(draft, { facing, u: -0.33 + c * 0.22, v: 0.08 + r * 0.045, w: 0.17, h: 0.028, plane: 0.5 }, LOBBY);
       }
     }
   }
-  for (const panel of windows) addPanel(draft, panel, LOBBY);
+  const windows: Panel[] = [];
 
-  // Each shaft's narrow face still clears 0.2 of the plot, which is what
-  // keeps a lit pane on it from reading as a slot.
-  const hx = 0.205;
+  // Slender enough that daylight shows between the pair from the overview:
+  // a quarter of the plot. Only the broad faces light up, so a lit pane never
+  // squeezes onto the narrow ones.
+  const hx = 0.17;
   const hz = 0.3;
   const top = 0.95;
   const crownTop = top + 0.04;
   for (const side of [-1, 1]) {
-    const x = side * 0.275;
+    const x = side * 0.3;
     windows.push(
       ...addCurtainWall(draft, {
         x,
@@ -375,6 +390,8 @@ export function towerTwin(): ArchetypeModel {
         mullions: 1,
         // Ribbon windows: a stone tower with glass bands, the pair's own look.
         spandrel: 0.42,
+        litEvery: 2,
+        litFaces: ["+z", "-z"],
         spandrelColor: WALL,
         gradeFrom: 0.15,
         gradeTo: 0.95,
@@ -398,8 +415,8 @@ export function towerTwin(): ArchetypeModel {
     windows,
     // Beside the mast on each crown.
     roofPads: [
-      { x: -0.275, z: 0.12, y: crownTop, w: 0.2, d: 0.1 },
-      { x: 0.275, z: -0.12, y: crownTop, w: 0.2, d: 0.1 },
+      { x: -0.3, z: 0.12, y: crownTop, w: 0.2, d: 0.1 },
+      { x: 0.3, z: -0.12, y: crownTop, w: 0.2, d: 0.1 },
     ],
     maxProps: 2,
   };
@@ -432,6 +449,7 @@ export function towerSpire(): ArchetypeModel {
         bands: stage.bands,
         mullions: stage.mullions,
         spandrel: 0.28,
+        litEvery: 3,
         spandrelColor: WALL,
       }),
     );

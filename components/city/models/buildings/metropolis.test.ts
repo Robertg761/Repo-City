@@ -90,6 +90,11 @@ describe("the metropolis towers (PLAN.md 76.5)", () => {
     expect(model.roofPads.length > 0 || model.maxProps === 0).toBe(true);
   });
 
+  it.each(METROPOLIS_ARCHETYPE_IDS)("%s asks the lit-window pass for no more than a stone tower does", (id) => {
+    // The city's crowned tower publishes 104; the pass shares 1,500 city-wide.
+    expect(METROPOLIS_BUILDERS[id]().windows.length).toBeLessThanOrEqual(110);
+  });
+
   it("stands at its full height, roughly: nothing short of the plot's top", () => {
     for (const id of METROPOLIS_ARCHETYPE_IDS) {
       const top = Math.max(...vertices(METROPOLIS_BUILDERS[id]().draft).map((v) => v[1]));
