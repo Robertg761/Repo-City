@@ -39,6 +39,14 @@ export default function Lighting({
   const reach = size * (0.62 + atmosphere.evening * 0.22);
   const light = useRef<DirectionalLight>(null);
 
+  // Shadow acne is a surface shadowing itself because one shadow texel spans
+  // more depth than the bias allows for. The texel here is large -- the whole
+  // city on one map -- and grows on the low tier and with a low sun, so the
+  // offset along the normal is sized from the texel rather than fixed: a
+  // fixed 0.02 was a tenth of a texel, and big flat walls striped.
+  const texel = (reach * 2) / shadowMapSize;
+  const normalBias = texel * 0.6;
+
   // Changing `shadow.mapSize` after the map exists is ignored by three until
   // the old texture is thrown away, and the quality tier can step down three
   // seconds into the scene.
@@ -69,8 +77,8 @@ export default function Lighting({
         shadow-camera-right={reach}
         shadow-camera-top={reach}
         shadow-camera-bottom={-reach}
-        shadow-bias={-0.0006}
-        shadow-normalBias={0.02}
+        shadow-bias={-0.0003}
+        shadow-normalBias={normalBias}
       />
     </>
   );
