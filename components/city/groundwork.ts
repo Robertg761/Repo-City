@@ -36,9 +36,9 @@ export const SIDEWALK_HEIGHT = 0.19;
 export const JUNCTION_INSET = 4.2;
 
 /** Distance from the junction to the middle of the zebra band. */
-const CROSSWALK_AT = 2.5;
-const CROSSWALK_ALONG = 2.3;
-const STRIPE_ACROSS = 0.46;
+const CROSSWALK_AT = 2.3;
+const CROSSWALK_ALONG = 1.9;
+const STRIPE_ACROSS = 0.42;
 
 /** Dash and gap on the centre line of a major road. */
 const DASH_ALONG = 2.8;
@@ -117,11 +117,13 @@ export interface MarkLay {
 }
 
 /**
- * Zebra bands at both ends of every segment that meets a real junction.
+ * Zebra bands at both ends of every segment that meets a junction, which is
+ * three or more segment ends at the same point.
  *
- * "Real" is three or more segment ends at the same point: the generator splits
- * a long avenue at every crossing, so two ends meeting is just the avenue
- * continuing, and painting a crossing there would stripe the open road.
+ * Deliberately small marks: four stripes on an avenue and three on a side
+ * street, less than two units long. A town whose roads are mostly junction to
+ * junction ends up with a band every few units, and at full size they were
+ * the first thing the eye found in the frame instead of the buildings.
  */
 export function crosswalkLays(
   lays: readonly RoadLay[],
@@ -141,11 +143,13 @@ export function crosswalkLays(
     // Both bands plus room to breathe between them, or the segment is a
     // junction-to-junction stub and one band covers it.
     if (lay.length < CROSSWALK_AT * 2 + CROSSWALK_ALONG * 2 + 2) return;
-    const stripes = lay.major ? 5 : 4;
+    const stripes = lay.major ? 4 : 3;
     const pitch = (lay.width * 0.78) / stripes;
 
     for (const atStart of [true, false]) {
       const end = atStart ? [lay.x, lay.z] : [lay.x + lay.dx * lay.length, lay.z + lay.dz * lay.length];
+      // Three arms or more is a junction. Two is the same avenue continuing
+      // past a split, and painting a crossing there stripes the open road.
       if ((ends.get(key(end[0], end[1])) ?? 0) < 3) continue;
       const s = atStart ? CROSSWALK_AT : lay.length - CROSSWALK_AT;
       for (let i = 0; i < stripes; i++) {

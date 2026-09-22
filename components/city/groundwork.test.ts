@@ -93,6 +93,15 @@ describe("crosswalkLays", () => {
     }
   });
 
+  it("paints a T-junction, which is three arms", () => {
+    const tee = [
+      road("a", [-40, 0, 0], [0, 0, 0], { major: true }),
+      road("b", [0, 0, 0], [40, 0, 0], { major: true }),
+      road("c", [0, 0, 0], [0, 0, 40], { major: true }),
+    ];
+    expect(crosswalkLays(roadLays(tee), tee).length).toBeGreaterThan(0);
+  });
+
   it("leaves a road that merely continues alone", () => {
     // Two segments end to end: a split in one avenue, not a crossing.
     const straight = [
