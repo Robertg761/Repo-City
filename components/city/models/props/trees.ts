@@ -32,7 +32,9 @@ import {
   BoxGeometry,
   type BufferGeometry,
 } from "three";
+import type { SettlementTier } from "@/types/analysis";
 import type { Prng } from "@/lib/city/prng";
+import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import type { District, Vec3 } from "@/types/city";
 import { TREE_LEAF, TREE_TRUNK, desaturate, mix } from "../../palette";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
@@ -43,6 +45,15 @@ export const TREE_SPECIES: readonly TreeSpecies[] = ["broadleaf", "conifer", "po
 
 /** Section 37: at most a hundred trees, whatever the generator offers. */
 export const TREE_CAP = 100;
+
+/**
+ * A settlement's own tree cap (PLAN.md 76.5): a village is a hundred and
+ * sixty trees among its lanes and hedgerows, a metropolis a hundred and
+ * twenty. The city's is `TREE_CAP`, unchanged.
+ */
+export function treeCapFor(tier: SettlementTier): number {
+  return SETTLEMENT_PARAMS[tier]?.trees ?? TREE_CAP;
+}
 
 /**
  * Each species' own green, all drawn from the city's one leaf colour so a
@@ -152,14 +163,16 @@ export function jitterLeaf(base: string, prng: Prng): string {
 }
 
 /**
- * Every tree the city draws, capped at section 37's hundred. Pure and seeded.
+ * Every tree the city draws, capped at section 37's hundred, or at the
+ * settlement's own cap (`treeCapFor`) when one is passed. Pure and seeded.
  */
 export function planTrees(
   positions: readonly Vec3[],
   districts: readonly District[],
   prng: Prng,
+  cap: number = TREE_CAP,
 ): PlannedTree[] {
-  const kept = positions.slice(0, TREE_CAP);
+  const kept = positions.slice(0, cap);
   const kinds = assignSpecies(kept, districts, prng);
   return kept.map((position, i) => {
     const species = kinds[i];

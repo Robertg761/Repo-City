@@ -8,7 +8,7 @@
  */
 
 import { BufferGeometry, Float32BufferAttribute } from "three";
-import type { ArchetypeId } from "./archetypes";
+import type { ModelKey } from "./archetypes";
 import { addBox, addCylinder, addQuad, emptyDraft, type MeshDraft } from "./mesh";
 import { archetypeModel } from "./models";
 import type { PropKind } from "./placement";
@@ -18,14 +18,15 @@ export function toGeometry(draft: MeshDraft): BufferGeometry {
   geometry.setAttribute("position", new Float32BufferAttribute(draft.positions, 3));
   geometry.setAttribute("normal", new Float32BufferAttribute(draft.normals, 3));
   geometry.setAttribute("color", new Float32BufferAttribute(draft.colors, 3));
+  if (draft.paint) geometry.setAttribute("paint", new Float32BufferAttribute(draft.paint, 1));
   geometry.setIndex(draft.indices);
   geometry.computeBoundingSphere();
   return geometry;
 }
 
-const ARCHETYPE_CACHE = new Map<ArchetypeId, BufferGeometry>();
+const ARCHETYPE_CACHE = new Map<ModelKey, BufferGeometry>();
 
-export function archetypeGeometry(id: ArchetypeId): BufferGeometry {
+export function archetypeGeometry(id: ModelKey): BufferGeometry {
   const cached = ARCHETYPE_CACHE.get(id);
   if (cached) return cached;
   const geometry = toGeometry(archetypeModel(id).draft);
@@ -34,7 +35,7 @@ export function archetypeGeometry(id: ArchetypeId): BufferGeometry {
 }
 
 /** Triangles in one instance of an archetype: the perf budget, measurable. */
-export function archetypeTriangles(id: ArchetypeId): number {
+export function archetypeTriangles(id: ModelKey): number {
   return archetypeModel(id).draft.indices.length / 3;
 }
 
