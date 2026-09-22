@@ -6,10 +6,12 @@
  * selection and hover.
  *
  * Draw order and reveal order both follow section 43: terrain, roads,
- * districts, buildings, landmarks, incidents, construction, traffic.
+ * districts, buildings, landmarks, incidents, construction, the backlog and
+ * its queue (PLAN.md 76.8), traffic.
  */
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useThree } from "@react-three/fiber";
 import type { CityModel } from "@/types/city";
 import Backlog from "./backlog/Backlog";
 import Buildings from "./Buildings";
@@ -30,8 +32,28 @@ import Traffic from "./Traffic";
 import { REFERENCE_ASPECT, aspectWiden } from "./entities";
 import { splitBuildings } from "./instances";
 import { atmosphere as buildAtmosphere } from "./palette";
-import { revealEnd } from "./reveal";
+import { cityRevealEnd } from "./reveal";
 import { RevealContext, useRevealTicker } from "./useReveal";
+
+/**
+ * Development only: the renderer and camera on `window.__repoCityRenderer`
+ * and `window.__repoCityCamera`, so a driver can read `renderer.info` (draw
+ * calls, triangles) and project a crowd object to the screen to point at it
+ * (PLAN.md 76.13). Nothing is exposed in production.
+ */
+function useDevRendererHandle(): void {
+  const gl = useThree((state) => state.gl);
+  const camera = useThree((state) => state.camera);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const handle = window as unknown as {
+      __repoCityRenderer?: typeof gl;
+      __repoCityCamera?: typeof camera;
+    };
+    handle.__repoCityRenderer = gl;
+    handle.__repoCityCamera = camera;
+  }, [gl, camera]);
+}
 
 export default function City({
   city,
@@ -52,17 +74,11 @@ export default function City({
   // model, so a new city gets a fresh clock and replays the reveal.
   const clock = useRef(Number.POSITIVE_INFINITY);
   useRevealTicker(clock);
+  useDevRendererHandle();
 
-  const trafficStart = useMemo(
-    () =>
-      revealEnd([
-        ...city.buildings.map((b) => b.appearAt),
-        ...city.landmarks.map((l) => l.appearAt),
-        ...city.incidents.map((i) => i.appearAt),
-        ...city.constructionSites.map((c) => c.appearAt),
-      ]),
-    [city],
-  );
+  // Traffic waits for the whole reveal, the backlog's outward ripple and the
+  // queue at the city limits included (PLAN.md 76.9).
+  const trafficStart = useMemo(() => cityRevealEnd(city), [city]);
 
   const size = city.bounds.size;
   // The fog only hides where the landscape ends; it never reaches the city
