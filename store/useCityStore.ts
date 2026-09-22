@@ -10,14 +10,16 @@
  *
  * Typing `fixture` loads `fixtures/sample.analysis.json` instead. That escape
  * hatch is how the overlays are developed and screenshotted while the API and
- * the city generator are still being built in other worktrees.
+ * the city generator are still being built in other worktrees. In development,
+ * `backlog` loads the synthetic backlog fixture and `?tier=` forces the
+ * settlement tier (PLAN.md 76.11).
  */
 
 import { create } from "zustand";
 import { analyzeRepository, AnalyzeError } from "@/lib/client/analyzeStream";
 import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
-import type { RepoAnalysis } from "@/types/analysis";
+import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
 
@@ -73,6 +75,36 @@ export interface CityStore {
 export const FIXTURE_INPUT = "fixture";
 
 /**
+ * Development only: `fixtures/backlog.analysis.json`, the react fixture plus
+ * 984 synthetic backlog issues and 490 synthetic PRs (PLAN.md 76.11). In a
+ * production build this input is just an invalid repository name.
+ */
+export const BACKLOG_INPUT = "backlog";
+
+type FixtureName = "sample" | "backlog";
+
+function fixtureFor(input: string): FixtureName | null {
+  const lower = input.toLowerCase();
+  if (lower === FIXTURE_INPUT) return "sample";
+  if (process.env.NODE_ENV !== "production" && lower === BACKLOG_INPUT) return "backlog";
+  return null;
+}
+
+const SETTLEMENT_TIERS: readonly SettlementTier[] = ["village", "town", "city", "metropolis"];
+
+/**
+ * Development only: `?tier=village|town|city|metropolis` forces the tier the
+ * generator builds, whatever the analysis says, so every tier can be seen
+ * from any fixture (PLAN.md 76.11). Always `undefined` in production.
+ */
+export function devTierOverride(search?: string): SettlementTier | undefined {
+  if (process.env.NODE_ENV === "production") return undefined;
+  const query = search ?? (typeof window === "undefined" ? "" : window.location.search);
+  const value = new URLSearchParams(query).get("tier")?.trim().toLowerCase();
+  return SETTLEMENT_TIERS.find((tier) => tier === value);
+}
+
+/**
  * Stage ids are fixed by PLAN.md section 44; the streaming API emits exactly
  * these. Labels are placeholders until a stage reports a real `detail`.
  */
@@ -109,11 +141,11 @@ export const useCityStore = create<CityStore>()((set, get) => ({
   actions: {
     async analyze(input: string) {
       const trimmed = input.trim();
-      const useFixture = trimmed.toLowerCase() === FIXTURE_INPUT;
+      const fixture = fixtureFor(trimmed);
 
       // Client-side sanity check (section 60). An obvious typo never costs a
       // round trip, and the server re-validates whatever does get through.
-      if (!useFixture && !parseRepoInput(trimmed)) {
+      if (!fixture && !parseRepoInput(trimmed)) {
         set({
           phase: "error",
           stages: [],
@@ -151,8 +183,8 @@ export const useCityStore = create<CityStore>()((set, get) => ({
       };
 
       try {
-        const analysis = useFixture
-          ? await loadFixture(markStage)
+        const analysis = fixture
+          ? await loadFixture(fixture, markStage)
           : await analyzeRepository(trimmed, {
               onStage: (event) => markStage(event.id, event.status, event.detail),
               signal: controller.signal,
@@ -161,7 +193,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         if (controller.signal.aborted) return;
         set({ phase: "building", analysis });
 
-        const city = generateCity(analysis);
+        const city = generateCity(analysis, { tier: devTierOverride() });
 
         markStage("done", "done", city ? "City constructed" : "Placeholder city");
         set({ city, phase: "ready" });
@@ -226,9 +258,15 @@ export const useCityStore = create<CityStore>()((set, get) => ({
  * in hand, so the panel never shows a step that did not happen.
  */
 async function loadFixture(
+  name: FixtureName,
   markStage: (id: string, status: StageStatus, detail?: string) => void,
 ): Promise<RepoAnalysis> {
-  const loaded = (await import("@/fixtures/sample.analysis.json")).default;
+  // The backlog branch is dead code in a production build, so its half
+  // megabyte of JSON never ships.
+  const loaded =
+    process.env.NODE_ENV !== "production" && name === "backlog"
+      ? (await import("@/fixtures/backlog.analysis.json")).default
+      : (await import("@/fixtures/sample.analysis.json")).default;
   const analysis = loaded as unknown as RepoAnalysis;
 
   markStage("discover", "done", analysis.repo.fullName);
