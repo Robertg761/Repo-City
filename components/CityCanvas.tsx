@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { ACESFilmicToneMapping, PCFShadowMap } from "three";
+import { NeutralToneMapping, PCFShadowMap } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
@@ -132,10 +132,15 @@ export default function CityCanvas() {
       // radius and bias in `Lighting.tsx` (PLAN.md section 39).
       shadows={{ type: PCFShadowMap }}
       dpr={[1, 2]}
-      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 2000 }}
-      // Filmic from the first frame; `Environment` keeps the exposure in step
-      // with the hour and the haze from there (PLAN.md section 39).
-      gl={{ antialias: true, toneMapping: ACESFilmicToneMapping }}
+      // The near plane is as far out as the closest camera allows (the orbit
+      // stops ten units from its target). At 0.5 the depth buffer had so little
+      // precision left out on the landscape that the ambient occlusion pass
+      // read the flat grass as bumpy and clouded it over in soft grey patches.
+      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
+      // Neutral from the first frame; `Environment` keeps the exposure in step
+      // with the hour, and hands the tone mapping to the composer when the
+      // quality tier runs one (PLAN.md section 39).
+      gl={{ antialias: true, toneMapping: NeutralToneMapping }}
       // Clicking past every object is the same gesture as clicking bare
       // ground: it clears the selection (PLAN.md section 6).
       onPointerMissed={() => actions.select(null)}

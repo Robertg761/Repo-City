@@ -3,8 +3,10 @@
 /**
  * The ground ring under the selected entity (PLAN.md section 6, step 4).
  * Instanced buildings cannot carry an outline of their own without breaking
- * the one-mesh-per-tier rule, so selection reads as a stronger instance tint
- * plus this ring, which also works for incidents, sites and landmarks.
+ * the one-mesh-per-tier rule, so this ring is the selection highlight: the
+ * entity itself only brightens a little (`stateTint` in `palette.ts`), so its
+ * own colours stay readable while the inspector describes it. The ring works
+ * the same for incidents, sites and landmarks.
  *
  * Three parts, because one flat ring turned into an orange hoop lying on the
  * street once the pavements and markings arrived: a soft halo that lifts the
@@ -14,9 +16,11 @@
  * shader each -- an animated ring of geometry would be dozens of instances,
  * and the pattern is a function of the angle, which is what shaders are for.
  *
- * Under bloom: everything here is `toneMapped={false}` but stays below 1, so
- * the ring keeps its exact colour and never smears into the frame the way the
- * lit windows deliberately do.
+ * Under bloom: everything here stays below 1 in linear light, so the ring
+ * never smears into the frame the way the lit windows deliberately do. It is
+ * `toneMapped={false}` so the low tier draws the accent exactly; the high
+ * tier tone maps the whole frame at the end of its chain, which only rolls
+ * the brightest channel off a touch.
  */
 
 import { useMemo, useRef } from "react";
@@ -105,7 +109,7 @@ export default function SelectionRing({ city }: { city: CityModel }) {
         uColor: { value: new Color(SELECT) },
         uInner: { value: radius * 0.72 },
         uOuter: { value: radius * 1.9 },
-        uStrength: { value: 0.22 },
+        uStrength: { value: 0.26 },
       },
     }),
     [radius],
@@ -116,7 +120,7 @@ export default function SelectionRing({ city }: { city: CityModel }) {
     if (dashes.current) dashes.current.uniforms.uTime.value = t;
     // A slow breath on the halo rather than a scale pulse: scaling the whole
     // ring made it read as a shockwave every two seconds.
-    if (halo.current) halo.current.uniforms.uStrength.value = 0.18 + Math.sin(t * 2.2) * 0.05;
+    if (halo.current) halo.current.uniforms.uStrength.value = 0.23 + Math.sin(t * 2.2) * 0.05;
     if (group.current) {
       const pulse = 1 + Math.sin(t * 3.2) * 0.012;
       group.current.scale.set(pulse, pulse, 1);
@@ -169,7 +173,7 @@ export default function SelectionRing({ city }: { city: CityModel }) {
         <meshBasicMaterial
           color={SELECT}
           transparent
-          opacity={0.85}
+          opacity={0.95}
           depthWrite={false}
           toneMapped={false}
         />

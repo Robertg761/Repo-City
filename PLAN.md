@@ -1888,7 +1888,7 @@ Struggling:
 Archived:
 
 * cooler
-* mild fog
+* drained palette and a weaker sun, never fog (Robert, 2026-09-22: no atmospheric haze)
 * subdued activity
 
 Do not make unhealthy cities visually unreadable.

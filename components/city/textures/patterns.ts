@@ -116,6 +116,13 @@ export interface GrassOptions {
    */
   stripes?: number;
   seed?: string;
+  /**
+   * 0..1 strength of the broad tonal patches and the dry warm ones. The
+   * meadow is tiled four times wider than the lawn, so its patches land a
+   * dozen units across: at full strength, seen at a slant past the ring road,
+   * they read as cloud shadows drifting over the landscape -- haze, in effect.
+   */
+  mottle?: number;
 }
 
 /**
@@ -123,7 +130,10 @@ export interface GrassOptions {
  * drier patches, and on the city lawn a mower's stripes, stronger in some
  * passes than others so the plate does not look ruled like a football pitch.
  */
-export function grassPattern(size: number, { stripes = 0, seed = "grass" }: GrassOptions = {}): Pattern {
+export function grassPattern(
+  size: number,
+  { stripes = 0, seed = "grass", mottle = 1 }: GrassOptions = {},
+): Pattern {
   const side = patternSize(size);
   const prng = prngFromString(`texture:${seed}`);
   const broad = noiseField(side, 4, prng);
@@ -133,7 +143,8 @@ export function grassPattern(size: number, { stripes = 0, seed = "grass" }: Gras
   const mowed = noiseField(side, 2, prng);
 
   return pack(side, (i, x) => {
-    let level = 0.94 + (broad[i] - 0.5) * 0.1 + (mid[i] - 0.5) * 0.04 + (fine[i] - 0.5) * 0.06;
+    let level =
+      0.94 + (broad[i] - 0.5) * 0.1 * mottle + (mid[i] - 0.5) * 0.04 + (fine[i] - 0.5) * 0.06;
     if (stripes > 0) {
       // A soft square wave: two flat bands with a short ramp between, so the
       // stripe reads as a mower pass and not as a sine ripple.
@@ -145,7 +156,7 @@ export function grassPattern(size: number, { stripes = 0, seed = "grass" }: Gras
       level += (band - 0.5) * 0.055 * patch;
     }
     // Dry grass is a touch warmer: more red, less blue.
-    const warm = smoothstep(0.58, 0.85, dry[i]) * 0.035;
+    const warm = smoothstep(0.58, 0.85, dry[i]) * 0.035 * mottle;
     return [level + warm * 0.4, level, level - warm, 1];
   });
 }
