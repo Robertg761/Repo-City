@@ -1,54 +1,61 @@
 "use client";
 
 /**
- * The road network (PLAN.md section 36). Two instanced meshes: one for the
- * carriageways, one for the centre lines of the major roads. Roads are not
- * selectable -- they are the surface incidents and traffic live on.
+ * The street network (PLAN.md section 36). Four instanced meshes: the
+ * carriageways, the pavement slabs either side, the kerb line along their
+ * inner edge, and every painted mark -- zebra bands at the junctions and the
+ * dashed centre line of the avenues -- in one mesh of scaled unit boxes.
  *
- * Roads draw themselves in from their `from` end during the reveal, which is
- * step 2 of the sequence in section 43.
+ * Roads are not selectable: they are the surface incidents and traffic live
+ * on. The geometry is derived in `groundwork.ts`, which is pure and tested;
+ * this file only animates it.
+ *
+ * Everything draws itself in from the road's `from` end during the reveal,
+ * which is step 2 of the sequence in section 43: the pavement grows with the
+ * carriageway, and each mark lands once the growing front has passed it.
  */
 
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Object3D, type InstancedMesh } from "three";
 import type { RoadSegment } from "@/types/city";
-import { ROAD_COLOR, ROAD_LINE_COLOR, desaturate, type SceneAtmosphere } from "./palette";
+import {
+  SIDEWALK_HEIGHT,
+  SIDEWALK_WIDTH,
+  crosswalkLays,
+  laneDashLays,
+  roadLays,
+  sidewalkLays,
+  type MarkLay,
+  type RoadLay,
+} from "./groundwork";
+import {
+  CROSSWALK_COLOR,
+  CURB_COLOR,
+  ROAD_COLOR,
+  SIDEWALK_COLOR,
+  desaturate,
+  type SceneAtmosphere,
+} from "./palette";
 import { revealScale } from "./reveal";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
 
-interface Lay {
-  x: number;
-  z: number;
-  dx: number;
-  dz: number;
-  length: number;
-  angle: number;
-  width: number;
-  major: boolean;
-  appearAt: number;
-}
+/** Surface heights, in world units above the ground plate. */
+const ROAD_Y = 0.04;
+const MARK_Y = 0.09;
+/** Width of the darker lip between the carriageway and the pavement. */
+const CURB_WIDTH = 0.3;
 
-function layout(roads: readonly RoadSegment[]): Lay[] {
-  return roads.map((road) => {
-    const dx = road.to[0] - road.from[0];
-    const dz = road.to[2] - road.from[2];
-    const length = Math.hypot(dx, dz) || 0.001;
-    return {
-      x: road.from[0],
-      z: road.from[2],
-      dx: dx / length,
-      dz: dz / length,
-      length,
-      angle: Math.atan2(dx, dz),
-      width: Math.max(road.width, 1),
-      major: road.major,
-      // The generator times the whole reveal (PLAN.md section 43).
-      appearAt: road.appearAt,
-    };
-  });
+/** Places an instance in a road's own frame: `s` along it, `lateral` across. */
+function place(lay: RoadLay, s: number, lateral: number, y: number): void {
+  scratch.position.set(
+    lay.x + lay.dx * s + lay.dz * lateral,
+    y,
+    lay.z + lay.dz * s - lay.dx * lateral,
+  );
+  scratch.rotation.set(0, lay.angle, 0);
 }
 
 export default function Roads({
@@ -58,12 +65,22 @@ export default function Roads({
   roads: readonly RoadSegment[];
   atmosphere: SceneAtmosphere;
 }) {
-  const lays = useMemo(() => layout(roads), [roads]);
-  const majors = useMemo(() => lays.filter((l) => l.major), [lays]);
+  const lays = useMemo(() => roadLays(roads), [roads]);
+  const walks = useMemo(() => sidewalkLays(lays), [lays]);
+  const marks = useMemo<MarkLay[]>(
+    () => [...crosswalkLays(lays, roads), ...laneDashLays(lays)],
+    [lays, roads],
+  );
+
   const surfaceRef = useRef<InstancedMesh>(null);
-  const lineRef = useRef<InstancedMesh>(null);
+  const walkRef = useRef<InstancedMesh>(null);
+  const curbRef = useRef<InstancedMesh>(null);
+  const markRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
+
+  /** How far each road has drawn itself in, in world units from `from`. */
+  const fronts = useMemo(() => new Float32Array(lays.length), [lays]);
 
   useFrame(() => {
     const surface = surfaceRef.current;
@@ -75,26 +92,51 @@ export default function Roads({
       const grow = revealScale(now, clock.current, lay.appearAt);
       if (grow < 1) done = false;
       const length = Math.max(lay.length * grow, 0.0001);
-      scratch.position.set(lay.x + (lay.dx * length) / 2, 0.04, lay.z + (lay.dz * length) / 2);
-      scratch.rotation.set(0, lay.angle, 0);
+      fronts[i] = grow > 0.002 ? length : 0;
+      place(lay, length / 2, 0, ROAD_Y);
       scratch.scale.set(grow > 0.002 ? lay.width : 0, 1, length);
       scratch.updateMatrix();
       surface.setMatrixAt(i, scratch.matrix);
     });
     surface.instanceMatrix.needsUpdate = true;
 
-    const line = lineRef.current;
-    if (line) {
-      majors.forEach((lay, i) => {
-        const grow = revealScale(now, clock.current, lay.appearAt);
-        const length = Math.max(lay.length * grow, 0.0001);
-        scratch.position.set(lay.x + (lay.dx * length) / 2, 0.09, lay.z + (lay.dz * length) / 2);
-        scratch.rotation.set(0, lay.angle, 0);
-        scratch.scale.set(grow > 0.002 ? 0.4 : 0, 1, length * 0.94);
+    const walkMesh = walkRef.current;
+    const curbMesh = curbRef.current;
+    if (walkMesh) {
+      walks.forEach((walk, i) => {
+        const lay = lays[walk.road];
+        // The slab is laid behind the front, never ahead of it.
+        const along = Math.min(Math.max(fronts[walk.road] - walk.start, 0), walk.along);
+        const centre = walk.start + along / 2;
+        const side = Math.sign(walk.lateral);
+
+        place(lay, centre, walk.lateral, SIDEWALK_HEIGHT / 2);
+        scratch.scale.set(along > 0.01 ? SIDEWALK_WIDTH : 0, 1, Math.max(along, 0.0001));
         scratch.updateMatrix();
-        line.setMatrixAt(i, scratch.matrix);
+        walkMesh.setMatrixAt(i, scratch.matrix);
+
+        if (!curbMesh) return;
+        place(lay, centre, (lay.width / 2 + CURB_WIDTH / 2) * side, SIDEWALK_HEIGHT / 2 + 0.005);
+        scratch.scale.set(along > 0.01 ? CURB_WIDTH : 0, 1, Math.max(along, 0.0001));
+        scratch.updateMatrix();
+        curbMesh.setMatrixAt(i, scratch.matrix);
       });
-      line.instanceMatrix.needsUpdate = true;
+      walkMesh.instanceMatrix.needsUpdate = true;
+      if (curbMesh) curbMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    const markMesh = markRef.current;
+    if (markMesh) {
+      marks.forEach((mark, i) => {
+        const lay = lays[mark.road];
+        // Paint lands whole, once the road under it exists.
+        const painted = fronts[mark.road] >= mark.s + mark.along / 2;
+        place(lay, mark.s, mark.lateral, MARK_Y);
+        scratch.scale.set(painted ? mark.across : 0, 1, painted ? mark.along : 0.0001);
+        scratch.updateMatrix();
+        markMesh.setMatrixAt(i, scratch.matrix);
+      });
+      markMesh.instanceMatrix.needsUpdate = true;
     }
 
     if (done) settled.current = true;
@@ -118,16 +160,49 @@ export default function Roads({
         />
       </instancedMesh>
 
-      {majors.length > 0 && (
+      {walks.length > 0 && (
+        <>
+          <instancedMesh
+            ref={walkRef}
+            args={[undefined, undefined, walks.length]}
+            receiveShadow
+            castShadow
+            frustumCulled={false}
+          >
+            <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
+            <meshStandardMaterial
+              color={desaturate(SIDEWALK_COLOR, atmosphere.desaturation)}
+              roughness={0.92}
+              metalness={0}
+            />
+          </instancedMesh>
+
+          <instancedMesh
+            ref={curbRef}
+            args={[undefined, undefined, walks.length]}
+            receiveShadow
+            frustumCulled={false}
+          >
+            <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
+            <meshStandardMaterial
+              color={desaturate(CURB_COLOR, atmosphere.desaturation)}
+              roughness={0.95}
+              metalness={0}
+            />
+          </instancedMesh>
+        </>
+      )}
+
+      {marks.length > 0 && (
         <instancedMesh
-          ref={lineRef}
-          args={[undefined, undefined, majors.length]}
+          ref={markRef}
+          args={[undefined, undefined, marks.length]}
           frustumCulled={false}
         >
           <boxGeometry args={[1, 0.02, 1]} />
           <meshStandardMaterial
-            color={desaturate(ROAD_LINE_COLOR, atmosphere.desaturation)}
-            roughness={0.9}
+            color={desaturate(CROSSWALK_COLOR, atmosphere.desaturation)}
+            roughness={0.85}
             metalness={0}
           />
         </instancedMesh>
