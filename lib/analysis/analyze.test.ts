@@ -107,6 +107,52 @@ describe("analyzeSnapshot without an interpreter", () => {
     expect(analysis.warnings.join(" ")).toMatch(/partial survey/);
     expect(analysis.metrics.confidence.level).toBe("medium");
   });
+
+  it("classifies the settlement from the surveyed counts and activity (PLAN.md 76.4)", async () => {
+    const analysis = await analyzeSnapshot(midSnapshot, { now: MID_NOW });
+    const settlement = analysis.settlement!;
+    const { scale } = analysis.metrics;
+    expect(settlement.files).toBe(scale.surveyedFiles ?? scale.files);
+    expect(settlement.footprint).toBe(settlement.files + 2 * settlement.dirs);
+    expect(settlement.lowerBound).toBe(false);
+    expect(settlement.activity.commitsLast90d).toBe(analysis.metrics.activity.commitsLast90d);
+    expect(settlement.reason).toMatch(/^\d[\d,]* files? in \d[\d,]* folders? make/);
+  });
+
+  it("never promotes the archived fixture", async () => {
+    const analysis = await analyzeSnapshot(archivedSnapshot, { now: ARCHIVED_NOW });
+    expect(analysis.settlement!.promoted).toBe(false);
+    expect(analysis.settlement!.tier).toBe(analysis.settlement!.baseTier);
+  });
+
+  it("prefers ingestion's uncapped totals and treats a GitHub truncation as a metropolis", async () => {
+    const withTotals = {
+      ...midSnapshot,
+      tree: { ...midSnapshot.tree, totalFiles: 700, totalDirs: 50 },
+    };
+    const counted = await analyzeSnapshot(withTotals, { now: MID_NOW });
+    expect(counted.settlement!.footprint).toBe(800);
+    expect(counted.settlement!.baseTier).toBe("city");
+
+    const truncated = {
+      ...midSnapshot,
+      tree: { ...midSnapshot.tree, truncated: true, githubTruncated: true },
+    };
+    const huge = await analyzeSnapshot(truncated, { now: MID_NOW });
+    expect(huge.settlement!.tier).toBe("metropolis");
+    expect(huge.settlement!.lowerBound).toBe(true);
+  });
+
+  it("floors a capped tree's footprint at the entries that survived the exclusions", async () => {
+    const capped = {
+      ...midSnapshot,
+      tree: { ...midSnapshot.tree, truncated: true, totalEntries: 12_000 },
+    };
+    const analysis = await analyzeSnapshot(capped, { now: MID_NOW });
+    expect(analysis.settlement!.lowerBound).toBe(true);
+    expect(analysis.settlement!.footprint).toBe(12_000);
+    expect(analysis.settlement!.baseTier).toBe("metropolis");
+  });
 });
 
 /* ------------------------------------------------------------ interpreter */
