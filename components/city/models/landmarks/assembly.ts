@@ -27,6 +27,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   Euler,
+  Float32BufferAttribute,
   LatheGeometry,
   Matrix4,
   Quaternion,
@@ -62,6 +63,50 @@ function matrixOf(place: Place): Matrix4 {
       ? new Vector3(scale, scale, scale)
       : new Vector3(scale[0], scale[1], scale[2]),
   );
+}
+
+/**
+ * A triangular prism with one normal per face. A three-sided cylinder has
+ * the same outline, but its normals are smooth and radial, so the lower half
+ * of each slope faces the ground and renders black. The prism is indexed and
+ * carries UVs because `mergeGeometries` only merges geometries that share
+ * the same attributes and index layout as the boxes and cylinders beside it.
+ */
+function gablePrism(halfWidth: number, height: number, depth: number): BufferGeometry {
+  const lo = -height / 3;
+  const hi = lo + height;
+  const z0 = -depth / 2;
+  const z1 = depth / 2;
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const index: number[] = [];
+
+  const face = (corners: V3[], normal: V3) => {
+    const base = positions.length / 3;
+    for (const [i, c] of corners.entries()) {
+      positions.push(c[0], c[1], c[2]);
+      normals.push(normal[0], normal[1], normal[2]);
+      uvs.push(i === 1 || i === 2 ? 1 : 0, i >= 2 ? 1 : 0);
+    }
+    for (let i = 1; i < corners.length - 1; i++) index.push(base, base + i, base + i + 1);
+  };
+
+  const slope = Math.hypot(halfWidth, height);
+  const nx = height / slope;
+  const ny = halfWidth / slope;
+  face([[-halfWidth, lo, z1], [halfWidth, lo, z1], [0, hi, z1]], [0, 0, 1]);
+  face([[halfWidth, lo, z0], [-halfWidth, lo, z0], [0, hi, z0]], [0, 0, -1]);
+  face([[halfWidth, lo, z1], [halfWidth, lo, z0], [0, hi, z0], [0, hi, z1]], [nx, ny, 0]);
+  face([[-halfWidth, lo, z0], [-halfWidth, lo, z1], [0, hi, z1], [0, hi, z0]], [-nx, ny, 0]);
+  face([[-halfWidth, lo, z0], [halfWidth, lo, z0], [halfWidth, lo, z1], [-halfWidth, lo, z1]], [0, -1, 0]);
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(index);
+  return geometry;
 }
 
 /**
@@ -149,12 +194,7 @@ export class Assembly<S extends string> {
    * does, which is the difference between a pediment and a pile of planks.
    */
   gable(slot: S, halfWidth: number, height: number, depth: number, place?: Place): this {
-    // A three-sided cylinder started at pi puts one vertex at -z (the apex
-    // once the prism is tipped over) and the other two at +z/2.
-    const geometry = new CylinderGeometry(1, 1, depth, 3, 1, false, Math.PI);
-    geometry.scale(halfWidth / Math.sin((Math.PI * 2) / 3), 1, height / 1.5);
-    geometry.rotateX(Math.PI / 2);
-    return this.add(slot, geometry, place);
+    return this.add(slot, gablePrism(halfWidth, height, depth), place);
   }
 
   /** A rod between two points: handrails, lattice legs, guy wires. */

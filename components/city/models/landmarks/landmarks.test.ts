@@ -50,6 +50,22 @@ describe("assembly", () => {
     expect(d).toBeCloseTo(2);
   });
 
+  it("shades a gable flat, with no slope facing the ground", () => {
+    const built = new Assembly<"a">().gable("a", 3.5, 1.5, 1.5).build();
+    const geometry = built.a!;
+    const normal = geometry.getAttribute("normal");
+    const position = geometry.getAttribute("position");
+    const floor = geometry.boundingBox!.min.y;
+    for (let i = 0; i < normal.count; i++) {
+      // Only the underside, which sits on the cornice, may point down.
+      if (normal.getY(i) < -1e-6) expect(position.getY(i)).toBeCloseTo(floor);
+    }
+    expect(extentOf(built)).toEqual([7, expect.closeTo(1.5), 1.5]);
+    // It must merge with the boxes and cylinders sharing its slot.
+    const mixed = new Assembly<"a">().gable("a", 1, 1, 1).box("a", [1, 1, 1]).build();
+    expect(triangleCount(mixed)).toBe(8 + 12);
+  });
+
   it("sags a wire between its endpoints", () => {
     const built = new Assembly<"a">().wire("a", [-2, 4, 0], [2, 4, 0], 0.05, 0.8).build();
     const box = built.a?.boundingBox;
