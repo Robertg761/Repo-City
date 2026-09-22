@@ -14,7 +14,7 @@
  * Pure: no three.js, no React. Unit tested.
  */
 
-import type { BuildingTier } from "@/types/analysis";
+import type { BuildingTier, SettlementTier } from "@/types/analysis";
 import type { Building } from "@/types/city";
 
 /** The eight shapes of today's city. `chooseArchetype` only ever returns these. */
@@ -77,22 +77,31 @@ export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
 ];
 
 /**
- * Placeholder geometry for each settlement archetype: the closest shape the
- * city already has. `models.ts` builds a placeholder from its stand-in, so a
- * tier table can name "cottage" today and get a house. Remove an entry when
- * the real model lands.
+ * Placeholder geometry for each settlement archetype that has no model yet:
+ * the closest shape the city already has. `models.ts` builds a placeholder
+ * from its stand-in, so a tier table can name "tower-glass" today and get a
+ * stepped tower. The village and town models have landed (S6); the three
+ * metropolis towers are S7's, in `metropolis.ts`.
  */
 export const ARCHETYPE_STAND_IN: Partial<Record<SettlementArchetypeId, CityArchetypeId>> = {
-  cottage: "house",
-  farmhouse: "house",
-  barn: "warehouse-sawtooth",
-  shopfront: "lowrise-parapet",
-  terrace: "lowrise-pitched",
-  "apartment-low": "midrise-setback",
   "tower-glass": "tower-stepped",
   "tower-twin": "tower-stepped",
   "tower-spire": "tower-crown",
 };
+
+/**
+ * A drawable model: an archetype, or one of its variants. The variants share
+ * the archetype's role and differ in construction -- a cottage under tile
+ * rather than thatch, a shop with two floors over it rather than one, a
+ * block of flats with shops under it -- and each is its own merged geometry
+ * and its own instanced draw call.
+ */
+export type ModelKey = ArchetypeId | "cottage/tile" | "shopfront/tall" | "apartment-low/retail";
+
+export const MODEL_VARIANTS: readonly ModelKey[] = ["cottage/tile", "shopfront/tall", "apartment-low/retail"];
+
+/** Every model with geometry: the archetypes and their variants. */
+export const MODEL_KEYS: readonly ModelKey[] = [...ARCHETYPE_IDS, ...MODEL_VARIANTS];
 
 export type LanguageFamily = "script" | "compiled" | "markup" | "data" | "config" | "unknown";
 
@@ -182,19 +191,65 @@ const TIER_CANDIDATES: Record<BuildingTier, readonly ArchetypeId[]> = {
   5: ["tower-crown", "tower-stepped", "midrise-mech"],
 };
 
+/**
+ * The archetypes each settlement builds with, tier by tier (PLAN.md 76.1
+ * decision 7). The city row is today's table, untouched, so a city-tier
+ * repository draws exactly the city it always did.
+ *
+ *   village     cottages and farmhouses along the lanes, barns among them,
+ *               and a farmhouse or a big barn for the most important files
+ *   town        terraces and cottages on the side streets, low blocks of
+ *               flats for the bigger directories, and the city's parapet
+ *               and setback shapes at the top; shopfronts only ever come
+ *               from `frontage` (see `chooseArchetype`)
+ *   metropolis  S7's glass, twin and spire towers over the city's own
+ *               towers and mid-rises
+ */
+export const ARCHETYPE_TABLES: Record<SettlementTier, Record<BuildingTier, readonly ArchetypeId[]>> = {
+  village: {
+    1: ["cottage", "farmhouse", "barn"],
+    2: ["cottage", "farmhouse", "barn"],
+    3: ["farmhouse", "cottage", "barn"],
+    4: ["farmhouse", "barn"],
+    5: ["farmhouse", "barn"],
+  },
+  town: {
+    1: ["terrace", "cottage", "lowrise-pitched"],
+    2: ["terrace", "lowrise-pitched", "cottage"],
+    3: ["apartment-low", "terrace", "lowrise-parapet"],
+    4: ["apartment-low", "midrise-setback", "lowrise-parapet"],
+    5: ["apartment-low", "midrise-setback", "midrise-mech"],
+  },
+  city: TIER_CANDIDATES,
+  metropolis: {
+    1: ["lowrise-parapet", "midrise-setback", "warehouse-sawtooth"],
+    2: ["midrise-setback", "lowrise-parapet", "midrise-mech"],
+    3: ["midrise-mech", "tower-glass", "midrise-setback"],
+    4: ["tower-glass", "tower-stepped", "tower-twin"],
+    5: ["tower-spire", "tower-twin", "tower-crown"],
+  },
+};
+
 /** Base weight by position in the tier's candidate list. */
 const POSITION_WEIGHT = [6, 4, 2];
 
 const FAMILY_WEIGHT: Record<LanguageFamily, Partial<Record<ArchetypeId, number>>> = {
   // Scripts build the ordinary working city: pitched low-rises and setbacks.
-  script: { "lowrise-pitched": 1.6, "midrise-setback": 1.5, house: 1.3 },
+  script: { "lowrise-pitched": 1.6, "midrise-setback": 1.5, house: 1.3, terrace: 1.3, cottage: 1.2 },
   // Compiled code gets the heavier, blockier, more engineered silhouettes.
-  compiled: { "lowrise-parapet": 1.8, "tower-stepped": 1.7, "midrise-mech": 1.4 },
+  compiled: {
+    "lowrise-parapet": 1.8,
+    "tower-stepped": 1.7,
+    "midrise-mech": 1.4,
+    "apartment-low": 1.3,
+    farmhouse: 1.3,
+    "tower-glass": 1.5,
+  },
   // Markup and docs are the small domestic end of the city.
-  markup: { house: 1.9, "lowrise-pitched": 1.7 },
+  markup: { house: 1.9, "lowrise-pitched": 1.7, cottage: 1.8, terrace: 1.5 },
   // Data is stored, so data looks like storage.
-  data: { "warehouse-sawtooth": 2.4, "midrise-mech": 1.3 },
-  config: { "warehouse-sawtooth": 1.9, "lowrise-parapet": 1.4 },
+  data: { "warehouse-sawtooth": 2.4, "midrise-mech": 1.3, barn: 2.2 },
+  config: { "warehouse-sawtooth": 1.9, "lowrise-parapet": 1.4, barn: 1.7 },
   unknown: {},
 };
 
@@ -203,12 +258,19 @@ const DIRECTORY_WEIGHT: Partial<Record<ArchetypeId, number>> = {
   "midrise-setback": 1.35,
   "tower-stepped": 1.35,
   "lowrise-parapet": 1.2,
+  barn: 1.4,
+  farmhouse: 1.3,
+  "apartment-low": 1.3,
+  "tower-twin": 1.35,
 };
 
 const FILE_WEIGHT: Partial<Record<ArchetypeId, number>> = {
   house: 1.4,
   "lowrise-pitched": 1.3,
   "tower-crown": 1.3,
+  cottage: 1.4,
+  terrace: 1.2,
+  "tower-spire": 1.3,
 };
 
 /**
@@ -218,19 +280,19 @@ const FILE_WEIGHT: Partial<Record<ArchetypeId, number>> = {
 const ROLE_WEIGHT: readonly { pattern: RegExp; weights: Partial<Record<ArchetypeId, number>> }[] = [
   {
     pattern: /\b(test|spec|fixture|mock|bench)/i,
-    weights: { "warehouse-sawtooth": 1.7, "lowrise-parapet": 1.4, "tower-crown": 0.5 },
+    weights: { "warehouse-sawtooth": 1.7, "lowrise-parapet": 1.4, "tower-crown": 0.5, barn: 1.5 },
   },
   {
     pattern: /\b(entry|entrypoint|main|core|api|public|server|router|runtime)/i,
-    weights: { "tower-crown": 1.8, "midrise-setback": 1.5 },
+    weights: { "tower-crown": 1.8, "midrise-setback": 1.5, farmhouse: 1.5, "tower-spire": 1.8 },
   },
   {
     pattern: /\b(build|tool|script|ci|deploy|infra|packaging|bundler)/i,
-    weights: { "warehouse-sawtooth": 1.6, "midrise-mech": 1.4 },
+    weights: { "warehouse-sawtooth": 1.6, "midrise-mech": 1.4, barn: 1.6 },
   },
   {
     pattern: /\b(doc|guide|example|tutorial|website)/i,
-    weights: { house: 1.6, "lowrise-pitched": 1.5 },
+    weights: { house: 1.6, "lowrise-pitched": 1.5, cottage: 1.6, terrace: 1.3 },
   },
 ];
 
@@ -256,10 +318,20 @@ export function archetypeSeed(building: Building): string {
   return building.plan?.path || building.id;
 }
 
-/** Deterministic archetype for a building. Same repository, same city. */
-export function chooseArchetype(building: Building): ArchetypeId {
+/**
+ * Deterministic archetype for a building. Same repository, same city.
+ *
+ * `settlement` picks the tier table; it defaults to the city, so every caller
+ * that predates settlements gets exactly the city's choice. In a town, a slot
+ * on the high street (`frontage: "main-street"`) is always a shop: a
+ * shopfront up to tier 3, and above that a block of flats over shops.
+ */
+export function chooseArchetype(building: Building, settlement: SettlementTier = "city"): ArchetypeId {
   const tier = tierOf(building.tier ?? building.plan?.tier ?? 1);
-  const candidates = TIER_CANDIDATES[tier];
+  if (settlement === "town" && building.frontage === "main-street") {
+    return tier <= 3 ? "shopfront" : "apartment-low";
+  }
+  const candidates = (ARCHETYPE_TABLES[settlement] ?? TIER_CANDIDATES)[tier];
   const family = languageFamily(building.plan?.language);
   const isDirectory = building.plan?.kind === "directory";
   const role = building.plan?.role ?? "";
@@ -293,4 +365,34 @@ export function chooseArchetype(building: Building): ArchetypeId {
  */
 export function variantValue(seed: string, channel: number): number {
   return (hash32(`${seed}#${channel}`) % 10000) / 10000;
+}
+
+/**
+ * Which construction of its archetype a building gets (see `ModelKey`).
+ *
+ *   cottage        thatch in the village, three in five; clay tile otherwise,
+ *                  and always tile in a town
+ *   shopfront      two storeys over the shop up to tier 2, three at tier 3
+ *   apartment-low  over shops when it stands on the high street
+ *
+ * Every other archetype has one construction and is its own key.
+ */
+export function modelKeyFor(
+  archetype: ArchetypeId,
+  building: Building,
+  settlement: SettlementTier = "city",
+): ModelKey {
+  const tier = tierOf(building.tier ?? building.plan?.tier ?? 1);
+  switch (archetype) {
+    case "cottage":
+      return settlement === "village" && variantValue(archetypeSeed(building), 7) < 0.6
+        ? "cottage"
+        : "cottage/tile";
+    case "shopfront":
+      return tier >= 3 ? "shopfront/tall" : "shopfront";
+    case "apartment-low":
+      return building.frontage === "main-street" ? "apartment-low/retail" : "apartment-low";
+    default:
+      return archetype;
+  }
 }

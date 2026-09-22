@@ -13,15 +13,26 @@
  * the same lit windows and the same air-conditioning units. Pure, unit tested.
  */
 
-import type { Building } from "@/types/city";
-import { chooseArchetype, archetypeSeed, hash32, type ArchetypeId } from "./archetypes";
+import type { SettlementTier } from "@/types/analysis";
+import type { Building, RoadSegment } from "@/types/city";
+import {
+  archetypeSeed,
+  chooseArchetype,
+  hash32,
+  modelKeyFor,
+  type ArchetypeId,
+  type ModelKey,
+} from "./archetypes";
 import { archetypeModel, type RoofPad } from "./models";
 import { facingYaw, panelCentre } from "./mesh";
+import { settlementPaint } from "./palettes";
 
 /** A building, with everything the renderer needs that is not in the model. */
 export interface BuildingInstance {
   building: Building;
   archetype: ArchetypeId;
+  /** The geometry drawn: the archetype or one of its variants. */
+  model: ModelKey;
   /** Final yaw: the generator's rotation plus the quarter turn for the door. */
   yaw: number;
   /**
@@ -30,16 +41,30 @@ export interface BuildingInstance {
    * generator laid it out.
    */
   swapped: boolean;
+  /**
+   * The height the model is drawn at: the building's own, except that a
+   * cottage or a farmhouse is never drawn taller than its proportions allow
+   * (`MODEL_MAX_ASPECT`).
+   */
+  height: number;
   /** This building's windows are lit tonight (PLAN.md section 19). */
   lit: boolean;
   /** Hue, saturation and lightness offsets inside the district's colour. */
   hueShift: number;
   satShift: number;
   lightShift: number;
+  /**
+   * Settlement models only: the wall and accent colours, as hex (see
+   * `palettes.ts`). Absent on the city's archetypes, which take the district
+   * colour.
+   */
+  paint?: { wall: string; accent: string };
 }
 
 export interface ArchetypeGroup {
   archetype: ArchetypeId;
+  /** One group per model, so a variant is its own instanced mesh. */
+  model: ModelKey;
   /** Index of this group's first instance in the flat instance list. */
   offset: number;
   count: number;
@@ -98,6 +123,14 @@ export interface CityBuildingPlan {
 }
 
 export interface PlanOptions {
+  /** The settlement the buildings belong to. Absent means today's city. */
+  settlement?: SettlementTier;
+  /**
+   * The street network. The village turns each house to its lane and the
+   * town turns each high-street shop to the high street; the city never
+   * reads it.
+   */
+  roads?: readonly RoadSegment[];
   /** 0..1 share of buildings whose windows are lit. */
   litShare: number;
   /** Hard cap on lit window quads, so a metropolis cannot run away. */
@@ -136,6 +169,126 @@ export function doorTurn(position: readonly number[], rotationY: number): { yaw:
     }
   }
   return { yaw: rotationY + (best * Math.PI) / 2, swapped: best % 2 === 1 };
+}
+
+/** The nearest point on a road's centreline to `(x, z)`, and how far away it is. */
+export function nearestOnRoad(road: RoadSegment, x: number, z: number): { x: number; z: number; distance: number } {
+  const ax = road.from[0];
+  const az = road.from[2];
+  const dx = road.to[0] - ax;
+  const dz = road.to[2] - az;
+  const lengthSq = dx * dx + dz * dz;
+  const t = lengthSq > 0 ? clamp(((x - ax) * dx + (z - az) * dz) / lengthSq, 0, 1) : 0;
+  const px = ax + dx * t;
+  const pz = az + dz * t;
+  return { x: px, z: pz, distance: Math.hypot(x - px, z - pz) };
+}
+
+/** The nearest point on any of `roads`, or null when there are none. */
+export function nearestRoadPoint(
+  roads: readonly RoadSegment[],
+  x: number,
+  z: number,
+): { x: number; z: number; distance: number } | null {
+  let best: { x: number; z: number; distance: number } | null = null;
+  for (const road of roads) {
+    const hit = nearestOnRoad(road, x, z);
+    if (!best || hit.distance < best.distance) best = hit;
+  }
+  return best;
+}
+
+/**
+ * A village house faces its lane (PLAN.md 76.5, village step 5). The layout
+ * already turned it: `rotationY` is the lane heading plus or minus a quarter,
+ * and the model's front (+z) is `(sin rotationY, cos rotationY)`. Which of the
+ * two quarters is the layout's business, so the renderer only checks: if the
+ * front points away from the nearest road, the house is turned round. A half
+ * turn maps its square-safe footprint onto itself, so the plot is unchanged.
+ */
+export function laneTurn(
+  position: readonly number[],
+  rotationY: number,
+  roads: readonly RoadSegment[],
+): { yaw: number; swapped: boolean } {
+  const near = nearestRoadPoint(roads, position[0], position[2]);
+  if (!near || near.distance < 1e-3) return { yaw: rotationY, swapped: false };
+  const toRoadX = near.x - position[0];
+  const toRoadZ = near.z - position[2];
+  const facing = Math.sin(rotationY) * toRoadX + Math.cos(rotationY) * toRoadZ;
+  return { yaw: facing < 0 ? rotationY + Math.PI : rotationY, swapped: false };
+}
+
+/**
+ * A high-street shop faces the high street (PLAN.md 76.5, town): the quarter
+ * turn that points the model's front at the nearest `main` road, with the same
+ * footprint swap as `doorTurn`. Without a main road it falls back to
+ * `doorTurn`.
+ */
+export function streetTurn(
+  position: readonly number[],
+  rotationY: number,
+  roads: readonly RoadSegment[],
+): { yaw: number; swapped: boolean } {
+  const main = roads.filter((road) => road.main);
+  const near = nearestRoadPoint(main, position[0], position[2]);
+  if (!near || near.distance < 1e-3) return doorTurn(position, rotationY);
+  const nx = (near.x - position[0]) / near.distance;
+  const nz = (near.z - position[2]) / near.distance;
+  let best = 0;
+  let bestDot = -Infinity;
+  for (let q = 0; q < 4; q++) {
+    const yaw = rotationY + (q * Math.PI) / 2;
+    const d = Math.sin(yaw) * nx + Math.cos(yaw) * nz;
+    if (d > bestDot + 1e-9) {
+      bestDot = d;
+      best = q;
+    }
+  }
+  return { yaw: rotationY + (best * Math.PI) / 2, swapped: best % 2 === 1 };
+}
+
+/**
+ * How a building is turned, by settlement: lane-facing in an organic village,
+ * street-facing on a town's high street, and towards the centre everywhere
+ * else, which is today's rule. A village drawn on the grid (no `lane` roads,
+ * for instance before its layout lands) keeps the grid rule.
+ */
+export function buildingTurn(
+  building: Building,
+  settlement: SettlementTier,
+  roads: readonly RoadSegment[],
+): { yaw: number; swapped: boolean } {
+  const rotationY = building.rotationY ?? 0;
+  if (settlement === "village" && roads.some((road) => road.kind === "lane")) {
+    return laneTurn(building.position, rotationY, roads);
+  }
+  if (settlement === "town" && building.frontage === "main-street") {
+    return streetTurn(building.position, rotationY, roads);
+  }
+  return doorTurn(building.position, rotationY);
+}
+
+/**
+ * The tallest a low settlement model may be drawn, as a multiple of its mean
+ * footprint. A cottage is authored as one storey under a deep roof: stretched
+ * to half again its width it stops being a cottage and becomes a witch's hat.
+ * The building keeps its plot and its tier; only the drawn height is held.
+ * The city's archetypes have no cap, so the city is unchanged.
+ */
+export const MODEL_MAX_ASPECT: Partial<Record<ModelKey, number>> = {
+  cottage: 1.0,
+  "cottage/tile": 1.1,
+  farmhouse: 1.45,
+  barn: 1.6,
+  terrace: 1.25,
+};
+
+/** The height a building's model is drawn at (see `MODEL_MAX_ASPECT`). */
+export function drawnHeight(model: ModelKey, size: readonly number[]): number {
+  const aspect = MODEL_MAX_ASPECT[model];
+  if (aspect === undefined) return size[1];
+  return Math.min(size[1], aspect * ((size[0] + size[2]) / 2));
 }
 
 /** How many rooftop props a building carries: taller means busier roofs. */
@@ -188,27 +341,34 @@ export function planBuildings(
   const litShare = clamp(options.litShare, 0, 1);
   const windowCap = options.windowCap ?? DEFAULT_WINDOW_CAP;
   const propCap = options.propCap ?? DEFAULT_PROP_CAP;
+  const settlement = options.settlement ?? "city";
+  const roads = options.roads ?? [];
 
-  const byArchetype = new Map<ArchetypeId, Building[]>();
+  const byModel = new Map<ModelKey, { archetype: ArchetypeId; list: Building[] }>();
   for (const building of buildings) {
-    const id = chooseArchetype(building);
-    const list = byArchetype.get(id);
-    if (list) list.push(building);
-    else byArchetype.set(id, [building]);
+    const archetype = chooseArchetype(building, settlement);
+    const model = modelKeyFor(archetype, building, settlement);
+    const entry = byModel.get(model);
+    if (entry) entry.list.push(building);
+    else byModel.set(model, { archetype, list: [building] });
   }
 
   const instances: BuildingInstance[] = [];
   const groups: ArchetypeGroup[] = [];
   // Map iteration order is insertion order, which follows the building list:
   // deterministic for a given city, and stable across renders of it.
-  for (const [archetype, list] of byArchetype) {
+  for (const [model, { archetype, list }] of byModel) {
     const offset = instances.length;
     for (const building of list) {
       const seed = archetypeSeed(building);
-      const { yaw, swapped } = doorTurn(building.position, building.rotationY ?? 0);
+      const { yaw, swapped } = buildingTurn(building, settlement, roads);
+      const paint = settlementPaint(model, building);
       instances.push({
         building,
         archetype,
+        model,
+        ...(paint ? { paint } : {}),
+        height: drawnHeight(model, building.size),
         yaw,
         swapped,
         lit: unit(seed, 11) < litShare,
@@ -219,7 +379,7 @@ export function planBuildings(
         lightShift: (unit(seed, 14) - 0.5) * 0.15,
       });
     }
-    groups.push({ archetype, offset, count: list.length, ids: list.map((b) => b.id) });
+    groups.push({ archetype, model, offset, count: list.length, ids: list.map((b) => b.id) });
   }
 
   const windows: WindowInstance[] = [];
@@ -227,7 +387,7 @@ export function planBuildings(
 
   for (let i = 0; i < instances.length; i++) {
     const instance = instances[i];
-    const model = archetypeModel(instance.archetype);
+    const model = archetypeModel(instance.model);
     const seed = archetypeSeed(instance.building);
     const tier = instance.building.tier ?? 1;
 
