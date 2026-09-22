@@ -132,7 +132,7 @@ const MINOR_HALF = ROAD_MINOR_WIDTH / 2;
 /** Kerb: how far a building must stay clear of a road edge. */
 const KERB = 1.4;
 /** Blocks are separated by minor roads; aim for this block side. */
-const TARGET_BLOCK = 22;
+export const TARGET_BLOCK = 22;
 /**
  * Roughly how many buildings one block holds at a comfortable slot pitch. A
  * district is given no more blocks than its buildings need: cutting a
@@ -145,15 +145,15 @@ const BUILDINGS_PER_BLOCK = 9;
  * reads the same in a busy district and a quiet one; a district that cannot
  * fit its buildings at it re-grids tighter (see `planSlots`).
  */
-const TARGET_PITCH = 7.2;
+export const TARGET_PITCH = 7.2;
 /** Terrain kept outside the ring road, for the tree line. */
 const OUTER_MARGIN = 4;
 /** Free space between the ring road and the landmark band. */
 const RING_GAP = 3;
 /** Deepest the landmark band ever gets, at the metropolis end of the range. */
-const LANDMARK_BAND_MAX = 20;
+export const LANDMARK_BAND_MAX = 20;
 /** Shallowest it gets: still room for a scaled-down station and a tree line. */
-const LANDMARK_BAND_MIN = 12;
+export const LANDMARK_BAND_MIN = 12;
 /** Fixed number of civic-centre slots for root landmark files. */
 export const CIVIC_BUILDING_SLOTS = 5;
 /** Breathing room between the town hall, the plaza buildings and the kerb. */

@@ -35,7 +35,7 @@ export const MIN_PER_DISTRICT = 4;
 const GRANULARITY_LEVELS = [MAX_DEPTH, 3, 2];
 
 /** Below this many candidates a coarser level makes the city look deserted. */
-const MIN_CANDIDATES = 75;
+export const MIN_CANDIDATES = 75;
 
 export interface FileSelectionOptions {
   /** README text; paths it mentions earn a bonus (PLAN.md section 9 step 3). */
