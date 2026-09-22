@@ -286,6 +286,7 @@ export function detectCi(snapshot: RepositorySnapshot): RepoMetrics["ci"] {
     provider: "github-actions",
     failureRate: Math.round(failureRate * 1000) / 1000,
     recentRuns: considered.length,
+    workflows: snapshot.workflows.length,
   };
 }
 

@@ -31,7 +31,7 @@
  * top of the buildings, and shrunk to a building slot they would be unreadable.
  */
 
-import type { LandmarkType, RoadSegment } from "@/types/city";
+import type { LandmarkType, RoadSegment, Vec3 } from "@/types/city";
 
 /** Axis-aligned rectangle on the XZ plane. `x` and `z` are the centre. */
 export interface Rect {
@@ -1063,6 +1063,59 @@ export function planLayout(
     landmarkPlots: planLandmarkPlots(districtSide, ringRadius),
     roads: roads.build(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Highways (PLAN.md section 22)
+// ---------------------------------------------------------------------------
+
+/** A fork road is a little wider than a city arterial, and always major. */
+export const ROAD_HIGHWAY_WIDTH = 8.4;
+
+/**
+ * How far from the origin a highway ends. `Terrain` draws its outer plane at
+ * `size * 2.2`, so 0.95 of the world side keeps the road on the ground while
+ * putting it well past `bounds.size` — it leaves the city and does not come
+ * back, which is the whole point of the metaphor.
+ */
+const HIGHWAY_REACH = 0.95;
+
+/**
+ * Up to four highways leaving the ring road for the horizon (PLAN.md section
+ * 22: forks are external connections, and popularity information rather than
+ * quality).
+ *
+ * Each one starts where a spoke already meets the ring road, so it is a real
+ * junction: the renderer's traffic graph keys on shared endpoints, and a car
+ * that turns onto a highway drives out of town rather than into a seam. The
+ * four directions are taken in the order north, south, east, west so that one
+ * highway does not sit opposite another until there are two.
+ */
+export function planHighways(layout: CityLayout, count: number): RoadSegment[] {
+  const wanted = Math.max(0, Math.min(4, Math.floor(count)));
+  if (wanted === 0) return [];
+
+  const ring = layout.ringRadius;
+  const spoke = round3(layout.districtSide / 3);
+  const reach = round3(layout.size * HIGHWAY_REACH);
+
+  const arms: { from: [number, number]; to: [number, number] }[] = [
+    { from: [spoke, -ring], to: [spoke, -reach] },
+    { from: [-spoke, ring], to: [-spoke, reach] },
+    { from: [ring, spoke], to: [reach, spoke] },
+    { from: [-ring, -spoke], to: [-reach, -spoke] },
+  ];
+
+  return arms.slice(0, wanted).map((arm, index) => ({
+    id: `road-hwy-${index}`,
+    from: [arm.from[0], 0, arm.from[1]] as Vec3,
+    to: [arm.to[0], 0, arm.to[1]] as Vec3,
+    width: ROAD_HIGHWAY_WIDTH,
+    major: true,
+    kind: "highway" as const,
+    // After the arterials: the city draws its skeleton first, then reaches out.
+    appearAt: spreadWindow(ROAD_REVEAL.minor, index, wanted),
+  }));
 }
 
 // ---------------------------------------------------------------------------

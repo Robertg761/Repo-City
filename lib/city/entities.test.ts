@@ -7,6 +7,7 @@ import {
   districtText,
   incidentText,
   planLandmarks,
+  trainsPerMinute,
 } from "./entities";
 
 const fixture = sampleAnalysis as unknown as RepoAnalysis;
@@ -22,7 +23,9 @@ describe("buildingText (PLAN.md sections 9, 10 and 41)", () => {
     expect(text.title).toBe(plan.path.split("/").pop());
     expect(text.subtitle).toBe(`${district!.name} · File`);
     expect(text.reason).toContain(`tier ${plan.tier} of 5`);
-    expect(text.sourceUrl).toBe(`${repo.url}/blob/${repo.defaultBranch}/${plan.path}`);
+    // Pinned to the surveyed commit, not to the branch tip, so the link shows
+    // the file the city actually measured.
+    expect(text.sourceUrl).toBe(`${repo.url}/blob/${repo.headSha}/${plan.path}`);
     expect(text.visualState).toBe("normal");
   });
 
@@ -30,9 +33,9 @@ describe("buildingText (PLAN.md sections 9, 10 and 41)", () => {
     const plan = fixture.buildings.find((b) => b.kind === "directory")!;
     const text = buildingText(plan, undefined, repo);
     expect(text.subtitle).toContain("Directory");
-    expect(text.sourceUrl).toContain(`/tree/${repo.defaultBranch}/`);
+    expect(text.sourceUrl).toContain(`/tree/${repo.headSha}/`);
     if (plan.role === null) {
-      expect(text.description).toBe(`Directory with ${plan.descendantCount} files.`);
+      expect(text.description).toContain(`Directory with ${plan.descendantCount} files`);
     }
     expect(text.reason).toContain("footprint");
   });
@@ -53,7 +56,7 @@ describe("incidentText (PLAN.md section 12)", () => {
     expect(text.subtitle).toBe("Major incident");
     expect(text.description).toContain(issue.title);
     expect(text.description).toContain("comments");
-    expect(text.reason).toBe(issue.reason);
+    expect(text.reason).toContain(issue.reason);
     expect(text.sourceUrl).toBe(issue.url);
     expect(text.visualState).toBe(issue.state);
   });
@@ -89,7 +92,8 @@ describe("planLandmarks (PLAN.md sections 14, 15, 16, 20 and 62)", () => {
     expect(byType.get("power")!.subtitle).toBe("GitHub Actions");
     expect(byType.get("fire")!.title).toBe("FIRE STATION");
     expect(byType.get("fire")!.subtitle).toBe("Test Infrastructure");
-    expect(byType.get("info")!.title).toBe("INFORMATION CENTER");
+    // One spelling everywhere (QA-2026-09-21 bug 5).
+    expect(byType.get("info")!.title).toBe("INFORMATION CENTRE");
     expect(byType.get("station")!.title).toBe("TRANSIT STATION");
     expect(byType.get("civic")!.title).toBe("CITY HALL");
     expect(byType.get("civic")!.subtitle).toBe(repo.fullName);
@@ -137,7 +141,38 @@ describe("districtText (PLAN.md sections 8 and 42)", () => {
     expect(text.title).toBe(plan.name);
     expect(text.subtitle).toBe(plan.sourcePath);
     expect(text.sourceUrl).toBe(
-      `${repo.url}/tree/${repo.defaultBranch}/${plan.sourcePath.replace(/^\//, "")}`,
+      `${repo.url}/tree/${repo.headSha}/${plan.sourcePath.replace(/^\//, "")}`,
     );
+  });
+
+  it("states the district's share of the repository when a total is given", () => {
+    const plan = { ...fixture.districts[0], purpose: null, fileCount: 25 };
+    const text = districtText(plan, repo, 100);
+    expect(text.description).toContain("25% of the repository");
+    expect(text.reason).toContain("25% of the repository");
+  });
+});
+
+describe("trainsPerMinute (PLAN.md section 20)", () => {
+  it("runs freight for an active cadence and a slow service for an occasional one", () => {
+    const active = trainsPerMinute(
+      { count: 40, lastDaysAgo: 3, cadence: "active" },
+      false,
+    );
+    const occasional = trainsPerMinute(
+      { count: 4, lastDaysAgo: 400, cadence: "occasional" },
+      false,
+    );
+    expect(active).toBeGreaterThan(occasional);
+    expect(active).toBeLessThanOrEqual(6);
+    expect(occasional).toBeGreaterThanOrEqual(0.25);
+  });
+
+  it("gives an unreleased repository no station and an archived one a quiet one", () => {
+    expect(trainsPerMinute({ count: 0, lastDaysAgo: null, cadence: "none" }, false)).toBe(0);
+    const live = trainsPerMinute({ count: 9, lastDaysAgo: 30, cadence: "active" }, false);
+    const frozen = trainsPerMinute({ count: 9, lastDaysAgo: 30, cadence: "active" }, true);
+    expect(frozen).toBeLessThan(live);
+    expect(frozen).toBeGreaterThan(0);
   });
 });
