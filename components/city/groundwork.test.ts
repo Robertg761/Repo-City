@@ -14,8 +14,8 @@ const road = (
   id: string,
   from: Vec3,
   to: Vec3,
-  { major = false, width = major ? 7 : 4.5 } = {},
-): RoadSegment => ({ id, from, to, width, major, appearAt: 0 });
+  { major = false, width }: { major?: boolean; width?: number } = {},
+): RoadSegment => ({ id, from, to, width: width ?? (major ? 7 : 4.5), major, appearAt: 0 });
 
 /** A crossroads: four arms meeting at the origin, all split at the junction. */
 const CROSSROADS: RoadSegment[] = [
