@@ -54,11 +54,20 @@ describe("aiInterpretationSchema", () => {
     ).toBe(false);
   });
 
-  it("rejects more than twelve important modules", () => {
+  it("rejects more important modules than the cap allows", () => {
     expect(
       aiInterpretationSchema.safeParse({
         ...valid,
-        importantModules: Array.from({ length: 13 }, () => valid.importantModules[0]),
+        importantModules: Array.from({ length: LIMITS.modules }, () => valid.importantModules[0]),
+      }).success,
+    ).toBe(true);
+    expect(
+      aiInterpretationSchema.safeParse({
+        ...valid,
+        importantModules: Array.from(
+          { length: LIMITS.modules + 1 },
+          () => valid.importantModules[0],
+        ),
       }).success,
     ).toBe(false);
   });

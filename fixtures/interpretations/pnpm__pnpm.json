@@ -74,75 +74,283 @@
   ],
   "importantModules": [
     {
-      "path": "pnpm/crates/cli/src/lib.rs",
-      "role": "The v12 command surface: parses arguments and dispatches to the command crates.",
-      "evidence": ["pnpm/crates/config/Cargo.toml", "pnpm/crates/auth-commands/Cargo.toml"]
-    },
-    {
-      "path": "pnpm/crates/lockfile/src/lib.rs",
-      "role": "Reading, writing and comparing pnpm-lock.yaml, the file the whole install pipeline is anchored to.",
+      "path": "pnpm/crates",
+      "role": "The Rust v12 workspace: 88 crates covering the command surface, config, resolvers, registry and network, the content-addressable store, lockfiles and hoisting.",
       "evidence": [
-        "pnpm/crates/lockfile-verification/src/lib.rs",
-        "pnpm/crates/lockfile-import/src/lib.rs",
-        "pnpm/crates/lockfile-preferred-versions/src/lib.rs"
+        "pnpm/crates/cli",
+        "pnpm/crates/install-coordinator",
+        "pnpm/crates/store-dir",
+        "pnpm/crates/lockfile",
+        "pnpm/crates/real-hoist",
+        "Cargo.toml"
       ]
-    },
-    {
-      "path": "pnpm/crates/store-dir/src/lib.rs",
-      "role": "The content-addressable store, the reason pnpm installs are fast and share disk between projects.",
-      "evidence": ["pnpm/crates/crypto-hash/Cargo.toml", "pnpm/crates/tarball/Cargo.toml"]
-    },
-    {
-      "path": "pnpm/crates/install-coordinator",
-      "role": "Drives one install: resolve, fetch, link, and run lifecycle scripts in the right order.",
-      "evidence": [
-        "pnpm/crates/executor/Cargo.toml",
-        "pnpm/crates/deps-restorer/Cargo.toml",
-        "pnpm/crates/real-hoist/Cargo.toml"
-      ]
-    },
-    {
-      "path": "pnpm/crates/resolving-npm-resolver",
-      "role": "Resolves npm registry specifiers; git, jsr, tarball, local and catalog resolvers sit beside it as separate crates.",
-      "evidence": [
-        "pnpm/crates/resolving-git-resolver/Cargo.toml",
-        "pnpm/crates/resolving-jsr-specifier-parser/Cargo.toml",
-        "pnpm/crates/resolving-resolver-base/Cargo.toml",
-        "pnpm/crates/catalogs-resolver/Cargo.toml"
-      ]
-    },
-    {
-      "path": "pnpm/crates/workspace-projects-graph",
-      "role": "Builds the graph of workspace projects that filtering and the task scheduler both walk.",
-      "evidence": [
-        "pnpm/crates/workspace-projects-filter/Cargo.toml",
-        "pnpm/crates/workspace-task-scheduler/Cargo.toml",
-        "pnpm-workspace.yaml"
-      ]
-    },
-    {
-      "path": "pnpm11/pnpm/pnpm.cjs",
-      "role": "The v11 entry point, still the published binary for the TypeScript line.",
-      "evidence": ["pnpm11/pnpm/bundle.ts", "pnpm11/pnpm/package.json"]
     },
     {
       "path": "pnpm11/installing",
       "role": "The v11 install pipeline: client, context, dependency installer and resolver packages.",
       "evidence": [
-        "pnpm11/installing/deps-installer/package.json",
-        "pnpm11/installing/deps-resolver/package.json",
-        "pnpm11/installing/commands/package.json"
+        "pnpm11/installing/deps-installer",
+        "pnpm11/installing/deps-resolver",
+        "pnpm11/installing/commands",
+        "pnpm11/installing/linking"
       ]
     },
     {
-      "path": "pnpr/client/src/index.ts",
-      "role": "The TypeScript client that posts a project's manifests to the pnpr server and receives a resolved lockfile.",
-      "evidence": ["pnpr/client/README.md", "pnpr/client/src/installSharedSideEffects.ts"]
+      "path": "pnpr/crates",
+      "role": "The pnpr server crates: registry routes, upstream proxying, storage, policy, OSV advisories, OCI artifacts and per-ecosystem resolvers.",
+      "evidence": [
+        "pnpr/crates/pnpr",
+        "pnpr/crates/route",
+        "pnpr/crates/upstream",
+        "pnpr/crates/policy",
+        "pnpr/crates/osv"
+      ]
     },
     {
-      "path": "pnpm/crates/diagnostics",
-      "role": "Shared error reporting, so a failure in any crate reaches the user as one consistent message.",
-      "evidence": ["pnpm/crates/default-reporter/Cargo.toml", "pnpm/crates/reporter/Cargo.toml"]
+      "path": "pnpm11/deps",
+      "role": "The v11 dependency-graph packages: graph builder, hasher and sequencer, dependency paths, peer ranges, list and why inspection, security audit and status.",
+      "evidence": [
+        "pnpm11/deps/graph-builder",
+        "pnpm11/deps/graph-sequencer",
+        "pnpm11/deps/inspection",
+        "pnpm11/deps/security",
+        "pnpm11/deps/status"
+      ]
+    },
+    {
+      "path": "Cargo.toml",
+      "role": "The Rust workspace root: its members are pnpm/crates/*, pnpm/tasks/* and pnpr/crates/*, and every internal crate path and shared dependency is pinned here.",
+      "evidence": [
+        "pnpm/crates",
+        "pnpm/tasks",
+        "pnpr/crates",
+        "rust-toolchain.toml"
+      ]
+    },
+    {
+      "path": "pnpm11/resolving",
+      "role": "The v11 resolvers, one package per specifier kind: npm, git, jsr, local and tarball, over a shared resolver base.",
+      "evidence": [
+        "pnpm11/resolving/npm-resolver",
+        "pnpm11/resolving/git-resolver",
+        "pnpm11/resolving/default-resolver",
+        "pnpm11/resolving/resolver-base"
+      ]
+    },
+    {
+      "path": "pnpm11/workspace",
+      "role": "The v11 workspace packages: root finding, project and manifest readers and writers, the projects graph, filter and sorter, task scheduler and workspace state.",
+      "evidence": [
+        "pnpm11/workspace/root-finder",
+        "pnpm11/workspace/projects-graph",
+        "pnpm11/workspace/projects-filter",
+        "pnpm11/workspace/task-scheduler",
+        "pnpm11/workspace/state"
+      ]
+    },
+    {
+      "path": "pnpm11/config",
+      "role": "The v11 settings packages: the config reader and writer, override parsing, registry normalisation and per-package selection, auth keys and version policy.",
+      "evidence": [
+        "pnpm11/config/reader",
+        "pnpm11/config/writer",
+        "pnpm11/config/parse-overrides",
+        "pnpm11/config/pick-registry-for-package",
+        "pnpm11/config/version-policy"
+      ]
+    },
+    {
+      "path": "pnpm11/lockfile",
+      "role": "The v11 lockfile packages: filesystem access, merging, pruning, verification, preferred versions, dedicated lockfiles and the walker.",
+      "evidence": [
+        "pnpm11/lockfile/fs",
+        "pnpm11/lockfile/merger",
+        "pnpm11/lockfile/verification",
+        "pnpm11/lockfile/walker"
+      ]
+    },
+    {
+      "path": "pnpm11/pnpm",
+      "role": "The published v11 package: the pnpm.cjs entry that is still the binary for the TypeScript line, the bundling scripts, the node-gyp bins and its own tests.",
+      "evidence": [
+        "pnpm11/pnpm/pnpm.cjs",
+        "pnpm11/pnpm/bundle.ts",
+        "pnpm11/pnpm/node-gyp-bin",
+        "pnpm11/pnpm/package.json",
+        "pnpm11/pnpm/test"
+      ]
+    },
+    {
+      "path": "pnpm11/exec",
+      "role": "The v11 execution packages: the exec and run commands, npm lifecycle script running, package preparation and the CLI runner child processes go through.",
+      "evidence": [
+        "pnpm11/exec/commands",
+        "pnpm11/exec/lifecycle",
+        "pnpm11/exec/npm-lifecycle",
+        "pnpm11/exec/pnpm-cli-runner",
+        "pnpm11/exec/prepare-package"
+      ]
+    },
+    {
+      "path": "pnpm11/store",
+      "role": "The v11 content-addressable store: cafs, the store controller and the connection manager the install pipeline talks to.",
+      "evidence": [
+        "pnpm11/store/cafs",
+        "pnpm11/store/controller",
+        "pnpm11/store/connection-manager",
+        "pnpm11/store/commands"
+      ]
+    },
+    {
+      "path": "pnpm11/crypto",
+      "role": "The v11 hashing packages: content hashes, integrity strings, a stable object hasher and the shasums file reader.",
+      "evidence": [
+        "pnpm11/crypto/hash",
+        "pnpm11/crypto/integrity",
+        "pnpm11/crypto/object-hasher",
+        "pnpm11/crypto/shasums-file"
+      ]
+    },
+    {
+      "path": "pnpm11/cli",
+      "role": "The v11 command line: argument parsing, the command registry and its metadata, the shared option help text and the default reporter.",
+      "evidence": [
+        "pnpm11/cli/parse-cli-args",
+        "pnpm11/cli/commands",
+        "pnpm11/cli/common-cli-options-help",
+        "pnpm11/cli/default-reporter",
+        "pnpm11/cli/meta"
+      ]
+    },
+    {
+      "path": "pnpm11/__utils__",
+      "role": "Internal v11 development packages: shared tsconfig, eslint and jest config, temp directory and fixture preparation, and the project and store test assertions.",
+      "evidence": [
+        "pnpm11/__utils__/assert-project",
+        "pnpm11/__utils__/assert-store",
+        "pnpm11/__utils__/prepare",
+        "pnpm11/__utils__/test-fixtures",
+        "pnpm11/__utils__/tsconfig"
+      ]
+    },
+    {
+      "path": "pnpm11/releasing",
+      "role": "The v11 release side: the deploy, pack and publish commands, the exportable manifest written into a published tarball, and version bumping.",
+      "evidence": [
+        "pnpm11/releasing/commands",
+        "pnpm11/releasing/exportable-manifest",
+        "pnpm11/releasing/versioning"
+      ]
+    },
+    {
+      "path": "pnpm11/fs",
+      "role": "The v11 filesystem packages: hard-linking a package out of the store into node_modules, symlinking dependencies, packlists and reading modules directories.",
+      "evidence": [
+        "pnpm11/fs/hard-link-dir",
+        "pnpm11/fs/indexed-pkg-importer",
+        "pnpm11/fs/symlink-dependency",
+        "pnpm11/fs/packlist",
+        "pnpm11/fs/read-modules-dir"
+      ]
+    },
+    {
+      "path": "pnpm/tasks",
+      "role": "The cargo-equivalence task: it resolves real Cargo workspaces with both cargo and pnpm v12 and diffs the lockfiles, because v12 reimplements cargo's resolver.",
+      "evidence": [
+        "pnpm/tasks/cargo-equivalence",
+        "pnpm/crates/cargo-resolver",
+        "Cargo.toml"
+      ]
+    },
+    {
+      "path": "pnpm11/fetching",
+      "role": "The v11 fetchers, one per source: tarball, git, directory and binary, over a shared fetcher base, with the picker that chooses between them.",
+      "evidence": [
+        "pnpm11/fetching/tarball-fetcher",
+        "pnpm11/fetching/git-fetcher",
+        "pnpm11/fetching/directory-fetcher",
+        "pnpm11/fetching/binary-fetcher",
+        "pnpm11/fetching/pick-fetcher"
+      ]
+    },
+    {
+      "path": "pnpm11/building",
+      "role": "The v11 build step: deciding which packages require a build, the policy that approves them, and running builds during and after an install.",
+      "evidence": [
+        "pnpm11/building/pkg-requires-build",
+        "pnpm11/building/policy",
+        "pnpm11/building/during-install",
+        "pnpm11/building/after-install"
+      ]
+    },
+    {
+      "path": "pnpm/plans",
+      "role": "Design notes for in-flight v12 work: ecosystem install, lockfile resolution reuse, multi-level hoisting, the napi bindings, a Python spike and test porting.",
+      "evidence": [
+        "pnpm/plans/ECOSYSTEM_INSTALL.md",
+        "pnpm/plans/MULTI_LEVEL_HOISTING.md",
+        "pnpm/plans/NAPI.md",
+        "pnpm/plans/TEST_PORTING.md"
+      ]
+    },
+    {
+      "path": "pnpm11/bins",
+      "role": "The v11 binary handling: resolving a package's bin entries, linking them into node_modules/.bin through cmd shims, and removing them again.",
+      "evidence": [
+        "pnpm11/bins/resolver",
+        "pnpm11/bins/linker",
+        "pnpm11/bins/cmd-shim",
+        "pnpm11/bins/remover"
+      ]
+    },
+    {
+      "path": "pnpm11/engine",
+      "role": "The v11 engine packages: pnpm setup and self-update, the with command, and the resolvers for the Node, Deno and Bun runtimes a project pins.",
+      "evidence": [
+        "pnpm11/engine/pm",
+        "pnpm11/engine/runtime",
+        "pnpm11/engine/runtime/node-resolver",
+        "pnpm11/engine/runtime/system-version"
+      ]
+    },
+    {
+      "path": "pnpm/npm",
+      "role": "The npm packaging for the Rust CLI: the pnpm, pnpx, pn and pnx bin shims, the installer that fetches the right platform binary, and the napi package.",
+      "evidence": [
+        "pnpm/npm/pnpm",
+        "pnpm/npm/napi",
+        "pnpm/crates/napi"
+      ]
+    },
+    {
+      "path": "pnpr/client",
+      "role": "The TypeScript client for the pnpr server: posts a project's dependencies and lockfile, reads the streamed reply and returns a lockfile for a headless install.",
+      "evidence": [
+        "pnpr/client/README.md",
+        "pnpr/client/src",
+        "pnpr/client/test",
+        "pnpr/crates"
+      ]
+    },
+    {
+      "path": "pnpm11/__fixtures__",
+      "role": "Several hundred fixture projects the v11 suites install against: circular deps, outdated and deprecated deps, custom modules dirs and missing lockfiles.",
+      "evidence": [
+        "pnpm11/__fixtures__/circular",
+        "pnpm11/__fixtures__/custom-modules-dir",
+        "pnpm11/__fixtures__/has-major-outdated-deps",
+        "pnpm11/__fixtures__/has-no-lockfile"
+      ]
+    },
+    {
+      "path": "pnpm11/network",
+      "role": "The v11 network packages: the fetch wrapper, per-registry auth headers, browser-based web login and the git helpers the git fetcher calls.",
+      "evidence": [
+        "pnpm11/network/fetch",
+        "pnpm11/network/auth-header",
+        "pnpm11/network/web-auth",
+        "pnpm11/network/git-utils"
+      ]
     }
   ],
   "strengths": [

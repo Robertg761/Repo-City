@@ -1,5 +1,5 @@
 {
-  "summary": "Turborepo is a Rust build system for JavaScript monorepos. The tool itself is a workspace of about twenty crates, with turborepo-lib holding the run pipeline, task graph and hashing. Around it sit npm-published JavaScript packages, a documentation site, and four large fixture directories: examples, integration tests, lockfile fixtures and template apps.",
+  "summary": "Turborepo is a Rust build system for JavaScript monorepos. The tool is a 74-crate workspace: turborepo-cli takes the command line, turborepo-run and turborepo-engine build the task graph, and turborepo-task-executor runs it. Around it sit npm-published JavaScript packages, a documentation site, and four large fixture directories: examples, integration tests, lockfile fixtures and template apps.",
   "districts": [
     {
       "sourcePath": "/crates",
@@ -7,8 +7,8 @@
       "purpose": "The Rust workspace: CLI shim, run pipeline, task engine, caching, source control integration, daemon and terminal UI.",
       "evidence": [
         "crates/turborepo/src/main.rs",
-        "crates/turborepo-lib/src/run/mod.rs",
-        "crates/turborepo-lib/src/task_hash.rs",
+        "crates/turborepo-run",
+        "crates/turborepo-task-hash",
         "crates/turborepo-cache/src/lib.rs",
         "crates/turborepo-daemon/src/lib.rs",
         "crates/turborepo-ui/src/lib.rs"
@@ -43,7 +43,10 @@
       "sourcePath": "/turborepo-tests",
       "name": "Proving Grounds",
       "purpose": "End-to-end integration suites that run the real binary against generated monorepos.",
-      "evidence": ["turborepo-tests/integration", "turborepo-tests/README.md"]
+      "evidence": [
+        "turborepo-tests/integration",
+        "turborepo-tests/README.md"
+      ]
     },
     {
       "sourcePath": "/lockfile-tests",
@@ -59,7 +62,11 @@
       "sourcePath": "/apps",
       "name": "Knowledge District",
       "purpose": "The documentation site and the internal factory app that generates repository content.",
-      "evidence": ["apps/docs", "apps/factory", "docs/link-checker/src/validate-docs-links.ts"]
+      "evidence": [
+        "apps/docs",
+        "apps/factory",
+        "docs/link-checker/src/validate-docs-links.ts"
+      ]
     },
     {
       "sourcePath": "/.github",
@@ -77,66 +84,285 @@
       "sourcePath": "/scripts",
       "name": "Maintenance Depot",
       "purpose": "Repository chores: formatting, version bookkeeping and release helpers invoked by CI.",
-      "evidence": ["scripts", "version.txt", "RELEASE.md"]
+      "evidence": [
+        "scripts",
+        "version.txt",
+        "RELEASE.md"
+      ]
     }
   ],
   "importantModules": [
     {
-      "path": "crates/turborepo/src/main.rs",
-      "role": "The binary entry point; a thin shell that hands straight to turborepo-lib.",
-      "evidence": ["crates/turborepo-lib/src/lib.rs", "crates/turborepo-lib/src/shim.rs"]
-    },
-    {
-      "path": "crates/turborepo-lib/src/run/mod.rs",
-      "role": "One turbo run: resolves scope, builds the task graph, then executes it with caching.",
+      "path": "crates/turborepo",
+      "role": "The binary crate: a main() that installs panic handling and hands every command to turborepo-cli, plus the Rust integration tests.",
       "evidence": [
-        "crates/turborepo-lib/src/run/builder.rs",
-        "crates/turborepo-lib/src/run/scope/mod.rs",
-        "crates/turborepo-lib/src/run/watch.rs"
+        "crates/turborepo/README.md",
+        "crates/turborepo-cli",
+        "Cargo.toml"
       ]
     },
     {
-      "path": "crates/turborepo-lib/src/engine/mod.rs",
-      "role": "The task dependency graph: what may run, in what order, and what can run in parallel.",
+      "path": "crates/turborepo-cli",
+      "role": "The CLI composition layer: argument parsing, command dispatch, the version shim and the wiring of the run, daemon and query crates.",
       "evidence": [
-        "crates/turborepo-lib/src/engine/loader.rs",
-        "crates/turborepo-engine/src/lib.rs"
+        "crates/turborepo-cli/README.md",
+        "crates/turborepo",
+        "crates/turborepo-run",
+        "crates/turborepo-shim"
       ]
     },
     {
-      "path": "crates/turborepo-lib/src/task_hash.rs",
-      "role": "Computes the hash that decides a cache hit; the idea the whole tool rests on.",
-      "evidence": ["crates/turborepo-cache/src/lib.rs", "crates/turborepo-scm/src/lib.rs"]
+      "path": "crates/turborepo-run",
+      "role": "One turbo run: resolves package scope, loads the engine, then executes tasks with the cache, process manager and run summary attached.",
+      "evidence": [
+        "crates/turborepo-scope",
+        "crates/turborepo-engine",
+        "crates/turborepo-cache",
+        "crates/turborepo-run-summary"
+      ]
     },
     {
-      "path": "crates/turborepo-cache/src/lib.rs",
-      "role": "Local and remote cache storage and retrieval for task outputs.",
-      "evidence": ["crates/turborepo-lib/src/task_hash.rs"]
+      "path": "crates/turborepo-engine",
+      "role": "Builds the task dependency graph from turbo.json and the package graph, then orchestrates parallel execution over it.",
+      "evidence": [
+        "crates/turborepo-engine/README.md",
+        "crates/turborepo-task-graph",
+        "crates/turborepo-turbo-json"
+      ]
     },
     {
-      "path": "crates/turborepo-repository/src/lib.rs",
-      "role": "Workspace discovery: finds packages, package managers and the dependency graph between them.",
-      "evidence": ["crates/turborepo-lockfiles/src/lib.rs", "lockfile-tests/fixtures"]
+      "path": "crates/turborepo-task-hash",
+      "role": "Computes each task's cache key from file contents, environment variables and task configuration; the hash that decides a cache hit.",
+      "evidence": [
+        "crates/turborepo-task-hash/README.md",
+        "crates/turborepo-hash",
+        "crates/turborepo-scm"
+      ]
     },
     {
-      "path": "crates/turborepo-lib/src/cli/args.rs",
-      "role": "The full command line surface, with snapshot tests pinning the help output.",
-      "evidence": ["crates/turborepo-lib/src/cli/mod.rs"]
+      "path": "crates/turborepo-cache",
+      "role": "Task output caching: a local filesystem cache and the Vercel remote cache behind a multiplexer and an async worker pool.",
+      "evidence": [
+        "crates/turborepo-cache/README.md",
+        "crates/turborepo-api-client",
+        "crates/turborepo-run-cache"
+      ]
     },
     {
-      "path": "crates/turborepo-daemon/src/lib.rs",
-      "role": "The background daemon that keeps file watching warm between runs.",
-      "evidence": ["crates/turborepo-filewatch", "crates/turborepo-lib/src/devtools.rs"]
+      "path": "crates/turborepo-task-executor",
+      "role": "Runs an individual task: checks the cache, spawns the process, handles its output and saves the result back to the cache.",
+      "evidence": [
+        "crates/turborepo-task-executor/README.md",
+        "crates/turborepo-process",
+        "crates/turborepo-run-cache"
+      ]
     },
     {
-      "path": "crates/turborepo-ui/src/lib.rs",
-      "role": "Terminal output: the task list, interleaved logs and the interactive run view.",
-      "evidence": ["crates/turborepo-process"]
+      "path": "crates/turborepo-repository",
+      "role": "Repository detection and package discovery: infers the package manager, reads workspaces and builds the package dependency graph.",
+      "evidence": [
+        "crates/turborepo-repository/README.md",
+        "crates/turborepo-lockfiles",
+        "crates/turborepo-paths"
+      ]
+    },
+    {
+      "path": "crates/turborepo-lockfiles",
+      "role": "Parses npm, pnpm, yarn and bun lockfiles and derives the per-package dependency subgraph used for fine-grained cache invalidation.",
+      "evidence": [
+        "crates/turborepo-lockfiles/README.md",
+        "lockfile-tests/fixtures",
+        "crates/turborepo-lockfile-hash"
+      ]
+    },
+    {
+      "path": "crates/turborepo-scm",
+      "role": "Git integration: changed-file detection, reading previous lockfile versions and hashing files through ls-tree, hash-object and libgit2.",
+      "evidence": [
+        "crates/turborepo-scm/README.md",
+        "crates/turborepo-task-hash",
+        "crates/turborepo-gitignore"
+      ]
+    },
+    {
+      "path": "crates/turborepo-turbo-json",
+      "role": "Parses and validates turbo.json, including comments, and is the source of truth for task definitions and repository settings.",
+      "evidence": [
+        "crates/turborepo-turbo-json/README.md",
+        "turbo.json",
+        "crates/turborepo-schema-gen"
+      ]
+    },
+    {
+      "path": "crates/turborepo-config",
+      "role": "Loads and merges configuration by precedence: turbo.json, then global and local config files, then environment variables, then CLI flags.",
+      "evidence": [
+        "crates/turborepo-config/README.md",
+        "crates/turborepo-turbo-json",
+        "crates/turborepo-cli"
+      ]
+    },
+    {
+      "path": "crates/turborepo-scope",
+      "role": "Resolves which packages a run covers, applying --filter patterns, --affected change detection and glob matching.",
+      "evidence": [
+        "crates/turborepo-scope/README.md",
+        "crates/turborepo-task-filter",
+        "crates/turborepo-run"
+      ]
+    },
+    {
+      "path": "crates/turborepo-ui",
+      "role": "Terminal output: colours, spinners, per-task prefixes and log writers, plus the interactive TUI mode.",
+      "evidence": [
+        "crates/turborepo-ui/README.md",
+        "crates/turborepo-ghostty",
+        "crates/libghostty-vt-sys"
+      ]
+    },
+    {
+      "path": "crates/turborepo-process",
+      "role": "Spawns and supervises the child processes that run task commands, with PTY support, signal forwarding and graceful shutdown.",
+      "evidence": [
+        "crates/turborepo-process/README.md",
+        "crates/turborepo-task-executor",
+        "crates/turborepo-signals"
+      ]
+    },
+    {
+      "path": "crates/turborepo-daemon",
+      "role": "The per-repository background daemon, a gRPC server that answers file hash queries and reports package changes to warm later runs.",
+      "evidence": [
+        "crates/turborepo-daemon/README.md",
+        "crates/turborepo-filewatch",
+        "crates/turborepo-package-watcher"
+      ]
+    },
+    {
+      "path": "crates/turborepo-filewatch",
+      "role": "Cross-platform file watching over FSEvents, inotify and ReadDirectoryChanges, turning raw events into derived data such as changed packages.",
+      "evidence": [
+        "crates/turborepo-filewatch/README.md",
+        "crates/turborepo-globwatch",
+        "crates/turborepo-daemon"
+      ]
+    },
+    {
+      "path": "crates/turborepo-api-client",
+      "role": "HTTP client for the remote cache API: authentication, artifact upload and download, and telemetry endpoints, aimed at Vercel by default.",
+      "evidence": [
+        "crates/turborepo-api-client/README.md",
+        "crates/turborepo-vercel-api",
+        "crates/turborepo-vercel-api-mock"
+      ]
+    },
+    {
+      "path": "crates/turborepo-auth",
+      "role": "Login against the Vercel API: device authorization grant, token refresh, SSO team verification and token storage.",
+      "evidence": [
+        "crates/turborepo-auth/README.md",
+        "crates/turborepo-api-client",
+        "crates/turborepo-dirs"
+      ]
+    },
+    {
+      "path": "crates/turborepo-boundaries",
+      "role": "Checks that imports between packages respect the tag-based rules configured in turbo.json.",
+      "evidence": [
+        "crates/turborepo-boundaries/README.md",
+        "crates/turborepo-turbo-json",
+        "crates/turbo-trace"
+      ]
+    },
+    {
+      "path": "Cargo.toml",
+      "role": "The Rust workspace root: members are crates/turborepo*, turbo-trace and the native part of packages/turbo-repository, on edition 2024.",
+      "evidence": [
+        "rust-toolchain.toml",
+        "crates/turborepo",
+        "packages/turbo-repository"
+      ]
+    },
+    {
+      "path": "turbo.json",
+      "role": "The repository's own turbo configuration: task pipeline, global pass-through environment variables and the future flags it dogfoods.",
+      "evidence": [
+        "package.json",
+        "pnpm-workspace.yaml",
+        "crates/turborepo-turbo-json"
+      ]
+    },
+    {
+      "path": "packages/turbo",
+      "role": "The npm package users install: a bin shim plus optional per-platform dependencies that deliver the matching compiled binary.",
+      "evidence": [
+        "packages/turbo/README.md",
+        "packages/turbo-releaser",
+        "version.txt"
+      ]
+    },
+    {
+      "path": "packages/create-turbo",
+      "role": "The create-turbo scaffolder, which copies one of the examples into a new repository and installs it.",
+      "evidence": [
+        "examples/basic",
+        "packages/turbo-workspaces",
+        "packages/turbo-utils"
+      ]
     },
     {
       "path": "packages/turbo-codemod",
-      "role": "Migrations that rewrite turbo.json and package scripts when the configuration format changes.",
-      "evidence": ["packages/turbo-workspaces", "turbo.json"]
+      "role": "Codemod transformations that rewrite turbo.json and package files when a feature is deprecated or the config format changes.",
+      "evidence": [
+        "packages/turbo-codemod/package.json",
+        "test-codemod/turbo.json",
+        "packages/turbo-types"
+      ]
+    },
+    {
+      "path": "apps/docs",
+      "role": "The documentation site behind turborepo.dev: MDX content plus the Next.js app that renders it.",
+      "evidence": [
+        "apps/docs/package.json",
+        "apps/docs/content",
+        "docs/link-checker"
+      ]
+    },
+    {
+      "path": "apps/factory",
+      "role": "An internal Next.js operator app that creates agent workspaces in Vercel Sandboxes and keeps a record and transcript of each one.",
+      "evidence": [
+        "apps/factory/README.md",
+        "apps/factory/package.json",
+        "apps/factory/agent"
+      ]
+    },
+    {
+      "path": "turborepo-tests/integration",
+      "role": "Fixture monorepos, one per behaviour under test, that the Rust integration tests in the turborepo crate run the real binary against.",
+      "evidence": [
+        "turborepo-tests/README.md",
+        "turborepo-tests/integration/fixtures",
+        "crates/turborepo"
+      ]
+    },
+    {
+      "path": "lockfile-tests/fixtures",
+      "role": "About a hundred complete monorepos, each with a recorded lockfile and a meta.json, that check-lockfiles.ts prunes and re-validates.",
+      "evidence": [
+        "lockfile-tests/check-lockfiles.ts",
+        "lockfile-tests/types.ts",
+        "lockfile-tests/runners"
+      ]
+    },
+    {
+      "path": "skills/turborepo",
+      "role": "An in-repo agent skill documenting turbo.json tasks, caching, filtering and boundaries, with a command and reference pages beside it.",
+      "evidence": [
+        "skills/turborepo/SKILL.md",
+        "skills/turborepo/references",
+        "skills/turborepo/command"
+      ]
     }
   ],
   "strengths": [
@@ -148,7 +374,7 @@
   ],
   "concerns": [
     "Fixtures dominate the tree: examples, lockfile-tests, turborepo-tests and apps together outweigh the source by several times, so the top level hides where the code is.",
-    "turborepo-lib is a catch-all crate holding the CLI, run pipeline, engine and hashing while the surrounding crates stay narrow.",
+    "A single run is spread across turborepo-cli, turborepo-run, turborepo-engine, turborepo-task-hash and turborepo-task-executor, so following one command end to end means crossing five crates.",
     "The repository mixes two toolchains, Rust and pnpm JavaScript, so a contributor needs both set up before anything builds."
   ],
   "organizationClarity": 0.76,

@@ -66,26 +66,24 @@
   ],
   "importantModules": [
     {
-      "path": "packages/react-reconciler/src/ReactFiberWorkLoop.js",
-      "role": "The heart of React: schedules, renders and commits fiber work, and decides what can be interrupted.",
+      "path": "packages/react-reconciler",
+      "role": "The fiber core every renderer shares: the work loop that schedules, renders and commits, every built-in hook, and the host config a third party supplies.",
       "evidence": [
-        "packages/react-reconciler/src/ReactFiberLane.js",
-        "packages/react-reconciler/src/ReactFiberBeginWork.js",
-        "packages/react-reconciler/src/ReactFiberCompleteWork.js"
+        "packages/react-reconciler/README.md",
+        "packages/react-reconciler/src/ReactFiberWorkLoop.js",
+        "packages/react-reconciler/src/ReactFiberHooks.js",
+        "packages/react-dom",
+        "packages/react-native-renderer"
       ]
     },
     {
-      "path": "packages/react-reconciler/src/ReactFiberHooks.js",
-      "role": "Every built-in hook, implemented against the fiber currently being rendered.",
-      "evidence": ["packages/react-reconciler/src/ReactFiberBeginWork.js"]
-    },
-    {
-      "path": "packages/react/index.js",
-      "role": "The react package entry point: the component and hook API, deliberately thin over the reconciler.",
+      "path": "packages/react",
+      "role": "The published react package: the component and hook API, context and the JSX runtime entries, deliberately thin because a renderer does the real work.",
       "evidence": [
-        "packages/react/src/ReactBaseClasses.js",
+        "packages/react/index.js",
         "packages/react/index.stable.js",
-        "packages/react/index.experimental.js"
+        "packages/react/jsx-runtime.js",
+        "packages/react/src/ReactBaseClasses.js"
       ]
     },
     {
@@ -94,12 +92,49 @@
       "evidence": ["packages/react-dom/index.js", "packages/react-dom-bindings"]
     },
     {
+      "path": "packages/react-dom-bindings",
+      "role": "The DOM half of the DOM renderer: the fiber host config, the synthetic event system and the DOM server code react-dom links against.",
+      "evidence": [
+        "packages/react-dom-bindings/src",
+        "packages/react-dom",
+        "packages/react-server"
+      ]
+    },
+    {
       "path": "packages/react-server",
       "role": "The server rendering core shared by the Flight and Fizz server bundlers.",
       "evidence": [
         "packages/react-server-dom-webpack",
         "packages/react-server-dom-parcel",
         "packages/react-client"
+      ]
+    },
+    {
+      "path": "packages/react-client",
+      "role": "The client side of the Flight protocol, turning a streaming React model back into elements for the react-server-dom packages.",
+      "evidence": [
+        "packages/react-client/README.md",
+        "packages/react-server",
+        "packages/react-server-dom-webpack"
+      ]
+    },
+    {
+      "path": "packages/react-server-dom-webpack",
+      "role": "Flight bindings for the DOM under Webpack: browser, edge and node client and server entries plus a bundler plugin and a node register hook.",
+      "evidence": [
+        "packages/react-server-dom-webpack/README.md",
+        "packages/react-server-dom-webpack/plugin.js",
+        "packages/react-server-dom-webpack/src",
+        "packages/react-client"
+      ]
+    },
+    {
+      "path": "packages/react-server-dom-turbopack",
+      "role": "The same Flight DOM bindings as the Webpack package, built for Turbopack; one of several bundler-specific Flight packages.",
+      "evidence": [
+        "packages/react-server-dom-turbopack/README.md",
+        "packages/react-server-dom-turbopack/src",
+        "packages/react-server-dom-webpack"
       ]
     },
     {
@@ -116,22 +151,154 @@
       "evidence": ["packages/scheduler/src/SchedulerFeatureFlags.js"]
     },
     {
+      "path": "packages/react-native-renderer",
+      "role": "The React Native host renderer, built on the same reconciler as the DOM renderer.",
+      "evidence": ["packages/react-reconciler/src/ReactFiberWorkLoop.js"]
+    },
+    {
+      "path": "packages/react-noop-renderer",
+      "role": "A renderer with no host environment, used by the team to test and debug fiber without a DOM attached.",
+      "evidence": ["packages/react-noop-renderer/README.md", "packages/react-reconciler"]
+    },
+    {
+      "path": "packages/react-refresh",
+      "role": "The Fast Refresh runtime and Babel plugin that bundler authors wire up so editing a component keeps its state.",
+      "evidence": [
+        "packages/react-refresh/README.md",
+        "packages/react-refresh/babel.js",
+        "packages/react-refresh/runtime.js"
+      ]
+    },
+    {
+      "path": "packages/eslint-plugin-react-hooks",
+      "role": "The published ESLint plugin that enforces the Rules of React, with its own code path analysis and flat-config presets.",
+      "evidence": [
+        "packages/eslint-plugin-react-hooks/README.md",
+        "packages/eslint-plugin-react-hooks/src"
+      ]
+    },
+    {
       "path": "packages/react-devtools-shared",
       "role": "The devtools implementation, shared by the browser extensions and the standalone shell.",
       "evidence": ["packages/react-devtools-extensions", "packages/react-devtools-shell"]
     },
     {
-      "path": "compiler/packages/babel-plugin-react-compiler",
-      "role": "The compiler proper: a Babel plugin that memoises component output automatically.",
+      "path": "packages/react-devtools-extensions",
+      "role": "The Chrome, Firefox and Edge extension builds that package the shared devtools UI for a browser.",
       "evidence": [
-        "compiler/packages/babel-plugin-react-compiler/package.json",
-        "compiler/packages/react-compiler-runtime"
+        "packages/react-devtools-extensions/chrome",
+        "packages/react-devtools-extensions/firefox",
+        "packages/react-devtools-shared"
       ]
     },
     {
-      "path": "packages/react-native-renderer",
-      "role": "The React Native host renderer, built on the same reconciler as the DOM renderer.",
-      "evidence": ["packages/react-reconciler/src/ReactFiberWorkLoop.js"]
+      "path": "packages/react-devtools-shell",
+      "role": "A private webpack-served harness of sample apps that react-devtools-inline and react-devtools-shared are developed against, including the e2e and perf pages.",
+      "evidence": [
+        "packages/react-devtools-shell/README.md",
+        "packages/react-devtools-shell/src",
+        "packages/react-devtools-inline",
+        "packages/react-devtools-shared"
+      ]
+    },
+    {
+      "path": "packages/use-sync-external-store",
+      "role": "A backwards-compatible shim for useSyncExternalStore, so store libraries can subscribe on any React version that has hooks.",
+      "evidence": [
+        "packages/use-sync-external-store/README.md",
+        "packages/use-sync-external-store/shim",
+        "packages/use-sync-external-store/with-selector.js"
+      ]
+    },
+    {
+      "path": "packages/react-test-renderer",
+      "role": "A renderer that produces plain JavaScript objects instead of DOM nodes; deprecated as of React 19 in favour of jsdom-based tests.",
+      "evidence": ["packages/react-test-renderer/README.md", "packages/react-reconciler"]
+    },
+    {
+      "path": "packages/internal-test-utils",
+      "role": "Private helpers the test suites depend on: the internal act implementation, console mocks and the jsdom setup.",
+      "evidence": [
+        "packages/internal-test-utils/internalAct.js",
+        "packages/internal-test-utils/ReactInternalTestUtils.js",
+        "scripts/jest"
+      ]
+    },
+    {
+      "path": "compiler/docs",
+      "role": "The compiler's design notes in Markdown: its goals and architecture, the development guide, and the working notes and per-pass plans for the Rust port.",
+      "evidence": [
+        "compiler/docs/DESIGN_GOALS.md",
+        "compiler/docs/DEVELOPMENT_GUIDE.md",
+        "compiler/docs/rust-port",
+        "compiler/crates"
+      ]
+    },
+    {
+      "path": "compiler/packages",
+      "role": "The compiler workspace: the Babel plugin that memoises component output, an ESLint plugin, the runtime, a healthcheck CLI, the snap runner and an editor server.",
+      "evidence": [
+        "compiler/packages/babel-plugin-react-compiler",
+        "compiler/packages/react-compiler-healthcheck",
+        "compiler/packages/snap",
+        "compiler/packages/react-forgive",
+        "compiler/packages/react-mcp-server"
+      ]
+    },
+    {
+      "path": "compiler/crates",
+      "role": "A Rust port of the compiler as react_compiler_* crates for AST, HIR, SSA, inference, optimization and validation, scored against the JS fixtures.",
+      "evidence": [
+        "compiler/crates/TODO.md",
+        "compiler/crates/react_compiler_hir",
+        "compiler/crates/react_compiler_ssa",
+        "compiler/Cargo.toml"
+      ]
+    },
+    {
+      "path": "compiler/scripts",
+      "role": "Scripts for the compiler workspace: npm release publishing, ESLint rule doc generation, HIR and error debug printers, and the Rust-versus-TypeScript port diffs.",
+      "evidence": [
+        "compiler/scripts/release",
+        "compiler/scripts/build-eslint-docs.js",
+        "compiler/scripts/test-rust-port.ts",
+        "compiler/crates"
+      ]
+    },
+    {
+      "path": "scripts/rollup",
+      "role": "The Rollup build: the bundle manifest, the per-release-channel builds, and the packaging and validation steps that produce npm tarballs.",
+      "evidence": [
+        "scripts/rollup/bundles.js",
+        "scripts/rollup/build.js",
+        "scripts/rollup/build-all-release-channels.js",
+        "scripts/rollup/packaging.js"
+      ]
+    },
+    {
+      "path": "scripts/bench",
+      "role": "The benchmark runner: it builds the local and merge-base bundles, serves four sample apps and measures each with Lighthouse, then prints both sets of timings.",
+      "evidence": [
+        "scripts/bench/README.md",
+        "scripts/bench/benchmarks",
+        "scripts/bench/runner.js",
+        "scripts/bench/benchmark.js"
+      ]
+    },
+    {
+      "path": "scripts/release",
+      "role": "The manual release path: build, check dependencies, prepare a build from CI and publish; most releases are prereleases shipped by CI instead.",
+      "evidence": [
+        "scripts/release/README.md",
+        "scripts/release/build-release.js",
+        "scripts/release/publish.js",
+        "scripts/release/prepare-release-from-ci.js"
+      ]
+    },
+    {
+      "path": "ReactVersions.js",
+      "role": "The single source of truth for publishing: the React version, the canary channel label and the version of every stable package.",
+      "evidence": ["scripts/release", "scripts/rollup", "packages/react/package.json"]
     }
   ],
   "strengths": [

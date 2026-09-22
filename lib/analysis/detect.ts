@@ -256,7 +256,13 @@ export function detectCi(snapshot: RepositorySnapshot): RepoMetrics["ci"] {
     .slice(0, CI_RUN_WINDOW);
 
   if (considered.length === 0) {
-    return { state: "unknown", provider: "github-actions", failureRate: 0, recentRuns: 0 };
+    return {
+      state: "unknown",
+      provider: "github-actions",
+      failureRate: 0,
+      recentRuns: 0,
+      workflows: snapshot.workflows.length,
+    };
   }
 
   const isSuccess = (conclusion: string | null): boolean =>

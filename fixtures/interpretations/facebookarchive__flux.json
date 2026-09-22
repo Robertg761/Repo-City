@@ -54,67 +54,267 @@
       "sourcePath": "/dist",
       "name": "The Loading Dock",
       "purpose": "Pre-built browser bundles committed to the repository alongside the source.",
-      "evidence": ["dist/Flux.js", "dist/Flux.min.js", "dist/FluxUtils.js"]
+      "evidence": [
+        "dist/Flux.js",
+        "dist/Flux.min.js",
+        "dist/FluxUtils.js"
+      ]
     },
     {
       "sourcePath": "/scripts",
       "name": "The Works Yard",
       "purpose": "The small build and release helpers driven by the Gulpfile.",
-      "evidence": ["scripts", "Gulpfile.js", "package.json"]
+      "evidence": [
+        "scripts",
+        "Gulpfile.js",
+        "package.json"
+      ]
     },
     {
       "sourcePath": "/.github",
       "name": "Civic Offices",
       "purpose": "A single Node workflow, the last automation the project ran.",
-      "evidence": [".github/workflows/node.js.yml"]
+      "evidence": [
+        ".github/workflows/node.js.yml"
+      ]
     }
   ],
   "importantModules": [
     {
       "path": "src/Dispatcher.js",
       "role": "The whole idea in one file: registered callbacks, single dispatch, and waitFor to order store updates.",
-      "evidence": ["src/__tests__/Dispatcher-test.js", "docs/Dispatcher.md"]
+      "evidence": [
+        "src/__tests__/Dispatcher-test.js",
+        "docs/Dispatcher.md",
+        "index.js"
+      ]
     },
     {
       "path": "src/stores/FluxStore.js",
       "role": "The store base class: registers with a dispatcher, tracks change state and emits to subscribers.",
-      "evidence": ["src/stores/__tests__/FluxStore-test.js", "src/utils/abstractMethod.js"]
+      "evidence": [
+        "src/utils/abstractMethod.js",
+        "docs/Flux-Utils.md",
+        "utils.js"
+      ]
     },
     {
       "path": "src/stores/FluxReduceStore.js",
       "role": "A store defined as a reduce over actions, the shape most later state libraries adopted.",
-      "evidence": ["src/stores/__tests__/FluxReduceStore-test.js", "docs/Flux-Utils.md"]
+      "evidence": [
+        "src/stores/FluxStore.js",
+        "docs/Flux-Utils.md"
+      ]
     },
     {
       "path": "src/container/FluxContainer.js",
       "role": "Wraps a React component so it re-renders when the stores it declares change.",
       "evidence": [
         "src/container/FluxContainerSubscriptions.js",
-        "src/container/__tests__/FluxContainer-test.js"
+        "docs/Flux-Utils.md",
+        "utils.js"
+      ]
+    },
+    {
+      "path": "src/container/FluxContainerSubscriptions.js",
+      "role": "The bookkeeping behind a container: swaps listeners when the store list changes and groups them so state is recalculated once per dispatch.",
+      "evidence": [
+        "src/container/FluxContainer.js",
+        "src/FluxStoreGroup.js"
       ]
     },
     {
       "path": "src/FluxStoreGroup.js",
-      "role": "Batches a set of stores so listeners are told once after all of them have updated.",
-      "evidence": ["src/__tests__/FluxStoreGroup-test.js"]
+      "role": "Registers one callback that waits for every store in a group, so a listener fires once per dispatch after all of them have updated.",
+      "evidence": [
+        "src/__tests__/FluxStoreGroup-test.js",
+        "src/Dispatcher.js"
+      ]
     },
     {
       "path": "src/FluxMixinLegacy.js",
       "role": "The pre-container mixin API, kept for components written before FluxContainer existed.",
-      "evidence": ["src/container/FluxContainer.js"]
+      "evidence": [
+        "src/container/FluxContainer.js",
+        "src/FluxStoreGroup.js",
+        "utils.js"
+      ]
+    },
+    {
+      "path": "src/utils/abstractMethod.js",
+      "role": "One helper the store classes share: raises an invariant naming the method a subclass was supposed to override.",
+      "evidence": [
+        "src/stores/FluxStore.js",
+        "src/stores/FluxReduceStore.js"
+      ]
+    },
+    {
+      "path": "utils.js",
+      "role": "The flux/utils entry point: re-exports Container, Mixin, ReduceStore and Store from the compiled lib directory.",
+      "evidence": [
+        "src/stores/FluxStore.js",
+        "src/container/FluxContainer.js",
+        "docs/Flux-Utils.md"
+      ]
     },
     {
       "path": "index.js",
-      "role": "The package entry point that re-exports the dispatcher and the utils surface.",
-      "evidence": ["utils.js", "package.json"]
+      "role": "The package main, which exports only Dispatcher from the compiled lib directory; the store classes come from flux/utils instead.",
+      "evidence": [
+        "utils.js",
+        "package.json",
+        "src/Dispatcher.js"
+      ]
     },
     {
-      "path": "examples/flux-todomvc",
-      "role": "The reference application: actions, dispatcher, stores and containers laid out as the docs describe.",
+      "path": "package.json",
+      "role": "Version 4.0.4, depending only on fbemitter and fbjs with React as a peer; build runs gulp and test runs jest.",
       "evidence": [
-        "examples/flux-todomvc/src/data/TodoActions.js",
-        "examples/flux-todomvc/src/containers/AppContainer.js",
+        "Gulpfile.js",
+        "jest.config.js",
+        "index.js"
+      ]
+    },
+    {
+      "path": "src/__tests__/Dispatcher-test.js",
+      "role": "Pins the dispatcher contract: waitFor in both registration orders, dispatch while dispatching, circular waits and unregister.",
+      "evidence": [
+        "src/Dispatcher.js",
+        "jest.config.js"
+      ]
+    },
+    {
+      "path": "jest.config.js",
+      "role": "Test setup: runs only src, resolves the flat module names the sources import, transforms through the local preprocessor and uses jsdom.",
+      "evidence": [
+        "scripts/jest/preprocessor.js",
+        "scripts/jest/environment.js"
+      ]
+    },
+    {
+      "path": "scripts/jest/preprocessor.js",
+      "role": "Compiles each file through babel with the shared default options before Jest runs it.",
+      "evidence": [
+        "scripts/babel/default-options.js",
+        "jest.config.js"
+      ]
+    },
+    {
+      "path": "scripts/babel/default-options.js",
+      "role": "The babel-preset-fbjs settings shared by build and tests: rewrites module names such as invariant and strips __DEV__ code.",
+      "evidence": [
+        "Gulpfile.js",
+        "scripts/jest/preprocessor.js"
+      ]
+    },
+    {
+      "path": "scripts/jest/environment.js",
+      "role": "Sets the global __DEV__ flag to true so the development-only invariants run during tests.",
+      "evidence": [
+        "jest.config.js",
+        "src/FluxStoreGroup.js"
+      ]
+    },
+    {
+      "path": "Gulpfile.js",
+      "role": "The build: babel-compiles src into lib, then webpacks index.js and utils.js into UMD bundles in dist with a version header.",
+      "evidence": [
+        "scripts/babel/default-options.js",
+        "dist/Flux.js",
+        "package.json"
+      ]
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "Release notes from 2.1.0 to 4.0.3, including the FluxMapStore removal in 3.0.0 and the fbjs 3.0.1 upgrade that closed CVE-2021-27292.",
+      "evidence": [
+        "package.json",
+        "README.md",
+        "src/stores/FluxReduceStore.js"
+      ]
+    },
+    {
+      "path": "docs/In-Depth-Overview.md",
+      "role": "The long-form explanation of the architecture: actions, dispatcher, stores and views arranged as a unidirectional cycle.",
+      "evidence": [
+        "docs/Overview.md",
+        "docs/Dispatcher.md"
+      ]
+    },
+    {
+      "path": "docs/Dispatcher.md",
+      "role": "The dispatcher reference: how it differs from pub-sub, plus register, unregister, waitFor, dispatch and isDispatching.",
+      "evidence": [
+        "src/Dispatcher.js"
+      ]
+    },
+    {
+      "path": "docs/Flux-Utils.md",
+      "role": "Reference for the three classes in flux/utils, Store, ReduceStore and Container, stated as a starting point rather than a framework.",
+      "evidence": [
+        "utils.js",
+        "src/stores/FluxReduceStore.js",
+        "src/container/FluxContainer.js"
+      ]
+    },
+    {
+      "path": "examples/README.md",
+      "role": "The reading order for the examples, from concepts through TodoMVC, testing, Flow and the async application.",
+      "evidence": [
+        "examples/flux-concepts/README.md",
         "examples/flux-todomvc/README.md"
+      ]
+    },
+    {
+      "path": "examples/flux-todomvc/README.md",
+      "role": "The tutorial itself: six numbered steps that build TodoMVC from the flux-shell starter, adding dispatcher, actions, store, container and views in turn.",
+      "evidence": [
+        "examples/flux-todomvc/src/data/TodoDispatcher.js",
+        "examples/flux-todomvc/src/data/TodoStore.js",
+        "examples/README.md"
+      ]
+    },
+    {
+      "path": "examples/flux-async/server/app.js",
+      "role": "The example's Express backend: todos in a JSON file, a forced 250-2000ms delay and a 25% error rate, so the client has to cope with slow, failing calls.",
+      "evidence": [
+        "examples/flux-async/README.md",
+        "examples/flux-async/src/data_managers/TodoAPI.js",
+        "examples/flux-async/package.json"
+      ]
+    },
+    {
+      "path": "examples/flux-concepts/README.md",
+      "role": "The code-free introduction to dispatcher, store, action and view, and why the data flow only goes one way.",
+      "evidence": [
+        "examples/README.md",
+        "docs/In-Depth-Overview.md"
+      ]
+    },
+    {
+      "path": "website/docusaurus.config.js",
+      "role": "Configuration for the published documentation site, including the banner announcing that the project is archived.",
+      "evidence": [
+        "website/sidebars.js",
+        "website/package.json",
+        "docs/Overview.md"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "role": "Contribution rules: branch from master, complete the Facebook CLA, and follow the code conventions of semicolons, two-space indent and 80-column lines.",
+      "evidence": [
+        "CODE_OF_CONDUCT.md",
+        "README.md",
+        "package.json"
+      ]
+    },
+    {
+      "path": "README.md",
+      "role": "The landing page, which opens with the archive notice pointing readers at Redux, MobX, Recoil, Zustand or Jotai.",
+      "evidence": [
+        "docs/Overview.md",
+        "CHANGELOG.md"
       ]
     }
   ],

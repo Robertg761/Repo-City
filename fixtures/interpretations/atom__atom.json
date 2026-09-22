@@ -95,51 +95,219 @@
     {
       "path": "src/atom-environment.js",
       "role": "The global atom object: it wires together config, commands, packages, the workspace and every registry.",
-      "evidence": ["src/initialize-application-window.js", "exports/atom.js"]
+      "evidence": [
+        "src/initialize-application-window.js",
+        "exports/atom.js"
+      ]
     },
     {
       "path": "src/text-editor.js",
       "role": "The editor model: buffers, cursors, selections and decorations, independent of how it is drawn.",
-      "evidence": ["src/text-editor-component.js", "src/text-editor-registry.js"]
+      "evidence": [
+        "src/text-editor-component.js",
+        "src/text-editor-registry.js"
+      ]
     },
     {
       "path": "src/text-editor-component.js",
       "role": "The rendering half of the editor, which draws the model into the custom element.",
-      "evidence": ["src/text-editor-element.js"]
+      "evidence": [
+        "src/text-editor-element.js"
+      ]
     },
     {
       "path": "src/workspace.js",
       "role": "Panes, docks and the item model behind everything the user sees in the window.",
-      "evidence": ["src/workspace-element.js", "src/workspace-center.js"]
+      "evidence": [
+        "src/workspace-element.js",
+        "src/workspace-center.js"
+      ]
     },
     {
       "path": "src/package-manager.js",
       "role": "Loads, activates and deactivates packages; the mechanism that made the editor hackable.",
-      "evidence": ["packages/welcome", "src/config.js"]
+      "evidence": [
+        "packages/welcome",
+        "src/config.js"
+      ]
     },
     {
-      "path": "src/main-process/atom-application.js",
-      "role": "The Electron main process: window lifecycle, protocol handling, menus and auto-update.",
+      "path": "src/main-process",
+      "role": "The Electron main process: AtomApplication and window lifecycle, the command line parser, menus, the atom:// protocol, file recovery and auto-update.",
       "evidence": [
-        "src/main-process/main.js",
+        "src/main-process/atom-application.js",
         "src/main-process/atom-window.js",
-        "src/main-process/auto-update-manager.js"
+        "src/main-process/parse-command-line.js",
+        "src/main-process/auto-update-manager.js",
+        "spec/main-process"
       ]
     },
     {
       "path": "src/tree-sitter-language-mode.js",
       "role": "Tree-sitter powered syntax highlighting and indentation, the later of the two grammar engines.",
-      "evidence": ["src/tree-sitter-grammar.js", "src/tree-indenter.js"]
+      "evidence": [
+        "src/tree-sitter-grammar.js",
+        "src/tree-indenter.js"
+      ]
     },
     {
       "path": "src/config.js",
       "role": "The settings system: schema, defaults, scoped overrides and persistence.",
-      "evidence": ["src/config-schema.js", "src/config-file.js"]
+      "evidence": [
+        "src/config-schema.js",
+        "src/config-file.js"
+      ]
+    },
+    {
+      "path": "src/grammar-registry.js",
+      "role": "Holds every loaded grammar and picks one per file, choosing between the TextMate and tree-sitter language modes; exposed as atom.grammars.",
+      "evidence": [
+        "src/text-mate-language-mode.js",
+        "src/tree-sitter-grammar.js",
+        "src/null-grammar.js",
+        "spec/grammar-registry-spec.js"
+      ]
+    },
+    {
+      "path": "src/text-mate-language-mode.js",
+      "role": "The older grammar engine: it tokenises lines with oniguruma regexes into the scoped tokens highlighting is driven from.",
+      "evidence": [
+        "src/tokenized-line.coffee",
+        "src/token-iterator.js",
+        "src/first-mate-helpers.js"
+      ]
+    },
+    {
+      "path": "src/command-registry.js",
+      "role": "Associates listener functions with namespace:action commands through CSS selectors; keybindings and the command palette both resolve against it.",
+      "evidence": [
+        "keymaps/base.cson",
+        "src/window-event-handler.js",
+        "spec/command-registry-spec.js"
+      ]
+    },
+    {
+      "path": "src/project.js",
+      "role": "The open project: its root directories, the directory providers that supply them and the git repositories behind them; exposed as atom.project.",
+      "evidence": [
+        "src/default-directory-provider.coffee",
+        "src/git-repository-provider.js",
+        "spec/project-spec.js"
+      ]
+    },
+    {
+      "path": "src/pane.js",
+      "role": "One pane: an ordered list of items with one active item and at most one pending item, which is what the tab bar is drawn from.",
+      "evidence": [
+        "src/pane-container.js",
+        "src/pane-axis.js",
+        "src/pane-element.js"
+      ]
+    },
+    {
+      "path": "src/dock.js",
+      "role": "The left, right and bottom docks: edge containers that hold pane items and can be resized, animated open or hidden.",
+      "evidence": [
+        "src/workspace.js",
+        "src/pane-container.js",
+        "static/core-ui/docks.less"
+      ]
+    },
+    {
+      "path": "src/view-registry.js",
+      "role": "Maps model objects to views through registered view providers, which is how a pane item becomes a DOM element.",
+      "evidence": [
+        "src/workspace-element.js",
+        "src/pane-element.js",
+        "src/text-editor-element.js"
+      ]
+    },
+    {
+      "path": "src/theme-manager.js",
+      "role": "Loads and activates UI and syntax themes and compiles their Less through a cache; exposed as atom.themes.",
+      "evidence": [
+        "src/theme-package.js",
+        "src/less-compile-cache.coffee",
+        "packages/one-dark-ui"
+      ]
+    },
+    {
+      "path": "src/style-manager.js",
+      "role": "The registry of active style sheets that atom-styles elements subscribe to and clone into their own contexts; exposed as atom.styles.",
+      "evidence": [
+        "src/styles-element.js",
+        "src/deprecated-syntax-selectors.js",
+        "static/atom.less"
+      ]
+    },
+    {
+      "path": "src/application-delegate.js",
+      "role": "The renderer side of the Electron IPC boundary: window operations, folder pickers and settings updates are forwarded to the main process here.",
+      "evidence": [
+        "src/ipc-helpers.js",
+        "src/get-window-load-settings.js",
+        "src/main-process"
+      ]
+    },
+    {
+      "path": "src/git-repository.js",
+      "role": "Wraps git-utils to answer status, diff and head questions for a project directory, dispatching to the right submodule by path.",
+      "evidence": [
+        "src/git-repository-provider.js",
+        "packages/git-diff",
+        "spec/git-repository-spec.js"
+      ]
+    },
+    {
+      "path": "src/path-watcher.js",
+      "role": "Normalises created, modified, deleted and renamed events from the native watchers into per-path subscriptions.",
+      "evidence": [
+        "src/native-watcher-registry.js",
+        "spec/path-watcher-spec.js"
+      ]
     },
     {
       "path": "exports/atom.js",
       "role": "The module every community package required; the stable API boundary of the editor.",
-      "evidence": ["src/atom-environment.js"]
+      "evidence": [
+        "src/atom-environment.js"
+      ]
+    },
+    {
+      "path": "packages/git-diff",
+      "role": "A bundled package that marks lines in the editor gutter added, edited or deleted since the last commit.",
+      "evidence": [
+        "packages/git-diff/package.json",
+        "src/git-repository.js"
+      ]
+    },
+    {
+      "path": "packages/one-dark-ui",
+      "role": "The default UI theme, shipped as an ordinary Atom theme package of Less stylesheets with its own config schema.",
+      "evidence": [
+        "packages/one-dark-ui/package.json",
+        "packages/one-dark-syntax",
+        "static/variables"
+      ]
+    },
+    {
+      "path": "static/core-ui",
+      "role": "Stylesheets for the editor chrome itself: the text editor, panes, docks, panels, cursors, title bar and workspace view.",
+      "evidence": [
+        "static/core-ui/text-editor.less",
+        "static/core-ui/workspace-view.less",
+        "static/core-ui/panes.less",
+        "static/variables"
+      ]
+    },
+    {
+      "path": "static/atom-ui",
+      "role": "The shared UI component stylesheets bundled with the app, documented for theme authors in their own README.",
+      "evidence": [
+        "static/atom-ui/README.md",
+        "static/atom-ui/styles",
+        "static/atom.less"
+      ]
     },
     {
       "path": "script/lib",
@@ -148,6 +316,25 @@
         "script/lib/clean-dependencies.js",
         "script/lib/check-chromedriver-version.js",
         "script/verify-snapshot-script"
+      ]
+    },
+    {
+      "path": "script/vsts",
+      "role": "The Azure Pipelines definitions that build, lint and release the app, with per-platform templates and artifact upload steps.",
+      "evidence": [
+        "script/vsts/lint.yml",
+        "script/vsts/nightly-release.yml",
+        "script/vsts/platforms",
+        "script/vsts/upload-artifacts.js"
+      ]
+    },
+    {
+      "path": "spec/fixtures",
+      "role": "The fixture library the Jasmine suite loads: sample source files in each supported language, sample packages and prepared directories.",
+      "evidence": [
+        "spec/fixtures/sample.js",
+        "spec/fixtures/packages",
+        "spec/helpers"
       ]
     }
   ],
