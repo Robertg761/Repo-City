@@ -15,8 +15,25 @@
  *     flattering number, or describes something the analysis did not measure.
  */
 
-import type { BuildingPlan, RepoAnalysis } from "@/types/analysis";
-import type { CityModel, EntityKind, LandmarkType } from "@/types/city";
+import {
+  pullModifiers,
+  wantsVolunteer,
+  type PullModifier,
+  type PullModifierId,
+} from "@/lib/analysis/forms";
+import { entityById } from "@/lib/city/entityIndex";
+import { INCIDENT_FORM_LABEL, WORKS_FORM_LABEL } from "@/lib/city/entities";
+import type { BuildingPlan, RankedPull, RepoAnalysis } from "@/types/analysis";
+import type {
+  CityModel,
+  ConstructionSite,
+  EntityKind,
+  Incident,
+  Landmark,
+  LandmarkType,
+  Overflow,
+  OverflowCount,
+} from "@/types/city";
 
 export interface EntityFact {
   label: string;
@@ -47,6 +64,11 @@ export interface ResolvedEntity {
   tooltip: string;
 }
 
+/**
+ * Fallback header words, for a landmark without a title. The generator writes
+ * the header word into `landmark.title` (the civic one follows the tier:
+ * VILLAGE CHAPEL, TOWN HALL, CITY HALL), and that is what the header shows.
+ */
 const LANDMARK_LABELS: Record<LandmarkType, string> = {
   power: "POWER GRID",
   fire: "FIRE STATION",
@@ -268,11 +290,255 @@ function districtFacts(
   return facts;
 }
 
+
+// ---------------------------------------------------------------------------
+// The crowd and the queue (PLAN.md 76.9 and 76.10)
+// ---------------------------------------------------------------------------
+
+/** At most this many touched files are listed for a crowd pull request. */
+export const MAX_TOUCHED_FILES = 5;
+
+const CHECKS_LABELS: Record<NonNullable<RankedPull["checks"]>, string> = {
+  passing: "Passing",
+  failing: "Failing",
+  pending: "Running",
+};
+
+const REVIEW_LABELS: Record<NonNullable<RankedPull["review"]>, string> = {
+  approved: "Approved",
+  "changes-requested": "Changes requested",
+  "review-required": "Waiting for review",
+};
+
+/** What each signal adds to the object in the street, so the facts teach the legend. */
+const SIGNAL_PROPS: Partial<Record<PullModifier["prop"], string>> = {
+  "alarm-beacon": "red beacon",
+  "stop-board": "stop board",
+  "green-flag": "green flag",
+};
+
+/** GitHub's own page for an issue or a pull request, built from the repository URL. */
+function itemUrl(
+  analysis: RepoAnalysis | null,
+  kind: "issues" | "pull",
+  number: number,
+  fallback: string | null,
+): string | null {
+  const repo = analysis?.repo.url;
+  return repo ? `${repo}/${kind}/${number}` : fallback;
+}
+
+function crowdIncident(
+  incident: Incident,
+  analysis: RepoAnalysis | null,
+  now: number,
+): ResolvedEntity {
+  const issue = incident.issue;
+  const form = incident.form ?? issue.form ?? "pothole";
+  const formLabel = INCIDENT_FORM_LABEL[form];
+  const state = INCIDENT_STATE_LABELS[incident.state] ?? incident.state;
+  const facts: EntityFact[] = [
+    { label: "State", value: state },
+    { label: "Open", value: plural(daysBetween(issue.createdAt, now), "day") },
+    { label: "Last activity", value: relativeDays(issue.updatedAt, now) },
+    { label: "Comments", value: plural(issue.comments, "comment") },
+  ];
+  // Unknown is left out, not shown as zero: a demoted hero from an older
+  // analysis never had its reactions read.
+  if (issue.reactions !== undefined) {
+    facts.push({ label: "Reactions", value: plural(issue.reactions, "reaction") });
+  }
+  if (issue.author) facts.push({ label: "Reported by", value: issue.author });
+  if (wantsVolunteer(issue.labels)) {
+    facts.push({ label: "Volunteers", value: "Marked for anyone to pick up" });
+  }
+  if (issue.relatedPath) {
+    facts.push({
+      label: "Near",
+      value: issue.relatedPath,
+      href: treeLink(analysis, issue.relatedPath),
+    });
+  }
+  return {
+    id: incident.id,
+    kind: "incident",
+    label: "INCIDENT",
+    title: `Issue #${issue.number}`,
+    subtitle: formLabel,
+    // The generator's description packs the facts into a sentence, and the
+    // facts are listed right below it; the issue's own title is what is left.
+    description: issue.title,
+    reason: incident.reason || issue.reason,
+    sourceUrl: itemUrl(analysis, "issues", issue.number, incident.sourceUrl ?? issue.url),
+    facts,
+    tags: issue.labels,
+    tooltip: `${formLabel} · ${issue.title}`,
+  };
+}
+
+function crowdConstruction(
+  site: ConstructionSite,
+  analysis: RepoAnalysis | null,
+  now: number,
+): ResolvedEntity {
+  const pull = site.pull;
+  const form = site.form && site.form !== "site" ? site.form : (pull.form ?? "scaffold");
+  const formLabel = WORKS_FORM_LABEL[form];
+  const state = CONSTRUCTION_STATE_LABELS[site.state] ?? site.state;
+  const props = new Map<PullModifierId, string | undefined>(
+    pullModifiers({ checks: pull.checks, review: pull.review, state: site.state }).map(
+      (modifier) => [modifier.id, SIGNAL_PROPS[modifier.prop]],
+    ),
+  );
+  const withProp = (value: string, id: PullModifierId): string => {
+    const prop = props.get(id);
+    return prop ? `${value}, ${prop}` : value;
+  };
+
+  const facts: EntityFact[] = [{ label: "State", value: state }];
+  if (pull.draft) facts.push({ label: "Draft", value: "Not ready for review" });
+  if (pull.author) facts.push({ label: "Author", value: pull.author });
+  facts.push(
+    { label: "Open", value: plural(daysBetween(pull.createdAt, now), "day") },
+    { label: "Last activity", value: relativeDays(pull.updatedAt, now) },
+    { label: "Comments", value: plural(pull.comments, "comment") },
+  );
+  if (pull.reactions !== undefined) {
+    facts.push({ label: "Reactions", value: plural(pull.reactions, "reaction") });
+  }
+  // Absent or null means enrichment never ran for this pull request, which
+  // is not the same as "no checks", so the fact is left out rather than
+  // guessed (section 12).
+  if (pull.checks) {
+    facts.push({ label: "CI", value: withProp(CHECKS_LABELS[pull.checks], "checks-failing") });
+  }
+  if (pull.review) {
+    const id = pull.review === "approved" ? "approved" : "changes-requested";
+    facts.push({ label: "Review", value: withProp(REVIEW_LABELS[pull.review], id) });
+  }
+
+  const files = (pull.files ?? []).slice(0, MAX_TOUCHED_FILES);
+  files.forEach((path, i) => {
+    facts.push({ label: i === 0 ? "Touches" : "", value: path, href: treeLink(analysis, path) });
+  });
+  const more = Math.max(pull.changedFiles ?? 0, pull.files?.length ?? 0) - files.length;
+  if (files.length > 0 && more > 0) {
+    const page = itemUrl(analysis, "pull", pull.number, pull.url);
+    facts.push({
+      label: "",
+      value: `and ${plural(more, "more file")}`,
+      href: page ? `${page}/files` : undefined,
+    });
+  }
+  if (pull.relatedPath) {
+    facts.push({ label: "Near", value: pull.relatedPath, href: treeLink(analysis, pull.relatedPath) });
+  }
+
+  return {
+    id: site.id,
+    kind: "construction",
+    label: "CONSTRUCTION",
+    title: `Pull Request #${pull.number}`,
+    subtitle: formLabel,
+    description: pull.title,
+    reason: site.reason || pull.reason,
+    sourceUrl: itemUrl(analysis, "pull", pull.number, site.sourceUrl ?? pull.url),
+    facts,
+    tags: pull.labels,
+    tooltip: `${formLabel} · ${pull.title}`,
+  };
+}
+
+/** "about 21,011" when the totals are estimates, "21,011" when they are counted. */
+export function aboutCount(value: number, exact: boolean): string {
+  return exact ? count(value) : `about ${count(value)}`;
+}
+
+/** Open, drawn and queued rows for one kind of object in the queue. */
+function queueRows(c: OverflowCount, noun: string, exact: boolean): EntityFact[] {
+  if (c.total === 0) return [];
+  return [
+    { label: `${noun} open`, value: aboutCount(c.total, exact) },
+    { label: `${noun} drawn`, value: count(c.drawn) },
+    { label: `${noun} queued`, value: c.hidden === 0 ? "none" : aboutCount(c.hidden, exact) },
+  ];
+}
+
+/** Facts for the queue at the settlement limits. Pure, so it is tested alone. */
+export function overflowFacts(overflow: Overflow, repoUrl: string | null): EntityFact[] {
+  const facts = [
+    ...queueRows(overflow.issues, "Issues", overflow.exact),
+    ...queueRows(overflow.pulls, "PRs", overflow.exact),
+  ];
+  if (repoUrl) {
+    facts.push(
+      { label: "On GitHub", value: "Every open issue", href: `${repoUrl}/issues` },
+      { label: "", value: "Every open pull request", href: `${repoUrl}/pulls` },
+    );
+  }
+  return facts;
+}
+
+function overflowEntity(overflow: Overflow, analysis: RepoAnalysis | null): ResolvedEntity {
+  const repoUrl = analysis?.repo.url ?? null;
+  // The subtitle is "Queue at the town limits"; the header is the same words
+  // in capitals, so it is not repeated under the header.
+  const where = overflow.subtitle || "Queue at the city limits";
+  // The sign (the title) names the issues when any are queued; the second
+  // hover line adds the pull requests behind them, so nothing is left out.
+  const also =
+    overflow.issues.hidden > 0 && overflow.pulls.hidden > 0
+      ? `, with ${aboutCount(overflow.pulls.hidden, overflow.exact)} pull ${
+          overflow.pulls.hidden === 1 ? "request" : "requests"
+        } too`
+      : "";
+  return {
+    id: overflow.id,
+    kind: "overflow",
+    label: where.toUpperCase(),
+    title: overflow.title,
+    subtitle: "",
+    // The generator's description says the same counts in prose, and the
+    // facts below list them; the reason explains which limit hid what.
+    description: "",
+    reason: overflow.reason,
+    sourceUrl: overflow.sourceUrl,
+    facts: overflowFacts(overflow, repoUrl),
+    tags: [],
+    tooltip: `${where}${also}`,
+  };
+}
+
+function landmarkEntity(landmark: Landmark, analysis: RepoAnalysis | null): ResolvedEntity {
+  const label = landmark.title || LANDMARK_LABELS[landmark.landmarkType];
+  // The landmark's own `title` is the header word ("TRANSIT STATION"), so
+  // showing it again under the header said the same thing twice. What it
+  // stands for ("Releases", "GitHub Actions") is the useful line.
+  const sentence = label.charAt(0) + label.slice(1).toLowerCase();
+  return {
+    id: landmark.id,
+    kind: "landmark",
+    label,
+    title: landmark.subtitle || landmark.title,
+    subtitle: "",
+    description: landmark.description,
+    reason: landmark.reason,
+    sourceUrl: landmark.sourceUrl,
+    facts: landmarkFacts(landmark.landmarkType, analysis, landmark.detail),
+    tags: [],
+    tooltip: sentence,
+  };
+}
+
 /**
  * Ids are resolved from the city model, which the store builds for every
  * successful analysis (live, cached and fixture alike), so an id the model
  * does not know belongs to no entity. `analysis` is still read, but only for
  * the facts that come from the metrics rather than from the geometry.
+ *
+ * Lookup goes through the shared entity index (PLAN.md 76.9), which searches
+ * in the order this function used to: heroes, landmarks, buildings, then the
+ * crowd and the queue. Districts are not entities and are searched last.
  */
 export function resolveEntity(
   id: string | null,
@@ -280,7 +546,7 @@ export function resolveEntity(
   analysis: RepoAnalysis | null,
   at?: number,
 ): ResolvedEntity | null {
-  if (!id) return null;
+  if (!id || !city) return null;
 
   // The city is a snapshot, and the "why this exists" sentence beneath the
   // facts was written against `generatedAt` on the server. Measuring the facts
@@ -289,139 +555,123 @@ export function resolveEntity(
   const stamped = analysis ? Date.parse(analysis.generatedAt) : Number.NaN;
   const now = at ?? (Number.isFinite(stamped) ? stamped : Date.now());
 
-  if (city) {
-    const incident = city.incidents.find((entity) => entity.id === id);
-    if (incident) {
-      const issue = incident.issue;
-      const state = INCIDENT_STATE_LABELS[incident.state] ?? incident.state;
-      const facts: EntityFact[] = [
-        { label: "State", value: state },
-        { label: "Open", value: plural(daysBetween(issue.createdAt, now), "day") },
-        { label: "Last activity", value: relativeDays(issue.updatedAt, now) },
-        { label: "Comments", value: plural(issue.comments, "comment") },
-      ];
-      if (issue.author) facts.push({ label: "Reported by", value: issue.author });
-      // The labels themselves render as chips below the facts; repeating them
-      // here as a comma list said the same thing twice.
-      if (issue.relatedPath) {
-        facts.push({
-          label: "Near",
-          value: issue.relatedPath,
-          href: treeLink(analysis, issue.relatedPath),
-        });
-      }
-      return {
-        id,
-        kind: "incident",
-        label: "INCIDENT",
-        title: issue.title,
-        subtitle: `Issue #${issue.number}`,
-        description: issue.bodyExcerpt,
-        reason: incident.reason || issue.reason,
-        sourceUrl: incident.sourceUrl ?? issue.url,
-        facts,
-        tags: issue.labels,
-        tooltip: `Issue #${issue.number} · ${state}`,
-      };
-    }
+  const entity = entityById(city, id);
 
-    const site = city.constructionSites.find((entity) => entity.id === id);
-    if (site) {
-      const pull = site.pull;
-      const state = CONSTRUCTION_STATE_LABELS[site.state] ?? site.state;
-      const facts: EntityFact[] = [{ label: "State", value: state }];
-      if (pull.draft) facts.push({ label: "Draft", value: "Not ready for review" });
-      if (pull.author) facts.push({ label: "Author", value: pull.author });
-      facts.push(
-        { label: "Opened", value: relativeDays(pull.createdAt, now) },
-        { label: "Updated", value: relativeDays(pull.updatedAt, now) },
-        {
-          label: "Merged",
-          value: pull.mergedAt ? relativeDays(pull.mergedAt, now) : "not merged yet",
-        },
-      );
-      if (pull.comments > 0) {
-        facts.push({ label: "Comments", value: plural(pull.comments, "comment") });
-      }
-      return {
-        id,
-        kind: "construction",
-        label: "CONSTRUCTION",
-        title: pull.title,
-        subtitle: `Pull request #${pull.number}`,
-        description: "",
-        reason: site.reason || pull.reason,
-        sourceUrl: site.sourceUrl ?? pull.url,
-        facts,
-        tags: pull.labels,
-        tooltip: `Pull request #${pull.number} · ${state}`,
-      };
+  if (entity?.kind === "incident") {
+    if (entity.lod === "crowd") return crowdIncident(entity, analysis, now);
+    const incident = entity;
+    const issue = incident.issue;
+    const state = INCIDENT_STATE_LABELS[incident.state] ?? incident.state;
+    const facts: EntityFact[] = [
+      { label: "State", value: state },
+      { label: "Open", value: plural(daysBetween(issue.createdAt, now), "day") },
+      { label: "Last activity", value: relativeDays(issue.updatedAt, now) },
+      { label: "Comments", value: plural(issue.comments, "comment") },
+    ];
+    if (issue.author) facts.push({ label: "Reported by", value: issue.author });
+    // The labels themselves render as chips below the facts; repeating them
+    // here as a comma list said the same thing twice.
+    if (issue.relatedPath) {
+      facts.push({
+        label: "Near",
+        value: issue.relatedPath,
+        href: treeLink(analysis, issue.relatedPath),
+      });
     }
+    return {
+      id,
+      kind: "incident",
+      label: "INCIDENT",
+      title: issue.title,
+      subtitle: `Issue #${issue.number}`,
+      description: issue.bodyExcerpt,
+      reason: incident.reason || issue.reason,
+      sourceUrl: incident.sourceUrl ?? issue.url,
+      facts,
+      tags: issue.labels,
+      tooltip: `Issue #${issue.number} · ${state}`,
+    };
+  }
 
-    const landmark = city.landmarks.find((entity) => entity.id === id);
-    if (landmark) {
-      const label = LANDMARK_LABELS[landmark.landmarkType];
-      // The landmark's own `title` is the header word ("TRANSIT STATION"), so
-      // showing it again under the header said the same thing twice. What it
-      // stands for ("Releases", "GitHub Actions") is the useful line.
-      const sentence = label.charAt(0) + label.slice(1).toLowerCase();
-      return {
-        id,
-        kind: "landmark",
-        label,
-        title: landmark.subtitle || landmark.title,
-        subtitle: "",
-        description: landmark.description,
-        reason: landmark.reason,
-        sourceUrl: landmark.sourceUrl,
-        facts: landmarkFacts(landmark.landmarkType, analysis, landmark.detail),
-        tags: [],
-        tooltip: sentence,
-      };
+  if (entity?.kind === "construction") {
+    if (entity.lod === "crowd") return crowdConstruction(entity, analysis, now);
+    const site = entity;
+    const pull = site.pull;
+    const state = CONSTRUCTION_STATE_LABELS[site.state] ?? site.state;
+    const facts: EntityFact[] = [{ label: "State", value: state }];
+    if (pull.draft) facts.push({ label: "Draft", value: "Not ready for review" });
+    if (pull.author) facts.push({ label: "Author", value: pull.author });
+    facts.push(
+      { label: "Opened", value: relativeDays(pull.createdAt, now) },
+      { label: "Updated", value: relativeDays(pull.updatedAt, now) },
+      {
+        label: "Merged",
+        value: pull.mergedAt ? relativeDays(pull.mergedAt, now) : "not merged yet",
+      },
+    );
+    if (pull.comments > 0) {
+      facts.push({ label: "Comments", value: plural(pull.comments, "comment") });
     }
+    return {
+      id,
+      kind: "construction",
+      label: "CONSTRUCTION",
+      title: pull.title,
+      subtitle: `Pull request #${pull.number}`,
+      description: "",
+      reason: site.reason || pull.reason,
+      sourceUrl: site.sourceUrl ?? pull.url,
+      facts,
+      tags: pull.labels,
+      tooltip: `Pull request #${pull.number} · ${state}`,
+    };
+  }
 
-    const building = city.buildings.find((entity) => entity.id === id);
-    if (building) {
-      const district = city.districts.find((d) => d.id === building.districtId);
-      return {
-        id,
-        kind: "building",
-        label: "BUILDING",
-        title: building.title,
-        subtitle: building.subtitle,
-        description: building.description,
-        reason: building.reason,
-        sourceUrl: building.sourceUrl,
-        facts: buildingFacts(building.plan, district?.name ?? null, building.tier, analysis),
-        tags: [],
-        // The curated role is the most useful thing anyone could read on a
-        // hover; the district is the fallback (PLAN.md section 42).
-        tooltip: building.plan.role ?? district?.name ?? building.plan.path,
-      };
-    }
+  if (entity?.kind === "landmark") return landmarkEntity(entity, analysis);
 
-    const district = city.districts.find((entity) => entity.id === id);
-    if (district) {
-      const plan = analysis?.districts.find((d) => d.id === district.id);
-      return {
-        id,
-        kind: "district",
-        label: "DISTRICT",
-        title: district.name,
-        // PLAN.md section 8: a renamed district still shows where it came from.
-        subtitle: district.sourcePath,
-        description: district.purpose ?? district.description,
-        reason:
-          district.reason ||
-          "Top-level directories become districts; their size follows their file count.",
-        sourceUrl: district.sourceUrl,
-        facts: districtFacts(district.sourcePath, district.buildingIds.length, analysis),
-        tags: [],
-        tooltip: plan
-          ? `${district.sourcePath} · ${plural(plan.fileCount, "file")}`
-          : district.sourcePath,
-      };
-    }
+  if (entity?.kind === "overflow") return overflowEntity(entity, analysis);
+
+  if (entity?.kind === "building") {
+    const building = entity;
+    const district = city.districts.find((d) => d.id === building.districtId);
+    return {
+      id,
+      kind: "building",
+      label: "BUILDING",
+      title: building.title,
+      subtitle: building.subtitle,
+      description: building.description,
+      reason: building.reason,
+      sourceUrl: building.sourceUrl,
+      facts: buildingFacts(building.plan, district?.name ?? null, building.tier, analysis),
+      tags: [],
+      // The curated role is the most useful thing anyone could read on a
+      // hover; the district is the fallback (PLAN.md section 42).
+      tooltip: building.plan.role ?? district?.name ?? building.plan.path,
+    };
+  }
+
+  const district = city.districts.find((entry) => entry.id === id);
+  if (district) {
+    const plan = analysis?.districts.find((d) => d.id === district.id);
+    return {
+      id,
+      kind: "district",
+      label: "DISTRICT",
+      title: district.name,
+      // PLAN.md section 8: a renamed district still shows where it came from.
+      subtitle: district.sourcePath,
+      description: district.purpose ?? district.description,
+      reason:
+        district.reason ||
+        "Top-level directories become districts; their size follows their file count.",
+      sourceUrl: district.sourceUrl,
+      facts: districtFacts(district.sourcePath, district.buildingIds.length, analysis),
+      tags: [],
+      tooltip: plan
+        ? `${district.sourcePath} · ${plural(plan.fileCount, "file")}`
+        : district.sourcePath,
+    };
   }
 
   return null;
