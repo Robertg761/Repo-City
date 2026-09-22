@@ -37,6 +37,9 @@ export interface Walker extends Ride {
   /** Seeded offset into the walk cycle, so a crowd does not bob in unison. */
   phase: number;
   colorIndex: number;
+  /** Seeded height, about 1: a crowd is not a row of identical pegs. */
+  height: number;
+  skinIndex: number;
 }
 
 /**
@@ -82,7 +85,9 @@ export function spawnWalkers(
       speed: prng.range(0.75, 1.15),
       side: prng.next() < 0.5 ? 1 : -1,
       phase: prng.range(0, Math.PI * 2),
-      colorIndex: prng.int(0, 7),
+      colorIndex: prng.int(0, PERSON_COLORS.length - 1),
+      height: prng.range(0.88, 1.1),
+      skinIndex: prng.int(0, SKIN_TONES.length - 1),
     });
   }
   return walkers;
@@ -145,6 +150,8 @@ export interface IdleFigure {
   angle: number;
   phase: number;
   colorIndex: number;
+  height: number;
+  skinIndex: number;
 }
 
 /**
@@ -176,7 +183,9 @@ export function idleGroups(landmarks: readonly Landmark[], prng: Prng): IdleFigu
         // Facing roughly back towards the building they are standing outside.
         angle: around + Math.PI + prng.range(-0.5, 0.5),
         phase: prng.range(0, Math.PI * 2),
-        colorIndex: prng.int(0, 7),
+        colorIndex: prng.int(0, PERSON_COLORS.length - 1),
+        height: prng.range(0.88, 1.1),
+        skinIndex: prng.int(0, SKIN_TONES.length - 1),
       });
     }
   }
@@ -194,6 +203,9 @@ export const PERSON_COLORS = [
   "#7a7486",
   "#c2b49a",
 ];
+
+/** Skin tones, held a little muted like everything else in the palette. */
+export const SKIN_TONES = ["#e3c3a4", "#c99f7d", "#a8795a", "#7d5842", "#5c4033"];
 
 /** High-visibility yellow, for the figures working an incident or a site. */
 export const WORKER_YELLOW = "#e6c02f";

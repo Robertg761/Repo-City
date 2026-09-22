@@ -23,6 +23,7 @@ import type { CityModel } from "@/types/city";
 import { desaturate, type SceneAtmosphere } from "./palette";
 import {
   PERSON_COLORS,
+  SKIN_TONES,
   advanceWalker,
   idleGroups,
   spawnWalkers,
@@ -89,13 +90,15 @@ export default function Pedestrians({
       const bob = Math.abs(Math.sin(stride)) * 0.05;
       const sway = Math.sin(stride) * 0.06;
 
-      scratch.position.set(pose.x, PAVEMENT_Y + BODY_Y + bob, pose.z);
+      const tall = walker.height;
+      scratch.position.set(pose.x, PAVEMENT_Y + BODY_Y * tall + bob, pose.z);
       scratch.rotation.set(0, pose.angle, sway);
-      scratch.scale.setScalar(visible);
+      scratch.scale.set(visible, visible * tall, visible);
       scratch.updateMatrix();
       body.setMatrixAt(i, scratch.matrix);
 
-      scratch.position.set(pose.x, PAVEMENT_Y + HEAD_Y + bob, pose.z);
+      scratch.scale.setScalar(visible);
+      scratch.position.set(pose.x, PAVEMENT_Y + HEAD_Y * tall + bob, pose.z);
       scratch.rotation.set(0, pose.angle, 0);
       scratch.updateMatrix();
       head.setMatrixAt(i, scratch.matrix);
@@ -106,13 +109,15 @@ export default function Pedestrians({
       const slot = walkers.length + i;
       // Standing still is not standing rigid: a slow shift of weight.
       const shift = Math.sin(time * 0.9 + figure.phase);
-      scratch.position.set(figure.position[0], PAVEMENT_Y + BODY_Y, figure.position[2]);
+      const tall = figure.height;
+      scratch.position.set(figure.position[0], PAVEMENT_Y + BODY_Y * tall, figure.position[2]);
       scratch.rotation.set(0, figure.angle + shift * 0.12, shift * 0.035);
-      scratch.scale.setScalar(visible);
+      scratch.scale.set(visible, visible * tall, visible);
       scratch.updateMatrix();
       body.setMatrixAt(slot, scratch.matrix);
 
-      scratch.position.set(figure.position[0], PAVEMENT_Y + HEAD_Y, figure.position[2]);
+      scratch.scale.setScalar(visible);
+      scratch.position.set(figure.position[0], PAVEMENT_Y + HEAD_Y * tall, figure.position[2]);
       scratch.rotation.set(0, figure.angle + shift * 0.2, 0);
       scratch.updateMatrix();
       head.setMatrixAt(slot, scratch.matrix);
@@ -124,20 +129,26 @@ export default function Pedestrians({
 
   const colors = useMemo(
     () =>
-      [...walkers, ...idle].map((figure) =>
-        desaturate(PERSON_COLORS[figure.colorIndex % PERSON_COLORS.length], atmosphere.desaturation),
-      ),
+      [...walkers, ...idle].map((figure) => ({
+        clothes: desaturate(
+          PERSON_COLORS[figure.colorIndex % PERSON_COLORS.length],
+          atmosphere.desaturation,
+        ),
+        skin: desaturate(SKIN_TONES[figure.skinIndex % SKIN_TONES.length], atmosphere.desaturation),
+      })),
     [walkers, idle, atmosphere.desaturation],
   );
 
   useEffect(() => {
-    const mesh = bodyRef.current;
-    if (!mesh) return;
-    colors.forEach((hex, i) => {
-      scratchColor.set(hex);
-      mesh.setColorAt(i, scratchColor);
+    const body = bodyRef.current;
+    const head = headRef.current;
+    if (!body || !head) return;
+    colors.forEach(({ clothes, skin }, i) => {
+      body.setColorAt(i, scratchColor.set(clothes));
+      head.setColorAt(i, scratchColor.set(skin));
     });
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (body.instanceColor) body.instanceColor.needsUpdate = true;
+    if (head.instanceColor) head.instanceColor.needsUpdate = true;
   }, [colors]);
 
   if (total === 0) return null;
@@ -155,10 +166,7 @@ export default function Pedestrians({
       </instancedMesh>
       <instancedMesh ref={headRef} args={[undefined, undefined, total]} frustumCulled={false}>
         <sphereGeometry args={[0.15, 7, 5]} />
-        <meshStandardMaterial
-          color={desaturate("#c99f7d", atmosphere.desaturation)}
-          roughness={0.9}
-        />
+        <meshStandardMaterial roughness={0.9} />
       </instancedMesh>
     </group>
   );

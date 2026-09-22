@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_WALKERS,
   PAVEMENT_MARGIN,
+  PERSON_COLORS,
+  SKIN_TONES,
   advanceWalker,
   idleGroups,
   spawnWalkers,
@@ -77,7 +79,7 @@ describe("walkerPose", () => {
   const graph = roadGraph(CROSS);
 
   it("stands clear of the carriageway on either pavement", () => {
-    const base = { t: 0.5, speed: 1, phase: 0, colorIndex: 0, segment: 0, forward: true };
+    const base = { t: 0.5, speed: 1, phase: 0, colorIndex: 0, height: 1, skinIndex: 0, segment: 0, forward: true };
     const right = walkerPose(graph, { ...base, side: 1 });
     const left = walkerPose(graph, { ...base, side: -1 });
     const halfRoad = CROSS[0].width / 2;
@@ -95,6 +97,8 @@ describe("walkerPose", () => {
       side: 1,
       phase: 0,
       colorIndex: 0,
+      height: 1,
+      skinIndex: 0,
     });
     expect(east.angle).toBeCloseTo(Math.PI / 2);
   });
@@ -158,5 +162,23 @@ describe("idleGroups", () => {
       expect(distance).toBeGreaterThanOrEqual(5.8);
       expect(distance).toBeLessThan(12);
     }
+  });
+
+  it("gives every figure a seeded height and skin tone", () => {
+    const figures = idleGroups([landmark("civic", 0, 0)], prngFor("seed", "idle"));
+    for (const figure of figures) {
+      expect(figure.height).toBeGreaterThanOrEqual(0.88);
+      expect(figure.height).toBeLessThan(1.1);
+      expect(SKIN_TONES[figure.skinIndex]).toBeDefined();
+    }
+  });
+});
+
+describe("spawnWalkers looks", () => {
+  it("varies height, clothes and skin across a crowd", () => {
+    const crowd = spawnWalkers(devCity.roads, 60, prngFor("seed", "pedestrians"));
+    expect(new Set(crowd.map((w) => w.height.toFixed(2))).size).toBeGreaterThan(20);
+    expect(new Set(crowd.map((w) => w.skinIndex)).size).toBe(SKIN_TONES.length);
+    for (const walker of crowd) expect(PERSON_COLORS[walker.colorIndex]).toBeDefined();
   });
 });
