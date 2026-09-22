@@ -67,6 +67,8 @@ const PAINT = "#f0f0f0";
 const ROOF = "#ffffff";
 /** A slightly darker panel: the skirt of a bus, the stripe on a van. */
 const PANEL = "#b4b4b4";
+/** Exported so a livery can recolour the panels apart from the paintwork. */
+export const PANEL_SHADE = PANEL;
 const PAINTWORK = new Set([PAINT, ROOF, PANEL]);
 
 /** Everything else is ABSOLUTE: glass is glass whatever colour the car is. */
@@ -219,8 +221,12 @@ function running(spec: BodySpec, bottom: number, bumperY: number, sill = true): 
   return parts;
 }
 
-/** Every body's parts, in its own frame. */
-function bodyParts(kind: VehicleBody): Part[] {
+/**
+ * Every body's parts, in its own frame, unmerged. Exported so the emergency
+ * services can build a police car on the sedan and an ambulance on the van
+ * and have them look like members of the same fleet.
+ */
+export function bodyParts(kind: VehicleBody): Part[] {
   const spec = BODY_SPECS[kind];
   const w = spec.width;
   const h = spec.length / 2;

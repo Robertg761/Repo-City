@@ -19,6 +19,7 @@
 import { BoxGeometry, ConeGeometry, CylinderGeometry, type BufferGeometry } from "three";
 import { desaturate } from "../../palette";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "../props/geometry";
+import { BODY_SPECS, PANEL_SHADE, bodyParts } from "./shapes";
 
 export interface EmergencyLight {
   /** In the vehicle's own frame. */
@@ -42,6 +43,26 @@ const GLASS = "#2f343b";
 const STEEL = "#8b9097";
 const DARK = "#3a3d42";
 
+/**
+ * A fleet body in a service's colours. The fleet's paintwork is flagged as
+ * paint and left near white for the instance colour to fill; an emergency
+ * vehicle is not instanced, so its paint is set here: `shell` for the body,
+ * `panel` for the darker panels (the van's stripe becomes the ambulance's).
+ * Everything else keeps its own colour, desaturated with the city.
+ */
+function repaint(
+  parts: Part[],
+  shell: string,
+  panel: string,
+  shade: (hex: string) => string,
+): Part[] {
+  return parts.map((part) => ({
+    ...part,
+    color: part.paint ? (part.color === PANEL_SHADE ? panel : shell) : shade(part.color),
+    paint: false,
+  }));
+}
+
 /** Four wheels under a chassis of the given wheelbase. */
 function wheels(radius: number, x: number, front: number, rear: number, color = TYRE): Part[] {
   const tyre = new CylinderGeometry(radius, radius, 0.26, 8);
@@ -63,36 +84,28 @@ function partsFor(kind: EmergencyKind, tone: number): Part[] {
   const box = (w: number, h: number, d: number) => new BoxGeometry(w, h, d);
 
   if (kind === "police") {
-    const shell = shade("#f0f2f4");
-    const livery = shade("#2f4f80");
+    // The fleet's own sedan in white, with a livery band down each flank --
+    // which is what says "police" at the distance this is looked at from --
+    // and a light bar on the roof.
+    const spec = BODY_SPECS.sedan;
     return [
-      { geometry: box(1.25, 0.5, 3.1), color: shell, position: [0, 0.56, 0] },
-      { geometry: box(1.12, 0.46, 1.4), color: shell, position: [0, 0.99, -0.2] },
-      { geometry: box(1.15, 0.24, 1.44), color: shade(GLASS), position: [0, 1.02, -0.2] },
-      // The livery: a band down each flank, which is what says "police" at
-      // the distance this is actually looked at from.
-      { geometry: box(1.27, 0.26, 2.2), color: livery, position: [0, 0.52, 0.1] },
-      { geometry: box(1.27, 0.12, 0.14), color: shade(DARK), position: [0, 0.42, 1.52] },
-      // Light bar: the housing here, the lamps as blinking meshes.
-      { geometry: box(0.94, 0.1, 0.3), color: shade(DARK), position: [0, 1.25, -0.1] },
-      ...wheels(0.26, 0.57, 1.0, 1.0),
+      ...repaint(bodyParts("sedan"), shade("#f0f2f4"), shade("#f0f2f4"), shade),
+      { geometry: box(spec.width + 0.03, 0.14, 1.9), color: shade("#2f4f80"), position: [0, 0.46, 0.05] },
+      { geometry: box(0.94, 0.08, 0.28), color: shade(DARK), position: [0, 1.1, -0.23] },
+      ...wheels(spec.wheelRadius, spec.wheels[0][0], spec.wheels[0][1], -spec.wheels[2][1]),
     ];
   }
 
   if (kind === "ambulance") {
-    const shell = shade("#f4f5f2");
+    // The fleet's van in white, the stripe in red and a cross on each flank.
+    const spec = BODY_SPECS.van;
     const stripe = shade("#c8493c");
     return [
-      { geometry: box(1.35, 1.3, 2.5), color: shell, position: [0, 1.0, -0.55] },
-      { geometry: box(1.3, 0.85, 1.25), color: shell, position: [0, 0.78, 1.35] },
-      { geometry: box(1.32, 0.34, 0.14), color: shade(GLASS), position: [0, 1.02, 1.98] },
-      { geometry: box(1.37, 0.28, 2.3), color: stripe, position: [0, 0.78, -0.55] },
-      // A cross on each flank.
-      { geometry: box(1.4, 0.46, 0.14), color: stripe, position: [0, 1.3, -0.6] },
-      { geometry: box(1.4, 0.14, 0.46), color: stripe, position: [0, 1.3, -0.6] },
-      { geometry: box(1.2, 0.6, 0.1), color: shade(GLASS), position: [0, 1.0, -1.79] },
-      { geometry: box(0.9, 0.1, 0.3), color: shade(DARK), position: [0, 1.7, 0.6] },
-      ...wheels(0.3, 0.6, 1.25, 0.95),
+      ...repaint(bodyParts("van"), shade("#f4f5f2"), stripe, shade),
+      { geometry: box(spec.width + 0.04, 0.42, 0.13), color: stripe, position: [0, 1.24, -0.75] },
+      { geometry: box(spec.width + 0.04, 0.13, 0.42), color: stripe, position: [0, 1.24, -0.75] },
+      { geometry: box(0.9, 0.1, 0.3), color: shade(DARK), position: [0, 1.57, 0.2] },
+      ...wheels(spec.wheelRadius, spec.wheels[0][0], spec.wheels[0][1], -spec.wheels[2][1]),
     ];
   }
 
@@ -192,12 +205,12 @@ function partsFor(kind: EmergencyKind, tone: number): Part[] {
 /** Where each vehicle's lamps sit, in its own frame. */
 export const EMERGENCY_LIGHTS: Record<EmergencyKind, EmergencyLight[]> = {
   police: [
-    { position: [-0.3, 1.36, -0.1], color: "#4f8bff", rate: 3.4, radius: 0.19 },
-    { position: [0.3, 1.36, -0.1], color: "#ff4d4d", rate: 3.4, radius: 0.19 },
+    { position: [-0.3, 1.22, -0.23], color: "#4f8bff", rate: 3.4, radius: 0.19 },
+    { position: [0.3, 1.22, -0.23], color: "#ff4d4d", rate: 3.4, radius: 0.19 },
   ],
   ambulance: [
-    { position: [-0.28, 1.8, 0.6], color: "#4f8bff", rate: 2.8, radius: 0.18 },
-    { position: [0.28, 1.8, 0.6], color: "#4f8bff", rate: 2.4, radius: 0.18 },
+    { position: [-0.28, 1.7, 0.2], color: "#4f8bff", rate: 2.8, radius: 0.18 },
+    { position: [0.28, 1.7, 0.2], color: "#4f8bff", rate: 2.4, radius: 0.18 },
   ],
   fire: [
     { position: [-0.3, 1.6, 1.6], color: "#ff4d4d", rate: 3, radius: 0.2 },
