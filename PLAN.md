@@ -645,7 +645,15 @@ Touch:
 
 * drag = orbit
 * pinch = zoom
+* two-finger drag = pan
 * tap = select
+
+How it should feel: like a map viewer or a city-builder.
+
+* Pan slides the ground under the pointer. It moves the orbit target across the ground, never up into the sky or down under it, so an orbit after a pan still pivots on the city.
+* The wheel zooms towards whatever is under the cursor, not the middle of the screen.
+* A press that moves more than a few pixels before release is a drag, not a click: 5 CSS pixels for a mouse, 10 for a finger or pen. Letting go of an orbit or a pan never selects, clears or flies anywhere.
+* Only a selection, a return to overview or a new city moves the camera by itself. A window resize refits the overview only if the user has not moved the camera since it was framed.
 
 Camera limits:
 
@@ -667,6 +675,8 @@ Clicking something meaningful should:
 3. stop at a useful inspection distance
 4. highlight it
 5. open inspector overlay
+
+The fly-to keeps the compass direction the user is already looking from, and roughly their tilt, and only moves in. It never swings the city round to a fixed corner. The tilt is kept inside a band so the object stays in view: 49 to 69 degrees from overhead for buildings, landmarks and districts, and 26 to 41 degrees, a steeper look down between the blocks, for incidents and construction sites. After a long orbit it takes the short way round. Orbiting after a focus pivots on the object.
 
 Do not load a new scene.
 
