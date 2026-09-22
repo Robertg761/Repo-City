@@ -58,7 +58,7 @@ const PAVER_ROWS = 8;
 
 const MAKERS: Record<SurfaceKind, (size: number) => Pattern> = {
   lawn: (size) => grassPattern(size, { stripes: LAWN_STRIPES, seed: "lawn" }),
-  meadow: (size) => grassPattern(size, { seed: "meadow" }),
+  meadow: (size) => grassPattern(size, { seed: "meadow", mottle: 0.35 }),
   asphalt: (size) => asphaltPattern(size),
   pavers: (size) => paverPattern(size, { columns: PAVER_COLUMNS, rows: PAVER_ROWS }),
   gravel: (size) => gravelPattern(size),

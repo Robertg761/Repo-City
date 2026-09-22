@@ -132,7 +132,11 @@ export default function CityCanvas() {
       // radius and bias in `Lighting.tsx` (PLAN.md section 39).
       shadows={{ type: PCFShadowMap }}
       dpr={[1, 2]}
-      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 2000 }}
+      // The near plane is as far out as the closest camera allows (the orbit
+      // stops ten units from its target). At 0.5 the depth buffer had so little
+      // precision left out on the landscape that the ambient occlusion pass
+      // read the flat grass as bumpy and clouded it over in soft grey patches.
+      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
       // Neutral from the first frame; `Environment` keeps the exposure in step
       // with the hour, and hands the tone mapping to the composer when the
       // quality tier runs one (PLAN.md section 39).
