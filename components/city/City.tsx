@@ -18,6 +18,7 @@ import DistrictGround from "./District";
 import IssueIncident from "./IssueIncident";
 import LandmarkPiece from "./Landmark";
 import Lighting from "./Lighting";
+import Pedestrians from "./Pedestrians";
 import Props from "./Props";
 import Roads from "./Roads";
 import SelectionRing from "./SelectionRing";
@@ -132,6 +133,7 @@ export default function City({
 
       <Props city={city} atmosphere={atmosphere} />
       <Traffic city={city} startAt={trafficStart} atmosphere={atmosphere} />
+      <Pedestrians city={city} startAt={trafficStart} atmosphere={atmosphere} />
 
       <SelectionRing city={city} />
     </RevealContext.Provider>
