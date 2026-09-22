@@ -6,9 +6,10 @@ Hackyard Yard #3 requires an accurate model declaration at submission. Every age
 
 - Claude Fable 5.1 (`claude-fable-5-1`) — plan audit, orchestration, code review, integration, via Synara (Claude Agent SDK)
 - Claude Opus 5 (`claude-opus-5`) — implementation sub-agents for the workstreams in PLAN.md section 72, each in its own git worktree. Also wrote the curated architecture interpretations in `fixtures/interpretations/`, and the presentation and QA documents.
+- Claude Opus 5.5 (`claude-opus-5-5`) — orchestration, review and integration for the second half of the enhancement round (PLAN.md section 75), plus the sub-agents that finished workstreams E2, E3 and E4 in their existing git worktrees.
 - [TO CONFIRM] model used to draft the original plan before kickoff
 
-These two are the only models that touched the code, and the git history is the receipt: every commit carries a `Co-Authored-By` trailer naming the model that wrote it.
+These are the only models that touched the code, and the git history is the receipt: every commit carries a `Co-Authored-By` trailer naming the model that wrote it.
 
 ```bash
 git log --format='%b' | grep -i 'co-authored-by' | sort | uniq -c
