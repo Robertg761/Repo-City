@@ -430,7 +430,9 @@ function crowdConstruction(
       href: page ? `${page}/files` : undefined,
     });
   }
-  if (pull.relatedPath) {
+  // "Near" is where it stands; when that is one of the files just listed,
+  // the same link twice says nothing new.
+  if (pull.relatedPath && !files.includes(pull.relatedPath)) {
     facts.push({ label: "Near", value: pull.relatedPath, href: treeLink(analysis, pull.relatedPath) });
   }
 

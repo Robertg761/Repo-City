@@ -165,6 +165,19 @@ describe("crowd pull requests", () => {
     });
   });
 
+  it("gives Near only when it is not one of the listed files", () => {
+    const listed: ConstructionSite = {
+      ...basePull,
+      pull: { ...basePull.pull, files: ["src/a.ts", "src"], relatedPath: "src" },
+    };
+    expect(fact(listed.id, "Near", withSite(listed))).toBeUndefined();
+    const apart: ConstructionSite = {
+      ...basePull,
+      pull: { ...basePull.pull, files: ["src/a.ts"], relatedPath: "src" },
+    };
+    expect(fact(apart.id, "Near", withSite(apart))).toBe("src");
+  });
+
   it("marks a draft and keeps the hero branch for cranes", () => {
     const draft = crowdPulls.find((s) => s.form === "hoarding");
     if (!draft) throw new Error("no hoarding");
