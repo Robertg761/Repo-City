@@ -3587,6 +3587,12 @@ The metropolis uses today's `planLayout` with metropolis parameters. Treemap sea
 | district label scale `0.72·size` | labels large against cottages | ok | ok | S6 checks in `District.tsx` |
 | inspection distance clamp 140 | ok | ok | 34-unit tower gives 93 | ok |
 
+### Orchestrator rulings after S0 (2026-09-22)
+
+- The city tier stays byte-identical to today, and that beats the city bounds band. `SETTLEMENT_PARAMS.city` keeps today's constants: a district side clamped 56 to 170, and bounds that fall out of today's layout. Size-band tests apply to village, town and metropolis only. Town parameters must keep a typical town smaller than a typical city: a city-tier repository has a footprint of at least 600, and at least 75 buildings.
+- Capped fixture trees floor their footprint at the surveyed files, plus 2 × dirs, plus the capped and deep counts from the warnings (`SettlementInput.footprintFloor`). That keeps turborepo a city and makes vscode a metropolis.
+- Dev loop: type `backlog` in the repository box (dev only) to load `fixtures/backlog.analysis.json`, a metropolis with 984 crowd issues and 490 crowd PRs. `?tier=village|town|city|metropolis` forces the tier for any repository (dev only).
+
 ## 76.6 Ingestion design (S1)
 
 Survey start is T0, the moment `fetchSnapshot` begins. Metadata comes first, as today, and yields `open_issues_count` (issues plus PRs) and `x-ratelimit-remaining`.
