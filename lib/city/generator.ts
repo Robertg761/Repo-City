@@ -32,12 +32,14 @@ import type {
   CityModel,
   ConstructionSite,
   District,
+  FieldPatch,
   Incident,
   Landmark,
   RoadSegment,
   SettlementInfo,
   Vec3,
 } from "@/types/city";
+import { districtForPath, districtForText, placeCrowd, type CrowdResult } from "./backlog.ts";
 import {
   buildingText,
   constructionText,
@@ -66,9 +68,41 @@ import {
   type Rect,
   type Slot,
 } from "./layout.ts";
+import { buildOverflow, overflowTotals, planOverflowSite } from "./overflow.ts";
 import type { Prng } from "./prng.ts";
 import { prngFor, seedFor } from "./seed.ts";
-import { DEFAULT_SETTLEMENT_TIER, settlementName } from "./settlement.ts";
+import {
+  DEFAULT_SETTLEMENT_TIER,
+  SETTLEMENT_PARAMS,
+  settlementName,
+  type SettlementParams,
+} from "./settlement.ts";
+import {
+  boxesOverlap,
+  buildingBox,
+  createIndex,
+  populateSpots,
+  type GroundArea,
+  type OwnedBox,
+} from "./spots.ts";
+
+export { districtForPath, districtForText };
+
+/**
+ * What the layout may carry beyond `CityLayout` once the per-tier layouts land
+ * (PLAN.md 76.5, S3): village fields and an explicit plaza. Read structurally,
+ * so the generator works with or without them.
+ */
+type LayoutExtras = CityLayout & {
+  fields?: FieldPatch[];
+  plaza?: NonNullable<CityModel["plaza"]>;
+};
+
+/**
+ * What a slot may carry beyond `Slot`: a village house faces its lane at
+ * `rotationY`, and a town slot on the high street is `frontage: "main-street"`.
+ */
+type SlotExtras = Slot & { rotationY?: number; frontage?: "main-street" | null };
 
 // ---------------------------------------------------------------------------
 // Limits (PLAN.md section 37) and timings (PLAN.md section 43)
@@ -147,6 +181,27 @@ const NATURAL_SITE = 11;
 /** Natural height of the crane, used to fill in `ConstructionSite.size`. */
 const NATURAL_SITE_HEIGHT = 12.6;
 
+/**
+ * Footprints the crowd keeps clear of, beyond buildings and landmark plots.
+ * A hero site's dressing leans a quarter past its plot (`SITE_FOOTPRINT` in
+ * `components/city/blockages.ts`); a hero incident's scene runs up to ten
+ * units along its road and three across (`INCIDENT_FOOTPRINT`); a tree's
+ * canopy is about 1.6 across; a lamp post is a thin pole.
+ */
+const HERO_SITE_REACH = 1.25;
+const HERO_SCENE: { hw: number; hd: number } = { hw: 3, hd: 10 };
+const TREE_HALF = 0.8;
+const LAMP_HALF = 0.3;
+
+/** The renderer's own plaza inset (`PLAZA_INSET` in `components/city/groundwork.ts`). */
+const PLAZA_INSET = 1.6;
+const PLAZA_SURFACE: Record<SettlementTier, NonNullable<CityModel["plaza"]>["surface"]> = {
+  village: "green",
+  town: "setts",
+  city: "paved",
+  metropolis: "paved",
+};
+
 // ---------------------------------------------------------------------------
 // Generator
 // ---------------------------------------------------------------------------
@@ -182,6 +237,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   const seed = analysis.seed || seedFor(analysis);
   const { metrics, repo } = analysis;
   const settlement = settlementFor(analysis, options.tier);
+  const params = SETTLEMENT_PARAMS[settlement.tier];
 
   // -- Stage 1: districts -------------------------------------------------
   const districtPlans = analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT];
@@ -191,10 +247,11 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   const resolveDistrict = (id: string): string =>
     districtById.has(id) ? id : fallbackDistrictId;
 
-  // Section 37: the city never renders more than 300 buildings.
+  // Section 37, per tier (76.5): a city never renders more than 300
+  // buildings, a village 40, a metropolis 450.
   const allPlans = [...analysis.buildings]
     .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1))
-    .slice(0, LIMITS.buildings);
+    .slice(0, params.buildings.max);
 
   // Root landmark files live in the civic centre, not in their district
   // (PLAN.md section 8). Everything past the reserved civic slots falls back
@@ -245,7 +302,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
       const slot = slots[cursor] ?? fallbackSlot(rect, cursor);
       cursor += 1;
       buildings.push(
-        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng),
+        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng, params),
       );
     }
     usedSlots.set(plan.id, cursor);
@@ -280,6 +337,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
         analysis,
         slotPrng,
         buildingPrng,
+        params,
       ),
     );
   });
@@ -291,12 +349,18 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   }
 
   // -- Stage 6: landmarks --------------------------------------------------
-  const landmarks = placeLandmarks(analysis, layout);
+  const landmarks = placeLandmarks(analysis, layout, settlement.tier);
 
   // -- Stage 7: incidents, then construction -------------------------------
-  const incidents = placeIncidents(analysis, layout, districtPlans, seed);
+  // Heroes per tier (76.5). Whatever the cap leaves out joins the crowd.
+  const rankedIssues = analysis.metrics.issues.ranked;
+  const rankedPulls = analysis.metrics.pulls.ranked;
+  const heroIssues = rankedIssues.slice(0, params.heroes.incidents);
+  const heroPulls = rankedPulls.slice(0, params.heroes.sites);
+  const incidents = placeIncidents(analysis, heroIssues, layout, districtPlans, seed);
   const construction = placeConstruction(
     analysis,
+    heroPulls,
     layout,
     districtPlans,
     buildings,
@@ -308,7 +372,10 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   // Highways are planned after the city so nothing else can be placed on one:
   // incidents, construction and slots all read `layout.roads`, which does not
   // contain them.
-  const highways = planHighways(layout, highwayCount(repo.forks));
+  const highways = planHighways(
+    layout,
+    clamp(highwayCount(repo.forks), params.highways.min, params.highways.max),
+  );
   const trees = placeTrees(
     analysis,
     layout,
@@ -318,8 +385,99 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     usedSlots,
     seed,
     highways,
+    params.trees,
   );
-  const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis)].slice(0, LIMITS.lamps);
+  const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis, params.lamps)].slice(
+    0,
+    params.lamps,
+  );
+
+  // -- Stage 9: the crowd and the queue at the limits (PLAN.md 76.8) -------
+  const extras = layout as LayoutExtras;
+  const plaza = extras.plaza ?? {
+    rect: roundRect(insetBy(layout.civic.rect, PLAZA_INSET)),
+    surface: PLAZA_SURFACE[settlement.tier],
+  };
+  const crowdInput = {
+    demotedIssues: rankedIssues.slice(params.heroes.incidents),
+    demotedPulls: rankedPulls.slice(params.heroes.sites).filter((p) => p.state !== "completed"),
+  };
+  const roads = [...layout.roads, ...highways];
+  const obstacles: OwnedBox[] = [
+    ...landmarks.map((l) => plotOwnedBox(l.id, l.position, l.size ?? NATURAL_LANDMARK_SIZE[l.landmarkType], l.rotationY)),
+    ...construction.map((site) => {
+      const side = (site.size?.[0] ?? NATURAL_SITE) * HERO_SITE_REACH;
+      return plotOwnedBox(site.id, site.position, [side, 0, side], site.rotationY);
+    }),
+    ...incidents.map((incident) => ({
+      x: incident.position[0],
+      z: incident.position[2],
+      ...HERO_SCENE,
+      rot: incident.rotationY,
+      owner: incident.id,
+    })),
+    ...trees.map(([x, , z]) => ({ x, z, hw: TREE_HALF, hd: TREE_HALF, rot: 0, owner: "tree" })),
+    ...lamps.map(([x, , z]) => ({ x, z, hw: LAMP_HALF, hd: LAMP_HALF, rot: 0, owner: "lamp" })),
+  ];
+  const spotIndex = createIndex(roads, buildings, obstacles);
+  const site = planOverflowSite(
+    roads,
+    (box) => spotIndex.statics.hits(box) || spotIndex.carriageways.hits(box),
+  );
+  if (site) spotIndex.statics.insert(site.sign);
+
+  const backlogIssues = metrics.issues.backlog ?? [];
+  const backlogPulls = metrics.pulls.backlog ?? [];
+  const offered =
+    crowdInput.demotedIssues.length +
+    crowdInput.demotedPulls.length +
+    backlogIssues.length +
+    backlogPulls.length;
+  let crowd: CrowdResult | null = null;
+  if (offered > 0) {
+    populateSpots(spotIndex, {
+      roads,
+      buildings,
+      obstacles,
+      lamps,
+      heroes: incidents.map((incident) => ({ x: incident.position[0], z: incident.position[2] })),
+      ground: groundAreas(layout, usedSlots, params, settlement.tier, plaza.rect, extras.fields),
+      reserved: site?.reserved,
+    });
+    crowd = placeCrowd({
+      analysis,
+      tier: settlement.tier,
+      index: spotIndex,
+      buildings,
+      districtPlans,
+      districtCentres: new Map(layout.districts.map((d) => [d.id, { x: d.rect.x, z: d.rect.z }])),
+      heroIncidents: incidents,
+      ...crowdInput,
+      prng: prngFor(seed, "backlog"),
+    });
+  }
+  const crowdIncidents = crowd?.incidents ?? [];
+  const crowdSites = crowd?.constructionSites ?? [];
+  const surveyed = {
+    issues: rankedIssues.length + backlogIssues.length,
+    pulls: rankedPulls.filter((p) => p.state !== "completed").length + backlogPulls.length,
+  };
+  const totals = overflowTotals(
+    analysis,
+    {
+      issues: incidents.length + crowdIncidents.length,
+      pulls: construction.filter((s) => s.state !== "completed").length + crowdSites.length,
+    },
+    surveyed,
+  );
+  const overflow = buildOverflow({
+    site,
+    totals,
+    surveyed,
+    tier: settlement.tier,
+    repoUrl: repo.url,
+    prng: prngFor(seed, "overflow"),
+  });
 
   return {
     repository: { fullName: repo.fullName, url: repo.url, archived: metrics.archived },
@@ -334,17 +492,90 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     landmarks,
     incidents,
     constructionSites: construction,
-    props: { trees, lamps },
+    props: { trees, lamps, ...(extras.fields ? { fields: extras.fields } : {}) },
     vehicles: {
       count: vehicleCount(
         analysis,
         layout.roads.reduce((sum, road) => sum + roadLength(road), 0),
+        params.vehicles.max,
       ),
       visitorShare: visitorShare(repo.stars),
     },
     seed,
     settlement,
+    backlog: { incidents: crowdIncidents, constructionSites: crowdSites },
+    overflow,
+    plaza,
   };
+}
+
+const insetBy = (rect: Rect, by: number): Rect => ({
+  x: rect.x,
+  z: rect.z,
+  w: Math.max(0, rect.w - 2 * by),
+  d: Math.max(0, rect.d - 2 * by),
+});
+
+const roundRect = (rect: Rect): Rect => ({
+  x: round3(rect.x),
+  z: round3(rect.z),
+  w: round3(rect.w),
+  d: round3(rect.d),
+});
+
+function plotOwnedBox(owner: string, position: Vec3, size: Vec3, rotationY: number): OwnedBox {
+  return { x: position[0], z: position[2], hw: size[0] / 2, hd: size[2] / 2, rot: rotationY, owner };
+}
+
+/**
+ * Open ground the crowd may stand on (PLAN.md 76.8, "Ground spots"): every
+ * district slot no building and no hero site took, the village green, the
+ * fields, and the four corners of the landmark band that the compass leaves
+ * empty.
+ */
+function groundAreas(
+  layout: CityLayout,
+  usedSlots: Map<string, number>,
+  params: SettlementParams,
+  tier: SettlementTier,
+  green: Rect,
+  fields: readonly FieldPatch[] | undefined,
+): GroundArea[] {
+  const areas: GroundArea[] = [];
+  for (const district of layout.districts) {
+    const cursor = usedSlots.get(district.id) ?? 0;
+    for (const slot of district.slots.slice(cursor) as SlotExtras[]) {
+      areas.push({
+        x: slot.x,
+        z: slot.z,
+        w: slot.cellW,
+        d: slot.cellD,
+        rotationY: slot.rotationY ?? 0,
+        whole: true,
+      });
+    }
+  }
+  if (tier === "village") areas.push({ ...green, rotationY: 0 });
+  for (const field of fields ?? []) {
+    areas.push({ x: field.x, z: field.z, w: field.w, d: field.d, rotationY: field.rotationY });
+  }
+  if (params.landmarkBand) {
+    const from = layout.districtSide / 2 + params.roads.major.width / 2 + 1;
+    const to = layout.ringRadius - (params.ring?.width ?? params.roads.major.width) / 2 - 1;
+    const side = to - from;
+    if (side >= 3.5) {
+      const centre = (from + to) / 2;
+      for (const [sx, sz] of [
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ]) {
+        areas.push({ x: sx * centre, z: sz * centre, w: side, d: side, rotationY: 0 });
+      }
+    }
+  }
+  return areas;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,13 +594,20 @@ function fallbackSlot(rect: Rect, index: number): Slot {
   };
 }
 
-/** A directory's footprint follows what it holds; a file's follows its tier. */
-function desiredFootprint(plan: BuildingPlan): number {
+/**
+ * A directory's footprint follows what it holds; a file's follows its tier.
+ * Written as a share of the tier's footprint range, arranged so the city row
+ * (4 to 8.5, a range of exactly 4.5, so `k` is exactly 1) evaluates the very
+ * same floating-point expression it always did.
+ */
+function desiredFootprint(plan: BuildingPlan, params: SettlementParams): number {
+  const { min, max } = params.footprint;
+  const k = (max - min) / 4.5;
   const base =
     plan.kind === "directory"
-      ? 5 + 3.5 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40)
-      : MIN_FOOTPRINT + 1.4 * ((plan.tier - 1) / 4);
-  return clamp(base, MIN_FOOTPRINT, MAX_FOOTPRINT);
+      ? min + k + 3.5 * Math.sqrt(Math.min(plan.descendantCount, 40) / 40) * k
+      : min + 1.4 * ((plan.tier - 1) / 4) * k;
+  return clamp(base, min, max);
 }
 
 function makeBuilding(
@@ -377,17 +615,19 @@ function makeBuilding(
   districtPlan: DistrictPlan | undefined,
   districtId: string,
   colorIndex: number,
-  slot: Slot,
+  slot: SlotExtras,
   analysis: RepoAnalysis,
   slotPrng: Prng,
   buildingPrng: Prng,
+  params: SettlementParams,
 ): Building {
-  const base = desiredFootprint(plan);
-  // Footprints stay in the documented 1.6 to 4 band, unless a crowded district
+  const { min, max } = params.footprint;
+  const base = desiredFootprint(plan, params);
+  // Footprints stay in the tier's documented band, unless a crowded district
   // has squeezed the slot cell below that.
   const fit = (cell: number): number => {
-    const wobbled = clamp(base * (1 + buildingPrng.range(-0.08, 0.08)), MIN_FOOTPRINT, MAX_FOOTPRINT);
-    return clamp(Math.min(wobbled, cell - SLOT_GAP), 1.4, MAX_FOOTPRINT);
+    const wobbled = clamp(base * (1 + buildingPrng.range(-0.08, 0.08)), min, max);
+    return clamp(Math.min(wobbled, cell - SLOT_GAP), 1.4, max);
   };
   // A civic plaza slot is a composition, not a parking space: the building
   // fills its square cell, faces the town hall, and stays under the ceiling
@@ -395,14 +635,19 @@ function makeBuilding(
   const civic = slot.facing !== undefined;
   const width = civic ? slot.cellW : fit(slot.cellW);
   const depth = civic ? slot.cellD : fit(slot.cellD);
-  const raw = TIER_HEIGHT[plan.tier] * (1 + buildingPrng.range(-0.15, 0.15));
+  const raw = params.tierHeight[plan.tier] * (1 + buildingPrng.range(-0.15, 0.15));
   const height = Math.min(raw, slot.maxHeight ?? Infinity);
 
   // Jitter stays inside the slot cell, which is what keeps footprints disjoint.
   const freeX = civic ? 0 : Math.max(0, (slot.cellW - width) / 2);
   const freeZ = civic ? 0 : Math.max(0, (slot.cellD - depth) / 2);
-  const x = slot.x + slotPrng.range(-1, 1) * freeX * 0.85;
-  const z = slot.z + slotPrng.range(-1, 1) * freeZ * 0.85;
+  const jx = slotPrng.range(-1, 1) * freeX * 0.85;
+  const jz = slotPrng.range(-1, 1) * freeZ * 0.85;
+  // A village house faces its lane: the cell, and the jitter inside it, turn
+  // with the slot.
+  const turn = slot.rotationY ?? 0;
+  const x = turn === 0 ? slot.x + jx : slot.x + jx * Math.cos(turn) + jz * Math.sin(turn);
+  const z = turn === 0 ? slot.z + jz : slot.z - jx * Math.sin(turn) + jz * Math.cos(turn);
 
   const text = buildingText(plan, districtPlan, analysis.repo);
 
@@ -410,7 +655,7 @@ function makeBuilding(
     id: plan.id,
     kind: "building",
     position: [round3(x), 0, round3(z)],
-    rotationY: slot.facing ?? 0,
+    rotationY: slot.facing ?? (turn === 0 ? 0 : round3(turn)),
     ...text,
     appearAt: 0,
     districtId,
@@ -418,6 +663,7 @@ function makeBuilding(
     tier: plan.tier,
     colorIndex,
     plan,
+    ...(slot.frontage ? { frontage: slot.frontage } : {}),
   };
 }
 
@@ -449,8 +695,12 @@ function assignBuildingReveal(buildings: Building[], districts: District[]): voi
  * the landmark's own frame: the renderer scales its assembly into it, so a
  * landmark can never overlap a building or a road (PLAN.md section 36).
  */
-function placeLandmarks(analysis: RepoAnalysis, layout: CityLayout): Landmark[] {
-  const specs = planLandmarks(analysis);
+function placeLandmarks(
+  analysis: RepoAnalysis,
+  layout: CityLayout,
+  tier: SettlementTier,
+): Landmark[] {
+  const specs = planLandmarks(analysis, tier);
   return specs.map((spec, index) => {
     const plot: LandmarkPlot =
       spec.landmarkType === "civic"
@@ -483,37 +733,6 @@ function placeLandmarks(analysis: RepoAnalysis, layout: CityLayout): Landmark[] 
 // Stage 7: incidents and construction (PLAN.md sections 11 and 13)
 // ---------------------------------------------------------------------------
 
-const normalizePath = (path: string): string => path.replace(/^\/+|\/+$/g, "").toLowerCase();
-
-/** The district a repository path belongs to, or null. */
-export function districtForPath(
-  path: string | null,
-  districts: DistrictPlan[],
-): DistrictPlan | null {
-  if (!path) return null;
-  const target = normalizePath(path);
-  if (!target) return null;
-  let best: DistrictPlan | null = null;
-  for (const district of districts) {
-    const source = normalizePath(district.sourcePath);
-    if (!source) continue;
-    if (target === source || target.startsWith(`${source}/`)) {
-      if (!best || source.length > normalizePath(best.sourcePath).length) best = district;
-    }
-  }
-  return best;
-}
-
-/** The district named by any path-looking token in a free-text string. */
-export function districtForText(text: string, districts: DistrictPlan[]): DistrictPlan | null {
-  const tokens = text.match(/[\w.-]+(?:\/[\w.-]+)+/g) ?? [];
-  for (const token of tokens) {
-    const hit = districtForPath(token, districts);
-    if (hit) return hit;
-  }
-  return null;
-}
-
 /** Rotate an array so a seeded start index becomes the first candidate. */
 function rotate<T>(items: readonly T[], start: number): T[] {
   if (items.length === 0) return [];
@@ -535,11 +754,11 @@ function roadsNear(roads: RoadSegment[], rect: Rect | null): RoadSegment[] {
 
 function placeIncidents(
   analysis: RepoAnalysis,
+  ranked: readonly RankedIssue[],
   layout: CityLayout,
   districtPlans: DistrictPlan[],
   seed: string,
 ): Incident[] {
-  const ranked: RankedIssue[] = analysis.metrics.issues.ranked.slice(0, LIMITS.incidents);
   if (ranked.length === 0) return [];
 
   const prng = prngFor(seed, "incidents");
@@ -612,13 +831,13 @@ function findRoadSpot(
 
 function placeConstruction(
   analysis: RepoAnalysis,
+  ranked: readonly RankedPull[],
   layout: CityLayout,
   districtPlans: DistrictPlan[],
   buildings: Building[],
   usedSlots: Map<string, number>,
   seed: string,
 ): ConstructionSite[] {
-  const ranked: RankedPull[] = analysis.metrics.pulls.ranked.slice(0, LIMITS.construction);
   if (ranked.length === 0) return [];
 
   const prng = prngFor(seed, "construction");
@@ -755,7 +974,7 @@ function claimSlot(
  * (PLAN.md sections 16 and 23); open parkland lifts it, because a city with a
  * lot of unbuilt ground needs the greenery to explain the ground.
  */
-function treeCount(analysis: RepoAnalysis, parkSlots: number): number {
+function treeCount(analysis: RepoAnalysis, parkSlots: number, cap: number): number {
   const { metrics } = analysis;
   const base = 34 + 11 * metrics.docs.strength + 0.26 * metrics.health.score;
   const green = base + Math.min(34, parkSlots * 0.45);
@@ -763,7 +982,7 @@ function treeCount(analysis: RepoAnalysis, parkSlots: number): number {
   // lists vegetation alongside quiet roads and dimmer lighting, because the
   // abandoned reading is nature taking the place back, not a bald grey plate.
   const scaled = metrics.archived ? green * 1.15 : green;
-  return Math.round(clamp(scaled, 0, LIMITS.trees));
+  return Math.round(clamp(scaled, 0, cap));
 }
 
 /** The slots in a district that no building and no construction site took. */
@@ -785,11 +1004,12 @@ function placeTrees(
   usedSlots: Map<string, number>,
   seed: string,
   highways: readonly RoadSegment[] = [],
+  cap: number = LIMITS.trees,
 ): Vec3[] {
   const parkSlots = parkSlotsOf(layout, usedSlots);
   let free = 0;
   for (const slots of parkSlots.values()) free += slots.length;
-  const want = treeCount(analysis, free);
+  const want = treeCount(analysis, free, cap);
   if (want === 0) return [];
   const prng = prngFor(seed, "trees");
   const candidates: Vec3[] = [];
@@ -992,14 +1212,14 @@ function squarePerimeter(r: number, t: number): { x: number; z: number } {
  * spaced to land just under the cap, and a quiet repository gets its lamps
  * thinned out (PLAN.md sections 19 and 39: activity reads as light).
  */
-function placeLamps(layout: CityLayout, analysis: RepoAnalysis): Vec3[] {
+function placeLamps(layout: CityLayout, analysis: RepoAnalysis, cap: number = LIMITS.lamps): Vec3[] {
   const lamps: Vec3[] = [];
   const majors = layout.roads.filter((road) => road.major);
   const total = majors.reduce((sum, road) => sum + roadLength(road), 0);
   const activity = analysis.metrics.archived
     ? 0
     : clamp(analysis.metrics.activity.score, 0, 1);
-  const target = clamp(total / 17, 18, LIMITS.lamps - 4) * (0.55 + 0.45 * activity);
+  const target = clamp(total / 17, Math.min(18, cap - 4), cap - 4) * (0.55 + 0.45 * activity);
   const spacing = clamp(total / Math.max(1, target), 12, 34);
 
   for (const road of majors) {
@@ -1017,7 +1237,7 @@ function placeLamps(layout: CityLayout, analysis: RepoAnalysis): Vec3[] {
         0,
         round3(road.from[2] + dz * along + dx * offset),
       ]);
-      if (lamps.length >= LIMITS.lamps) return lamps;
+      if (lamps.length >= cap) return lamps;
     }
   }
   return lamps;
@@ -1113,13 +1333,18 @@ export function visitorShare(stars: number): number {
   return round3(clamp(0.1 + 0.6 * prestigeOf(stars), 0, 0.7));
 }
 
-export function vehicleCount(analysis: RepoAnalysis, roadLengthTotal: number): number {
+/** `cap` is the tier's moving-vehicle budget (76.5): 10 in a village, 64 in a metropolis. */
+export function vehicleCount(
+  analysis: RepoAnalysis,
+  roadLengthTotal: number,
+  cap: number = LIMITS.vehicles,
+): number {
   const activity = clamp(analysis.metrics.activity.score, 0, 1);
-  const room = clamp(roadLengthTotal / 75, 3, LIMITS.vehicles);
+  const room = clamp(roadLengthTotal / 75, 3, cap);
   if (analysis.metrics.archived) {
     return Math.round(clamp(room * 0.12 * (0.4 + activity), 0, 5));
   }
-  return Math.round(clamp(room * (0.28 + 0.72 * activity), 2, LIMITS.vehicles));
+  return Math.round(clamp(room * (0.28 + 0.72 * activity), 2, cap));
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,28 +1369,57 @@ interface Aabb {
   maxZ: number;
 }
 
-const footprintOf = (building: Building): Aabb => ({
-  id: building.id,
-  minX: building.position[0] - building.size[0] / 2,
-  maxX: building.position[0] + building.size[0] / 2,
-  minZ: building.position[2] - building.size[2] / 2,
-  maxZ: building.position[2] + building.size[2] / 2,
-});
+/**
+ * A building's footprint as a world-axis box. Grid buildings are unrotated or
+ * quarter turned (civic plaza cells are square), which is exact; a village
+ * house at any angle gets the box round its rotated footprint.
+ */
+const footprintOf = (building: Building): Aabb => {
+  const turn = building.rotationY;
+  if (Math.abs(Math.sin(2 * turn)) < 1e-6) {
+    const quarter = Math.abs(Math.sin(turn)) > 0.5;
+    const w = (quarter ? building.size[2] : building.size[0]) / 2;
+    const d = (quarter ? building.size[0] : building.size[2]) / 2;
+    return {
+      id: building.id,
+      minX: building.position[0] - w,
+      maxX: building.position[0] + w,
+      minZ: building.position[2] - d,
+      maxZ: building.position[2] + d,
+    };
+  }
+  const c = Math.abs(Math.cos(turn));
+  const s = Math.abs(Math.sin(turn));
+  const w = (building.size[0] * c + building.size[2] * s) / 2;
+  const d = (building.size[0] * s + building.size[2] * c) / 2;
+  return {
+    id: building.id,
+    minX: building.position[0] - w,
+    maxX: building.position[0] + w,
+    minZ: building.position[2] - d,
+    maxZ: building.position[2] + d,
+  };
+};
 
 /**
  * Every pair of building footprints that intersect. The layout guarantees this
  * is empty: a building never leaves its slot cell and cells never overlap.
+ * Footprints are tested as oriented boxes, so two village houses turned to
+ * face a bending lane are not reported for boxes that merely brush.
  */
 export function overlappingBuildings(city: CityModel): [string, string][] {
-  const boxes = city.buildings.map(footprintOf).sort((a, b) => a.minX - b.minX);
+  const boxes = city.buildings
+    .map((building) => ({ aabb: footprintOf(building), box: buildingBox(building) }))
+    .sort((a, b) => a.aabb.minX - b.aabb.minX);
   const hits: [string, string][] = [];
   const epsilon = 1e-6;
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      if (boxes[j].minX >= boxes[i].maxX) break;
-      const a = boxes[i];
-      const b = boxes[j];
-      if (a.minZ < b.maxZ - epsilon && b.minZ < a.maxZ - epsilon) hits.push([a.id, b.id]);
+      if (boxes[j].aabb.minX >= boxes[i].aabb.maxX) break;
+      const a = boxes[i].aabb;
+      const b = boxes[j].aabb;
+      if (!(a.minZ < b.maxZ - epsilon && b.minZ < a.maxZ - epsilon)) continue;
+      if (boxesOverlap(boxes[i].box, boxes[j].box, -epsilon)) hits.push([a.id, b.id]);
     }
   }
   return hits;
