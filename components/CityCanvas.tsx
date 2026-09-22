@@ -12,15 +12,16 @@
  * must never run during server rendering.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { PCFShadowMap } from "three";
+import { ACESFilmicToneMapping, PCFShadowMap } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
 import CameraRig from "@/components/city/CameraRig";
 import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities";
+import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
@@ -114,6 +115,15 @@ export default function CityCanvas() {
   const city = storeCity ?? devCity;
   const aspect = useViewportAspect();
 
+  // The sky, the exposure and the quality probe outlive any one model, so
+  // they are mounted here rather than inside the keyed `<City>`, and the
+  // atmosphere they need is resolved here too. `City` resolves the same one
+  // from the same model: it is a pure function of it (`palette.ts`).
+  const scene = useMemo(
+    () => (city ? atmosphere(city.ambience, city.repository.archived) : EMPTY_ATMOSPHERE),
+    [city],
+  );
+
   return (
     <Canvas
       // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
@@ -123,7 +133,9 @@ export default function CityCanvas() {
       shadows={{ type: PCFShadowMap }}
       dpr={[1, 2]}
       camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 0.5, far: 2000 }}
-      gl={{ antialias: true }}
+      // Filmic from the first frame; `Environment` keeps the exposure in step
+      // with the hour and the haze from there (PLAN.md section 39).
+      gl={{ antialias: true, toneMapping: ACESFilmicToneMapping }}
       // Clicking past every object is the same gesture as clicking bare
       // ground: it clears the selection (PLAN.md section 6).
       onPointerMissed={() => actions.select(null)}
@@ -134,6 +146,8 @@ export default function CityCanvas() {
           city, and gets a fresh reveal. The Canvas itself never remounts, so
           the WebGL context survives. */}
       {city ? <City key={city.seed} city={city} aspect={aspect} /> : <EmptyStage />}
+
+      <Environment city={city} atmosphere={scene} size={city?.bounds.size ?? EMPTY_SIZE} />
 
       <CameraRig city={city} aspect={aspect} />
 
