@@ -276,10 +276,13 @@ function pullReason(state: RankedPull["state"], days: number, draft: boolean): s
   switch (state) {
     case "completed":
       return `Merged ${whole} day${value === 1 ? "" : "s"} ago: a newly finished building.`;
-    case "active":
+    case "active": {
+      // "updated 0 days ago" is how a machine says "updated today".
+      const when = value === 0 ? "today" : `${whole} day${value === 1 ? "" : "s"} ago`;
       return draft
-        ? `An open draft pull request updated ${whole} day${value === 1 ? "" : "s"} ago.`
-        : `An open pull request updated ${whole} day${value === 1 ? "" : "s"} ago: active construction.`;
+        ? `An open draft pull request updated ${when}.`
+        : `An open pull request updated ${when}: active construction.`;
+    }
     case "abandoned":
       return `An open pull request untouched for ${whole} days: construction has stopped.`;
     default:

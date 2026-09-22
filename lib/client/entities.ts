@@ -73,10 +73,15 @@ const INCIDENT_STATE_LABELS: Record<string, string> = {
   minor: "Minor",
 };
 
+/**
+ * Whole days elapsed, rounded DOWN. The analysis layer floors the same
+ * interval when it writes "stayed open for 855 days", and rounding here put
+ * "open 856 days" directly above that sentence.
+ */
 export function daysBetween(iso: string, now = Date.now()): number {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return 0;
-  return Math.max(0, Math.round((now - then) / 86_400_000));
+  return Math.max(0, Math.floor((now - then) / 86_400_000));
 }
 
 const count = (value: number): string => value.toLocaleString("en-US");
