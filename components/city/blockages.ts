@@ -25,8 +25,11 @@
 
 import type { ConstructionState, IncidentState } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
-import type { CrowdForm } from "./backlog/forms";
-import { crowdScale, incidentForm, scaffoldScale, worksForm } from "./backlog/plan";
+import { CROWD_BASE_SIZE, HOARDING_KERB_SIZE, heatScale } from "@/lib/city/backlog";
+import { QUEUE_BODIES } from "@/lib/city/overflow";
+import type { CrowdMesh } from "./backlog/forms";
+import { SCAFFOLD_BAY } from "./backlog/constants";
+import { incidentForm, worksForm } from "./backlog/plan";
 import { BODY_SPECS, VEHICLE_BODIES } from "./models/vehicles/shapes";
 import { CAR_HALF_WIDTH, MIN_ROOM, laneOffset, reachFor, type RoadGraph } from "./traffic";
 
@@ -114,43 +117,65 @@ export const SITE_FOOTPRINT: Record<ConstructionState, LocalRect> = {
   completed: { minX: -5.7, maxX: 6.5, minZ: -5.7, maxZ: 6.5 },
 };
 
+/** A centred rect from a `[w, h, d]` size. */
+const centred = (size: readonly number[]): LocalRect => ({
+  minX: -size[0] / 2,
+  maxX: size[0] / 2,
+  minZ: -size[2] / 2,
+  maxZ: size[2] / 2,
+});
+
 /**
- * Each crowd form's extent on the ground, in its own frame and before its
- * instance scale (PLAN.md 76.9). These mirror `backlog/forms.ts`, optional
- * parts included, with a little over; `blockages.test.ts` holds them to the
- * geometry's bounding boxes the way `INCIDENT_FOOTPRINT` is held to the hero
- * decor. A scaffold's frame starts at its host's wall and runs outwards.
+ * Each crowd model's extent on the ground, in its own frame, before heat
+ * (PLAN.md 76.9): S4's `CROWD_BASE_SIZE`, which is what placement keeps
+ * apart. `blockages.test.ts` holds every model in `backlog/forms.ts` inside
+ * its footprint, optional parts included, the way `INCIDENT_FOOTPRINT` is
+ * held to the hero decor. A scaffold's is its bay on the slab in front of the
+ * facade; the entity's `size` gives its real width.
  */
-export const CROWD_FOOTPRINT: Record<CrowdForm, LocalRect> = {
-  fire: { minX: -1.5, maxX: 1.5, minZ: -1.5, maxZ: 1.5 },
-  collision: { minX: -1.45, maxX: 1.45, minZ: -2.5, maxZ: 2.3 },
-  wreck: { minX: -1.4, maxX: 1.4, minZ: -1.4, maxZ: 1.4 },
-  pothole: { minX: -1.15, maxX: 1.15, minZ: -1.35, maxZ: 1.15 },
-  roadblock: { minX: -1.15, maxX: 1.15, minZ: -0.3, maxZ: 1.0 },
-  survey: { minX: -0.8, maxX: 0.9, minZ: -1.0, maxZ: 0.9 },
-  signpost: { minX: -0.3, maxX: 0.35, minZ: -1.0, maxZ: 1.2 },
-  scaffold: { minX: -2.35, maxX: 2.4, minZ: 0, maxZ: 1.6 },
-  trench: { minX: -1.4, maxX: 1.55, minZ: -1.65, maxZ: 2.05 },
-  van: { minX: -1.3, maxX: 1.4, minZ: -2.5, maxZ: 1.7 },
-  hoarding: { minX: -1.4, maxX: 1.45, minZ: -1.4, maxZ: 1.8 },
+export const CROWD_FOOTPRINT: Record<CrowdMesh, LocalRect> = {
+  fire: centred(CROWD_BASE_SIZE.fire),
+  collision: centred(CROWD_BASE_SIZE.collision),
+  wreck: centred(CROWD_BASE_SIZE.wreck),
+  pothole: centred(CROWD_BASE_SIZE.pothole),
+  roadblock: centred(CROWD_BASE_SIZE.roadblock),
+  survey: centred(CROWD_BASE_SIZE.survey),
+  signpost: centred(CROWD_BASE_SIZE.signpost),
+  trench: centred(CROWD_BASE_SIZE.trench),
+  van: centred(CROWD_BASE_SIZE.van),
+  hoarding: centred(CROWD_BASE_SIZE.hoarding),
+  "hoarding-kerb": centred(HOARDING_KERB_SIZE),
+  scaffold: centred([SCAFFOLD_BAY.width, SCAFFOLD_BAY.height, SCAFFOLD_BAY.depth]),
 };
+
+/**
+ * A crowd object's ground rect in its own frame: its `size` when the model
+ * gives one (S4 writes it already scaled by heat), otherwise its form's
+ * footprint at its heat.
+ */
+export function crowdRect(
+  entity: { size?: readonly number[] | null; heat?: number },
+  mesh: CrowdMesh,
+): LocalRect {
+  if (entity.size && entity.size.length === 3) return centred(entity.size);
+  const s = heatScale(entity.heat ?? 0.3);
+  const rect = CROWD_FOOTPRINT[mesh];
+  return { minX: rect.minX * s, maxX: rect.maxX * s, minZ: rect.minZ * s, maxZ: rect.maxZ * s };
+}
 
 /** Daylight left round a queued car, so traffic stops short of its bumper. */
 const QUEUE_MARGIN = 0.3;
 
-/** The body a queue entry wears: `body` indexes `VEHICLE_BODIES`, wrapping. */
+/**
+ * The body a queue entry wears. S4 deals `body` from `0` to `QUEUE_BODIES - 1`
+ * (`lib/city/overflow.ts`), which indexes the fleet's own body list; anything
+ * outside wraps.
+ */
 export function queueBody(body: number) {
-  const n = VEHICLE_BODIES.length;
+  const n = Math.min(QUEUE_BODIES, VEHICLE_BODIES.length);
   const i = Number.isFinite(body) ? Math.trunc(body) : 0;
   return VEHICLE_BODIES[((i % n) + n) % n];
 }
-
-const scaled = (rect: LocalRect, sx: number, sz: number): LocalRect => ({
-  minX: rect.minX * sx,
-  maxX: rect.maxX * sx,
-  minZ: rect.minZ * sz,
-  maxZ: rect.maxZ * sz,
-});
 
 /**
  * Every incident and construction site in the city, as obstacles: the heroes,
@@ -187,26 +212,22 @@ export function cityObstacles(
   }
   for (const incident of city.backlog?.incidents ?? []) {
     if (!incident.lane) continue;
-    const s = crowdScale(incident.heat ?? incident.issue.heat);
     obstacles.push({
       id: incident.id,
       x: incident.position[0],
       z: incident.position[2],
       rotationY: incident.rotationY,
-      ...scaled(CROWD_FOOTPRINT[incidentForm(incident)], s, s),
+      ...crowdRect({ size: incident.size, heat: incident.heat ?? incident.issue.heat }, incidentForm(incident)),
     });
   }
   for (const site of city.backlog?.constructionSites ?? []) {
     if (!site.lane) continue;
-    const form = worksForm(site);
-    const s = crowdScale(site.heat ?? site.pull.heat);
-    const [sx, , sz] = form === "scaffold" ? scaffoldScale(site.size) : [s, s, s];
     obstacles.push({
       id: site.id,
       x: site.position[0],
       z: site.position[2],
       rotationY: site.rotationY,
-      ...scaled(CROWD_FOOTPRINT[form], sx, sz),
+      ...crowdRect({ size: site.size, heat: site.heat ?? site.pull.heat }, worksForm(site)),
     });
   }
   const overflow = city.overflow;

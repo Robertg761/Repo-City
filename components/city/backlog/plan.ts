@@ -5,8 +5,9 @@
  *
  * Every crowd object becomes one instance of its form's mesh, carrying:
  *
- *   - a pose: position, heading, and a scale from its heat (PLAN.md 76.7,
- *     `0.9 + 0.35 * heat`), or for a scaffold the fit to its host facade;
+ *   - a pose: position, heading, and a scale: its `size` over its model's
+ *     base size, which is its heat (PLAN.md 76.7, `0.9 + 0.35 * heat`), a
+ *     plot hoarding's plot, or a scaffold's fit to its facade;
  *   - a tint for the instance colour: state and age, before hover;
  *   - a phase, so no two neighbours flicker or blink in step;
  *   - the optional-part mask: worker, failing checks, changes requested,
@@ -18,20 +19,24 @@
  * they always sit on the lamps and fires they belong to.
  */
 
+import { CROWD_BASE_SIZE, HOARDING_KERB_SIZE, heatScale } from "@/lib/city/backlog";
 import type { ConstructionState, IncidentForm, IncidentState, WorksForm } from "@/types/analysis";
-import type { CityModel, ConstructionSite, Incident, RoadSegment } from "@/types/city";
+import type { CityModel, ConstructionSite, Incident, RoadSegment, Vec3 } from "@/types/city";
 import { RUST, mix } from "../palette";
 import { SIDEWALK_HEIGHT, SIDEWALK_WIDTH } from "../groundwork";
 import {
-  CROWD_FORMS,
+  CROWD_MESHES,
   MASK,
   PART,
   SCAFFOLD_BAY,
   formGeometry,
   formSpec,
-  type CrowdForm,
+  type CrowdMesh,
 } from "./forms";
 import { BLINK_RATE } from "./material";
+import { SCAFFOLD_REACH, scaffoldScale } from "./constants";
+
+export { SCAFFOLD_REACH, scaffoldScale };
 
 /** A box in an object's own frame, after its scale. `minY` is always the ground. */
 export interface LocalBox {
@@ -44,7 +49,8 @@ export interface LocalBox {
 
 export interface CrowdItem {
   id: string;
-  form: CrowdForm;
+  /** Which model draws it: its form, or the kerb hoarding. */
+  form: CrowdMesh;
   x: number;
   y: number;
   z: number;
@@ -64,7 +70,7 @@ export interface CrowdItem {
 }
 
 export interface CrowdGroup {
-  form: CrowdForm;
+  form: CrowdMesh;
   items: CrowdItem[];
   /** `ids[i]` is the entity drawn by instance `i` (`useInstanceHandlers`). */
   ids: string[];
@@ -100,11 +106,8 @@ export const PAVEMENT_TOP = SIDEWALK_HEIGHT;
 /** Puffs per smoking object. */
 const PUFFS = 3;
 
-/** PLAN.md 76.7: instance scale from heat. */
-export function crowdScale(heat: number | undefined): number {
-  const h = Number.isFinite(heat) ? Math.min(1, Math.max(0, heat as number)) : 0.3;
-  return 0.9 + 0.35 * h;
-}
+/** Heat when the model has none: a quiet item. */
+const DEFAULT_HEAT = 0.3;
 
 /** A stable 0..1 from an id, for phases. */
 export function phaseFor(id: string): number {
@@ -175,10 +178,10 @@ interface Bounds {
   maxZ: number;
 }
 
-const boundsCache = new Map<CrowdForm, Bounds>();
+const boundsCache = new Map<CrowdMesh, Bounds>();
 
-/** A form's own extent, from its geometry at tone 0. */
-export function formBounds(form: CrowdForm): Bounds {
+/** A model's own extent, from its geometry at tone 0. */
+export function formBounds(form: CrowdMesh): Bounds {
   const hit = boundsCache.get(form);
   if (hit) return hit;
   const geometry = formGeometry(form, 0);
@@ -196,46 +199,70 @@ export function formBounds(form: CrowdForm): Bounds {
 }
 
 /** Extra reach around a pick box: a two pixel object is hard to hit. */
-const PICK_PAD = 0.2;
+const PICK_PAD = 0.12;
 
-/**
- * What the pointer can hit, in the object's frame after its scale. A
- * scaffold's box is only its facade slab (PLAN.md 76.9): the building's other
- * faces and its roof still select the building.
- */
-export function pickBox(form: CrowdForm, scale: readonly [number, number, number]): LocalBox {
-  const [sx, sy, sz] = scale;
-  if (form === "scaffold") {
-    const half = (SCAFFOLD_BAY.width / 2) * sx;
-    return {
-      minX: -half - 0.1,
-      maxX: half + 0.1,
-      maxY: SCAFFOLD_BAY.height * sy + 0.3,
-      minZ: 0,
-      maxZ: SCAFFOLD_BAY.depth * sz,
-    };
-  }
-  const b = formBounds(form);
-  return {
-    minX: b.minX * sx - PICK_PAD,
-    maxX: b.maxX * sx + PICK_PAD,
-    maxY: b.maxY * sy + PICK_PAD,
-    minZ: b.minZ * sz - PICK_PAD,
-    maxZ: b.maxZ * sz + PICK_PAD,
-  };
+/** The model's own size, before heat: S4's `CROWD_BASE_SIZE`. */
+export function baseSize(mesh: Exclude<CrowdMesh, "scaffold">): Vec3 {
+  return mesh === "hoarding-kerb" ? HOARDING_KERB_SIZE : CROWD_BASE_SIZE[mesh];
 }
 
 /**
- * The scaffold's fit to its host facade: `size` is `[facade width, host
- * height, depth]` when the model gives one. It covers the facade's width and
- * the lower storeys, the way a real one goes up a lift at a time.
+ * Which model a pull request's hoarding uses: one fencing a whole plot, or a
+ * run along the pavement when it had no plot, which S4 sizes long and narrow
+ * (`HOARDING_KERB_SIZE`).
  */
-export function scaffoldScale(size: readonly number[] | undefined): [number, number, number] {
-  const width = size?.[0] ?? SCAFFOLD_BAY.width;
-  const height = size?.[1] ?? SCAFFOLD_BAY.height;
-  const sx = Math.min(1.9, Math.max(0.55, (width * 0.9) / SCAFFOLD_BAY.width));
-  const sy = Math.min(1.9, Math.max(0.55, Math.min(height * 0.72, 12) / SCAFFOLD_BAY.height));
-  return [sx, sy, 1];
+export function hoardingMesh(size: readonly number[] | undefined): "hoarding" | "hoarding-kerb" {
+  if (!size || !(size[0] > 0)) return "hoarding";
+  return size[2] / size[0] > 1.8 ? "hoarding-kerb" : "hoarding";
+}
+
+/**
+ * The instance scale for a crowd object: its `size` over its model's base
+ * size (S4 writes `size` already scaled by heat), or its heat when there is
+ * no size. A plot hoarding stretches to its plot.
+ */
+export function instanceScale(
+  mesh: CrowdMesh,
+  size: readonly number[] | undefined,
+  heat: number | undefined,
+): [number, number, number] {
+  if (mesh === "scaffold") return scaffoldScale(size);
+  if (size && size.length === 3 && size.every((v) => v > 0)) {
+    const base = baseSize(mesh);
+    return [size[0] / base[0], size[1] / base[1], size[2] / base[2]];
+  }
+  const s = heatScale(heat ?? DEFAULT_HEAT);
+  return [s, s, s];
+}
+
+/**
+ * What the pointer can hit, in the object's frame after its scale: its
+ * footprint (`size`, or the model's own extent) and at least its drawn
+ * height. A scaffold's box is only its slab over the storeys it covers
+ * (PLAN.md 76.9): the building's other faces, its roof and the facade above
+ * the scaffold still select the building.
+ */
+export function pickBox(
+  mesh: CrowdMesh,
+  scale: readonly [number, number, number],
+  size?: readonly number[],
+): LocalBox {
+  const [sx, sy, sz] = scale;
+  if (mesh === "scaffold") {
+    const half = size ? size[0] / 2 : (SCAFFOLD_BAY.width / 2) * sx;
+    const depth = (size?.[2] ?? SCAFFOLD_BAY.depth) / 2;
+    return { minX: -half, maxX: half, maxY: SCAFFOLD_BAY.height * sy + 0.2, minZ: -depth, maxZ: depth };
+  }
+  const b = formBounds(mesh);
+  const hw = size ? size[0] / 2 : 0;
+  const hd = size ? size[2] / 2 : 0;
+  return {
+    minX: Math.min(-hw, b.minX * sx) - PICK_PAD,
+    maxX: Math.max(hw, b.maxX * sx) + PICK_PAD,
+    maxY: Math.max(size?.[1] ?? 0, b.maxY * sy) + PICK_PAD,
+    minZ: Math.min(-hd, b.minZ * sz) - PICK_PAD,
+    maxZ: Math.max(hd, b.maxZ * sz) + PICK_PAD,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +343,7 @@ const idleDays = (iso: string, newest: number): number => {
 /** Every crowd object in the city, grouped by form, with its halos and smoke. */
 export function planCrowd(city: CityModel): CrowdPlan {
   const backlog = city.backlog;
-  const byForm = new Map<CrowdForm, CrowdItem[]>();
+  const byForm = new Map<CrowdMesh, CrowdItem[]>();
   const halos: HaloSpec[] = [];
   const smoke: PuffSpec[] = [];
   if (!backlog) return { groups: [], halos, smoke, count: 0 };
@@ -332,8 +359,8 @@ export function planCrowd(city: CityModel): CrowdPlan {
 
   for (const incident of backlog.incidents) {
     const form = incidentForm(incident);
-    const s = crowdScale(incident.heat ?? incident.issue.heat);
-    const scale: [number, number, number] = [s, s, s];
+    const heat = incident.heat ?? incident.issue.heat;
+    const scale = instanceScale(form, incident.size, heat);
     const [x, , z] = incident.position;
     add({
       id: incident.id,
@@ -347,21 +374,17 @@ export function planCrowd(city: CityModel): CrowdPlan {
       phase: phaseFor(incident.id),
       mask: 0,
       appearAt: incident.appearAt,
-      glow: incident.heat ?? incident.issue.heat ?? 0.3,
+      glow: heat ?? DEFAULT_HEAT,
       lane: incident.lane === true,
-      pick: pickBox(form, scale),
+      pick: pickBox(form, scale, incident.size),
     });
   }
 
   for (const site of backlog.constructionSites) {
-    const form = worksForm(site);
-    let scale: [number, number, number];
-    if (form === "scaffold") {
-      scale = scaffoldScale(site.size);
-    } else {
-      const s = crowdScale(site.heat ?? site.pull.heat);
-      scale = [s, s, s];
-    }
+    const works = worksForm(site);
+    const form: CrowdMesh = works === "hoarding" ? hoardingMesh(site.size) : works;
+    const heat = site.heat ?? site.pull.heat;
+    const scale = instanceScale(form, site.size, heat);
     const [x, , z] = site.position;
     add({
       id: site.id,
@@ -376,15 +399,15 @@ export function planCrowd(city: CityModel): CrowdPlan {
       phase: phaseFor(site.id),
       mask: pullMask(site),
       appearAt: site.appearAt,
-      glow: site.heat ?? site.pull.heat ?? 0.3,
+      glow: heat ?? DEFAULT_HEAT,
       lane: site.lane === true,
-      pick: pickBox(form, scale),
+      pick: pickBox(form, scale, site.size),
     });
   }
 
   const groups: CrowdGroup[] = [];
   let count = 0;
-  for (const form of CROWD_FORMS) {
+  for (const form of CROWD_MESHES) {
     const items = byForm.get(form);
     if (!items || items.length === 0) continue;
     groups.push({ form, items, ids: items.map((item) => item.id) });

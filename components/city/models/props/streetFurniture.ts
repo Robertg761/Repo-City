@@ -21,8 +21,8 @@ import type { CityModel, RoadSegment, Vec3 } from "@/types/city";
 import { desaturate } from "../../palette";
 import { geometryCache, mergeParts, toneKey, type Part } from "./geometry";
 import { paintFor, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
-import { crowdScale, incidentForm, scaffoldScale, worksForm } from "../../backlog/plan";
-import { CROWD_FOOTPRINT } from "../../blockages";
+import { incidentForm, worksForm } from "../../backlog/plan";
+import { crowdRect, type LocalRect } from "../../blockages";
 
 /** Section 37's "tiny props" allowance, over and above the trees and lamps. */
 export const SMALL_PROP_BUDGET = 150;
@@ -82,36 +82,17 @@ function blockersOf(city: CityModel): Blocker[] {
     blockers.push({ x: lamp[0], z: lamp[2], r: 1.1 });
   }
   // The crowd (PLAN.md 76.9): a bench never stands on a pothole, and nobody
-  // parks across a trench. Each object's footprint, as the circle round it.
-  const reach = (rect: { minX: number; maxX: number; minZ: number; maxZ: number }, s: number) =>
-    Math.hypot(Math.max(-rect.minX, rect.maxX), Math.max(-rect.minZ, rect.maxZ)) * s;
+  // parks across a trench. Each object's footprint, as the circle round it;
+  // a scaffold's slab is its facade's width.
+  const reach = (rect: LocalRect) =>
+    Math.hypot(Math.max(-rect.minX, rect.maxX), Math.max(-rect.minZ, rect.maxZ));
   for (const incident of city.backlog?.incidents ?? []) {
-    const s = crowdScale(incident.heat ?? incident.issue.heat);
-    blockers.push({
-      x: incident.position[0],
-      z: incident.position[2],
-      r: reach(CROWD_FOOTPRINT[incidentForm(incident)], s) + 0.3,
-    });
+    const rect = crowdRect({ size: incident.size, heat: incident.heat ?? incident.issue.heat }, incidentForm(incident));
+    blockers.push({ x: incident.position[0], z: incident.position[2], r: reach(rect) + 0.3 });
   }
   for (const site of city.backlog?.constructionSites ?? []) {
-    const form = worksForm(site);
-    if (form === "scaffold") {
-      // Out from the wall, over the pavement it takes.
-      const [sx] = scaffoldScale(site.size);
-      const out = 0.8;
-      blockers.push({
-        x: site.position[0] + Math.sin(site.rotationY) * out,
-        z: site.position[2] + Math.cos(site.rotationY) * out,
-        r: 2.3 * sx + 0.4,
-      });
-      continue;
-    }
-    const s = crowdScale(site.heat ?? site.pull.heat);
-    blockers.push({
-      x: site.position[0],
-      z: site.position[2],
-      r: reach(CROWD_FOOTPRINT[form], s) + 0.3,
-    });
+    const rect = crowdRect({ size: site.size, heat: site.heat ?? site.pull.heat }, worksForm(site));
+    blockers.push({ x: site.position[0], z: site.position[2], r: reach(rect) + 0.3 });
   }
   const overflow = city.overflow;
   if (overflow) {

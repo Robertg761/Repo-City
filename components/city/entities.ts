@@ -7,6 +7,7 @@
  */
 
 import { indexEntities } from "@/lib/city/entityIndex";
+import { SCAFFOLD_REACH } from "./backlog/constants";
 import type { CityModel, EntityKind, Vec3 } from "@/types/city";
 
 export interface FocusTarget {
@@ -117,15 +118,15 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
       case "construction": {
         if (entity.lod === "crowd") {
           if (entity.buildingId) {
-            // A scaffold: aim a little out from the wall, at its working lifts.
-            const ox = x + Math.sin(entity.rotationY) * 0.9;
-            const oz = z + Math.cos(entity.rotationY) * 0.9;
-            const height = Math.min(entity.size?.[1] ?? 6, 12) * 0.4;
+            // A scaffold: `position` is the centre of its slab in front of the
+            // facade (S4). Aim at its working lifts, which climb at most
+            // `SCAFFOLD_REACH` up the building.
+            const height = Math.min((entity.size?.[1] ?? 6) * 0.85, SCAFFOLD_REACH) * 0.45;
             return {
               id,
               kind: "construction",
-              position: [ox, y, oz],
-              lookAt: [ox, y + height, oz],
+              position: entity.position,
+              lookAt: [x, y + height, z],
               radius: Math.min(Math.max((entity.size?.[0] ?? 4.4) * 0.5, CROWD_RADIUS), 5),
               // `rotationY` faces out of the wall; the camera belongs out there.
               facing: entity.rotationY,

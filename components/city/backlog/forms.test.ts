@@ -68,7 +68,7 @@ describe("crowd forms", () => {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox!;
       expect(box.min.y, form).toBeGreaterThanOrEqual(-0.01);
-      expect(box.max.y, form).toBeLessThan(form === "scaffold" ? 8 : 3.2);
+      expect(box.max.y, form).toBeLessThan(form === "scaffold" ? 9 : 3.2);
       expect(box.max.x - box.min.x, form).toBeLessThan(form === "scaffold" ? 5.6 : 3.6);
     }
   });

@@ -10,6 +10,9 @@ import { triangleCount } from "./geometry";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel, Vec3 } from "@/types/city";
 import { devCity } from "@/fixtures/dev.city";
+import { generateCity } from "@/lib/city/generator";
+import backlogFixture from "@/fixtures/backlog.analysis.json";
+import type { RepoAnalysis } from "@/types/analysis";
 
 const props = () => placeStreetProps(devCity, prngFor(devCity.seed, "street-props"));
 
@@ -104,5 +107,25 @@ describe("furniture geometry", () => {
   it("rebuilds for a visibly different tone and not for a rounding error", () => {
     expect(furnitureGeometry("bench", 0.2)).toBe(furnitureGeometry("bench", 0.201));
     expect(furnitureGeometry("bench", 0.2)).not.toBe(furnitureGeometry("bench", 0.6));
+  });
+});
+
+describe("street furniture and the crowd", () => {
+  it("never stands a bench, a bin or a parked car on a crowd object or the queue", () => {
+    const city = generateCity(backlogFixture as unknown as RepoAnalysis, { tier: "metropolis" });
+    const placed = placeStreetProps(city, prngFor(city.seed, "street-props"));
+    const all = [...placed.benches, ...placed.bins, ...placed.stops, ...placed.parked, ...placed.bushes, ...placed.beds];
+    const crowd = [...city.backlog!.incidents, ...city.backlog!.constructionSites];
+    for (const prop of all) {
+      for (const entity of crowd) {
+        const reach = entity.size ? Math.hypot(entity.size[0], entity.size[2]) / 2 : 1;
+        expect(
+          Math.hypot(prop.position[0] - entity.position[0], prop.position[2] - entity.position[2]),
+        ).toBeGreaterThan(reach);
+      }
+      for (const car of city.overflow?.queue ?? []) {
+        expect(Math.hypot(prop.position[0] - car.position[0], prop.position[2] - car.position[2])).toBeGreaterThan(2);
+      }
+    }
   });
 });

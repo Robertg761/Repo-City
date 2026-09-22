@@ -15,8 +15,14 @@
  *   - whatever finds no spot is queued at the city limits.
  *
  * It is not S4's algorithm (no bridges, no hero clearance beyond a radius, no
- * spot index), and nothing outside development imports it. Deterministic:
- * no random draws, only hashes of ids.
+ * spot index), and nothing outside development imports it. It writes the
+ * same contract S4 does: `size` is the base footprint times `heatScale`, and
+ * a scaffold stands at the centre of the slab in front of its facade.
+ * Deterministic: no random draws, only hashes of ids.
+ *
+ * Now that S4 has landed, `?dev=backlog` leaves a placed city alone; only
+ * `&crowd=dense` still replaces the placement, to load the whole fixture
+ * into today's city for measuring.
  *
  * Dev only. `?dev=backlog` with the `backlog` fixture loaded (type `backlog`
  * in the repository box) swaps this placement in (`backlog/useDevBacklog.ts`).
@@ -30,9 +36,9 @@ import type { Building, CityModel, ConstructionSite, Incident, Overflow, RoadSeg
 import { crowdAppearAt } from "@/components/city/reveal";
 import { laneOffset } from "@/components/city/traffic";
 import { SIDEWALK_WIDTH } from "@/components/city/groundwork";
-import { VEHICLE_BODIES } from "@/components/city/models/vehicles/shapes";
 import { CROWD_FOOTPRINT } from "@/components/city/blockages";
-import { crowdScale } from "@/components/city/backlog/plan";
+import { CROWD_BASE_SIZE, HOARDING_KERB_SIZE, heatScale } from "@/lib/city/backlog";
+import { QUEUE_BODIES } from "@/lib/city/overflow";
 import type { CrowdForm } from "@/components/city/backlog/forms";
 
 type SpotClass = "kerb" | "lane" | "ground" | "facade";
@@ -188,8 +194,9 @@ function spotsFor(city: CityModel, groundPitch: number): Spot[] {
     const [fx, fz, depth, width] = face;
     spots.push({
       cls: "facade",
-      x: b.position[0] + fx * depth,
-      z: b.position[2] + fz * depth,
+      // The slab's centre, as S4 places it: 0.05 off the wall plus half its depth.
+      x: b.position[0] + fx * (depth + 0.5),
+      z: b.position[2] + fz * (depth + 0.5),
       heading: Math.atan2(fx, fz),
       taken: false,
       buildingId: b.id,
@@ -217,10 +224,16 @@ function anchorFor(path: string | null, city: CityModel): [number, number] | nul
   return district ? [district.rect.x, district.rect.z] : null;
 }
 
+/** A base size at an item's heat, as S4 writes `size`. */
+const scaled = (base: readonly number[], heat: number): Vec3 => {
+  const s = heatScale(heat);
+  return [base[0] * s, base[1] * s, base[2] * s];
+};
+
 /** The circle round a form's footprint at its heat. */
 function reachOf(form: CrowdForm, heat: number): number {
   const rect = CROWD_FOOTPRINT[form];
-  return Math.hypot(Math.max(-rect.minX, rect.maxX), Math.max(-rect.minZ, rect.maxZ)) * crowdScale(heat);
+  return Math.hypot(Math.max(-rect.minX, rect.maxX), Math.max(-rect.minZ, rect.maxZ)) * heatScale(heat);
 }
 
 /** Room a neighbour needs, on average, beyond its own centre. */
@@ -362,7 +375,7 @@ function overflowFor(
       queue.push({
         position: [x, 0, z],
         rotationY: heading,
-        body: hash(`${road.id}:${k}`) % (VEHICLE_BODIES.length - 1),
+        body: hash(`${road.id}:${k}`) % QUEUE_BODIES,
         roadId: road.id,
       });
     }
@@ -407,10 +420,11 @@ export function placeDevBacklog(
   analysis: RepoAnalysis,
   options: DevBacklogOptions = {},
 ): CityModel {
-  if ((city.backlog?.incidents.length ?? 0) + (city.backlog?.constructionSites.length ?? 0) > 0) {
+  const dense = options.dense === true;
+  // S4's placement wins, except when measuring at full load.
+  if (!dense && (city.backlog?.incidents.length ?? 0) + (city.backlog?.constructionSites.length ?? 0) > 0) {
     return city;
   }
-  const dense = options.dense === true;
   const spots = spotsFor(city, dense ? DENSE_GROUND_PITCH : GROUND_PITCH);
   // Dense packing lets objects touch, to put the whole fixture on the map.
   const reachFor = (form: CrowdForm, heat: number) => (dense ? -NEIGHBOUR : reachOf(form, heat));
@@ -448,6 +462,7 @@ export function placeDevBacklog(
       form: item.form,
       lod: "crowd",
       lane,
+      size: scaled(CROWD_BASE_SIZE[item.form], item.heat),
       heat: item.heat,
     });
   };
@@ -486,7 +501,10 @@ export function placeDevBacklog(
       appearAt: crowdAppearAt(spot.x, spot.z, size),
       state: item.state,
       pull,
-      size: spot.size,
+      size:
+        form === "scaffold"
+          ? spot.size
+          : scaled(form === "hoarding" && spot.cls !== "ground" ? HOARDING_KERB_SIZE : CROWD_BASE_SIZE[form], item.heat),
       form,
       lod: "crowd",
       lane,
