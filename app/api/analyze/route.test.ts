@@ -324,6 +324,47 @@ describe("/api/analyze fixture fallback", () => {
     }
   });
 
+  it("replays real open totals and the uncapped file count when the analysis has them", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "repo-city-route-"));
+    mkdirSync(path.join(root, "fixtures"));
+    writeFileSync(
+      path.join(root, "fixtures", "honojs__hono.analysis.json"),
+      JSON.stringify({
+        repo: { fullName: "honojs/hono" },
+        metrics: {
+          scale: { files: 2_013, totalFiles: 10_432 },
+          issues: { open: 100, total: 21_011 },
+          pulls: { open: 50, total: 2_651 },
+          ci: { state: "healthy" },
+          activity: { commitsLast30d: 42 },
+        },
+        totalsExact: false,
+        aiStatus: "skipped",
+        source: "live",
+      }),
+      "utf8",
+    );
+
+    const cwd = process.cwd();
+    process.env.FIXTURE_FALLBACK = "true";
+    stubGitHub(() =>
+      new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0" },
+      }),
+    );
+
+    try {
+      process.chdir(root);
+      const events = await eventsOf(await GET(get("honojs/hono")));
+      expect(stageDetail(events, "tree")).toBe("10,432 files mapped");
+      expect(stageDetail(events, "issues")).toBe("about 21,011 open issues");
+      expect(stageDetail(events, "pulls")).toBe("about 2,651 open pull requests");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it("falls through to the error when the fixture is missing", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "repo-city-route-"));
     mkdirSync(path.join(root, "fixtures"));

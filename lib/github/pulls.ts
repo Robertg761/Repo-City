@@ -1,44 +1,64 @@
 /**
- * Requests 5 and 6 of PLAN.md section 29: open and recently closed pull
- * requests.
+ * Open and recently closed pull requests (PLAN.md sections 29 and 76.6).
  *
  * Open pulls become construction sites and merged ones become finished
- * buildings (PLAN.md section 13), so both halves are needed: 50 open sorted by
- * update time, 30 closed for the recent-merge signal.
+ * buildings (PLAN.md section 13), so both halves are needed:
+ *
+ * - A3, open page 1: `per_page=100` sorted by update time. This replaces
+ *   today's `per_page=50`; the health sample is the first 50 of these by
+ *   `updatedAt`, which is exactly the set the old request returned.
+ * - A4, closed: 30 for the recent-merge signal, unchanged.
+ * - B, open pages 2..5: fetched in parallel by `lib/github/survey.ts`.
  */
 
 import type { GhPull } from "@/types/github";
 import type { PullSummary } from "@/types/repository";
-import { GitHubClient } from "./client.ts";
+import { GitHubClient, type Page } from "./client.ts";
 import { mapLabels } from "./issues.ts";
 
-export const OPEN_PULLS_PER_PAGE = 50;
+export const OPEN_PULLS_PER_PAGE = 100;
+/** Today's open request size: the health sample is this many, by `updatedAt`. */
+export const HEALTH_SAMPLE_PULLS = 50;
 export const CLOSED_PULLS_PER_PAGE = 30;
 
-export async function fetchPulls(
+export const OPEN_PULLS_QUERY = {
+  state: "open",
+  sort: "updated",
+  direction: "desc",
+  per_page: OPEN_PULLS_PER_PAGE,
+} as const;
+
+export function pullsPath(owner: string, repo: string): string {
+  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
+}
+
+/** A3: the first page of open pull requests, with its `Link` page count. */
+export async function fetchOpenPullsPage(
   client: GitHubClient,
   owner: string,
   repo: string,
-): Promise<PullSummary[]> {
-  const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
+): Promise<Page<GhPull>> {
+  return client.getPage<GhPull>(pullsPath(owner, repo), {
+    resource: "pulls (open)",
+    query: { ...OPEN_PULLS_QUERY },
+  });
+}
 
-  const [open, closed] = await Promise.all([
-    client.getList<GhPull>(base, {
-      resource: "pulls (open)",
-      query: { state: "open", sort: "updated", direction: "desc", per_page: OPEN_PULLS_PER_PAGE },
-    }),
-    client.getList<GhPull>(base, {
-      resource: "pulls (closed)",
-      query: {
-        state: "closed",
-        sort: "updated",
-        direction: "desc",
-        per_page: CLOSED_PULLS_PER_PAGE,
-      },
-    }),
-  ]);
-
-  return mapPulls([...open, ...closed]);
+/** A4: recently closed pull requests, unchanged from request 6. */
+export async function fetchClosedPulls(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): Promise<GhPull[]> {
+  return client.getList<GhPull>(pullsPath(owner, repo), {
+    resource: "pulls (closed)",
+    query: {
+      state: "closed",
+      sort: "updated",
+      direction: "desc",
+      per_page: CLOSED_PULLS_PER_PAGE,
+    },
+  });
 }
 
 export function mapPulls(raw: GhPull[]): PullSummary[] {
@@ -56,7 +76,7 @@ export function mapPulls(raw: GhPull[]): PullSummary[] {
 export function mapPull(raw: GhPull): PullSummary | null {
   if (!raw || typeof raw.number !== "number") return null;
 
-  return {
+  const pull: PullSummary = {
     number: raw.number,
     title: raw.title ?? "",
     url: raw.html_url ?? "",
@@ -65,12 +85,18 @@ export function mapPull(raw: GhPull): PullSummary | null {
     mergedAt: raw.merged_at ?? null,
     draft: raw.draft === true,
     // The list endpoint omits `comments`; review comments are the next best
-    // proxy for "how much discussion has this had".
+    // proxy for "how much discussion has this had". `survey.ts` replaces this
+    // with the issue view's count or GraphQL's when either is known.
     comments: raw.comments ?? raw.review_comments ?? 0,
     labels: mapLabels(raw.labels),
     author: raw.user?.login ?? null,
     state: pullState(raw),
   };
+
+  // Section 76.3 additions, only when GitHub sent them.
+  if (Array.isArray(raw.requested_reviewers)) pull.requestedReviewers = raw.requested_reviewers.length;
+  if (typeof raw.head?.sha === "string" && raw.head.sha !== "") pull.headSha = raw.head.sha;
+  return pull;
 }
 
 /**
@@ -80,4 +106,24 @@ export function mapPull(raw: GhPull): PullSummary | null {
 export function pullState(raw: Pick<GhPull, "state" | "merged_at">): PullSummary["state"] {
   if (raw.merged_at) return "merged";
   return raw.state === "closed" ? "closed" : "open";
+}
+
+/**
+ * The health sample of open pull requests: the first 50 by `updatedAt`,
+ * newest first — exactly what today's `per_page=50` request returned
+ * (PLAN.md section 76.1, decision 6). `lib/analysis` reads health from this.
+ */
+export function healthSamplePulls(pulls: PullSummary[]): PullSummary[] {
+  return pulls
+    .filter((pull) => pull.state === "open" && pull.mergedAt === null)
+    .map((pull, index) => ({ pull, index }))
+    .sort((a, b) => compareUpdatedDesc(a.pull, b.pull) || a.index - b.index)
+    .slice(0, HEALTH_SAMPLE_PULLS)
+    .map(({ pull }) => pull);
+}
+
+function compareUpdatedDesc(a: PullSummary, b: PullSummary): number {
+  const ta = Date.parse(a.updatedAt);
+  const tb = Date.parse(b.updatedAt);
+  return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
 }
