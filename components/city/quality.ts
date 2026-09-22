@@ -187,6 +187,9 @@ function announce(): void {
 export function pinQualityTier(tier: QualityTier): void {
   pinned = true;
   publish(tier);
+  // `publish` only announces a change; pinning the tier already in force is
+  // still worth reporting.
+  announce();
 }
 
 export function setQualityTier(tier: QualityTier): void {
