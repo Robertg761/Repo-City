@@ -14,12 +14,23 @@
  * shadows and a small one does not waste texels. A low golden-hour sun throws
  * shadows much further across the plate than a midday one, so the frustum
  * widens with the hour or the towers at the edge lose their shadows.
+ *
+ * ONE MAP AT EVERY SCALE (PLAN.md 76.5). A metropolis's shadow texel is
+ * larger than a city's -- 0.19 to 0.26 world units at 320 against 0.14 to
+ * 0.19 at 226 -- but the camera that looks at it is further away by the same
+ * factor, at the overview and at a tower's close-up alike, so on screen a
+ * texel covers the same 0.7 to 1 pixel in both. A 4,096 map for the
+ * metropolis was measured and not taken: four times the memory (64 MB), a
+ * slower frame, and no visible difference even at street level. Fitting the
+ * shadow camera to the view would sharpen close-ups everywhere, but it would
+ * change the city's shadows and make them crawl as the camera orbits.
  */
 
 import { useEffect, useRef } from "react";
 import type { DirectionalLight } from "three";
 import type { SceneAtmosphere } from "./palette";
 import { useQuality } from "./quality";
+import { shadowReach, shadowTexel } from "./scale";
 
 export default function Lighting({
   atmosphere,
@@ -33,10 +44,8 @@ export default function Lighting({
   // passed in because `City.tsx` owns this element and belongs to E5.
   const { shadowMapSize } = useQuality();
   const [dx, dy, dz] = atmosphere.sunDirection;
-  // A shadow cast by a sun 24 degrees up is more than twice as long as one
-  // cast from 52 degrees: 0.62 of the city covers the midday case, and the
-  // evening term covers the rest.
-  const reach = size * (0.62 + atmosphere.evening * 0.22);
+  // The whole settlement, widened for a low sun's longer shadows (`scale.ts`).
+  const reach = shadowReach(size, atmosphere.evening);
   const light = useRef<DirectionalLight>(null);
 
   // Shadow acne is a surface shadowing itself because one shadow texel spans
@@ -44,7 +53,7 @@ export default function Lighting({
   // city on one map -- and grows on the low tier and with a low sun, so the
   // offset along the normal is sized from the texel rather than fixed: a
   // fixed 0.02 was a tenth of a texel, and big flat walls striped.
-  const texel = (reach * 2) / shadowMapSize;
+  const texel = shadowTexel(size, atmosphere.evening, shadowMapSize);
   const normalBias = texel * 0.6;
 
   // Changing `shadow.mapSize` after the map exists is ignored by three until
