@@ -25,11 +25,31 @@
  */
 
 import type { Prng } from "@/lib/city/prng";
+import { DEFAULT_SETTLEMENT_TIER, SETTLEMENT_PARAMS } from "@/lib/city/settlement";
+import type { SettlementTier } from "@/types/analysis";
 import type { RoadSegment } from "@/types/city";
 import type { BlockedStretch, Blockages } from "./blockages";
 
-/** PLAN.md section 37: 30 to 40 moving cars is the whole budget. */
+/**
+ * PLAN.md section 37: 30 to 40 moving cars is the whole budget of a city.
+ * That is the city tier's cap (`lib/city/settlement.ts` holds it to this);
+ * the other tiers have their own, `carCap`.
+ */
 export const MAX_CARS = 40;
+
+/** The largest fleet any settlement runs (the metropolis, PLAN.md 76.5). */
+export const MAX_FLEET = Math.max(
+  ...Object.values(SETTLEMENT_PARAMS).map((params) => params.vehicles.max),
+);
+
+/**
+ * How many cars a settlement of this tier may run: 10 in a village, 24 in a
+ * town, 40 in a city, 64 in a metropolis. A model without a settlement is a
+ * city, exactly as before (PLAN.md 76.1 decision 3).
+ */
+export function carCap(tier: SettlementTier | undefined): number {
+  return SETTLEMENT_PARAMS[tier ?? DEFAULT_SETTLEMENT_TIER].vehicles.max;
+}
 
 /**
  * Half the length of the longest body in the fleet (the bus, 4.5 units; see
@@ -228,7 +248,7 @@ export function spawnCars(
   }
 
   const cars: Car[] = [];
-  const total = Math.max(0, Math.min(count, MAX_CARS));
+  const total = Math.max(0, Math.min(count, MAX_FLEET));
   for (let i = 0; i < total; i++) {
     const segment = prng.pick(weighted);
     const forward = prng.next() < 0.5;

@@ -2,7 +2,8 @@
 
 /**
  * Street movement (PLAN.md sections 17, 18, 37). `vehicles.count` vehicles,
- * capped at 40, driving the road graph from `traffic.ts`.
+ * capped per settlement tier (40 in a city, 64 in a metropolis; PLAN.md
+ * 76.5), driving the road graph from `traffic.ts`.
  *
  * A car picks a segment, drives it, turns at the junction. It keeps out of
  * the stretches incidents and construction close (`blockages.ts`): it will
@@ -36,7 +37,7 @@ import {
   type VehicleBody,
 } from "./models/vehicles/shapes";
 import { tintedMaterial } from "./models/props/material";
-import { MAX_CARS, advanceCar, carPose, roadGraph, spawnCars } from "./traffic";
+import { MAX_FLEET, advanceCar, carCap, carPose, roadGraph, spawnCars } from "./traffic";
 import { blockedStretches, cityObstacles } from "./blockages";
 import { useRevealClock } from "./useReveal";
 
@@ -62,9 +63,11 @@ export default function Traffic({
 
   const { graph, blocks, cars, prng, looks, groups } = useMemo(() => {
     const rng = prngFor(city.seed, "traffic");
-    const wanted = Math.max(0, Math.min(city.vehicles.count, MAX_CARS));
+    // The settlement's own cap: a village runs ten cars, a metropolis 64.
+    const wanted = Math.max(0, Math.min(city.vehicles.count, carCap(city.settlement?.tier)));
     const network = roadGraph(city.roads);
-    // Incidents and any site that reaches a lane, once per city.
+    // Incidents, any site that reaches a lane, crowd objects standing in a
+    // lane and the queue at the city limits, once per city.
     const closures = blockedStretches(network, cityObstacles(city));
     const fleet = spawnCars(city.roads, wanted, rng, closures);
     // A separate stream, so adding body types cannot change where the cars
@@ -99,10 +102,10 @@ export default function Traffic({
   const wheelRef = useRef<InstancedMesh>(null);
   /**
    * Wheel angle per car, in radians. One fixed-size buffer for the whole run:
-   * the fleet can never exceed `MAX_CARS`, so this is allocated once and
+   * the fleet can never exceed `MAX_FLEET`, so this is allocated once and
    * accumulated in place rather than rebuilt with every city.
    */
-  const spin = useRef<Float32Array>(new Float32Array(MAX_CARS));
+  const spin = useRef<Float32Array>(new Float32Array(MAX_FLEET));
   useEffect(() => {
     spin.current.fill(0);
   }, [cars]);

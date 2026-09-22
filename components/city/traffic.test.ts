@@ -5,7 +5,9 @@ import {
   CAR_HALF_LENGTH,
   CAR_HALF_WIDTH,
   MAX_CARS,
+  MAX_FLEET,
   advanceCar,
+  carCap,
   carPose,
   enterable,
   laneOffset,
@@ -169,8 +171,24 @@ describe("nextRide", () => {
 
 describe("spawnCars", () => {
   it("caps the fleet at the performance budget", () => {
-    expect(spawnCars(CROSS, 400, prngFor("s", "traffic"))).toHaveLength(MAX_CARS);
+    expect(spawnCars(CROSS, 400, prngFor("s", "traffic"))).toHaveLength(MAX_FLEET);
     expect(spawnCars(CROSS, 12, prngFor("s", "traffic"))).toHaveLength(12);
+  });
+
+  it("takes each settlement's own vehicle cap (PLAN.md 76.5)", () => {
+    expect(carCap("village")).toBe(10);
+    expect(carCap("town")).toBe(24);
+    expect(carCap("city")).toBe(MAX_CARS);
+    expect(carCap("metropolis")).toBe(64);
+    expect(MAX_FLEET).toBe(64);
+    // A model from before settlements is a city, exactly as it was.
+    expect(carCap(undefined)).toBe(MAX_CARS);
+  });
+
+  it("spawns a city's fleet exactly as before for any count up to its cap", () => {
+    const a = spawnCars(CROSS, MAX_CARS, prngFor("s", "traffic"));
+    const b = spawnCars(CROSS, 400, prngFor("s", "traffic")).slice(0, MAX_CARS);
+    expect(a).toEqual(b);
   });
 
   it("returns nothing when there are no drivable roads", () => {
