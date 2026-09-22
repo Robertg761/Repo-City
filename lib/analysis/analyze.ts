@@ -21,6 +21,15 @@ import type {
   RepoMetrics,
 } from "@/types/analysis";
 import type { RepositorySnapshot, TreeEntry } from "@/types/repository";
+import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
+import {
+  PAYLOAD_TARGET,
+  buildIssueBacklog,
+  buildPullBacklog,
+  fitBacklog,
+  openTotalsFor,
+  utf8Length,
+} from "./backlog";
 import { findReadme } from "./detect";
 import { planDistricts } from "./districts";
 import { selectBuildings } from "./fileSelection";
@@ -243,11 +252,21 @@ export async function analyzeSnapshot(
   const stage = (event: StageEvent): void => opts.onStage?.(event);
   const warnings = [...snapshot.warnings];
 
+  // PLAN.md 76.5: metrics, then the settlement, then the buildings, because
+  // the settlement tier sets the building budget and the skyline shares.
   const pruned = pruneTree(snapshot.tree.entries);
   const districts = planDistricts(pruned);
-  const readme = findReadme(snapshot)?.content ?? "";
-  let buildings = selectBuildings(pruned, districts, { readme });
   const metrics = computeMetrics(snapshot, districts, { now, prunedEntries: pruned });
+  // Reads only sizes and activity, never health (76.4).
+  const settlement = classifySettlement(settlementInputFor(snapshot, metrics.core));
+  const params = SETTLEMENT_PARAMS[settlement.tier];
+  const readme = findReadme(snapshot)?.content ?? "";
+  let buildings = selectBuildings(pruned, districts, {
+    readme,
+    min: params.buildings.min,
+    max: params.buildings.max,
+    shares: params.tierShares,
+  });
 
   let ai: AiInterpretation | null = null;
   let aiStatus: AiStatus = "skipped";
@@ -304,7 +323,24 @@ export async function analyzeSnapshot(
   );
   const confidence = computeConfidence(snapshot, metrics.core);
 
-  const fullMetrics: RepoMetrics = { ...metrics.core, health, confidence };
+  // The crowd and the real totals are attached after health and confidence,
+  // which never see them (76.1 decision 6).
+  const totals = openTotalsFor(snapshot);
+  const fullMetrics: RepoMetrics = {
+    ...metrics.core,
+    issues: {
+      ...metrics.core.issues,
+      ...(totals ? { total: totals.issues } : {}),
+      backlog: [],
+    },
+    pulls: {
+      ...metrics.core.pulls,
+      ...(totals ? { total: totals.pulls } : {}),
+      backlog: [],
+    },
+    health,
+    confidence,
+  };
 
   if (snapshot.tree.truncated) {
     warnings.push("This repository is very large. The city is built from a partial survey.");
@@ -324,9 +360,20 @@ export async function analyzeSnapshot(
     warnings: [...new Set(warnings)],
     generatedAt: now.toISOString(),
     source: "live",
-    // PLAN.md 76.4. Reads only sizes and activity, never health.
-    settlement: classifySettlement(settlementInputFor(snapshot, fullMetrics)),
+    settlement,
   };
+  if (snapshot.coverage) analysis.coverage = snapshot.coverage;
+  if (snapshot.openTotals) analysis.totalsExact = snapshot.openTotals.exact;
+
+  // The crowd goes in last, trimmed only if it would carry the payload past
+  // the 1 MB ceiling (76.6).
+  const fitted = fitBacklog(
+    buildIssueBacklog(snapshot, metrics.core.issues.ranked, districts, now),
+    buildPullBacklog(snapshot, metrics.core.pulls.ranked, districts, now),
+    PAYLOAD_TARGET - utf8Length(JSON.stringify(analysis)),
+  );
+  fullMetrics.issues.backlog = fitted.issues;
+  fullMetrics.pulls.backlog = fitted.pulls;
 
   stage({ type: "stage", id: "done", status: "done", detail: `${fullMetrics.health.score}` });
   return analysis;

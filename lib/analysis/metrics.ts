@@ -19,21 +19,58 @@ import type {
 import type { IssueSummary, PullSummary, RepositorySnapshot, TreeEntry } from "@/types/repository";
 import { detectCi, detectDocs, detectTests, detectTooling } from "./detect";
 import {
+  BUG_LABEL,
+  SEVERE_LABEL,
+  heatOf,
+  issueFormFor,
+  pullForm,
+  pullRelatedPath,
+  relatedPathFor,
+} from "./forms";
+import {
   blobsOf,
   clamp,
   countLanguages,
   daysBetween,
-  dirname,
   pruneTree,
   round,
   segments,
 } from "./tree";
 
-/** PLAN.md section 11: "6 to 12 visible incidents". */
+// Moved to `forms.ts` with the rest of the 76.7 placement rules.
+export { relatedPathFor };
+
+/**
+ * The city tier's hero budget: PLAN.md section 11's "6 to 12 visible
+ * incidents" and section 13's "up to 6 open plus up to 2 recently merged".
+ * The server ranks more than this (`HERO_*` below); the generator slices the
+ * ranked lists per tier, and these stay today's city numbers so a city-tier
+ * repository draws exactly the heroes it drew before settlements.
+ */
 export const MAX_INCIDENTS = 12;
-/** PLAN.md section 13: up to 6 open plus up to 2 recently merged. */
 export const MAX_OPEN_CONSTRUCTION = 6;
 export const MAX_COMPLETED_CONSTRUCTION = 2;
+
+/**
+ * PLAN.md 76.7: the ranked hero lists are sized for the largest tier, the
+ * metropolis (16 incidents, 8 open plus 2 merged sites). Issues are in score
+ * order, so the first 12 are today's. Pull requests are the top 6 open, then
+ * the merged ones, then open heroes 7 and 8, so the first 8 are today's; a
+ * tier takes `ranked.filter(open).slice(0, n)` plus the completed ones.
+ */
+export const HERO_ISSUES = 16;
+export const HERO_OPEN_PULLS = 8;
+export const HERO_MERGED_PULLS = 2;
+
+/**
+ * PLAN.md 76.1 decision 6: health reads the first 50 open pull requests by
+ * update time, exactly the set the single `per_page=50` request returned
+ * before ingestion started paging.
+ */
+export const HEALTH_SAMPLE_PULLS = 50;
+
+/** 76.6: touched paths on the wire, per pull request, heroes and crowd alike. */
+export const RANKED_FILES_MAX = 5;
 /** A merged pull request older than this is not a "freshly finished building". */
 const COMPLETED_WINDOW_DAYS = 90;
 
@@ -133,9 +170,6 @@ export function recencyScore(lastPushDaysAgo: number): number {
 
 /* ------------------------------------------------------------------ issues */
 
-const BUG_LABEL = /bug|defect|regression|crash/i;
-const SEVERE_LABEL = /critical|p0|p1|high|urgent|security|blocker/i;
-
 /** PLAN.md section 11. Exposed for tests and for the inspector's explanation. */
 export function classifyIssue(
   issue: IssueSummary,
@@ -191,37 +225,49 @@ function issueReason(
   }
 }
 
-const PATH_TOKEN = /[\w.@-]+(?:\/[\w.@-]+)+/g;
-
 /**
- * PLAN.md section 11: "if an issue title or body mentions a path that falls
- * inside a district, place the incident on a road adjacent to that district".
- * Returns the mentioned directory, or `null`.
+ * An issue with its severity, form, heat and related path: a hero. Heroes keep
+ * `bodyExcerpt`; the compact backlog drops it (`backlog.ts`).
  */
-export function relatedPathFor(
-  issue: Pick<IssueSummary, "title" | "bodyExcerpt">,
+export function toRankedIssue(
+  issue: IssueSummary,
   districts: readonly DistrictPlan[],
-): string | null {
-  const text = `${issue.title}\n${issue.bodyExcerpt}`;
-  const sources = districts
-    .map((d) => d.sourcePath.replace(/^\/+/, "").replace(/\/+$/, ""))
-    .filter(Boolean);
-  if (sources.length === 0) return null;
-
-  for (const raw of text.match(PATH_TOKEN) ?? []) {
-    const token = raw.replace(/^\.\//, "").replace(/[).,:;]+$/, "");
-    if (/^https?:/i.test(raw) || token.includes("://")) continue;
-    const last = segments(token).at(-1) ?? "";
-    // A trailing segment with an extension is a file: point at its directory.
-    const candidate = /\.[a-z0-9]{1,8}$/i.test(last) ? dirname(token) : token;
-    if (!candidate) continue;
-    if (sources.some((src) => candidate === src || candidate.startsWith(`${src}/`))) {
-      return candidate;
-    }
-  }
-  return null;
+  now: Date,
+): RankedIssue {
+  const { score, state, ageDays, isSevere } = classifyIssue(issue, now);
+  return {
+    ...issue,
+    score,
+    state,
+    reason: issueReason(state, ageDays, isSevere, issue.comments),
+    relatedPath: relatedPathFor(issue, districts),
+    form: issueFormFor(issue, state, now),
+    heat: heatOf(issue.comments, issue.reactions ?? 0),
+  };
 }
 
+/** Significance order: score descending, then number ascending. */
+export function bySignificance(
+  a: { score: number; number: number },
+  b: { score: number; number: number },
+): number {
+  return b.score - a.score || a.number - b.number;
+}
+
+/** Most recently updated first; number descending breaks ties. */
+export function byRecency(
+  a: { updatedAt: string; number: number },
+  b: { updatedAt: string; number: number },
+): number {
+  return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0) || b.number - a.number;
+}
+
+/**
+ * Heroes and the health sample. Both read `snapshot.issues` only, the
+ * comment-sorted first page (76.6 request A1). `issueBacklog` never reaches
+ * this function, which is half of what keeps health invariant (76.1
+ * decision 6).
+ */
 function computeIssues(
   snapshot: RepositorySnapshot,
   districts: readonly DistrictPlan[],
@@ -229,18 +275,10 @@ function computeIssues(
 ): RepoMetrics["issues"] {
   const open = snapshot.issues;
   const ranked: RankedIssue[] = open
-    .map((issue) => {
-      const { score, state, ageDays, isSevere } = classifyIssue(issue, now);
-      return {
-        ...issue,
-        score,
-        state,
-        reason: issueReason(state, ageDays, isSevere, issue.comments),
-        relatedPath: relatedPathFor(issue, districts),
-      };
-    })
-    .sort((a, b) => b.score - a.score || a.number - b.number)
-    .slice(0, MAX_INCIDENTS);
+    .map((issue) => ({ issue, number: issue.number, score: classifyIssue(issue, now).score }))
+    .sort(bySignificance)
+    .slice(0, HERO_ISSUES)
+    .map(({ issue }) => toRankedIssue(issue, districts, now));
 
   const stale = open.filter((issue) => daysBetween(issue.updatedAt, now) >= 180).length;
   return {
@@ -294,12 +332,22 @@ function pullReason(state: RankedPull["state"], days: number, draft: boolean): s
  * `RankedPull` is `Omit<PullSummary, "state">` plus a `ConstructionState`, so
  * the raw `open | merged | closed` field is dropped here on purpose: the
  * construction state carries it ("completed" means merged, anything else open).
+ *
+ * `form` on an open pull request is its crowd form (`van`, `hoarding`,
+ * `trench` or `scaffold`), because the generator demotes the heroes past a
+ * tier's budget to the crowd; a hero it keeps is drawn as the crane `site`
+ * whatever its form. A merged pull request is only ever a hero: `site`.
  */
-function toRanked(pull: PullSummary, now: Date): RankedPull {
+export function toRankedPull(
+  pull: PullSummary,
+  districts: readonly DistrictPlan[],
+  now: Date,
+): RankedPull {
   const { state, score, daysSinceUpdate } = classifyPull(pull, now);
   const days =
     state === "completed" && pull.mergedAt ? daysBetween(pull.mergedAt, now) : daysSinceUpdate;
-  return {
+  const files = pull.files ?? [];
+  const ranked: RankedPull = {
     number: pull.number,
     title: pull.title,
     url: pull.url,
@@ -313,29 +361,77 @@ function toRanked(pull: PullSummary, now: Date): RankedPull {
     score,
     state,
     reason: pullReason(state, days, pull.draft),
+    form:
+      state === "completed"
+        ? "site"
+        : pullForm({ author: pull.author, labels: pull.labels, draft: pull.draft, files }),
+    relatedPath: pullRelatedPath({ title: pull.title, files }, districts),
+    heat: heatOf(pull.comments, pull.reactions ?? 0),
   };
+  // Enrichment travels only when ingestion supplied it, so an analysis of an
+  // older snapshot keeps exactly its old keys.
+  if (pull.reactions !== undefined) ranked.reactions = pull.reactions;
+  if (pull.review !== undefined) ranked.review = pull.review;
+  if (pull.checks !== undefined) ranked.checks = pull.checks;
+  if (pull.files !== undefined) ranked.files = pull.files.slice(0, RANKED_FILES_MAX);
+  if (pull.changedFiles !== undefined) ranked.changedFiles = pull.changedFiles;
+  return ranked;
 }
 
-function computePulls(snapshot: RepositorySnapshot, now: Date): RepoMetrics["pulls"] {
-  const open = snapshot.pulls.filter((p) => p.mergedAt === null && p.state === "open");
+/** Open pull requests in the snapshot, one per number, in snapshot order. */
+export function openPullsOf(snapshot: RepositorySnapshot): PullSummary[] {
+  const seen = new Set<number>();
+  const out: PullSummary[] = [];
+  for (const pull of snapshot.pulls) {
+    if (pull.mergedAt !== null || pull.state !== "open" || seen.has(pull.number)) continue;
+    seen.add(pull.number);
+    out.push(pull);
+  }
+  return out;
+}
+
+/**
+ * The health sample: the first `HEALTH_SAMPLE_PULLS` open pull requests by
+ * update time (76.1 decision 6). Ingestion now lists up to 500; health keeps
+ * reading the 50 the old single request returned.
+ */
+export function pullHealthSample(snapshot: RepositorySnapshot): PullSummary[] {
+  return openPullsOf(snapshot).sort(byRecency).slice(0, HEALTH_SAMPLE_PULLS);
+}
+
+function computePulls(
+  snapshot: RepositorySnapshot,
+  districts: readonly DistrictPlan[],
+  now: Date,
+): RepoMetrics["pulls"] {
+  const sample = pullHealthSample(snapshot);
   const merged = snapshot.pulls.filter((p) => p.mergedAt !== null);
 
-  const rankedOpen = open
-    .map((pull) => toRanked(pull, now))
-    .sort((a, b) => b.score - a.score || a.number - b.number)
-    .slice(0, MAX_OPEN_CONSTRUCTION);
+  // Heroes rank every open pull request surveyed, not only the health sample.
+  const rankedOpen = openPullsOf(snapshot)
+    .map((pull) => ({ pull, number: pull.number, score: classifyPull(pull, now).score }))
+    .sort(bySignificance)
+    .slice(0, HERO_OPEN_PULLS)
+    .map(({ pull }) => toRankedPull(pull, districts, now));
 
   const rankedMerged = merged
     .filter((pull) => pull.mergedAt !== null && daysBetween(pull.mergedAt, now) <= COMPLETED_WINDOW_DAYS)
     .sort((a, b) => Date.parse(b.mergedAt ?? "") - Date.parse(a.mergedAt ?? ""))
-    .slice(0, MAX_COMPLETED_CONSTRUCTION)
-    .map((pull) => toRanked(pull, now));
+    .slice(0, HERO_MERGED_PULLS)
+    .map((pull) => toRankedPull(pull, districts, now));
 
-  const stale = open.filter((pull) => daysBetween(pull.updatedAt, now) >= 60).length;
+  const stale = sample.filter((pull) => daysBetween(pull.updatedAt, now) >= 60).length;
   return {
-    open: open.length,
-    ranked: [...rankedOpen, ...rankedMerged],
-    staleShare: open.length === 0 ? 0 : round(stale / open.length, 3),
+    open: sample.length,
+    // Today's city heroes first (6 open, then 2 merged), then the extra open
+    // heroes a metropolis draws. A generator that slices the first 8 gets
+    // exactly the pre-settlement city; a tier-aware one splits by state.
+    ranked: [
+      ...rankedOpen.slice(0, MAX_OPEN_CONSTRUCTION),
+      ...rankedMerged,
+      ...rankedOpen.slice(MAX_OPEN_CONSTRUCTION),
+    ],
+    staleShare: sample.length === 0 ? 0 : round(stale / sample.length, 3),
   };
 }
 
@@ -420,7 +516,7 @@ export function computeMetrics(
     scale: computeScale(pruned, snapshot.tree.entries),
     activity: computeActivity(snapshot, now),
     issues: computeIssues(snapshot, districts, now),
-    pulls: computePulls(snapshot, now),
+    pulls: computePulls(snapshot, districts, now),
     ci: detectCi(snapshot),
     tests: detectTests(snapshot),
     docs: detectDocs(snapshot),
