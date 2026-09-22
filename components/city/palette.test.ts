@@ -136,16 +136,47 @@ describe("stateTint", () => {
 });
 
 describe("atmosphere", () => {
-  it("makes an archived city cooler and foggier without going dark", () => {
+  it("makes an archived city cooler, greyer and quieter, but no hazier", () => {
     const live = atmosphere(AMBIENCE, false);
     const archived = atmosphere(AMBIENCE, true);
 
     expect(blueness(archived.sunColor)).toBeGreaterThan(blueness(live.sunColor));
-    expect(archived.fogFarFactor).toBeLessThan(live.fogFarFactor);
     expect(archived.desaturation).toBeGreaterThan(live.desaturation);
+    expect(archived.sunIntensity).toBeLessThan(live.sunIntensity);
+    // Abandoned is told by colour and light, never by fog.
+    expect(archived.fogNearFactor).toBe(live.fogNearFactor);
+    expect(archived.fogFarFactor).toBe(live.fogFarFactor);
     // Section 39: "do not make unhealthy cities visually unreadable".
-    expect(archived.sunIntensity).toBeGreaterThan(1.2);
-    expect(luma(archived.background)).toBeGreaterThan(0.45);
+    expect(archived.sunIntensity).toBeGreaterThan(2);
+    expect(luma(archived.background)).toBeGreaterThan(0.6);
+  });
+
+  it("never lets the generator's fog put haze over the city", () => {
+    // The overview sits at most 1.9 of the reach from the centre and the far
+    // corner of the city is 0.74 beyond it: the fog must start past that.
+    for (const fog of [0, 0.5, 1, 7]) {
+      for (const archived of [false, true]) {
+        const a = atmosphere({ ...AMBIENCE, fog }, archived);
+        expect(a.fogNearFactor).toBeGreaterThan(1.9 + 0.74);
+        expect(a.exposure).toBe(atmosphere({ ...AMBIENCE, fog: 0 }, archived).exposure);
+      }
+    }
+  });
+
+  it("keeps the backdrop pale and clean rather than a ground haze", () => {
+    for (const archived of [false, true]) {
+      const a = atmosphere(AMBIENCE, archived);
+      expect(luma(a.skyGroundColor)).toBeGreaterThanOrEqual(luma(a.background));
+      // Blue-leaning, not the olive the old ground haze was.
+      expect(blueness(a.background)).toBeGreaterThan(0.05);
+    }
+  });
+
+  it("keeps the grass green rather than olive at any warmth", () => {
+    for (const warmth of [0, 0.5, 1]) {
+      const [r, g] = hexToRgb(atmosphere({ ...AMBIENCE, warmth }, false).terrainColor);
+      expect(g - r).toBeGreaterThan(0.1);
+    }
   });
 
   it("warms the sun as warmth rises", () => {
@@ -208,13 +239,13 @@ describe("time of day", () => {
     expect(blueness(golden.sunColor)).toBeLessThan(blueness(midday.sunColor));
   });
 
-  it("keeps exposure within a sane photographic range for every city", () => {
+  it("keeps exposure within a sane range for every city", () => {
     for (const fog of [0, 0.5, 1]) {
       for (const litWindowShare of [0, 0.5, 1]) {
         for (const archived of [false, true]) {
           const a = atmosphere({ ...AMBIENCE, fog, litWindowShare }, archived);
-          expect(a.exposure).toBeGreaterThan(0.9);
-          expect(a.exposure).toBeLessThanOrEqual(1.3);
+          expect(a.exposure).toBeGreaterThanOrEqual(1);
+          expect(a.exposure).toBeLessThanOrEqual(1.2);
         }
       }
     }
@@ -222,7 +253,7 @@ describe("time of day", () => {
 });
 
 describe("sky", () => {
-  it("meets the fog at the horizon, so distance dissolves into sky", () => {
+  it("meets the fog at the horizon, so the rim of the landscape has no seam", () => {
     const a = atmosphere(AMBIENCE, false);
     expect(a.skyHorizonColor).toBe(a.background);
   });
