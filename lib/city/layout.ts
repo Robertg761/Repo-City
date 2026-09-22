@@ -31,6 +31,7 @@
  * top of the buildings, and shrunk to a building slot they would be unreadable.
  */
 
+import type { SettlementTier } from "@/types/analysis";
 import type { LandmarkType, RoadSegment, Vec3 } from "@/types/city";
 
 /** Axis-aligned rectangle on the XZ plane. `x` and `z` are the centre. */
@@ -990,11 +991,14 @@ function planLandmarkPlots(
 /**
  * Stages 1 to 4 of PLAN.md section 36. Deterministic and seed independent:
  * the same district ids and counts always produce the same rectangles.
+ *
+ * `tier` is the settlement (PLAN.md 76.5). It is accepted and not yet read:
+ * every tier lays out as today's city until S3 wires `SETTLEMENT_PARAMS` in.
  */
 export function planLayout(
   districts: LayoutDistrictInput[],
   totalBuildings: number,
-  options: { landmarkFiles?: number } = {},
+  options: { landmarkFiles?: number; tier?: SettlementTier } = {},
 ): CityLayout {
   const size = cityBoundsSize(totalBuildings);
   const districtSide = districtSquareSide(totalBuildings);
