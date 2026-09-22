@@ -69,13 +69,20 @@ export interface MetricsResult {
 
 /* ------------------------------------------------------------------- scale */
 
-function computeScale(entries: readonly TreeEntry[]): RepoMetrics["scale"] {
+function computeScale(
+  entries: readonly TreeEntry[],
+  surveyed: readonly TreeEntry[],
+): RepoMetrics["scale"] {
   const blobs = blobsOf(entries);
   const dirs = entries.filter((e) => e.type === "tree").length;
   const files = blobs.length;
   const tier =
     files < 50 ? "tiny" : files < 300 ? "small" : files < 2000 ? "medium" : files < 10_000 ? "large" : "huge";
-  return { files, dirs, languages: countLanguages(blobs), tier };
+  // What the ingestion layer listed, before this layer dropped dot-directories,
+  // lockfiles, binaries and anything past the depth cap. The two numbers are
+  // both true and must never be shown under one label (QA-2026-09-21 bug 2).
+  const surveyedFiles = Math.max(files, blobsOf(surveyed).length);
+  return { files, dirs, languages: countLanguages(blobs), tier, surveyedFiles };
 }
 
 /* ---------------------------------------------------------------- activity */
@@ -110,6 +117,9 @@ function computeActivity(
     activeContributors90d: authors.size,
     lastPushDaysAgo,
     score: round(clamp(score), 3),
+    // The contributor list is one page of the API and can fail on its own
+    // (PLAN.md section 29), in which case it is simply absent.
+    contributors: snapshot.contributors.length,
   };
 }
 
@@ -160,7 +170,9 @@ function issueReason(
   isSevere: boolean,
   comments: number,
 ): string {
-  const days = Math.floor(ageDays);
+  // Separated, because this sentence sits directly under a facts list that
+  // formats the same number with `toLocaleString` (QA-2026-09-21 bug 6).
+  const days = Math.floor(ageDays).toLocaleString("en-US");
   switch (state) {
     case "major":
       return "An unresolved bug carrying a high-severity label with heavy discussion activity.";
@@ -259,14 +271,18 @@ export function classifyPull(
 }
 
 function pullReason(state: RankedPull["state"], days: number, draft: boolean): string {
-  const whole = Math.floor(days);
+  const value = Math.floor(days);
+  const whole = value.toLocaleString("en-US");
   switch (state) {
     case "completed":
-      return `Merged ${whole} day${whole === 1 ? "" : "s"} ago: a newly finished building.`;
-    case "active":
+      return `Merged ${whole} day${value === 1 ? "" : "s"} ago: a newly finished building.`;
+    case "active": {
+      // "updated 0 days ago" is how a machine says "updated today".
+      const when = value === 0 ? "today" : `${whole} day${value === 1 ? "" : "s"} ago`;
       return draft
-        ? `An open draft pull request updated ${whole} day${whole === 1 ? "" : "s"} ago.`
-        : `An open pull request updated ${whole} day${whole === 1 ? "" : "s"} ago: active construction.`;
+        ? `An open draft pull request updated ${when}.`
+        : `An open pull request updated ${when}: active construction.`;
+    }
     case "abandoned":
       return `An open pull request untouched for ${whole} days: construction has stopped.`;
     default:
@@ -331,12 +347,22 @@ function computeReleases(snapshot: RepositorySnapshot, now: Date): RepoMetrics["
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
   if (published.length === 0) {
     // PLAN.md section 20: not using GitHub Releases is not a fault.
-    return { count: 0, lastDaysAgo: null, cadence: "none" };
+    return { count: 0, lastDaysAgo: null, cadence: "none", lastTag: null, lastPublishedAt: null, lastUrl: null };
   }
-  const lastDaysAgo = Math.floor(daysBetween(published[0].publishedAt, now));
+  const latest = published[0];
+  const lastDaysAgo = Math.floor(daysBetween(latest.publishedAt, now));
   const cadence =
     lastDaysAgo <= 60 || (published.length >= 3 && lastDaysAgo <= 120) ? "active" : "occasional";
-  return { count: published.length, lastDaysAgo, cadence };
+  // The tag and its date name the last train that arrived, which is what the
+  // station's inspector shows (PLAN.md section 20).
+  return {
+    count: published.length,
+    lastDaysAgo,
+    cadence,
+    lastTag: latest.tag || null,
+    lastPublishedAt: latest.publishedAt,
+    lastUrl: latest.url || null,
+  };
 }
 
 /* --------------------------------------------------------------- structure */
@@ -391,7 +417,7 @@ export function computeMetrics(
   const pruned = options.prunedEntries ?? pruneTree(snapshot.tree.entries);
 
   const core: MetricsCore = {
-    scale: computeScale(pruned),
+    scale: computeScale(pruned, snapshot.tree.entries),
     activity: computeActivity(snapshot, now),
     issues: computeIssues(snapshot, districts, now),
     pulls: computePulls(snapshot, now),

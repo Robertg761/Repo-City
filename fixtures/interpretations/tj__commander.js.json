@@ -55,7 +55,10 @@
       "sourcePath": "/typings",
       "name": "The Drafting Office",
       "purpose": "Hand-written TypeScript declarations with their own type tests, kept beside a JavaScript implementation.",
-      "evidence": ["typings/index.d.ts", "typings/index.test-d.ts"]
+      "evidence": [
+        "typings/index.d.ts",
+        "typings/index.test-d.ts"
+      ]
     },
     {
       "sourcePath": "/.github",
@@ -72,42 +75,259 @@
     {
       "path": "lib/command.js",
       "role": "The Command class: subcommands, parsing, action handlers, hooks and the program lifecycle. Almost the whole library.",
-      "evidence": ["index.js", "lib/option.js", "lib/argument.js"]
+      "evidence": [
+        "index.js",
+        "lib/option.js",
+        "lib/argument.js",
+        "docs/parsing-and-hooks.md"
+      ]
     },
     {
       "path": "lib/option.js",
       "role": "Option definitions: flags, negation, variadic values, defaults, presets, choices and environment variable sources.",
-      "evidence": ["tests/options.preset.test.js", "tests/options.variadic.test.js"]
+      "evidence": [
+        "tests/options.preset.test.js",
+        "tests/options.variadic.test.js",
+        "docs/options-in-depth.md"
+      ]
     },
     {
       "path": "lib/argument.js",
-      "role": "Positional argument definitions, including required, optional and variadic forms.",
-      "evidence": ["docs/terminology.md"]
+      "role": "Positional arguments: required and optional names taken from the angle or square brackets, variadic form, defaults, choices and custom parsing.",
+      "evidence": [
+        "docs/terminology.md",
+        "tests/argument.variadic.test.js",
+        "tests/argument.choices.test.js"
+      ]
     },
     {
       "path": "lib/help.js",
       "role": "Help text generation: layout, wrapping, sorting and the hooks that let a program override any of it.",
-      "evidence": ["docs/help-in-depth.md", "tests/useColor.test.js"]
+      "evidence": [
+        "docs/help-in-depth.md",
+        "tests/useColor.test.js",
+        "tests/help.style.test.js"
+      ]
     },
     {
       "path": "lib/error.js",
       "role": "CommanderError and InvalidArgumentError, the typed failures a program can catch instead of exiting.",
-      "evidence": ["lib/command.js"]
+      "evidence": [
+        "lib/command.js",
+        "tests/command.exitOverride.test.js"
+      ]
     },
     {
       "path": "lib/suggestSimilar.js",
-      "role": "The did-you-mean suggestion shown after an unknown option or command.",
-      "evidence": ["lib/command.js"]
+      "role": "Edit-distance matching behind the did-you-mean line printed after an unknown option or command.",
+      "evidence": [
+        "lib/command.js",
+        "tests/command.showSuggestionAfterError.test.js"
+      ]
     },
     {
       "path": "index.js",
-      "role": "The package entry point: re-exports the library and the default program instance.",
-      "evidence": ["lib/command.js", "package.json"]
+      "role": "The entry point: exports the default program, the Command, Option, Argument and Help classes, the error types and the createX helpers.",
+      "evidence": [
+        "lib/command.js",
+        "package.json",
+        "tests/imports.test.mjs"
+      ]
     },
     {
       "path": "typings/index.d.ts",
       "role": "The TypeScript surface, maintained by hand against the JavaScript implementation.",
-      "evidence": ["typings/index.test-d.ts"]
+      "evidence": [
+        "typings/index.test-d.ts",
+        "package.json"
+      ]
+    },
+    {
+      "path": "typings/index.test-d.ts",
+      "role": "tsd type tests over the declarations, run by npm test alongside the behaviour suite.",
+      "evidence": [
+        "typings/index.d.ts",
+        "tsconfig.ts.json"
+      ]
+    },
+    {
+      "path": "package.json",
+      "role": "An ESM package with no runtime dependencies: npm test runs node --test and the TypeScript check, and only index.js, lib and typings ship.",
+      "evidence": [
+        "index.js",
+        "tsconfig.ts.json",
+        "package-support.json"
+      ]
+    },
+    {
+      "path": "Readme.md",
+      "role": "The main documentation: quick start, options, commands and command-arguments, action handlers, hooks, help and parsing configuration.",
+      "evidence": [
+        "examples/split.js",
+        "docs/options-in-depth.md",
+        "Readme_zh-CN.md"
+      ]
+    },
+    {
+      "path": "docs/parsing-and-hooks.md",
+      "role": "The parsing life cycle written out step by step, from options and environment variables down to the leaf command, and where each hook fires.",
+      "evidence": [
+        "lib/command.js",
+        "tests/command.hook.test.js",
+        "examples/hook.js"
+      ]
+    },
+    {
+      "path": "docs/options-in-depth.md",
+      "role": "The awkward cases the readme skips: options taking varying numbers of option-arguments, and the parsing ambiguity they create.",
+      "evidence": [
+        "lib/option.js",
+        "examples/options-variadic.js",
+        "tests/options.variadic.test.js"
+      ]
+    },
+    {
+      "path": "docs/help-in-depth.md",
+      "role": "How to reshape the built-in help through configureHelp or a Help subclass: data properties, styling and layout.",
+      "evidence": [
+        "lib/help.js",
+        "examples/configure-help.js",
+        "tests/help.style.test.js"
+      ]
+    },
+    {
+      "path": "docs/terminology.md",
+      "role": "Defines the four words the rest of the documentation relies on: option, option-argument, command and command-argument.",
+      "evidence": [
+        "lib/argument.js",
+        "lib/option.js"
+      ]
+    },
+    {
+      "path": "docs/deprecated.md",
+      "role": "The features that still work but should not be used in new code, such as the RegExp option parameter and the --help event listeners.",
+      "evidence": [
+        "tests/deprecated.test.js",
+        "CHANGELOG.md"
+      ]
+    },
+    {
+      "path": "docs/release-policy.md",
+      "role": "Semantic versioning with a major release roughly every six months, timed to Node.js LTS end-of-life, and what older lines still receive.",
+      "evidence": [
+        "CHANGELOG.md",
+        "package.json"
+      ]
+    },
+    {
+      "path": "tests/testHelpers.js",
+      "role": "createTestCommand: a Command with exitOverride set and output suppressed, so tests see exceptions instead of process.exit.",
+      "evidence": [
+        "tests/command.exitOverride.test.js",
+        "lib/error.js"
+      ]
+    },
+    {
+      "path": "tests/fixtures/pm",
+      "role": "The fixture program the executable-subcommand tests spawn, declaring install, search, cache, echo, listen and a hidden default command.",
+      "evidence": [
+        "tests/command.executableSubcommand.test.js",
+        "tests/fixtures/pm-install",
+        "tests/fixtures/pm-echo.js"
+      ]
+    },
+    {
+      "path": "examples/pm",
+      "role": "Subcommands implemented as stand-alone executables: pm declares install, search and update, which run as separate pm-* files.",
+      "evidence": [
+        "examples/pm-install",
+        "examples/pm-list.js",
+        "Readme.md"
+      ]
+    },
+    {
+      "path": "examples/deploy",
+      "role": "A program with a global --config option and setup and exec subcommands that each add options and an action handler.",
+      "evidence": [
+        "examples/pm",
+        "lib/command.js"
+      ]
+    },
+    {
+      "path": "examples/split.js",
+      "role": "The quick start program from the readme: one argument, a --separator option and a --first flag.",
+      "evidence": [
+        "Readme.md"
+      ]
+    },
+    {
+      "path": "examples/pizza",
+      "role": "The boolean and value options example, including the negatable --no-cheese form paired with --cheese <type>.",
+      "evidence": [
+        "lib/option.js",
+        "examples/options-negatable.js",
+        "Readme.md"
+      ]
+    },
+    {
+      "path": "docs/zh-CN/可变参数的选项.md",
+      "role": "The Chinese translation of options-in-depth.md: options taking a variable number of arguments, the parsing ambiguity that creates, and combined short options.",
+      "evidence": [
+        "docs/options-in-depth.md",
+        "lib/option.js",
+        "docs/zh-CN/术语表.md"
+      ]
+    },
+    {
+      "path": "docs/zh-CN/不再推荐使用的功能.md",
+      "role": "The Chinese translation of deprecated.md: the RegExp option parameter, noHelp, the global Command default import and the --help event listeners.",
+      "evidence": [
+        "docs/deprecated.md",
+        "Readme_zh-CN.md",
+        "CHANGELOG.md"
+      ]
+    },
+    {
+      "path": "eslint.config.js",
+      "role": "Flat config layering the eslint recommended rules, typescript-eslint with separate setups for the JavaScript and TypeScript files, and prettier.",
+      "evidence": [
+        "tsconfig.js.json",
+        "tsconfig.ts.json",
+        ".prettierrc.js"
+      ]
+    },
+    {
+      "path": "tsconfig.json",
+      "role": "The shared TypeScript settings, with checkJs on so the JSDoc in lib is type-checked; tsconfig.js.json and tsconfig.ts.json narrow it per language.",
+      "evidence": [
+        "tsconfig.js.json",
+        "tsconfig.ts.json",
+        "typings/index.d.ts"
+      ]
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "Keep a Changelog history of every release, including the 15.0.0 move to ESM only and its migration tips.",
+      "evidence": [
+        "docs/release-policy.md",
+        "package.json"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "role": "How the project takes issues and pull requests, including that pull requests go against the develop branch.",
+      "evidence": [
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/dependabot.yml"
+      ]
+    },
+    {
+      "path": "Readme_zh-CN.md",
+      "role": "The Chinese translation of the readme, maintained alongside a partial Chinese copy of the docs directory.",
+      "evidence": [
+        "Readme.md",
+        "docs/zh-CN/术语表.md"
+      ]
     }
   ],
   "strengths": [

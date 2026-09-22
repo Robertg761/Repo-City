@@ -19,6 +19,14 @@ export interface RepoMetrics {
     dirs: number;
     languages: Record<string, number>;
     tier: "tiny" | "small" | "medium" | "large" | "huge";
+    /**
+     * Blobs in the snapshot tree BEFORE the analysis-layer prune, so the
+     * interface can say "10 mapped of 16 surveyed" rather than showing two
+     * different file counts under the same label (QA-2026-09-21 bug 2).
+     * Always greater than or equal to `files`. Optional: older fixtures
+     * captured before this field existed simply omit it.
+     */
+    surveyedFiles?: number;
   };
   activity: {
     commitsLast30d: number;
@@ -27,6 +35,12 @@ export interface RepoMetrics {
     lastPushDaysAgo: number;
     /** 0..1 */
     score: number;
+    /**
+     * Contributors GitHub listed for the repository. The endpoint returns one
+     * page, so this saturates around 100. It feeds the HUD population line and
+     * nothing else; it never touches health (PLAN.md section 17).
+     */
+    contributors?: number;
   };
   issues: { open: number; ranked: RankedIssue[]; staleShare: number };
   pulls: { open: number; ranked: RankedPull[]; staleShare: number };
@@ -35,11 +49,26 @@ export interface RepoMetrics {
     provider: "github-actions" | "other" | "none";
     failureRate: number;
     recentRuns: number;
+    /**
+     * Workflow definitions GitHub listed. `recentRuns` counts executions of
+     * them, so the power grid can say "6 workflows, 40 recent runs, 92% green".
+     */
+    workflows?: number;
   };
   tests: { strength: 0 | 1 | 2 | 3; signals: string[] };
   docs: { strength: 0 | 1 | 2 | 3; signals: string[]; readmeLength: number };
   tooling: { signals: string[] };
-  releases: { count: number; lastDaysAgo: number | null; cadence: "active" | "occasional" | "none" };
+  releases: {
+    count: number;
+    lastDaysAgo: number | null;
+    cadence: "active" | "occasional" | "none";
+    /** Tag of the most recent published release, e.g. `v4.2.0`. */
+    lastTag?: string | null;
+    /** ISO timestamp of the most recent published release. */
+    lastPublishedAt?: string | null;
+    /** GitHub URL of that release, for the transit station's inspector link. */
+    lastUrl?: string | null;
+  };
   health: {
     score: number;
     band: HealthBand;

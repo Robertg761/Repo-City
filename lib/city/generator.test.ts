@@ -2,20 +2,23 @@ import { describe, expect, it } from "vitest";
 import sampleAnalysis from "@/fixtures/sample.analysis.json";
 import type { BuildingPlan, RepoAnalysis } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
-import { ROAD_MAJOR_WIDTH, ROAD_MINOR_WIDTH } from "./layout";
+import { distanceToRoad, ROAD_MAJOR_WIDTH, ROAD_MINOR_WIDTH } from "./layout";
 import {
   buildingsOnRoads,
   districtForPath,
   generateCity,
+  highwayCount,
   LIMITS,
   MAX_FOOTPRINT,
   MIN_FOOTPRINT,
   nearestRoadDistance,
   obstructedPlots,
   overlappingBuildings,
+  prestigeOf,
   REVEAL,
   TIER_HEIGHT,
   vehicleCount,
+  visitorShare,
 } from "./generator";
 
 const fixture = sampleAnalysis as unknown as RepoAnalysis;
@@ -287,10 +290,14 @@ describe("generateCity: limits (PLAN.md section 37)", () => {
 
 describe("generateCity: ambience and traffic (PLAN.md sections 19 and 39)", () => {
   it("counts vehicles from the activity score, scaled by the road network", () => {
-    const roads = city.roads.reduce(
-      (sum, road) => sum + Math.hypot(road.to[0] - road.from[0], road.to[2] - road.from[2]),
-      0,
-    );
+    // Highways are added after the fleet is sized: nobody commutes to the
+    // horizon, so they must not inflate the car count.
+    const roads = city.roads
+      .filter((road) => road.kind !== "highway")
+      .reduce(
+        (sum, road) => sum + Math.hypot(road.to[0] - road.from[0], road.to[2] - road.from[2]),
+        0,
+      );
     expect(city.vehicles.count).toBe(vehicleCount(fixture, roads));
     expect(city.vehicles.count).toBeGreaterThan(0);
     expect(city.vehicles.count).toBeLessThanOrEqual(LIMITS.vehicles);
@@ -452,11 +459,155 @@ describe("generateCity: model shape", () => {
   it("exposes a square world with roads of the two documented widths", () => {
     const model: CityModel = city;
     expect(model.bounds.size).toBeGreaterThan(0);
-    const widths = new Set(model.roads.map((r) => r.width));
+    const widths = new Set(
+      model.roads.filter((r) => r.kind !== "highway").map((r) => r.width),
+    );
     expect([...widths].sort((a, b) => a - b)).toEqual([ROAD_MINOR_WIDTH, ROAD_MAJOR_WIDTH]);
     for (const road of model.roads) {
       expect(road.from[1]).toBe(0);
       expect(road.to[1]).toBe(0);
     }
+  });
+});
+
+describe("forks as highways (PLAN.md section 22)", () => {
+  it("earns one highway per power of ten forks, capped at four", () => {
+    expect(highwayCount(0)).toBe(0);
+    expect(highwayCount(9)).toBe(0);
+    expect(highwayCount(10)).toBe(1);
+    expect(highwayCount(999)).toBe(2);
+    expect(highwayCount(1_000)).toBe(3);
+    expect(highwayCount(46_000)).toBe(4);
+    expect(highwayCount(3_000_000)).toBe(4);
+    expect(highwayCount(Number.NaN)).toBe(0);
+  });
+
+  it("emits highways into roads[] as major segments that leave the world square", () => {
+    const forked = clone();
+    forked.repo = { ...forked.repo, forks: 12_000 };
+    const model = generateCity(forked);
+    const highways = model.roads.filter((road) => road.kind === "highway");
+
+    expect(highways).toHaveLength(4);
+    const half = model.bounds.size / 2;
+    for (const road of highways) {
+      expect(road.major).toBe(true);
+      expect(road.from[1]).toBe(0);
+      expect(road.to[1]).toBe(0);
+      // Starts inside the world square, ends well outside it.
+      expect(Math.max(Math.abs(road.from[0]), Math.abs(road.from[2]))).toBeLessThan(half);
+      expect(Math.max(Math.abs(road.to[0]), Math.abs(road.to[2]))).toBeGreaterThan(half);
+    }
+    // Ids stay unique against the layout's own road ids.
+    expect(new Set(model.roads.map((r) => r.id)).size).toBe(model.roads.length);
+  });
+
+  it("gives an unforked repository no highways at all", () => {
+    const lonely = clone();
+    lonely.repo = { ...lonely.repo, forks: 0 };
+    const model = generateCity(lonely);
+    expect(model.roads.some((road) => road.kind === "highway")).toBe(false);
+  });
+
+  it("starts every highway on an existing junction so traffic can turn onto it", () => {
+    const forked = clone();
+    forked.repo = { ...forked.repo, forks: 20_000 };
+    const model = generateCity(forked);
+    const streets = model.roads.filter((road) => road.kind !== "highway");
+    const near = (a: readonly number[], b: readonly number[]): boolean =>
+      Math.hypot(a[0] - b[0], a[2] - b[2]) < 2;
+
+    for (const highway of model.roads.filter((road) => road.kind === "highway")) {
+      const joined = streets.some(
+        (street) => near(street.from, highway.from) || near(street.to, highway.from),
+      );
+      expect(joined).toBe(true);
+    }
+  });
+
+  it("keeps trees out of the carriageway", () => {
+    const forked = clone();
+    forked.repo = { ...forked.repo, forks: 90_000 };
+    const model = generateCity(forked);
+    for (const highway of model.roads.filter((road) => road.kind === "highway")) {
+      for (const [x, , z] of model.props.trees) {
+        expect(distanceToRoad(x, z, highway)).toBeGreaterThan(highway.width / 2);
+      }
+    }
+  });
+
+  it("keeps the layout invariants once highways exist", () => {
+    const forked = clone();
+    forked.repo = { ...forked.repo, forks: 50_000 };
+    const model = generateCity(forked);
+    expect(overlappingBuildings(model)).toEqual([]);
+    expect(buildingsOnRoads(model)).toEqual([]);
+    expect(obstructedPlots(model)).toEqual([]);
+  });
+});
+
+describe("stars as attention (PLAN.md section 21)", () => {
+  it("scales prestige logarithmically and saturates at 100,000 stars", () => {
+    expect(prestigeOf(0)).toBe(0);
+    expect(prestigeOf(100_000)).toBe(1);
+    expect(prestigeOf(1_000_000)).toBe(1);
+    expect(prestigeOf(1_000)).toBeCloseTo(0.6, 1);
+    expect(prestigeOf(-5)).toBe(0);
+  });
+
+  it("turns stars into a share of visitor traffic between a tenth and seven tenths", () => {
+    expect(visitorShare(0)).toBeCloseTo(0.1, 2);
+    expect(visitorShare(100_000)).toBeCloseTo(0.7, 2);
+    expect(visitorShare(5_000)).toBeGreaterThan(visitorShare(50));
+  });
+
+  it("never lets stars move health", () => {
+    const famous = clone();
+    famous.repo = { ...famous.repo, stars: 250_000, forks: 80_000 };
+    const model = generateCity(famous);
+    expect(model.health).toEqual(city.health);
+    expect(model.ambience.prestige).toBe(1);
+    expect(model.vehicles.visitorShare).toBeCloseTo(0.7, 2);
+  });
+
+  it("keeps the prestige an archived repository already earned", () => {
+    const archived = clone();
+    archived.metrics = { ...archived.metrics, archived: true };
+    const model = generateCity(archived);
+    expect(model.ambience.prestige).toBe(prestigeOf(fixture.repo.stars));
+  });
+});
+
+describe("releases as arriving trains (PLAN.md section 20)", () => {
+  it("gives the station an arrival rate, a tag and an age", () => {
+    const shipping = clone();
+    shipping.metrics = {
+      ...shipping.metrics,
+      releases: {
+        count: 42,
+        lastDaysAgo: 4,
+        cadence: "active",
+        lastTag: "v9.1.0",
+        lastPublishedAt: "2026-09-18T00:00:00.000Z",
+        lastUrl: "https://github.com/sample/repo-city/releases/tag/v9.1.0",
+      },
+    };
+    const station = generateCity(shipping).landmarks.find((l) => l.landmarkType === "station")!;
+
+    expect(station.detail?.trainsPerMinute).toBeGreaterThan(0);
+    expect(station.detail?.releaseTag).toBe("v9.1.0");
+    expect(station.detail?.releaseDaysAgo).toBe(4);
+    expect(station.description).toContain("v9.1.0");
+    expect(station.sourceUrl).toContain("/releases/tag/v9.1.0");
+  });
+
+  it("builds no station at all when the project does not publish releases", () => {
+    const quiet = clone();
+    quiet.metrics = {
+      ...quiet.metrics,
+      releases: { count: 0, lastDaysAgo: null, cadence: "none" },
+    };
+    const model = generateCity(quiet);
+    expect(model.landmarks.some((l) => l.landmarkType === "station")).toBe(false);
   });
 });

@@ -49,6 +49,7 @@ import {
   ROAD_REVEAL,
   clamp,
   distanceToRoad,
+  planHighways,
   planLayout,
   pointOnRoad,
   rectMaxX,
@@ -218,7 +219,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     }
     usedSlots.set(plan.id, cursor);
 
-    const text = districtText(plan, repo);
+    const text = districtText(plan, repo, metrics.scale.files);
     districts.push({
       id: plan.id,
       name: plan.name,
@@ -272,8 +273,21 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     seed,
   );
 
-  // -- Stage 8: props ------------------------------------------------------
-  const trees = placeTrees(analysis, layout, landmarks, construction, incidents, usedSlots, seed);
+  // -- Stage 8: highways, then props ---------------------------------------
+  // Highways are planned after the city so nothing else can be placed on one:
+  // incidents, construction and slots all read `layout.roads`, which does not
+  // contain them.
+  const highways = planHighways(layout, highwayCount(repo.forks));
+  const trees = placeTrees(
+    analysis,
+    layout,
+    landmarks,
+    construction,
+    incidents,
+    usedSlots,
+    seed,
+    highways,
+  );
   const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis)].slice(0, LIMITS.lamps);
 
   return {
@@ -285,7 +299,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
     bounds: { size: layout.size },
     districts,
     buildings,
-    roads: layout.roads,
+    roads: [...layout.roads, ...highways],
     landmarks,
     incidents,
     constructionSites: construction,
@@ -295,6 +309,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
         analysis,
         layout.roads.reduce((sum, road) => sum + roadLength(road), 0),
       ),
+      visitorShare: visitorShare(repo.stars),
     },
     seed,
   };
@@ -427,6 +442,7 @@ function placeLandmarks(analysis: RepoAnalysis, layout: CityLayout): Landmark[] 
       level: spec.level,
       state: spec.state,
       size: [round3(plot.w), round3(natural[1] * scale), round3(plot.d)] as Vec3,
+      ...(spec.detail ? { detail: spec.detail } : {}),
     };
   });
 }
@@ -736,6 +752,7 @@ function placeTrees(
   incidents: readonly Incident[],
   usedSlots: Map<string, number>,
   seed: string,
+  highways: readonly RoadSegment[] = [],
 ): Vec3[] {
   const parkSlots = parkSlotsOf(layout, usedSlots);
   let free = 0;
@@ -770,7 +787,10 @@ function placeTrees(
     })),
   ];
   const clear = (x: number, z: number): boolean =>
-    keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius);
+    keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius) &&
+    // The ring plantation crosses every highway where it leaves the city; a
+    // tree in the fast lane is the one place this reads as a bug.
+    highways.every((road) => distanceToRoad(x, z, road) > road.width / 2 + 1.4);
 
   // Along the ring road, on the outside.
   const ringRadius = layout.ringRadius + 5;
@@ -1008,6 +1028,9 @@ export function ambienceFor(analysis: RepoAnalysis): CityModel["ambience"] {
     litWindowShare: round3(
       archived ? 0.05 : clamp(0.2 + 0.5 * activity + 0.3 * (metrics.health.score / 100), 0, 1),
     ),
+    // Attention, not quality: an archived repository keeps the reputation it
+    // earned, so prestige is not dimmed the way warmth and traffic are.
+    prestige: prestigeOf(analysis.repo.stars),
   };
 }
 
@@ -1022,6 +1045,42 @@ export function ambienceFor(analysis: RepoAnalysis): CityModel["ambience"] {
  * none: a frozen city reads as a bug, a nearly empty one reads as abandoned
  * (PLAN.md section 19).
  */
+/**
+ * Forks become highways leaving the city (PLAN.md section 22).
+ *
+ * One highway per power of ten: ten forks earn the first, a hundred the
+ * second, and the fourth arrives at ten thousand. A repository nobody has
+ * forked gets none, which is an honest answer rather than an empty road — and
+ * because this is ecosystem information, it changes the map and never the
+ * health score.
+ */
+export function highwayCount(forks: number): number {
+  const safe = Number.isFinite(forks) ? Math.max(0, Math.floor(forks)) : 0;
+  if (safe < 10) return 0;
+  return Math.min(4, Math.floor(Math.log10(safe)));
+}
+
+/**
+ * Stars as decorative prominence, 0..1 (PLAN.md section 21).
+ *
+ * Logarithmic, because the gap between 10 and 1,000 stars is the interesting
+ * one and the gap between 40,000 and 60,000 is not: 100,000 stars saturates.
+ * Nothing here is allowed near `health`.
+ */
+export function prestigeOf(stars: number): number {
+  const safe = Number.isFinite(stars) ? Math.max(0, stars) : 0;
+  return round3(clamp(Math.log10(safe + 1) / 5, 0, 1));
+}
+
+/**
+ * Share of the fleet the renderer may draw as visitors, 0.1 to 0.7 (PLAN.md
+ * section 21: stars buy visitor traffic, not quality). An unstarred repository
+ * still keeps a tenth: every town has somebody passing through.
+ */
+export function visitorShare(stars: number): number {
+  return round3(clamp(0.1 + 0.6 * prestigeOf(stars), 0, 0.7));
+}
+
 export function vehicleCount(analysis: RepoAnalysis, roadLengthTotal: number): number {
   const activity = clamp(analysis.metrics.activity.score, 0, 1);
   const room = clamp(roadLengthTotal / 75, 3, LIMITS.vehicles);
