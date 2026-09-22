@@ -37,7 +37,15 @@ describe("detectCi (PLAN.md section 14)", () => {
         workflowRuns: [run(1, 1, null, t(1), "in_progress")],
       }),
     );
-    expect(ci).toEqual({ state: "unknown", provider: "github-actions", failureRate: 0, recentRuns: 0 });
+    expect(ci).toEqual({
+      state: "unknown",
+      provider: "github-actions",
+      failureRate: 0,
+      recentRuns: 0,
+      // Counted even here: "one workflow, no completed runs yet" is a more
+      // useful thing for the power grid to say than "unknown".
+      workflows: 1,
+    });
   });
 
   it("reports healthy when the latest run of every workflow succeeded", () => {

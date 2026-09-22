@@ -13,7 +13,7 @@ export const LIMITS = {
   bullet: 200,
   evidencePerItem: 6,
   districts: 8,
-  modules: 12,
+  modules: 32,
   strengths: 5,
   concerns: 5,
 } as const;

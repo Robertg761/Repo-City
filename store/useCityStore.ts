@@ -15,7 +15,7 @@
 
 import { create } from "zustand";
 import { analyzeRepository, AnalyzeError } from "@/lib/client/analyzeStream";
-import { errorCopyFor } from "@/lib/client/errorCopy";
+import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
 import type { RepoAnalysis } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
@@ -52,6 +52,14 @@ export interface CityStore {
    * and flies back to the default composition; the value itself is meaningless.
    */
   overviewNonce: number;
+  /**
+   * Reserved for a future time-of-day control in the HUD. Nothing sets it and
+   * nothing reads it yet: this round the renderer derives dusk from
+   * `ambience.litWindowShare`, and a second source of truth for the same thing
+   * would fight it. Declared so that whoever adds the toggle does not have to
+   * change the store contract (PLAN.md section 71.4).
+   */
+  timeOfDay?: "day" | "dusk";
   actions: {
     analyze(input: string): Promise<void>;
     select(id: string | null): void;
@@ -175,7 +183,12 @@ export const useCityStore = create<CityStore>()((set, get) => ({
             stage.status === "running" ? { ...stage, status: "failed" } : stage,
           ),
         });
-        console.error(`Repo City: analysis of ${trimmed} failed`, cause);
+        // A repository that does not exist is a normal outcome the interface
+        // is already handling; only a code nobody planned for is worth a red
+        // stack trace in a visitor's console (QA-2026-09-21 bug 7).
+        if (!(canonicalErrorCode(code) in ERROR_COPY)) {
+          console.error(`Repo City: analysis of ${trimmed} failed`, cause);
+        }
       } finally {
         if (inFlight === controller) inFlight = null;
       }

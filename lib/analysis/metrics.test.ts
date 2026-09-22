@@ -180,9 +180,26 @@ describe("computeMetrics on the mid fixture", () => {
   });
 
   it("describes release cadence without punishing repositories that skip releases", () => {
-    expect(core.releases).toEqual({ count: 5, lastDaysAgo: 9, cadence: "active" });
+    expect(core.releases).toMatchObject({ count: 5, lastDaysAgo: 9, cadence: "active" });
     const none = computeMetrics(emptySnapshot(), [], { now: NOW }).core.releases;
-    expect(none).toEqual({ count: 0, lastDaysAgo: null, cadence: "none" });
+    expect(none).toMatchObject({ count: 0, lastDaysAgo: null, cadence: "none" });
+    expect(none.lastTag).toBeNull();
+  });
+
+  it("names the last release so the station can show which train arrived", () => {
+    expect(core.releases.lastTag).toBe("v5.1.2");
+    expect(core.releases.lastPublishedAt).toBeTruthy();
+    expect(core.releases.lastUrl).toContain("/releases/tag/v5.1.2");
+  });
+
+  it("counts surveyed files alongside mapped files", () => {
+    // The prune drops dot-directories, lockfiles and binaries, so the two
+    // numbers differ and must never share a label (QA-2026-09-21 bug 2).
+    expect(core.scale.surveyedFiles).toBeGreaterThanOrEqual(core.scale.files);
+  });
+
+  it("reports the contributor count for the population line", () => {
+    expect(core.activity.contributors).toBe(midSnapshot.contributors.length);
   });
 
   it("measures structure from root clutter and top-level balance", () => {

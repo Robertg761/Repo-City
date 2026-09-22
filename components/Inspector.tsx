@@ -69,9 +69,25 @@ export default function Inspector() {
           {entity.facts.length > 0 ? (
             <dl className="mt-4 space-y-1.5">
               {entity.facts.map((fact) => (
-                <div key={fact.label} className="flex gap-3 text-[13px]">
+                /* Two named modules in one district can share a basename, so
+                   the label alone is not a unique key. */
+                <div key={`${fact.label}:${fact.value}`} className="flex gap-3 text-[13px]">
                   <dt className="w-24 shrink-0 text-white/45">{fact.label}</dt>
-                  <dd className="min-w-0 break-words text-white/85">{fact.value}</dd>
+                  <dd className="min-w-0 break-words text-white/85">
+                    {fact.href ? (
+                      <a
+                        href={fact.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        /* External link to GitHub; the city screen stays put. */
+                        className="underline decoration-white/25 underline-offset-4 transition hover:decoration-white/70"
+                      >
+                        {fact.value}
+                      </a>
+                    ) : (
+                      fact.value
+                    )}
+                  </dd>
                 </div>
               ))}
             </dl>
