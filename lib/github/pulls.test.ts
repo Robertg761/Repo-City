@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GhPull } from "@/types/github";
-import { mapPull, mapPulls, pullState } from "./pulls";
+import { healthSamplePulls, mapPull, mapPulls, pullState } from "./pulls";
 
 const pull = (overrides: Partial<GhPull> = {}): GhPull => ({
   number: 42,
@@ -52,7 +52,14 @@ describe("mapPull", () => {
       labels: ["enhancement"],
       author: "bo",
       state: "open",
+      headSha: "aaa",
     });
+  });
+
+  it("counts requested reviewers when GitHub lists them", () => {
+    const reviewer = { login: "cy", id: 3, avatar_url: "", html_url: "", type: "User" };
+    expect(mapPull(pull({ requested_reviewers: [reviewer, reviewer] }))?.requestedReviewers).toBe(2);
+    expect(mapPull(pull())?.requestedReviewers).toBeUndefined();
   });
 
   it("falls back to review comments when the list endpoint omits comments", () => {
@@ -86,5 +93,37 @@ describe("mapPulls", () => {
 
   it("skips malformed rows", () => {
     expect(mapPulls([{} as GhPull, pull({ number: 5 })]).map((item) => item.number)).toEqual([5]);
+  });
+});
+
+describe("healthSamplePulls (PLAN.md section 76.1, decision 6)", () => {
+  // 100 open pulls in the order `sort=updated&direction=desc` lists them.
+  const listed = Array.from({ length: 100 }, (_, i) =>
+    pull({
+      number: 1000 - i,
+      updated_at: new Date(Date.UTC(2026, 8, 20) - i * 3_600_000).toISOString(),
+    }),
+  );
+
+  it("is exactly what today's per_page=50 request returned", () => {
+    const today = mapPulls(listed.slice(0, 50));
+    const merged = pull({
+      number: 5,
+      state: "closed",
+      merged_at: "2026-09-21T00:00:00Z",
+      updated_at: "2026-09-21T00:00:00Z",
+    });
+    expect(healthSamplePulls(mapPulls([...listed, merged]))).toEqual(today);
+  });
+
+  it("orders by update time even when pages arrive shuffled", () => {
+    const shuffled = [...listed.slice(50), ...listed.slice(0, 50)];
+    expect(healthSamplePulls(mapPulls(shuffled)).map((p) => p.number)).toEqual(
+      listed.slice(0, 50).map((p) => p.number),
+    );
+  });
+
+  it("keeps fewer than 50 whole", () => {
+    expect(healthSamplePulls(mapPulls(listed.slice(0, 7)))).toHaveLength(7);
   });
 });

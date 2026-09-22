@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { RepoAnalysis } from "@/types/analysis";
 import {
   ANALYSIS_TTL_MS,
+  MAX_ENTRIES,
   TtlCache,
   cacheKey,
   clearAnalysisCache,
@@ -86,5 +87,12 @@ describe("analysis cache", () => {
 
     expect(getCachedAnalysis("honojs/hono", ANALYSIS_TTL_MS - 1)).not.toBeNull();
     expect(getCachedAnalysis("honojs/hono", ANALYSIS_TTL_MS)).toBeNull();
+  });
+
+  it("holds at most 30 analyses, since a giant's backlog makes each up to 1 MB", () => {
+    expect(MAX_ENTRIES).toBe(30);
+    for (let i = 0; i <= MAX_ENTRIES; i += 1) setCachedAnalysis(`o/r${i}`, analysis(`o/r${i}`), 0);
+    expect(getCachedAnalysis("o/r0", 0)).toBeNull();
+    expect(getCachedAnalysis(`o/r${MAX_ENTRIES}`, 0)).not.toBeNull();
   });
 });

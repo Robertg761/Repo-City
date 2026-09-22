@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GITHUB_API_BASE, GitHubClient } from "./client";
+import { GITHUB_API_BASE, GitHubClient, pageNumberOf, parseLinkHeader } from "./client";
 import { GitHubError } from "./errors";
 
 /** Records every call and answers with a canned response. No network. */
@@ -228,6 +228,148 @@ describe("GitHubClient error mapping", () => {
 
     const error = (await client.get("/repos/o/r").catch((thrown: unknown) => thrown)) as GitHubError;
     expect(JSON.stringify({ message: error.message, stack: error.stack })).not.toContain(fakeToken);
+  });
+});
+
+describe("parseLinkHeader and pageNumberOf (PLAN.md section 76.6)", () => {
+  it("reads next and last from a page-numbered header (the pulls endpoint)", () => {
+    // Verbatim shape of vercel/next.js `/pulls?state=open&per_page=1`, 2026-09-22.
+    const header =
+      '<https://api.github.com/repositories/70107786/pulls?state=open&per_page=1&page=2>; rel="next", ' +
+      '<https://api.github.com/repositories/70107786/pulls?state=open&per_page=1&page=2462>; rel="last"';
+    const links = parseLinkHeader(header);
+    expect(pageNumberOf(links.next)).toBe(2);
+    expect(pageNumberOf(links.last)).toBe(2462);
+  });
+
+  it("reads a cursor header that has next and no last (the issues endpoint)", () => {
+    const header =
+      "<https://api.github.com/repositories/180328715/issues?state=open&sort=updated&direction=desc" +
+      '&per_page=100&page=2&after=Y3Vyc29yOnYyOpLPAAABoCNT1iDPAAAAATVjCjw%3D>; rel="next"';
+    const links = parseLinkHeader(header);
+    expect(Object.keys(links)).toEqual(["next"]);
+    expect(pageNumberOf(links.next)).toBe(2);
+  });
+
+  it("reads prev and first too, and does not confuse per_page with page", () => {
+    const links = parseLinkHeader(
+      '<https://x/?per_page=100&page=1>; rel="first", <https://x/?page=3&per_page=100>; rel="prev"',
+    );
+    expect(pageNumberOf(links.first)).toBe(1);
+    expect(pageNumberOf(links.prev)).toBe(3);
+    expect(pageNumberOf("https://x/?per_page=100")).toBeNull();
+  });
+
+  it("answers nothing for a missing or malformed header", () => {
+    expect(parseLinkHeader(null)).toEqual({});
+    expect(parseLinkHeader("")).toEqual({});
+    expect(parseLinkHeader("garbage, <also garbage")).toEqual({});
+  });
+});
+
+describe("GitHubClient.getPage", () => {
+  it("returns the items and the last page from Link", async () => {
+    const { fetchImpl, calls } = stubFetch(
+      json([{ n: 1 }], { headers: { link: '<https://x/?page=2>; rel="next", <https://x/?page=7>; rel="last"' } }),
+    );
+    const client = new GitHubClient({ token: "", fetchImpl });
+    const page = await client.getPage("/repos/o/r/pulls", { query: { per_page: 100 } });
+    expect(page).toEqual({ items: [{ n: 1 }], hasNext: true, lastPage: 7 });
+    expect(calls[0].url).toBe(`${GITHUB_API_BASE}/repos/o/r/pulls?per_page=100`);
+  });
+
+  it("treats the requested page as last when there is no next", async () => {
+    const { fetchImpl } = stubFetch(json([{ n: 1 }]));
+    const page = await new GitHubClient({ token: "", fetchImpl }).getPage("/a", { query: { page: 4 } });
+    expect(page).toEqual({ items: [{ n: 1 }], hasNext: false, lastPage: 4 });
+  });
+
+  it("answers lastPage null for a cursor header with only next", async () => {
+    const { fetchImpl } = stubFetch(json([], { headers: { link: '<https://x/?page=2&after=abc>; rel="next"' } }));
+    const page = await new GitHubClient({ token: "", fetchImpl }).getPage("/a");
+    expect(page).toEqual({ items: [], hasNext: true, lastPage: null });
+  });
+
+  it("throws the mapped error for a failed page", async () => {
+    const { fetchImpl } = stubFetch(json({ message: "x" }, { status: 502 }));
+    await expect(new GitHubClient({ token: "", fetchImpl }).getPage("/a")).rejects.toMatchObject({
+      code: "UPSTREAM",
+    });
+  });
+
+  it("abandons one request on its own signal and leaves the client usable", async () => {
+    const controller = new AbortController();
+    const fetchImpl = ((_url: string, init: RequestInit) =>
+      new Promise((resolve, reject) => {
+        if (String(_url).includes("/slow")) {
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        } else {
+          resolve(json([{ ok: true }]));
+        }
+      })) as unknown as typeof fetch;
+    const client = new GitHubClient({ token: "", fetchImpl });
+
+    const pending = client.getPage("/slow", { signal: controller.signal }).catch((e: unknown) => e);
+    controller.abort();
+    expect(((await pending) as GitHubError).code).toBe("TIMEOUT");
+    expect((await client.getPage("/fast")).items).toEqual([{ ok: true }]);
+  });
+});
+
+describe("GitHubClient.graphql", () => {
+  it("posts the query with the token and reads the points budget separately", async () => {
+    const { fetchImpl, calls } = stubFetch(
+      json({ data: { viewer: { login: "x" } } }, { headers: { "x-ratelimit-remaining": "4990" } }),
+    );
+    const client = new GitHubClient({ token: "t", fetchImpl });
+
+    const result = await client.graphql<{ viewer: { login: string } }>("query { viewer { login } }", { a: 1 });
+
+    expect(result).toEqual({ data: { viewer: { login: "x" } }, errors: [] });
+    expect(calls[0].url).toBe(`${GITHUB_API_BASE}/graphql`);
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ query: "query { viewer { login } }", variables: { a: 1 } });
+    expect((calls[0].init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(calls[0].init.cache).toBe("force-cache");
+    expect(client.graphqlRemaining).toBe(4990);
+    expect(client.rateLimitRemaining).toBeNull();
+    expect(client.graphqlCount).toBe(1);
+    expect(client.requestCount).toBe(1);
+    expect(client.restCount).toBe(0);
+  });
+
+  it("keeps partial data beside errors", async () => {
+    const { fetchImpl } = stubFetch(
+      json({ data: { repository: { p1: { number: 1 }, p2: null } }, errors: [{ message: "Could not resolve", type: "NOT_FOUND" }] }),
+    );
+    const result = await new GitHubClient({ token: "t", fetchImpl }).graphql("query {}");
+    expect(result.data).toEqual({ repository: { p1: { number: 1 }, p2: null } });
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it("maps a RATE_LIMITED error body and a secondary-limit 403 to RATE_LIMITED", async () => {
+    const spent = stubFetch(json({ data: null, errors: [{ message: "API rate limit exceeded", type: "RATE_LIMITED" }] }));
+    await expect(new GitHubClient({ token: "t", fetchImpl: spent.fetchImpl }).graphql("q")).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+    });
+
+    const secondary = stubFetch(json({ message: "You have exceeded a secondary rate limit." }, { status: 403 }));
+    await expect(new GitHubClient({ token: "t", fetchImpl: secondary.fetchImpl }).graphql("q")).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+    });
+  });
+
+  it("refuses to run without a token and sends nothing", async () => {
+    const { fetchImpl, calls } = stubFetch(json({}));
+    await expect(new GitHubClient({ token: "", fetchImpl }).graphql("q")).rejects.toBeInstanceOf(GitHubError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("maps an HTML gateway page to UPSTREAM", async () => {
+    const { fetchImpl } = stubFetch(new Response("<html>502</html>", { status: 502 }));
+    await expect(new GitHubClient({ token: "t", fetchImpl }).graphql("q")).rejects.toMatchObject({
+      code: "UPSTREAM",
+    });
   });
 });
 

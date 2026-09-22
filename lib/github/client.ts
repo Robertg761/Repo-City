@@ -1,6 +1,6 @@
 /**
  * The only place in Repo City that talks to api.github.com (PLAN.md sections
- * 29, 30 and 31).
+ * 29, 30, 31 and 76.6).
  *
  * Responsibilities, all of them small:
  *
@@ -9,9 +9,13 @@
  *   and a working unauthenticated path (60 requests/hour) when it does not
  * - caching: `next: { revalidate: 600 }` on every request so repeated repos
  *   dedupe across serverless instances (section 30)
- * - budget: a request counter, surfaced as `RepositorySnapshot.requestCount`
+ * - budget: request counters, surfaced as `RepositorySnapshot.requestCount`,
+ *   and the REST and GraphQL `x-ratelimit-remaining` read separately
  * - failure: raw statuses mapped onto the `GitHubError` codes the stream knows
- * - time: a 12 second per-request timeout via `AbortController`
+ * - time: a 12 second per-request timeout via `AbortController`, plus an
+ *   optional per-request signal so one page can be abandoned at a deadline
+ *   without aborting the whole survey
+ * - pagination: `getPage` reads the `Link` header; `graphql` posts a query
  *
  * Renamed or transferred repositories answer 301 to `/repositories/{id}`.
  * `fetch` follows that by default; callers must then take the canonical
@@ -45,13 +49,49 @@ export interface RequestOptions {
   resource?: string;
   /** Query parameters; `undefined` values are dropped. */
   query?: Record<string, string | number | undefined>;
+  /**
+   * Abandons this one request (a page deadline, PLAN.md section 76.6) without
+   * touching the client-wide signal, so the rest of the survey carries on.
+   */
+  signal?: AbortSignal;
+}
+
+/** One page of a list resource plus what its `Link` header says about the rest. */
+export interface Page<T> {
+  items: T[];
+  /**
+   * The page number of `rel="last"`, or the requested page itself when there
+   * is no `rel="next"` (this is the last page). `null` when there is a next
+   * page but no `last`: the issues endpoint paginates by cursor and only ever
+   * sends `next`.
+   */
+  lastPage: number | null;
+  /** True when the `Link` header names a next page. */
+  hasNext: boolean;
+}
+
+/** GraphQL answers `{ data, errors }`; partial data beside errors is normal. */
+export interface GraphQLResponse<T> {
+  data: T | null;
+  errors: { message: string; type?: string; path?: (string | number)[] }[];
+}
+
+interface SendInit {
+  method: "GET" | "POST";
+  body?: string;
+  contentType?: string;
+  graphql?: boolean;
 }
 
 export class GitHubClient {
-  /** Requests actually issued, cache hits included (PLAN.md section 30). */
+  /** Requests actually issued, cache hits included (PLAN.md section 30). REST and GraphQL. */
   requestCount = 0;
-  /** Last seen `x-ratelimit-remaining`, or null when GitHub did not say. */
+  /** GraphQL queries among `requestCount` (PLAN.md section 76.6). */
+  graphqlCount = 0;
+  /** Last seen REST `x-ratelimit-remaining`, or null when GitHub did not say. */
   rateLimitRemaining: number | null = null;
+  /** Last seen GraphQL `x-ratelimit-remaining`, in points: a separate budget from REST. */
+  graphqlRemaining: number | null = null;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -71,6 +111,11 @@ export class GitHubClient {
     return this.token !== "";
   }
 
+  /** REST requests among `requestCount`. */
+  get restCount(): number {
+    return this.requestCount - this.graphqlCount;
+  }
+
   /**
    * GET a JSON resource. Throws `GitHubError` for every non-2xx status.
    *
@@ -80,7 +125,137 @@ export class GitHubClient {
   async get<T>(path: string, options: RequestOptions = {}): Promise<T | null> {
     const resource = options.resource ?? path;
     const response = await this.fetchRaw(path, options);
+    return this.readJson<T>(response, resource);
+  }
 
+  /**
+   * GET a list resource. Empty and non-array bodies collapse to `[]` so one
+   * odd endpoint degrades a single signal instead of the whole analysis.
+   */
+  async getList<T>(path: string, options: RequestOptions = {}): Promise<T[]> {
+    const body = await this.get<T[]>(path, options);
+    return Array.isArray(body) ? body : [];
+  }
+
+  /**
+   * GET one page of a list resource and read its `Link` header, so callers can
+   * plan the remaining pages and fetch them in parallel by page number
+   * (PLAN.md section 76.6).
+   */
+  async getPage<T>(path: string, options: RequestOptions = {}): Promise<Page<T>> {
+    const resource = options.resource ?? path;
+    const response = await this.fetchRaw(path, options);
+    const body = await this.readJson<T[]>(response, resource);
+    const items = Array.isArray(body) ? body : [];
+
+    const links = parseLinkHeader(response.headers?.get?.("link"));
+    const hasNext = links.next !== undefined;
+    const last = links.last !== undefined ? pageNumberOf(links.last) : null;
+    const requested = Number(options.query?.page ?? 1);
+    const current = Number.isFinite(requested) && requested >= 1 ? requested : 1;
+    return { items, hasNext, lastPage: last ?? (hasNext ? null : current) };
+  }
+
+  /**
+   * POST a query to `/graphql` (PLAN.md section 76.6). Needs a token: GitHub
+   * has no anonymous GraphQL. Answers `{ data, errors }` and throws only for
+   * transport, HTTP and rate-limit failures, because a batch in which one alias
+   * failed still carries every other alias's data.
+   */
+  async graphql<T>(
+    query: string,
+    variables: Record<string, unknown> = {},
+    options: Pick<RequestOptions, "resource" | "signal"> = {},
+  ): Promise<GraphQLResponse<T>> {
+    const resource = options.resource ?? "graphql";
+    if (!this.authenticated) {
+      throw new GitHubError("UPSTREAM", `${resource} needs a token`, { resource });
+    }
+
+    this.graphqlCount += 1;
+    const response = await this.send(`${this.baseUrl}/graphql`, resource, options.signal, {
+      method: "POST",
+      body: JSON.stringify({ query, variables }),
+      contentType: "application/json",
+      graphql: true,
+    });
+    const body = await this.readJson<{ data?: T | null; errors?: GraphQLResponse<T>["errors"] }>(
+      response,
+      resource,
+    );
+
+    const errors = Array.isArray(body?.errors) ? body.errors : [];
+    // A spent points budget arrives as a 200 whose error says RATE_LIMITED.
+    if (errors.some((error) => error?.type === "RATE_LIMITED")) {
+      throw new GitHubError("RATE_LIMITED", `${resource} rate limited`, { status: 200, resource });
+    }
+    return { data: body?.data ?? null, errors };
+  }
+
+  /** As `get`, but a 404 answers `null` instead of throwing (optional data). */
+  async getOptional<T>(path: string, options: RequestOptions = {}): Promise<T | null> {
+    try {
+      return await this.get<T>(path, options);
+    } catch (error) {
+      if (error instanceof GitHubError && error.code === "NOT_FOUND") return null;
+      throw error;
+    }
+  }
+
+  /** The raw response, for callers that need `response.url` or headers. */
+  async fetchRaw(path: string, options: RequestOptions = {}): Promise<Response> {
+    const url = this.buildUrl(path, options.query);
+    return this.send(url, options.resource ?? path, options.signal, { method: "GET" });
+  }
+
+  private async send(
+    url: string,
+    resource: string,
+    requestSignal: AbortSignal | undefined,
+    init: SendInit,
+  ): Promise<Response> {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), this.timeoutMs);
+    const signal = mergeSignals(timeout.signal, this.signal, requestSignal);
+
+    const headers = this.headers();
+    if (init.contentType) headers["Content-Type"] = init.contentType;
+
+    this.requestCount += 1;
+    try {
+      const response = await this.fetchImpl(url, {
+        method: init.method,
+        headers,
+        ...(init.body !== undefined ? { body: init.body } : {}),
+        redirect: "follow",
+        signal,
+        // Next.js data cache (PLAN.md section 30). Plain Node ignores it, so
+        // `scripts/snapshot.ts` works with the same client. `force-cache`
+        // caches POST too, keyed on the body, so an identical GraphQL batch
+        // dedupes across instances for the same ten minutes (section 76.6).
+        cache: "force-cache",
+        next: { revalidate: REVALIDATE_SECONDS },
+      });
+      this.readRateLimit(response, init.graphql === true);
+      return response;
+    } catch (cause) {
+      if (timeout.signal.aborted) {
+        throw new GitHubError("TIMEOUT", `${resource} timed out after ${this.timeoutMs} ms`, {
+          resource,
+          cause,
+        });
+      }
+      if (this.signal?.aborted || requestSignal?.aborted) {
+        throw new GitHubError("TIMEOUT", `${resource} cancelled`, { resource, cause });
+      }
+      throw new GitHubError("UPSTREAM", `${resource} request failed`, { resource, cause });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Status check, then the parsed body; `null` for 202, 204 and blank bodies. */
+  private async readJson<T>(response: Response, resource: string): Promise<T | null> {
     if (!response.ok) {
       throw await this.mapError(response, resource);
     }
@@ -102,64 +277,6 @@ export class GitHubClient {
         resource,
         cause,
       });
-    }
-  }
-
-  /**
-   * GET a list resource. Empty and non-array bodies collapse to `[]` so one
-   * odd endpoint degrades a single signal instead of the whole analysis.
-   */
-  async getList<T>(path: string, options: RequestOptions = {}): Promise<T[]> {
-    const body = await this.get<T[]>(path, options);
-    return Array.isArray(body) ? body : [];
-  }
-
-  /** As `get`, but a 404 answers `null` instead of throwing (optional data). */
-  async getOptional<T>(path: string, options: RequestOptions = {}): Promise<T | null> {
-    try {
-      return await this.get<T>(path, options);
-    } catch (error) {
-      if (error instanceof GitHubError && error.code === "NOT_FOUND") return null;
-      throw error;
-    }
-  }
-
-  /** The raw response, for callers that need `response.url` or headers. */
-  async fetchRaw(path: string, options: RequestOptions = {}): Promise<Response> {
-    const url = this.buildUrl(path, options.query);
-    const resource = options.resource ?? path;
-
-    const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(), this.timeoutMs);
-    const signal = mergeSignals(timeout.signal, this.signal);
-
-    this.requestCount += 1;
-    try {
-      const response = await this.fetchImpl(url, {
-        method: "GET",
-        headers: this.headers(),
-        redirect: "follow",
-        signal,
-        // Next.js data cache (PLAN.md section 30). Plain Node ignores it, so
-        // `scripts/snapshot.ts` works with the same client.
-        cache: "force-cache",
-        next: { revalidate: REVALIDATE_SECONDS },
-      });
-      this.readRateLimit(response);
-      return response;
-    } catch (cause) {
-      if (timeout.signal.aborted) {
-        throw new GitHubError("TIMEOUT", `${resource} timed out after ${this.timeoutMs} ms`, {
-          resource,
-          cause,
-        });
-      }
-      if (this.signal?.aborted) {
-        throw new GitHubError("TIMEOUT", `${resource} cancelled`, { resource, cause });
-      }
-      throw new GitHubError("UPSTREAM", `${resource} request failed`, { resource, cause });
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -188,11 +305,13 @@ export class GitHubClient {
     return url.includes("?") ? `${url}&${qs}` : `${url}?${qs}`;
   }
 
-  private readRateLimit(response: Response): void {
+  private readRateLimit(response: Response, graphql: boolean): void {
     const remaining = response.headers?.get?.("x-ratelimit-remaining");
     if (remaining !== null && remaining !== undefined && remaining !== "") {
       const parsed = Number(remaining);
-      this.rateLimitRemaining = Number.isFinite(parsed) ? parsed : null;
+      const value = Number.isFinite(parsed) ? parsed : null;
+      if (graphql) this.graphqlRemaining = value;
+      else this.rateLimitRemaining = value;
     }
   }
 
@@ -239,15 +358,43 @@ async function safeText(response: Response): Promise<string> {
   }
 }
 
+/**
+ * `Link: <url>; rel="next", <url>; rel="last"` -> `{ next: url, last: url }`.
+ * Unknown shapes are skipped rather than thrown on: a missing or odd header
+ * just means "no more pages".
+ */
+export function parseLinkHeader(header: string | null | undefined): Record<string, string> {
+  const links: Record<string, string> = {};
+  if (typeof header !== "string" || header.trim() === "") return links;
+
+  // Split on the commas between entries only; a URL may contain commas.
+  for (const part of header.split(/,(?=\s*<)/)) {
+    const match = /<([^>]*)>\s*;\s*rel="?([^";]+)"?/i.exec(part.trim());
+    if (!match) continue;
+    for (const rel of match[2].trim().split(/\s+/)) links[rel.toLowerCase()] = match[1];
+  }
+  return links;
+}
+
+/** The `page` query parameter of a GitHub link, or `null` when it has none. */
+export function pageNumberOf(url: string): number | null {
+  const match = /[?&]page=(\d+)(?:&|$)/.exec(url);
+  if (!match) return null;
+  const page = Number(match[1]);
+  return Number.isFinite(page) && page >= 1 ? page : null;
+}
+
 /** `AbortSignal.any` where available, with a listener fallback for older runtimes. */
-function mergeSignals(primary: AbortSignal, secondary?: AbortSignal): AbortSignal {
-  if (!secondary) return primary;
-  if (typeof AbortSignal.any === "function") return AbortSignal.any([primary, secondary]);
+export function mergeSignals(...candidates: (AbortSignal | undefined)[]): AbortSignal {
+  const signals = candidates.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
 
   const controller = new AbortController();
   const abort = (): void => controller.abort();
-  if (primary.aborted || secondary.aborted) controller.abort();
-  primary.addEventListener("abort", abort, { once: true });
-  secondary.addEventListener("abort", abort, { once: true });
+  for (const signal of signals) {
+    if (signal.aborted) controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+  }
   return controller.signal;
 }

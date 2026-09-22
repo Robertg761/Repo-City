@@ -153,6 +153,37 @@ describe("pruneTree entry cap", () => {
   });
 });
 
+describe("pruneTree uncapped counts (PLAN.md section 76.4)", () => {
+  it("counts files and directories that pass the exclusions", () => {
+    const result = pruneTree([
+      tree("src"),
+      blob("src/a.ts"),
+      blob("src/logo.png"),
+      tree("node_modules"),
+      blob("node_modules/x/index.js"),
+      { path: "sub", mode: "160000", type: "commit", sha: "x" },
+    ]);
+    expect(result.tree.totalFiles).toBe(1);
+    expect(result.tree.totalDirs).toBe(1);
+  });
+
+  it("counts before the depth cap, so deep trees are not undercounted", () => {
+    const deep = "a/b/c/d/e/f/g/h";
+    const result = pruneTree([tree("a"), tree(deep), blob(`${deep}/Main.java`), blob("a/top.ts")]);
+    expect(result.tree.entries.map((entry) => entry.path)).toEqual(["a", "a/top.ts"]);
+    expect(result.tree.totalFiles).toBe(2);
+    expect(result.tree.totalDirs).toBe(2);
+  });
+
+  it(`counts before the ${MAX_ENTRIES}-entry cap`, () => {
+    const items = Array.from({ length: MAX_ENTRIES + 700 }, (_, i) => blob(`src/f${i}.ts`));
+    const result = pruneTree([tree("src"), ...items]);
+    expect(result.tree.entries).toHaveLength(MAX_ENTRIES);
+    expect(result.tree.totalFiles).toBe(MAX_ENTRIES + 700);
+    expect(result.tree.totalDirs).toBe(1);
+  });
+});
+
 describe("pruneTree truncation flag", () => {
   it("carries GitHub's own truncation through with a warning", () => {
     const result = pruneTree([blob("src/index.ts")], true);
@@ -163,6 +194,11 @@ describe("pruneTree truncation flag", () => {
   it("counts files and directories for the stage detail line", () => {
     const result = pruneTree([tree("src"), blob("src/a.ts"), blob("src/b.ts")]);
     expect(result.stats).toMatchObject({ rawEntries: 3, kept: 3, files: 2, directories: 1 });
+  });
+
+  it("records GitHub's own truncation separately from the entry cap", () => {
+    expect(pruneTree([blob("a.ts")], true).tree.githubTruncated).toBe(true);
+    expect(pruneTree([blob("a.ts")], false).tree.githubTruncated).toBe(false);
   });
 
   it("sizes blobs only when GitHub reported a size", () => {

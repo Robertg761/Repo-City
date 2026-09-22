@@ -23,9 +23,9 @@ import { fetchCommits, fetchContributors, fetchReleases } from "./activity.ts";
 import { GitHubClient } from "./client.ts";
 import { ERROR_COPY, GitHubError, errorCodeOf, warningFor } from "./errors.ts";
 import { fetchFile, fetchReadme, selectManifests, type SnapshotFile } from "./files.ts";
-import { fetchIssues } from "./issues.ts";
-import { fetchPulls } from "./pulls.ts";
+import { ENRICHMENT_DEADLINE_MS, PAGE_DEADLINE_MS } from "./budgets.ts";
 import { fetchRepository } from "./repository.ts";
+import { surveyOpenWork } from "./survey.ts";
 import { fetchTree } from "./tree.ts";
 import { fetchWorkflowRuns, fetchWorkflows } from "./workflows.ts";
 
@@ -57,6 +57,18 @@ export interface SnapshotOptions {
   fetchImpl?: typeof fetch;
   /** Test seam; overrides `token`/`signal`/`fetchImpl`. */
   client?: GitHubClient;
+  /** Test seam: the page and enrichment deadlines, in ms from T0 (PLAN.md section 76.6). */
+  budgets?: Partial<SurveyBudgets>;
+}
+
+export interface SurveyBudgets {
+  pageDeadlineMs: number;
+  enrichmentDeadlineMs: number;
+}
+
+/** An `AbortSignal` that fires after `ms` (at once when `ms <= 0`). */
+function timeoutSignal(ms: number): AbortSignal {
+  return AbortSignal.timeout(Math.max(0, Math.floor(ms)));
 }
 
 const count = (n: number): string => n.toLocaleString("en-US");
@@ -73,6 +85,12 @@ export async function fetchSnapshot(
   repo: string,
   options: SnapshotOptions = {},
 ): Promise<RepositorySnapshot> {
+  // T0: every survey deadline counts from here.
+  const t0 = Date.now();
+  const budgets: SurveyBudgets = {
+    pageDeadlineMs: options.budgets?.pageDeadlineMs ?? PAGE_DEADLINE_MS,
+    enrichmentDeadlineMs: options.budgets?.enrichmentDeadlineMs ?? ENRICHMENT_DEADLINE_MS,
+  };
   const client =
     options.client ??
     new GitHubClient({
@@ -141,7 +159,8 @@ export async function fetchSnapshot(
       emit({
         id: "tree",
         status: "done",
-        detail: `${plural(pruned.stats.files, "file")} mapped${
+        // The uncapped count (section 76.4): what the settlement is sized by.
+        detail: `${plural(pruned.tree.totalFiles ?? pruned.stats.files, "file")} mapped${
           pruned.tree.truncated ? " (partial survey)" : ""
         }`,
       });
@@ -163,27 +182,16 @@ export async function fetchSnapshot(
     soft,
   );
 
-  const issuesStage = soft("issues", () => fetchIssues(client, canonicalOwner, canonicalRepo), [])
-    .then((result) => {
-      emit({
-        id: "issues",
-        status: result.ok ? "done" : "failed",
-        detail: result.ok ? `${plural(result.value.length, "issue")} inspected` : "issues unavailable",
-      });
-      return result.value;
-    });
-
-  const pullsStage = soft("pull requests", () => fetchPulls(client, canonicalOwner, canonicalRepo), [])
-    .then((result) => {
-      emit({
-        id: "pulls",
-        status: result.ok ? "done" : "failed",
-        detail: result.ok
-          ? `${plural(result.value.length, "pull request")} reviewed`
-          : "pull requests unavailable",
-      });
-      return result.value;
-    });
+  // Issues and pull requests share one survey (PLAN.md section 76.6): the
+  // pages of one list feed the other's comment counts, and the totals decide
+  // the top-up. Its deadlines run from T0 and never hold up the tree.
+  const surveyTask = surveyOpenWork(client, canonicalOwner, canonicalRepo, {
+    openIssuesCount: meta.openIssuesCount,
+    pageDeadline: timeoutSignal(budgets.pageDeadlineMs - (Date.now() - t0)),
+    enrichmentDeadline: timeoutSignal(budgets.enrichmentDeadlineMs - (Date.now() - t0)),
+    onIssues: (progress) => emit({ id: "issues", ...progress }),
+    onPulls: (progress) => emit({ id: "pulls", ...progress }),
+  });
 
   const ciStage = Promise.all([
     soft("workflows", () => fetchWorkflows(client, canonicalOwner, canonicalRepo), []),
@@ -225,8 +233,7 @@ export async function fetchSnapshot(
   const settled = await Promise.allSettled([
     treeStage,
     filesTask,
-    issuesStage,
-    pullsStage,
+    surveyTask,
     ciStage,
     activityStage,
   ]);
@@ -236,14 +243,18 @@ export async function fetchSnapshot(
     throw asGitHubError(treeResult.reason, "tree");
   }
   const tree = treeResult.value;
-  warnings.push(...tree.warnings);
-  if (tree.tree.truncated) warnings.push(ERROR_COPY.TOO_LARGE);
 
   const files = valueOf(settled[1], [] as SnapshotFile[]);
-  const issues = valueOf(settled[2], []);
-  const pulls = valueOf(settled[3], []);
-  const ci = valueOf(settled[4], { workflows: [], runs: [] });
-  const activity = valueOf(settled[5], { commits: [], contributors: [], releases: [] });
+  const survey = valueOf(settled[2], null);
+  const ci = valueOf(settled[3], { workflows: [], runs: [] });
+  const activity = valueOf(settled[4], { commits: [], contributors: [], releases: [] });
+
+  warnings.push(...tree.warnings);
+  if (tree.tree.truncated) warnings.push(ERROR_COPY.TOO_LARGE);
+  // The survey settles every request itself; a rejection here is a bug, and
+  // still only costs the issue and pull request signals.
+  if (survey) warnings.push(...survey.warnings);
+  else warnings.push(warningFor("issues", settled[2].status === "rejected" ? settled[2].reason : null));
 
   // The head SHA seeds the whole city (PLAN.md section 35). The newest commit
   // is the source of truth; the tree object SHA keeps the seed stable when the
@@ -254,8 +265,8 @@ export async function fetchSnapshot(
     repo: { ...meta, headSha },
     tree: tree.tree,
     commits: activity.commits,
-    issues,
-    pulls,
+    issues: survey?.issues ?? [],
+    pulls: survey?.pulls ?? [],
     contributors: activity.contributors,
     workflows: ci.workflows,
     workflowRuns: ci.runs,
@@ -264,6 +275,9 @@ export async function fetchSnapshot(
     fetchedAt: new Date().toISOString(),
     requestCount: client.requestCount,
     warnings,
+    issueBacklog: survey?.issueBacklog ?? [],
+    ...(survey?.openTotals ? { openTotals: survey.openTotals } : {}),
+    ...(survey ? { coverage: survey.coverage } : {}),
   };
 }
 
