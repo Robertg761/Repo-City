@@ -19,7 +19,11 @@ const LANGUAGE: readonly (readonly [string, string])[] = [
   ["Power plant", "continuous integration"],
   ["Fire station", "test infrastructure"],
   ["Information centre", "documentation"],
-  ["Station", "releases"],
+  ["Transit station", "releases"],
+  // Attention, not quality: the legend says so in as many words, because the
+  // whole point of PLAN.md sections 21 and 22 is that a popular repository is
+  // not thereby a healthy one.
+  ["Highway", "forks leaving for the wider ecosystem"],
 ];
 
 const CONTROLS: readonly (readonly [string, string])[] = [

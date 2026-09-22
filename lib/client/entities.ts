@@ -53,7 +53,7 @@ const LANDMARK_LABELS: Record<LandmarkType, string> = {
   // British spelling, matching the legend and the landmark's own title
   // (QA-2026-09-21 bug 5).
   info: "INFORMATION CENTRE",
-  station: "STATION",
+  station: "TRANSIT STATION",
   // Section 41 does not name the civic landmark; "CITY HALL" reads naturally
   // next to the others and stays in the city metaphor.
   civic: "CITY HALL",
@@ -273,9 +273,16 @@ export function resolveEntity(
   id: string | null,
   city: CityModel | null,
   analysis: RepoAnalysis | null,
-  now = Date.now(),
+  at?: number,
 ): ResolvedEntity | null {
   if (!id) return null;
+
+  // The city is a snapshot, and the "why this exists" sentence beneath the
+  // facts was written against `generatedAt` on the server. Measuring the facts
+  // against the wall clock instead put "open 856 days" directly above "stayed
+  // open for 855 days", so both sides read the same clock.
+  const stamped = analysis ? Date.parse(analysis.generatedAt) : Number.NaN;
+  const now = at ?? (Number.isFinite(stamped) ? stamped : Date.now());
 
   if (city) {
     const incident = city.incidents.find((entity) => entity.id === id);
@@ -289,9 +296,8 @@ export function resolveEntity(
         { label: "Comments", value: plural(issue.comments, "comment") },
       ];
       if (issue.author) facts.push({ label: "Reported by", value: issue.author });
-      if (issue.labels.length > 0) {
-        facts.push({ label: "Labels", value: issue.labels.join(", ") });
-      }
+      // The labels themselves render as chips below the facts; repeating them
+      // here as a comma list said the same thing twice.
       if (issue.relatedPath) {
         facts.push({
           label: "Near",
@@ -349,18 +355,23 @@ export function resolveEntity(
 
     const landmark = city.landmarks.find((entity) => entity.id === id);
     if (landmark) {
+      const label = LANDMARK_LABELS[landmark.landmarkType];
+      // The landmark's own `title` is the header word ("TRANSIT STATION"), so
+      // showing it again under the header said the same thing twice. What it
+      // stands for ("Releases", "GitHub Actions") is the useful line.
+      const sentence = label.charAt(0) + label.slice(1).toLowerCase();
       return {
         id,
         kind: "landmark",
-        label: LANDMARK_LABELS[landmark.landmarkType],
-        title: landmark.title,
-        subtitle: landmark.subtitle,
+        label,
+        title: landmark.subtitle || landmark.title,
+        subtitle: "",
         description: landmark.description,
         reason: landmark.reason,
         sourceUrl: landmark.sourceUrl,
         facts: landmarkFacts(landmark.landmarkType, analysis, landmark.detail),
         tags: [],
-        tooltip: landmark.subtitle || LANDMARK_LABELS[landmark.landmarkType].toLowerCase(),
+        tooltip: sentence,
       };
     }
 
