@@ -173,13 +173,104 @@ export function overviewFraming(size: number, aspect = REFERENCE_ASPECT): Framin
   return place([bias, Math.min(size * 0.02, 3), bias], OVERVIEW_DIR, distance);
 }
 
-/** A useful inspection distance for one entity, inside the camera limits. */
-export function inspectionFraming(focus: FocusTarget): Framing {
+/**
+ * The direction a camera looks from, as the orbit angles `camera-controls`
+ * uses: `azimuth` is the compass bearing of the camera around its target
+ * (`atan2(x, z)` of the offset, so the default `+x +z` corner is `PI / 4`) and
+ * `polar` is the angle down from straight overhead.
+ */
+export interface ViewAngles {
+  azimuth: number;
+  polar: number;
+}
+
+/** The orbit angles of a camera at `position` looking at `target`. */
+export function viewAngles(position: Vec3, target: Vec3): ViewAngles {
+  const x = position[0] - target[0];
+  const y = position[1] - target[1];
+  const z = position[2] - target[2];
+  const r = Math.hypot(x, y, z);
+  if (r === 0) return { azimuth: 0, polar: 0 };
+  return { azimuth: Math.atan2(x, z), polar: Math.acos(clamp(y / r, -1, 1)) };
+}
+
+/** A camera `distance` from `target` along the given orbit angles. */
+export function orbitFraming(target: Vec3, angles: ViewAngles, distance: number): Framing {
+  const s = Math.sin(angles.polar);
+  return {
+    position: [
+      target[0] + distance * s * Math.sin(angles.azimuth),
+      target[1] + distance * Math.cos(angles.polar),
+      target[2] + distance * s * Math.cos(angles.azimuth),
+    ],
+    target,
+  };
+}
+
+/**
+ * How far the inspection camera may tilt, as polar angles. Focusing keeps the
+ * user's own tilt when it is inside the band and only moves it to the nearer
+ * edge when it is not. The overview looks down at about 43 degrees from
+ * overhead, so a focus from there dips a little and the facades show (the
+ * fixed `INSPECT_DIR` sat at 57 degrees); a camera skimming the rooftops rises
+ * enough that the next block does not hide the thing that was clicked.
+ */
+export const INSPECT_POLAR = { min: 0.86, max: 1.2 } as const;
+/** Street-level objects keep the steeper look down between the blocks. */
+export const STREET_POLAR = { min: 0.45, max: 0.72 } as const;
+
+/**
+ * A useful inspection distance for one entity, inside the camera limits.
+ *
+ * Given `from`, the current view, the camera keeps its compass bearing and
+ * roughly its tilt and only moves in: clicking something must never swing the
+ * city round to a different corner (PLAN.md section 6). Without it the camera
+ * comes in from the default corner, `INSPECT_DIR`.
+ */
+export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framing {
   const street = focus.kind === "incident" || focus.kind === "construction";
   const distance = clamp(
     focus.radius * 3.4 + (street ? 15 : 12),
     MIN_DISTANCE + 2,
     MAX_DISTANCE - 20,
   );
-  return place(focus.lookAt, street ? STREET_INSPECT_DIR : INSPECT_DIR, distance);
+  if (!from || !Number.isFinite(from.azimuth) || !Number.isFinite(from.polar)) {
+    return place(focus.lookAt, street ? STREET_INSPECT_DIR : INSPECT_DIR, distance);
+  }
+  const band = street ? STREET_POLAR : INSPECT_POLAR;
+  return orbitFraming(
+    focus.lookAt,
+    { azimuth: from.azimuth, polar: clamp(from.polar, band.min, band.max) },
+    distance,
+  );
+}
+
+/**
+ * The box the orbit target may roam in, as `[min, max]` corners (PLAN.md
+ * section 5). Right-drag pan and zoom-to-cursor stop at the edge of the
+ * landscape instead of sliding the city off screen, and the floor at `y = 0`
+ * keeps the target above the ground, which with the polar limit keeps the
+ * camera above it too. The ceiling clears the highest point any focus target
+ * aims at: the tallest tower is 23 units, aimed at 55% of its height.
+ */
+export function cameraBoundary(size: number): [Vec3, Vec3] {
+  const half = size * 0.8;
+  return [
+    [-half, 0, -half],
+    [half, 24, half],
+  ];
+}
+
+/**
+ * How far a pointer may travel between press and release and still count as a
+ * click, in CSS pixels. Anything further was a drag that orbited or panned the
+ * camera, and letting go of it over a building or bare ground must not select
+ * or clear anything. A finger wobbles more than a mouse.
+ */
+export const CLICK_SLOP = { mouse: 5, touch: 10 } as const;
+
+/** Whether a release `delta` pixels from its press was a drag, not a click. */
+export function isDragRelease(delta: number, pointerType?: string): boolean {
+  const slop = pointerType === "touch" || pointerType === "pen" ? CLICK_SLOP.touch : CLICK_SLOP.mouse;
+  return delta > slop;
 }
