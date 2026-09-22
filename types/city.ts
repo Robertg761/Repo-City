@@ -83,6 +83,25 @@ export interface ConstructionSite extends CityEntity {
 
 export type LandmarkType = "power" | "fire" | "info" | "station" | "civic";
 
+/**
+ * Numbers a landmark's renderer may animate to. Everything here is optional
+ * and everything is derived from real repository facts, so a landmark that has
+ * no such fact simply omits the field.
+ */
+export interface LandmarkDetail {
+  /**
+   * Transit station only: train arrivals per minute of wall-clock time, 0.25
+   * to 6. Release cadence and recency set it (PLAN.md section 20), so an
+   * actively shipping project has freight moving and an occasional one has a
+   * train every few minutes.
+   */
+  trainsPerMinute?: number;
+  /** Transit station only: tag of the most recent release, e.g. `v4.2.0`. */
+  releaseTag?: string | null;
+  /** Transit station only: how many days ago that release was published. */
+  releaseDaysAgo?: number | null;
+}
+
 export interface Landmark extends CityEntity {
   kind: "landmark";
   landmarkType: LandmarkType;
@@ -99,6 +118,8 @@ export interface Landmark extends CityEntity {
    */
   size?: Vec3;
   districtId?: string;
+  /** Facts this landmark may animate to; see `LandmarkDetail`. */
+  detail?: LandmarkDetail;
 }
 
 export interface District {
@@ -118,6 +139,15 @@ export interface District {
   appearAt: number;
 }
 
+/**
+ * `"street"` is every road inside the city. `"highway"` is a fork road: it
+ * starts on the ring road and runs straight out past `bounds.size` towards the
+ * horizon (PLAN.md section 22). A renderer that knows nothing about the field
+ * draws a highway as the ordinary major road it already is; one that does can
+ * taper it into the distance.
+ */
+export type RoadKind = "street" | "highway";
+
 export interface RoadSegment {
   id: string;
   from: Vec3;
@@ -126,6 +156,8 @@ export interface RoadSegment {
   major: boolean;
   /** Reveal delay in milliseconds; a road draws itself in from `from`. */
   appearAt: number;
+  /** Absent means `"street"`. Highways are always `major: true`. */
+  kind?: RoadKind;
 }
 
 export interface CityModel {
@@ -140,6 +172,13 @@ export interface CityModel {
     trafficDensity: number;
     pedestrianDensity: number;
     litWindowShare: number;
+    /**
+     * 0..1 from the logarithm of the star count: 0 at no stars, 1 at 100,000.
+     * Decorative prominence only — banners, a brighter skyline, more street
+     * dressing. It must never change health or the health colours (PLAN.md
+     * section 21). Absent means "unknown, draw the plain city".
+     */
+    prestige?: number;
   };
   bounds: { size: number };
   districts: District[];
@@ -149,7 +188,16 @@ export interface CityModel {
   incidents: Incident[];
   constructionSites: ConstructionSite[];
   props: { trees: Vec3[]; lamps: Vec3[] };
-  vehicles: { count: number };
+  vehicles: {
+    count: number;
+    /**
+     * 0..1, the share of `count` the renderer may dress as out-of-town
+     * visitors (coaches, a different palette, entering along the highways).
+     * Derived from stars, which are attention and never health (PLAN.md
+     * section 21). Absent means "no visitors worth distinguishing".
+     */
+    visitorShare?: number;
+  };
   seed: string;
 }
 

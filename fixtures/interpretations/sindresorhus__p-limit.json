@@ -18,55 +18,102 @@
       "sourcePath": "/scripts",
       "name": "The Measuring Yard",
       "purpose": "A single benchmark harness used by benchmark.js to compare concurrency strategies.",
-      "evidence": ["scripts/benchmarker.js", "benchmark.js"]
+      "evidence": [
+        "scripts/benchmarker.js",
+        "benchmark.js"
+      ]
     },
     {
       "sourcePath": "/.github",
       "name": "Civic Offices",
       "purpose": "One workflow that runs the tests, plus the security policy.",
-      "evidence": [".github/workflows/main.yml", ".github/security.md"]
+      "evidence": [
+        ".github/workflows/main.yml",
+        ".github/security.md"
+      ]
     }
   ],
   "importantModules": [
     {
       "path": "index.js",
       "role": "The entire implementation: a yocto-queue of pending calls, an active counter, and a resumeNext step that starts the next call as one finishes.",
-      "evidence": ["index.d.ts", "package.json"]
+      "evidence": [
+        "index.d.ts",
+        "test.js",
+        "package.json"
+      ]
     },
     {
       "path": "index.d.ts",
       "role": "The public contract: pLimit, limitFunction, the LimitFunction type with activeCount, pendingCount, concurrency, map and clearQueue.",
-      "evidence": ["index.js", "index.test-d.ts"]
+      "evidence": [
+        "index.js",
+        "index.test-d.ts"
+      ]
     },
     {
       "path": "test.js",
-      "role": "The behaviour suite: concurrency limits, argument passing, queue clearing and error propagation.",
-      "evidence": ["index.js"]
+      "role": "The ava suite: concurrency limits, async context propagation, argument passing, clearQueue, limit.map ordering and errors, and changing concurrency.",
+      "evidence": [
+        "index.js",
+        "package.json"
+      ]
     },
     {
       "path": "index.test-d.ts",
-      "role": "Type-level tests, so the .d.ts is checked rather than merely shipped.",
-      "evidence": ["index.d.ts"]
-    },
-    {
-      "path": "benchmark.js",
-      "role": "Timed comparison of the limiter under load, run against the harness in scripts.",
-      "evidence": ["scripts/benchmarker.js"]
+      "role": "tsd type assertions for limit(), limit.map, limitFunction and the rejectOnClear option, so the declarations are checked and not only shipped.",
+      "evidence": [
+        "index.d.ts",
+        "package.json"
+      ]
     },
     {
       "path": "readme.md",
-      "role": "The full documentation: install, usage, the API for every exported member and the caveats.",
-      "evidence": ["recipes.md"]
-    },
-    {
-      "path": "recipes.md",
-      "role": "Worked patterns for common cases, kept out of the readme so the API reference stays short.",
-      "evidence": ["readme.md"]
+      "role": "Install and usage plus an API entry for every exported member: pLimit, rejectOnClear, limit.map, the counters, clearQueue and limitFunction.",
+      "evidence": [
+        "index.d.ts",
+        "recipes.md"
+      ]
     },
     {
       "path": "package.json",
-      "role": "Declares the package as ESM with one runtime dependency, yocto-queue.",
-      "evidence": ["index.js"]
+      "role": "ESM-only package with one runtime dependency, yocto-queue; npm test runs xo, ava and tsd, and only index.js and index.d.ts are published.",
+      "evidence": [
+        "index.js",
+        "index.d.ts",
+        "test.js"
+      ]
+    },
+    {
+      "path": "recipes.md",
+      "role": "Copy-paste patterns kept out of the readme: batch file processing, fetching many URLs, and partial results via Promise.allSettled.",
+      "evidence": [
+        "readme.md",
+        "index.js"
+      ]
+    },
+    {
+      "path": "benchmark.js",
+      "role": "Benchmark suites for API rate limiting and file processing at several concurrency settings, run through the npm benchmark script.",
+      "evidence": [
+        "scripts/benchmarker.js",
+        "index.js",
+        "package.json"
+      ]
+    },
+    {
+      "path": "scripts/benchmarker.js",
+      "role": "The runner benchmark.js imports: suites of named scenarios, duration and throughput formatting, and sleep, CPU-work and temp-directory helpers.",
+      "evidence": [
+        "benchmark.js"
+      ]
+    },
+    {
+      "path": "license",
+      "role": "The MIT licence, copyright Sindre Sorhus.",
+      "evidence": [
+        "package.json"
+      ]
     }
   ],
   "strengths": [

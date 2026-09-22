@@ -56,13 +56,19 @@
       "sourcePath": "/cli",
       "name": "The Rust Annex",
       "purpose": "The separately compiled command-line launcher and tunnel client, the only Rust in the repository.",
-      "evidence": ["cli/Cargo.toml", "cli/src"]
+      "evidence": [
+        "cli/Cargo.toml",
+        "cli/src"
+      ]
     },
     {
       "sourcePath": "/resources",
       "name": "The Sign Works",
       "purpose": "Icons, platform assets and the file associations that make an installed build look native on each operating system.",
-      "evidence": ["resources", "product.json"]
+      "evidence": [
+        "resources",
+        "product.json"
+      ]
     },
     {
       "sourcePath": "/.github",
@@ -79,68 +85,269 @@
       "sourcePath": "/scripts",
       "name": "The Depot",
       "purpose": "Developer entry points: run the app from source, run tests, and the helper scripts contributors call daily.",
-      "evidence": ["scripts", "CONTRIBUTING.md", ".vscode-test.js"]
+      "evidence": [
+        "scripts",
+        "CONTRIBUTING.md",
+        ".vscode-test.js"
+      ]
     }
   ],
   "importantModules": [
     {
-      "path": "src/vs/base",
-      "role": "The bottom layer: collections, events, disposables, async helpers and DOM utilities, with no dependency on anything above it.",
-      "evidence": ["src/vs/nls.ts", "src/vs/amdX.ts"]
+      "path": "src/vs",
+      "role": "The application source: base utilities, platform services, the Monaco editor, the workbench shell and sessions, each layer importing only from those below it.",
+      "evidence": [
+        "src/vs/base",
+        "src/vs/platform",
+        "src/vs/editor",
+        "src/vs/workbench",
+        "src/vs/sessions",
+        "src/tsconfig.json"
+      ]
     },
     {
-      "path": "src/vs/platform/instantiation/common/instantiation.ts",
-      "role": "The dependency injection system every service in the product is registered and resolved through.",
-      "evidence": ["src/vs/platform", "src/vs/workbench/workbench.common.main.ts"]
-    },
-    {
-      "path": "src/vs/editor/editor.api.ts",
-      "role": "The Monaco editor's public surface, which is published as a standalone package from this same source.",
-      "evidence": ["src/vs/monaco.d.ts", ".github/workflows/monaco-editor.yml"]
-    },
-    {
-      "path": "src/vs/editor/common/model/textModel.ts",
-      "role": "The text model: the buffer, line handling and decorations that everything in the editor reads from.",
-      "evidence": ["src/vs/editor/editor.api.ts"]
-    },
-    {
-      "path": "src/vs/workbench/workbench.common.main.ts",
-      "role": "The workbench entry point that registers the contributions making up the visible application.",
-      "evidence": ["src/vs/workbench/api/common/extHost.api.impl.ts"]
-    },
-    {
-      "path": "src/vs/workbench/api/common/extHost.api.impl.ts",
-      "role": "Implements the vscode module extensions import; the boundary between the product and extension code.",
+      "path": "src/vscode-dts",
+      "role": "The extension API declarations: the stable vscode.d.ts plus one proposed-API file per feature that is not stable yet.",
       "evidence": [
         "src/vscode-dts/vscode.d.ts",
-        "src/vs/workbench/services/extensions/common/extensionHostManager.ts",
+        "src/tsconfig.vscode-dts.json",
+        "src/tsconfig.vscode-proposed-dts.json",
         "extensions/vscode-api-tests"
       ]
     },
     {
-      "path": "src/vs/code/electron-main/main.ts",
-      "role": "The Electron main process entry: lifecycle, windows and the desktop application shell.",
-      "evidence": ["src/main.ts"]
+      "path": "src/main.ts",
+      "role": "The Electron main-process entry: portable mode, crash reporter, protocol handlers and user data paths before the app bootstraps.",
+      "evidence": [
+        "src/bootstrap-node.ts",
+        "src/bootstrap-meta.ts",
+        "src/bootstrap-esm.ts"
+      ]
     },
     {
       "path": "src/server-main.ts",
-      "role": "The server entry used by remote development and the browser build, sharing the workbench with the desktop app.",
-      "evidence": ["src/server-cli.ts", "remote"]
+      "role": "Entry point for the server build used by remote development and the browser, starting the HTTP server that serves the same workbench.",
+      "evidence": [
+        "src/server-cli.ts",
+        "src/bootstrap-server.ts",
+        "remote/package.json"
+      ]
     },
     {
-      "path": "src/vscode-dts/vscode.d.ts",
-      "role": "The stable extension API declaration; the proposed API files beside it are the staging area for new surface.",
-      "evidence": ["src/vscode-dts", "extensions/vscode-api-tests"]
+      "path": "src/cli.ts",
+      "role": "Node entry for the code command line, resolving the NLS configuration before handing off to the CLI process.",
+      "evidence": [
+        "src/bootstrap-cli.ts",
+        "src/bootstrap-node.ts",
+        "scripts/code-cli.sh"
+      ]
     },
     {
-      "path": "src/vs/sessions",
-      "role": "The newest top-level layer, documented in place with LAYERS.md and LAYOUT.md describing its own rules.",
-      "evidence": ["src/vs/sessions/LAYERS.md", "src/vs/sessions/LAYOUT.md"]
+      "path": "src/bootstrap-esm.ts",
+      "role": "Prepares the ESM runtime: registers Node module hooks and publishes the product, package and NLS globals every entry point relies on.",
+      "evidence": [
+        "src/bootstrap-meta.ts",
+        "src/bootstrap-node.ts",
+        "src/main.ts"
+      ]
+    },
+    {
+      "path": "cli/src",
+      "role": "Rust sources for the code launcher: option parsing, tunnels, the singleton server, self-update and the JSON and msgpack RPC layers.",
+      "evidence": [
+        "cli/Cargo.toml",
+        "cli/build.rs",
+        "cli/CONTRIBUTING.md"
+      ]
+    },
+    {
+      "path": "cli/Cargo.toml",
+      "role": "Manifest for the code-cli crate, which builds the code binary on tokio, clap and reqwest and also exposes a cli library target.",
+      "evidence": [
+        "cli/src",
+        "cli/ThirdPartyNotices.txt"
+      ]
+    },
+    {
+      "path": "product.json",
+      "role": "Product identity for the OSS build: application, data folder, server and tunnel names plus the licence URLs baked into a build.",
+      "evidence": [
+        "src/bootstrap-meta.ts",
+        "package.json",
+        "resources/linux"
+      ]
+    },
+    {
+      "path": "package.json",
+      "role": "Root manifest of code-oss-dev: the version releases are cut from and the npm scripts that start each test runner.",
+      "evidence": [
+        "scripts/test.sh",
+        "test/unit",
+        "gulpfile.mjs"
+      ]
+    },
+    {
+      "path": "gulpfile.mjs",
+      "role": "A one-line root gulpfile that imports build/gulpfile.ts, where the compile and packaging tasks actually live.",
+      "evidence": [
+        "build/gulpfile.ts",
+        "build/lib"
+      ]
+    },
+    {
+      "path": "extensions/copilot",
+      "role": "Vendored source of the GitHub Copilot Chat extension, carrying its own build, tests and chat library inside this repository.",
+      "evidence": [
+        "extensions/copilot/package.json",
+        "extensions/copilot/README.md",
+        "extensions/copilot/CONTRIBUTING.md"
+      ]
+    },
+    {
+      "path": "extensions/typescript-language-features",
+      "role": "Built-in JavaScript and TypeScript support: completions, diagnostics and refactorings driven by a TypeScript server the extension manages.",
+      "evidence": [
+        "extensions/typescript-language-features/package.nls.json",
+        "extensions/typescript-basics"
+      ]
     },
     {
       "path": "extensions/git",
-      "role": "The built-in git integration, and the clearest example of what the extension API can carry.",
-      "evidence": ["extensions/github", "extensions/github-authentication"]
+      "role": "The built-in Git SCM integration, and the clearest example of how much a single extension can do through the public API.",
+      "evidence": [
+        "extensions/git-base",
+        "extensions/github",
+        "extensions/merge-conflict"
+      ]
+    },
+    {
+      "path": "extensions/markdown-language-features",
+      "role": "Markdown language support and the built-in preview, separate from the markdown-basics grammar extension.",
+      "evidence": [
+        "extensions/markdown-basics",
+        "extensions/markdown-math",
+        "extensions/mermaid-markdown-features"
+      ]
+    },
+    {
+      "path": "extensions/vscode-api-tests",
+      "role": "An extension whose only job is to exercise the stable and proposed API from inside a running instance.",
+      "evidence": [
+        "extensions/vscode-api-tests/package.json",
+        "src/vscode-dts",
+        "test/integration"
+      ]
+    },
+    {
+      "path": "extensions/terminal-suggest",
+      "role": "Supplies terminal completions for zsh, bash, fish and pwsh through the proposed terminal completion provider API.",
+      "evidence": [
+        "extensions/terminal-suggest/README.md",
+        "extensions/terminal-suggest/package.json",
+        "src/vscode-dts"
+      ]
+    },
+    {
+      "path": "extensions/emmet",
+      "role": "Emmet abbreviation expansion and the related tag commands, used from the HTML and CSS language extensions.",
+      "evidence": [
+        "extensions/emmet/package.nls.json",
+        "extensions/html-language-features"
+      ]
+    },
+    {
+      "path": "extensions/ipynb",
+      "role": "Opens and saves Jupyter .ipynb files as notebooks, including pasting images into a cell as attachments.",
+      "evidence": [
+        "extensions/ipynb/package.nls.json",
+        "extensions/notebook-renderers"
+      ]
+    },
+    {
+      "path": "extensions/github-authentication",
+      "role": "Authentication provider for GitHub, GitHub Enterprise Server and GHE.com accounts that other extensions request sessions from.",
+      "evidence": [
+        "extensions/github",
+        "extensions/microsoft-authentication"
+      ]
+    },
+    {
+      "path": "extensions/html-language-features",
+      "role": "HTML support, split into an extension client and an HTML language server, with separate esbuild configs so it also runs in the browser build.",
+      "evidence": [
+        "extensions/html-language-features/client",
+        "extensions/html-language-features/server",
+        "extensions/html-language-features/esbuild.browser.mts",
+        "extensions/html-language-features/README.md"
+      ]
+    },
+    {
+      "path": "extensions/cpp",
+      "role": "Grammar-only support for C, C++ and CUDA C++: TextMate syntaxes, language configuration and snippets, refreshed by an update-grammars script.",
+      "evidence": [
+        "extensions/cpp/package.json",
+        "extensions/cpp/syntaxes",
+        "extensions/cpp/snippets",
+        "extensions/cpp/build"
+      ]
+    },
+    {
+      "path": "extensions/javascript",
+      "role": "Grammar-only JavaScript and JSX support: syntaxes, language configuration and snippets; the language features come from the TypeScript extension.",
+      "evidence": [
+        "extensions/javascript/package.json",
+        "extensions/javascript/syntaxes",
+        "extensions/javascript/snippets",
+        "extensions/typescript-language-features"
+      ]
+    },
+    {
+      "path": "extensions/latex",
+      "role": "Grammar-only support for TeX, LaTeX and BibTeX, plus the embedded C++ and combined markdown-LaTeX grammars used inside those documents.",
+      "evidence": [
+        "extensions/latex/package.json",
+        "extensions/latex/syntaxes",
+        "extensions/latex/latex-language-configuration.json",
+        "extensions/latex/markdown-latex-combined-language-configuration.json"
+      ]
+    },
+    {
+      "path": "resources/linux",
+      "role": "Linux packaging assets: the code.sh launcher, the desktop and AppStream entries, and the Debian, RPM and snap templates the installers are built from.",
+      "evidence": [
+        "resources/linux/bin",
+        "resources/linux/code.desktop",
+        "resources/linux/debian",
+        "resources/linux/rpm",
+        "resources/linux/snap"
+      ]
+    },
+    {
+      "path": "test/unit",
+      "role": "The unit suite, run inside an Electron renderer by default with browser and node runners beside it.",
+      "evidence": [
+        "test/unit/README.md",
+        "scripts/test.sh",
+        "test/README.md"
+      ]
+    },
+    {
+      "path": "test/automation",
+      "role": "The driver library that the smoke and scenario suites use to open windows and act on a real build.",
+      "evidence": [
+        "test/smoke",
+        "test/scenario",
+        "test/README.md"
+      ]
+    },
+    {
+      "path": "test/smoke",
+      "role": "The automated UI suite that drives a built application end to end through the automation driver.",
+      "evidence": [
+        "test/automation",
+        "test/README.md",
+        ".github/workflows/pr-darwin-test.yml"
+      ]
     }
   ],
   "strengths": [

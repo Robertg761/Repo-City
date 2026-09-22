@@ -84,9 +84,19 @@
       "evidence": ["src/hono-base.ts", "src/index.ts"]
     },
     {
+      "path": "src/hono-base.ts",
+      "role": "HonoBase: route registration, sub-app mounting, the default 404 and error handlers, and the fetch entry that dispatches a request.",
+      "evidence": ["src/hono.ts", "src/compose.ts", "src/router.ts", "src/preset/tiny.ts"]
+    },
+    {
       "path": "src/context.ts",
       "role": "The Context object handed to every handler: request access, response helpers and per-request state.",
       "evidence": ["src/request.ts", "src/context.test.ts"]
+    },
+    {
+      "path": "src/request.ts",
+      "role": "HonoRequest, the wrapper over the standard Request that exposes path params, parsed query, headers and validated body data.",
+      "evidence": ["src/utils/body.ts", "src/utils/url.ts", "src/request.test.ts"]
     },
     {
       "path": "src/compose.ts",
@@ -94,48 +104,106 @@
       "evidence": ["src/compose.test.ts", "src/hono-base.ts"]
     },
     {
+      "path": "src/index.ts",
+      "role": "The published package entry: it re-exports the Hono class plus the Context, HonoRequest and handler types an application needs.",
+      "evidence": ["src/hono.ts", "src/context.ts", "src/types.ts"]
+    },
+    {
+      "path": "src/types.ts",
+      "role": "The type vocabulary: Env, Handler, MiddlewareHandler, Schema and the path-parameter inference the RPC client reads back.",
+      "evidence": ["src/types.test.ts", "src/client/types.ts", "src/hono-base.ts"]
+    },
+    {
       "path": "src/router.ts",
       "role": "The Router interface every routing implementation satisfies; the seam that makes routing swappable.",
       "evidence": ["src/router/utils.ts"]
     },
     {
-      "path": "src/router/smart-router/router.ts",
-      "role": "Picks between the other routers at first request by trying them and keeping the one that fits the route set.",
-      "evidence": ["src/router/smart-router/index.ts"]
+      "path": "src/router/smart-router",
+      "role": "SmartRouter: on the first request it replays the routes into each router it was given and keeps the first one that accepts them, then delegates to it.",
+      "evidence": ["src/router.ts", "src/preset/quick.ts", "src/hono.ts"]
     },
     {
-      "path": "src/router/reg-exp-router/router.ts",
-      "role": "Compiles all routes into one regular expression for constant-time matching; the fastest of the four.",
+      "path": "src/router/reg-exp-router",
+      "role": "RegExpRouter, the fastest of the four: it compiles all routes into one regular expression, with a prepared variant built from serialised init params.",
       "evidence": [
         "src/router/reg-exp-router/trie.ts",
         "src/router/reg-exp-router/matcher.ts",
-        "src/router/reg-exp-router/node.ts"
+        "src/router/reg-exp-router/prepared-router.ts"
       ]
     },
     {
-      "path": "src/router/trie-router/router.ts",
-      "role": "Trie-based router used when routes are too dynamic for the regexp router to pre-compile.",
-      "evidence": ["src/router/trie-router/node.ts"]
+      "path": "src/router/trie-router",
+      "role": "TrieRouter: it inserts each route into a node tree and searches that tree per request, and is used when routes are too dynamic to pre-compile.",
+      "evidence": ["src/router/trie-router/node.ts", "src/router.ts"]
     },
     {
-      "path": "src/adapter",
-      "role": "One folder per platform (Bun, Deno, Cloudflare, Lambda, Netlify, Vercel, service worker), each a separate published entry point.",
+      "path": "src/router/linear-router",
+      "role": "A router that keeps routes in a list and scans them in order, so registration stays cheap; the quick preset pairs it with the trie router.",
+      "evidence": ["src/preset/quick.ts", "src/router.ts", "src/router/smart-router"]
+    },
+    {
+      "path": "src/router/pattern-router",
+      "role": "The smallest router: one RegExp per route, matched in sequence, used where bundle size matters more than lookup speed.",
+      "evidence": ["src/preset/tiny.ts", "src/router.ts", "src/hono-base.ts"]
+    },
+    {
+      "path": "src/adapter/bun",
+      "role": "The hono/bun entry point: static files read through Bun.file, WebSocket upgrade helpers, connection info, an SSG file system module and the Bun server object.",
       "evidence": [
-        "src/adapter/cloudflare-workers/index.ts",
-        "src/adapter/aws-lambda/index.ts",
-        "src/adapter/deno/index.ts",
-        "src/adapter/vercel/index.ts"
+        "src/middleware/serve-static",
+        "src/helper/websocket",
+        "src/helper/conninfo",
+        "src/helper/ssg"
       ]
     },
     {
-      "path": "src/middleware",
-      "role": "The opt-in middleware catalogue: auth, CORS, CSRF, caching, compression, ETag, JWT, logging and more.",
+      "path": "src/adapter/cloudflare-workers",
+      "role": "The workerd adapter: static asset serving, WebSocket upgrade helpers and connection info for Cloudflare Workers.",
       "evidence": [
-        "src/middleware/cors/index.ts",
-        "src/middleware/jwt/index.ts",
-        "src/middleware/basic-auth/index.ts",
-        "src/middleware/etag/index.ts"
+        "runtime-tests/workerd/index.ts",
+        "src/middleware/serve-static",
+        "src/helper/websocket",
+        "src/helper/conninfo"
       ]
+    },
+    {
+      "path": "src/adapter/aws-lambda",
+      "role": "Converts API Gateway, ALB and Function URL events into a Request and the Response back, with a streaming handler variant.",
+      "evidence": [
+        "runtime-tests/lambda/stream.test.ts",
+        "runtime-tests/lambda-edge/index.test.ts",
+        "src/adapter/lambda-edge"
+      ]
+    },
+    {
+      "path": "src/middleware/secure-headers",
+      "role": "One of the opt-in middlewares: secureHeaders sets Content-Security-Policy, HSTS, Referrer-Policy, X-Frame-Options and kin, and drops X-Powered-By.",
+      "evidence": [
+        "src/middleware/secure-headers/permissions-policy.ts",
+        "src/middleware/csrf",
+        "src/utils/encode.ts"
+      ]
+    },
+    {
+      "path": "src/middleware/serve-static",
+      "role": "The runtime-agnostic static file middleware; an adapter supplies getContent while this resolves paths, MIME types and precompressed variants.",
+      "evidence": [
+        "src/adapter/cloudflare-workers",
+        "src/adapter/bun",
+        "src/utils/mime.ts",
+        "src/utils/compress.ts"
+      ]
+    },
+    {
+      "path": "src/validator/validator.ts",
+      "role": "The validator middleware: it reads one request target (json, form, query, param, header or cookie) and passes it to a validation function.",
+      "evidence": ["src/validator/index.ts", "src/validator/utils.ts", "src/validator/validator.test.ts"]
+    },
+    {
+      "path": "src/http-exception.ts",
+      "role": "HTTPException, thrown for fatal errors such as a failed authentication; it carries a status code and an optional Response.",
+      "evidence": ["src/http-exception.test.ts", "src/validator/validator.ts", "src/request.ts"]
     },
     {
       "path": "src/client/client.ts",
@@ -146,6 +214,36 @@
       "path": "src/jsx/index.ts",
       "role": "The built-in JSX runtime used for server rendering and, through src/jsx/dom, on the client.",
       "evidence": ["src/jsx/base.ts", "src/jsx/dom/index.ts"]
+    },
+    {
+      "path": "src/jsx/dom",
+      "role": "The client-side renderer for the same JSX: hooks, context, memo and a DOM reconciler, exposed as the hono/jsx/dom entry point.",
+      "evidence": ["src/jsx/base.ts", "src/jsx/index.ts", "src/jsx/streaming.ts", "src/jsx/constants.ts"]
+    },
+    {
+      "path": "src/jsx/streaming.ts",
+      "role": "Suspense plus renderToReadableStream, which sends fallback markup first and appends each resolved chunk as its promise settles.",
+      "evidence": ["src/jsx/streaming.test.tsx", "src/jsx/base.ts", "src/utils/html.ts"]
+    },
+    {
+      "path": "src/helper/ssg",
+      "role": "Static site generation: toSSG walks the app's routes, fetches each one and writes the responses to files, with hooks and route params.",
+      "evidence": ["runtime-tests/deno/ssg.test.tsx", "src/utils/mime.ts", "src/utils/concurrent.ts"]
+    },
+    {
+      "path": "src/helper/factory",
+      "role": "createFactory and createMiddleware: typed constructors that keep the Env and path generics attached to handlers defined outside an app.",
+      "evidence": ["src/types.ts", "src/hono.ts", "src/hono-base.ts"]
+    },
+    {
+      "path": "src/utils/jwt",
+      "role": "The JWT implementation behind the jwt and jwk middleware: signing, verification and the supported JWA algorithms, built on WebCrypto.",
+      "evidence": ["src/middleware/jwt", "src/middleware/jwk", "src/utils/encode.ts"]
+    },
+    {
+      "path": "src/preset/tiny.ts",
+      "role": "The hono/tiny preset: the same app class pinned to PatternRouter, for size-constrained deployments.",
+      "evidence": ["src/preset/quick.ts", "src/router/pattern-router", "src/hono-base.ts"]
     }
   ],
   "strengths": [
