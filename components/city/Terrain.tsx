@@ -24,6 +24,7 @@ import { useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { BufferAttribute, Color } from "three";
 import { useCityStore } from "@/store/useCityStore";
+import { wasDrag } from "./useEntity";
 import { mix, type SceneAtmosphere } from "./palette";
 import { useTiledSurface } from "./textures/surfaces";
 
@@ -95,6 +96,8 @@ export default function Terrain({ size, atmosphere }: TerrainProps) {
 
   const clearSelection = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
+    // Letting go of an orbit or a pan over the grass is not a click on it.
+    if (wasDrag(event)) return;
     actions.select(null);
   };
 
