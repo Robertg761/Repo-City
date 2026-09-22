@@ -23,7 +23,7 @@ import CameraRig from "@/components/city/CameraRig";
 import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "@/components/city/entities";
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
-import Terrain from "@/components/city/Terrain";
+import Terrain, { StagePlate } from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
@@ -116,6 +116,7 @@ function EmptyStage({ aspect }: { aspect: number }) {
       />
       <Lighting atmosphere={EMPTY_ATMOSPHERE} size={EMPTY_SIZE} />
       <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
+      <StagePlate size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
   );
 }

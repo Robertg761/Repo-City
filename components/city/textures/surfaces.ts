@@ -48,7 +48,14 @@ import {
   type Pattern,
 } from "./patterns";
 
-export type SurfaceKind = "lawn" | "meadow" | "asphalt" | "pavers" | "gravel" | "ground";
+export type SurfaceKind =
+  | "lawn"
+  | "turf"
+  | "meadow"
+  | "asphalt"
+  | "pavers"
+  | "gravel"
+  | "ground";
 
 /** Mowing stripe pairs across one lawn tile. */
 const LAWN_STRIPES = 4;
@@ -58,6 +65,10 @@ const PAVER_ROWS = 8;
 
 const MAKERS: Record<SurfaceKind, (size: number) => Pattern> = {
   lawn: (size) => grassPattern(size, { stripes: LAWN_STRIPES, seed: "lawn" }),
+  // The empty stage: an even, fresh green with no mower stripes. Across a
+  // whole bare plate the stripes were the only thing in frame, and read as a
+  // blurred weave rather than as grass.
+  turf: (size) => grassPattern(size, { seed: "turf", mottle: 0.15 }),
   meadow: (size) => grassPattern(size, { seed: "meadow", mottle: 0.35 }),
   asphalt: (size) => asphaltPattern(size),
   pavers: (size) => paverPattern(size, { columns: PAVER_COLUMNS, rows: PAVER_ROWS }),
