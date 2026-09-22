@@ -47,6 +47,7 @@ describe("indexEntities", () => {
       ...base.landmarks,
       ...base.incidents,
       ...base.constructionSites,
+      ...(base.overflow ? [base.overflow] : []),
     ];
     expect(index.size).toBe(new Set(all.map((e) => e.id)).size);
     for (const entity of all) expect(index.get(entity.id)).toBe(entity);
@@ -58,7 +59,7 @@ describe("indexEntities", () => {
     expect(index.get("crowd-issue-1")?.kind).toBe("incident");
     expect(index.get("crowd-pull-1")?.kind).toBe("construction");
     expect(index.get("overflow")?.kind).toBe("overflow");
-    expect(index.size).toBe(indexEntities(base).size + 3);
+    expect(index.size).toBe(indexEntities({ ...base, overflow: null }).size + 3);
   });
 
   it("does not index districts", () => {

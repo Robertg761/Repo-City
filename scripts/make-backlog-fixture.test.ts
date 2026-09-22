@@ -60,10 +60,12 @@ describe("fixtures/backlog.analysis.json (PLAN.md 76.11)", () => {
     expect(backlog.metrics.pulls.total!).toBeGreaterThan(pulls.length);
   });
 
-  it("builds the same city as react until the crowd is drawn", () => {
+  it("builds the same city as react apart from the crowd and the queue", () => {
     const strip = (model: ReturnType<typeof generateCity>) => {
-      const { settlement: _settlement, ...rest } = model;
+      const { settlement: _settlement, backlog: _backlog, overflow: _overflow, ...rest } = model;
       void _settlement;
+      void _backlog;
+      void _overflow;
       return rest;
     };
     expect(JSON.stringify(strip(generateCity(backlog)))).toBe(
