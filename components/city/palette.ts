@@ -120,6 +120,12 @@ export const WARNING_ORANGE = "#e8853c";
 export const HAZARD_RED = "#c8493c";
 export const CONCRETE = "#cfcabd";
 export const RUST = "#9a7b5f";
+/**
+ * The empty stage's plinth (`StagePlate` in `Terrain.tsx`): the earth its
+ * sides are cut from, and the stone kerb round its top.
+ */
+export const STAGE_SOIL = "#7a6049";
+export const STAGE_KERB = SIDEWALK_COLOR;
 
 /**
  * How far hover and selection move a colour (PLAN.md section 42). Exported so

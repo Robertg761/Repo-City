@@ -25,7 +25,14 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { BufferAttribute, Color } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import { wasDrag } from "./useEntity";
-import { mix, type SceneAtmosphere } from "./palette";
+import {
+  STAGE_KERB,
+  STAGE_SOIL,
+  TREE_TRUNK,
+  WARNING_ORANGE,
+  mix,
+  type SceneAtmosphere,
+} from "./palette";
 import { useTiledSurface } from "./textures/surfaces";
 
 interface TerrainProps {
@@ -39,8 +46,10 @@ interface TerrainProps {
  * plate is, the repeat reads as a woven pattern rather than as ground. The
  * plate's tile carries four mower passes, so a stripe is about a unit and a
  * half wide: two cars, which is what a lawn stripe is on a model railway.
+ * The empty stage's turf has no stripes to keep to a scale, so it is tiled
+ * wide enough that its faint patches never line up into a visible repeat.
  */
-const GRASS_TILE = { plate: 13, landscape: 52 } as const;
+const GRASS_TILE = { plate: 13, stage: 31, landscape: 52 } as const;
 
 /** How far the landscape runs past the city, as a multiple of `bounds.size`. */
 const LANDSCAPE = 3.2;
@@ -132,6 +141,113 @@ export default function Terrain({ size, atmosphere }: TerrainProps) {
           metalness={0}
         />
       </mesh>
+    </group>
+  );
+}
+
+/** Height of the stage's lawn above the landscape, and of its kerb above that. */
+const STAGE_TOP = 0.8;
+const KERB_HEIGHT = 0.22;
+const KERB_WIDTH = 0.8;
+/** The chalked survey: how far in from the kerb, how wide a line, how tall a peg. */
+const SURVEY_INSET = 8;
+const LINE_WIDTH = 0.35;
+const PEG_HEIGHT = 2.1;
+
+const nothing = () => null;
+
+/**
+ * The empty stage (`EmptyStage` in `CityCanvas`): the city plate as a plinth
+ * waiting for a city, with a stone kerb round its top and the earth showing
+ * down its sides. A flat plate of lawn, with nothing on it, was the whole
+ * frame and gave the eye nothing to measure it by; an edge with some depth
+ * turns it back into a model on a table.
+ *
+ * It stands over `Terrain`'s own plate, which it hides, and it lets every
+ * pointer through to the landscape underneath, so a click on it does what a
+ * click on bare ground always does.
+ */
+export function StagePlate({ size, atmosphere }: TerrainProps) {
+  const side = size * 1.04;
+  const turf = useTiledSurface("turf", side, GRASS_TILE.stage);
+  const depth = STAGE_TOP + 0.06;
+  const kerbY = STAGE_TOP + KERB_HEIGHT / 2 - 0.02;
+  const edge = side / 2 - KERB_WIDTH / 2;
+  const kerbs: [number, number, number, number][] = [
+    [0, -edge, side, KERB_WIDTH],
+    [0, edge, side, KERB_WIDTH],
+    [-edge, 0, KERB_WIDTH, side - KERB_WIDTH * 2],
+    [edge, 0, KERB_WIDTH, side - KERB_WIDTH * 2],
+  ];
+  // The survey: a ring road and the two avenues through the middle, chalked
+  // out on the turf and pegged where they meet.
+  const ring = side / 2 - SURVEY_INSET;
+  const lines: [number, number, number, number][] = [
+    [0, -ring, ring * 2 + LINE_WIDTH, LINE_WIDTH],
+    [0, ring, ring * 2 + LINE_WIDTH, LINE_WIDTH],
+    [-ring, 0, LINE_WIDTH, ring * 2 + LINE_WIDTH],
+    [ring, 0, LINE_WIDTH, ring * 2 + LINE_WIDTH],
+    [0, 0, ring * 2, LINE_WIDTH],
+    [0, 0, LINE_WIDTH, ring * 2],
+  ];
+  const pegs: [number, number][] = [];
+  for (const x of [-ring, 0, ring]) for (const z of [-ring, 0, ring]) pegs.push([x, z]);
+  const chalk = mix(atmosphere.terrainColor, "#ffffff", 0.3);
+
+  return (
+    <group>
+      <mesh position-y={STAGE_TOP - depth / 2 - 0.01} castShadow receiveShadow raycast={nothing}>
+        <boxGeometry args={[side, depth, side]} />
+        <meshStandardMaterial color={STAGE_SOIL} roughness={1} metalness={0} />
+      </mesh>
+
+      <mesh rotation-x={-Math.PI / 2} position-y={STAGE_TOP} receiveShadow raycast={nothing}>
+        <planeGeometry args={[side, side]} />
+        <meshStandardMaterial
+          color={mix(atmosphere.terrainColor, "#ffffff", 0.08)}
+          map={turf}
+          roughness={1}
+          metalness={0}
+        />
+      </mesh>
+
+      {kerbs.map(([x, z, w, d]) => (
+        <mesh
+          key={`${x}:${z}`}
+          position={[x, kerbY, z]}
+          castShadow
+          receiveShadow
+          raycast={nothing}
+        >
+          <boxGeometry args={[w, KERB_HEIGHT, d]} />
+          <meshStandardMaterial color={STAGE_KERB} roughness={0.95} metalness={0} />
+        </mesh>
+      ))}
+
+      {lines.map(([x, z, w, d]) => (
+        <mesh
+          key={`line:${x}:${z}:${w}`}
+          position={[x, STAGE_TOP + 0.015, z]}
+          receiveShadow
+          raycast={nothing}
+        >
+          <boxGeometry args={[w, 0.02, d]} />
+          <meshStandardMaterial color={chalk} roughness={1} metalness={0} />
+        </mesh>
+      ))}
+
+      {pegs.map(([x, z]) => (
+        <group key={`peg:${x}:${z}`} position={[x, STAGE_TOP, z]}>
+          <mesh position-y={PEG_HEIGHT / 2} castShadow raycast={nothing}>
+            <boxGeometry args={[0.28, PEG_HEIGHT, 0.28]} />
+            <meshStandardMaterial color={TREE_TRUNK} roughness={0.9} metalness={0} />
+          </mesh>
+          <mesh position-y={PEG_HEIGHT - 0.25} castShadow raycast={nothing}>
+            <boxGeometry args={[0.46, 0.5, 0.46]} />
+            <meshStandardMaterial color={WARNING_ORANGE} roughness={0.7} metalness={0} />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
