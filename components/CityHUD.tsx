@@ -21,6 +21,10 @@ import {
 import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
 import { useCityStore } from "@/store/useCityStore";
 
+/** Injected at build time by next.config.ts; see the version badge below. */
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
+const BUILD_SHA = process.env.NEXT_PUBLIC_BUILD_SHA ?? "";
+
 const BAND_TONES: Record<RepoMetrics["health"]["band"], string> = {
   Critical: "text-rose-300",
   Struggling: "text-orange-300",
@@ -163,6 +167,13 @@ export default function CityHUD() {
       <div className="pointer-events-none absolute left-4 top-[7rem] z-20 max-w-[min(18rem,42vw)] select-none sm:top-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           Repo City
+          <span
+            className="ml-2 align-middle text-[9px] font-medium normal-case tracking-[0.12em] text-white/55"
+            title={BUILD_SHA ? `build ${BUILD_SHA}` : undefined}
+          >
+            v{APP_VERSION}
+            {BUILD_SHA ? ` · ${BUILD_SHA}` : ""}
+          </span>
         </p>
         {analysis ? (
           <a
