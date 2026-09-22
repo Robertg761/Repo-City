@@ -19,7 +19,7 @@ import { NeutralToneMapping, PCFShadowMap } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
-import CameraRig from "@/components/city/CameraRig";
+import CameraRig, { CONTROLS_FEEL } from "@/components/city/CameraRig";
 import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities";
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
@@ -158,6 +158,8 @@ export default function CityCanvas() {
 
       <CameraControls
         makeDefault
+        // Mouse and touch bindings, pan and zoom behaviour, damping.
+        {...CONTROLS_FEEL}
         minDistance={10}
         // Far enough to frame the whole city, no further (PLAN.md section 5).
         maxDistance={maxCameraDistance(city?.bounds.size ?? EMPTY_SIZE, aspect)}
