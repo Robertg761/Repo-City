@@ -113,22 +113,24 @@ function routeFor(road: RoadSegment, roads: readonly RoadSegment[]): QueueRoute 
 }
 
 /**
- * Where the queue and its sign go. `roads` is every road in the city,
- * highways included; `blocked` says whether a footprint would touch anything
- * already standing (buildings, landmarks, trees, lamps, carriageways).
- * Null only for a city with no roads at all.
+ * Where the queue and its sign go. `roads` is every road in the city;
+ * `highways` the roads out of it (`planHighways`), which are not the same as
+ * every road of kind "highway": a metropolis ring is a highway too, and
+ * nobody queues on a ring. `blocked` says whether a footprint would touch
+ * anything already standing (buildings, landmarks, trees, lamps,
+ * carriageways). Null only for a city with no roads at all.
  */
 export function planOverflowSite(
   roads: readonly RoadSegment[],
+  highways: readonly RoadSegment[],
   blocked: (box: Box) => boolean,
 ): OverflowSite | null {
-  const highways = roads.filter((road) => road.kind === "highway");
-  let chosen: RoadSegment[] = highways;
+  let chosen: RoadSegment[] = [...highways];
   const reserved = new Set<string>();
   if (chosen.length === 0) {
     // The road out that reaches furthest: the village main street's last
     // segment, or a ring segment at a corner of the city.
-    const candidates = roads.filter((road) => road.major);
+    const candidates = roads.filter((road) => road.major && road.kind !== "highway");
     let best: RoadSegment | null = null;
     let reach = -Infinity;
     for (const road of candidates.length > 0 ? candidates : roads) {

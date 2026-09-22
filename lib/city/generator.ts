@@ -422,6 +422,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   const spotIndex = createIndex(roads, buildings, obstacles);
   const site = planOverflowSite(
     roads,
+    highways,
     (box) => spotIndex.statics.hits(box) || spotIndex.carriageways.hits(box),
   );
   if (site) spotIndex.statics.insert(site.sign);

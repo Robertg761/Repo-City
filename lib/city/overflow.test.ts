@@ -46,6 +46,7 @@ const highways = [
   road("hwy-0", [0, -50], [0, -200], 8.4, "highway"),
   road("hwy-1", [50, 0], [200, 0], 8.4, "highway"),
 ];
+const shortHighway = road("hwy-0", [0, -50], [0, -80], 8.4, "highway");
 const nothing = () => false;
 
 describe("queueLength (PLAN.md 76.8)", () => {
@@ -105,11 +106,19 @@ describe("overflowTotals", () => {
 
 describe("planOverflowSite and fillQueue", () => {
   const roads = [...ring, ...highways];
-  const site = planOverflowSite(roads, nothing)!;
+  const site = planOverflowSite(roads, highways, nothing)!;
 
   it("queues on every highway and reserves nothing when there are highways", () => {
     expect(site.routes.map((r) => r.road.id)).toEqual(["hwy-0", "hwy-1"]);
     expect(site.reserved.size).toBe(0);
+  });
+
+  it("never queues on a metropolis ring, though its segments are highways too", () => {
+    const metroRing = ring.map((r) => ({ ...r, width: 10, kind: "highway" as const }));
+    const plan = planOverflowSite([...metroRing, ...highways], highways, nothing)!;
+    expect(plan.routes.map((r) => r.road.id)).toEqual(["hwy-0", "hwy-1"]);
+    // Clear of the ten-wide ring and its pavement.
+    expect(plan.routes[0].head).toBeCloseTo(5 + SIDEWALK_WIDTH + 2.3 + 0.5, 6);
   });
 
   it("stands the cars in the inbound lane, facing the city, from just outside the ring", () => {
@@ -130,7 +139,7 @@ describe("planOverflowSite and fillQueue", () => {
   });
 
   it("deals cars round the routes and stops when the roads are full", () => {
-    const short = planOverflowSite([...ring, road("hwy-0", [0, -50], [0, -80], 8.4, "highway")], nothing)!;
+    const short = planOverflowSite([...ring, shortHighway], [shortHighway], nothing)!;
     const queue = fillQueue(short.routes, 60, mulberry32(2));
     // 30 units of highway: the head at 7.3, then as many 5.2 steps as fit.
     expect(queue.length).toBe(Math.floor((30 - 7.3 - 2.3) / QUEUE_SPACING) + 1);
@@ -150,14 +159,14 @@ describe("planOverflowSite and fillQueue", () => {
   });
 
   it("moves the sign along until it is clear of what stands there", () => {
-    const blockedFirst = planOverflowSite(roads, (box) => box.z > -60)!;
+    const blockedFirst = planOverflowSite(roads, highways, (box) => box.z > -60)!;
     expect(blockedFirst.sign.z).toBeLessThanOrEqual(-60);
   });
 
   it("uses the road out that reaches furthest, and reserves it, when nothing is forked", () => {
     const village = [road("main-e", [0, 0], [40, 5], 5), road("main-w", [0, 0], [-55, -4], 5), road("lane", [0, 0], [0, 20], 3.6, "lane")];
     village[2].major = false;
-    const plan = planOverflowSite(village, nothing)!;
+    const plan = planOverflowSite(village, [], nothing)!;
     expect(plan.routes.map((r) => r.road.id)).toEqual(["main-w"]);
     expect([...plan.reserved]).toEqual(["main-w"]);
     // The queue runs outwards from the village, travelling back in.
@@ -167,7 +176,7 @@ describe("planOverflowSite and fillQueue", () => {
 });
 
 describe("buildOverflow", () => {
-  const site = planOverflowSite([...ring, ...highways], nothing);
+  const site = planOverflowSite([...ring, ...highways], highways, nothing);
 
   it("is null when nothing is hidden", () => {
     const totals = {
