@@ -55,9 +55,10 @@ export const ENRICH_MAX_PULLS = 100;
 
 /**
  * A repository with `open_issues_count <= 100` is "small": A1 already lists
- * every open issue and pull request, so it makes exactly today's requests —
- * no bulk pages, no totals query, and (with this off) no enrichment query.
- * Turning it on costs such a repository one GraphQL query and buys review,
- * CI and touched files for its pull requests.
+ * every open issue and pull request, so it makes exactly today's REST
+ * requests — no bulk pages and no totals query. It does spend one GraphQL
+ * query (with a token) on review, CI and touched files for its pull requests:
+ * most repositories are villages and towns, and that query is what puts a
+ * scaffold on the building a pull request actually changes.
  */
-export const ENRICH_SMALL_REPOS = false;
+export const ENRICH_SMALL_REPOS = true;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GhIssue, GhPull } from "@/types/github";
-import { ENRICH_BATCH_SIZE, ENRICH_CONCURRENCY, ENRICH_MAX_PULLS } from "./budgets";
+import { ENRICH_BATCH_SIZE, ENRICH_CONCURRENCY, ENRICH_MAX_PULLS, ENRICH_SMALL_REPOS } from "./budgets";
 import { GitHubClient } from "./client";
 import { type StageEvent, fetchSnapshot } from "./snapshot";
 import {
@@ -197,10 +197,12 @@ const hang = (init: RequestInit): Promise<Response> =>
   });
 
 describe("small repositories (PLAN.md section 76.6)", () => {
-  it("make exactly today's requests, token or not", async () => {
+  it("make exactly today's REST requests, plus one enrichment query with a token", async () => {
     // What `main` sent before the settlements work, for a repository with
-    // 40 open issues and pull requests. The only change is the width of the
-    // open pulls request (A3): 50 -> 100 items on the same single page.
+    // 40 open issues and pull requests. The only REST change is the width of
+    // the open pulls request (A3): 50 -> 100 items on the same single page.
+    // With a token, `ENRICH_SMALL_REPOS` adds one GraphQL query for reviews,
+    // CI and touched files; without one, GraphQL is never called.
     const today = [
       "/repos/o/r",
       "/repos/o/r/git/trees/main?recursive=1",
@@ -219,10 +221,11 @@ describe("small repositories (PLAN.md section 76.6)", () => {
       const { client, urls } = fakeGitHub({ issues: 30, pulls: 10, token });
       await fetchSnapshot("o", "r", { client });
       const asToday = urls
+        .filter((url) => url !== "/graphql")
         .map((url) => url.replace("state=open&sort=updated&direction=desc&per_page=100", "state=open&sort=updated&direction=desc&per_page=50"))
         .sort();
       expect(asToday).toEqual(today);
-      expect(client.graphqlCount).toBe(0);
+      expect(client.graphqlCount).toBe(ENRICH_SMALL_REPOS && token ? 1 : 0);
     }
   });
 
@@ -235,7 +238,7 @@ describe("small repositories (PLAN.md section 76.6)", () => {
     expect(snapshot.coverage).toEqual({
       issuePages: { planned: 0, received: 0 },
       pullPages: { planned: 1, received: 1 },
-      enrichment: "skipped",
+      enrichment: ENRICH_SMALL_REPOS ? "complete" : "skipped",
       stoppedBy: null,
     });
   });
@@ -246,7 +249,10 @@ describe("small repositories (PLAN.md section 76.6)", () => {
     await fetchSnapshot("o", "r", { client, onStage: (event) => events.push(event) });
 
     expect(stage(events, "issues").map((e) => e.status)).toEqual(["running", "done"]);
-    expect(stage(events, "pulls").map((e) => e.status)).toEqual(["running", "done"]);
+    // Enrichment adds one "checking reviews and CI" line before the result.
+    expect(stage(events, "pulls").map((e) => e.status)).toEqual(
+      ENRICH_SMALL_REPOS ? ["running", "running", "done"] : ["running", "done"],
+    );
     expect(stage(events, "pulls").at(-1)?.detail).toBe("10 pull requests reviewed");
   });
 });
