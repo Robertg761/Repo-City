@@ -59,7 +59,7 @@ import {
   trainPose,
   transitStation,
 } from "./models/landmarks/station";
-import { townHall } from "./models/landmarks/civic";
+import { townHall } from "./models/landmarks/townhall";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 

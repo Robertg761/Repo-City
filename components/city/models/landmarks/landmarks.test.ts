@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import { Assembly, extentOf, triangleCount, type Slots } from "./assembly";
-import { townHall } from "./civic";
+import { townHall } from "./townhall";
 import { INSPECTION_AZIMUTH, facingTurn } from "./facing";
 import { fireStation } from "./fire";
 import { infoCentre } from "./info";

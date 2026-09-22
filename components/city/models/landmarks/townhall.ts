@@ -3,6 +3,10 @@
  * (PLAN.md sections 10 and 23). It is the tallest thing on the plaza and the
  * one landmark every city has.
  *
+ * Not to be confused with the five civic FILE buildings that stand around it
+ * (README, manifest, CHANGELOG, CONTRIBUTING, Dockerfile), which are ordinary
+ * buildings and live in `components/city/models/buildings/civic.ts`.
+ *
  * Natural size 14 x 14 x 14, portico on +z. The plot is square and the
  * generator never rotates it, so the composition is symmetric except for the
  * steps, the clock and the forecourt fountain, which all face the front.
