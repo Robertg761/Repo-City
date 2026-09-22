@@ -148,7 +148,7 @@ function ArchetypeInstances({
       // construction rather than inflation (PLAN.md section 43).
       const grow = revealSettle(now, clock.current, b.appearAt);
       if (grow < 1) done = false;
-      const height = Math.max(b.size[1] * grow, 0.0001);
+      const height = Math.max(instance.height * grow, 0.0001);
       const visible = grow > VISIBLE;
       // The door's quarter turn may have swapped the model's axes; the plot
       // the generator reserved is unchanged either way.
@@ -241,7 +241,7 @@ function LitWindows({
       const b = instance.building;
       const grow = revealSettle(now, clock.current, b.appearAt);
       if (grow < 1) done = false;
-      const height = b.size[1] * grow;
+      const height = instance.height * grow;
       const visible = grow > VISIBLE;
       const sx = instance.swapped ? b.size[2] : b.size[0];
       const sz = instance.swapped ? b.size[0] : b.size[2];
@@ -336,7 +336,7 @@ function RoofProps({
       const b = instance.building;
       const grow = revealSettle(now, clock.current, b.appearAt);
       if (grow < 1) done = false;
-      const height = b.size[1] * grow;
+      const height = instance.height * grow;
       const visible = grow > 0.98;
       const sx = instance.swapped ? b.size[2] : b.size[0];
       const sz = instance.swapped ? b.size[0] : b.size[2];

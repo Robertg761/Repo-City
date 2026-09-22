@@ -41,6 +41,12 @@ export interface BuildingInstance {
    * generator laid it out.
    */
   swapped: boolean;
+  /**
+   * The height the model is drawn at: the building's own, except that a
+   * cottage or a farmhouse is never drawn taller than its proportions allow
+   * (`MODEL_MAX_ASPECT`).
+   */
+  height: number;
   /** This building's windows are lit tonight (PLAN.md section 19). */
   lit: boolean;
   /** Hue, saturation and lightness offsets inside the district's colour. */
@@ -263,6 +269,28 @@ export function buildingTurn(
   return doorTurn(building.position, rotationY);
 }
 
+/**
+ * The tallest a low settlement model may be drawn, as a multiple of its mean
+ * footprint. A cottage is authored as one storey under a deep roof: stretched
+ * to half again its width it stops being a cottage and becomes a witch's hat.
+ * The building keeps its plot and its tier; only the drawn height is held.
+ * The city's archetypes have no cap, so the city is unchanged.
+ */
+export const MODEL_MAX_ASPECT: Partial<Record<ModelKey, number>> = {
+  cottage: 1.0,
+  "cottage/tile": 1.1,
+  farmhouse: 1.45,
+  barn: 1.6,
+  terrace: 1.25,
+};
+
+/** The height a building's model is drawn at (see `MODEL_MAX_ASPECT`). */
+export function drawnHeight(model: ModelKey, size: readonly number[]): number {
+  const aspect = MODEL_MAX_ASPECT[model];
+  if (aspect === undefined) return size[1];
+  return Math.min(size[1], aspect * ((size[0] + size[2]) / 2));
+}
+
 /** How many rooftop props a building carries: taller means busier roofs. */
 export function propCount(tier: number, maxProps: number, roll: number): number {
   if (maxProps <= 0) return 0;
@@ -340,6 +368,7 @@ export function planBuildings(
         archetype,
         model,
         ...(paint ? { paint } : {}),
+        height: drawnHeight(model, building.size),
         yaw,
         swapped,
         lit: unit(seed, 11) < litShare,

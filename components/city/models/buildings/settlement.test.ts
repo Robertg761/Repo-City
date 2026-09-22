@@ -15,7 +15,15 @@ import { PAINT_ACCENT, PAINT_NONE, PAINT_WALL } from "./mesh";
 import { archetypeModel } from "./models";
 import { linear, settlementDraft, slab } from "./kit";
 import { BARN_WALLS, DISTRICT_SHARE, SHOP_ACCENTS, VILLAGE_WALLS, settlementPaint } from "./palettes";
-import { buildingTurn, doorTurn, laneTurn, planBuildings, streetTurn } from "./placement";
+import {
+  MODEL_MAX_ASPECT,
+  buildingTurn,
+  doorTurn,
+  drawnHeight,
+  laneTurn,
+  planBuildings,
+  streetTurn,
+} from "./placement";
 import { apartmentLow, shopfront, terrace } from "./town";
 import { barn, cottage, farmhouse } from "./village";
 import { mix, buildingColor } from "../../palette";
@@ -366,6 +374,19 @@ describe("turning buildings (PLAN.md 76.5)", () => {
     expect(buildingTurn(b, "village", [])).toEqual(doorTurn(b.position, 0));
     expect(buildingTurn({ ...b, frontage: "main-street" }, "town", [])).toEqual(doorTurn(b.position, 0));
     expect(buildingTurn(b, "city", eastWest)).toEqual(doorTurn(b.position, 0));
+  });
+});
+
+describe("drawnHeight", () => {
+  it("never holds back a city archetype", () => {
+    for (const id of CITY_ARCHETYPE_IDS) expect(drawnHeight(id, [3, 23, 3])).toBe(23);
+  });
+
+  it("keeps a cottage a cottage on a narrow plot, and leaves a squat one alone", () => {
+    expect(drawnHeight("cottage", [3, 3.9, 3])).toBeCloseTo(3 * MODEL_MAX_ASPECT.cottage!);
+    expect(drawnHeight("cottage", [4.4, 3.4, 4.2])).toBe(3.4);
+    expect(drawnHeight("farmhouse", [3, 7.6, 3])).toBeLessThan(7.6);
+    expect(drawnHeight("shopfront", [3, 7.6, 3])).toBe(7.6);
   });
 });
 
