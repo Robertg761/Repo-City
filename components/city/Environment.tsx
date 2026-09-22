@@ -2,8 +2,9 @@
 
 /**
  * Everything around the city rather than in it (PLAN.md sections 4 and 39):
- * the sky, the exposure, the gravel under the town hall, the soft darkening
- * that seats the buildings on the plate, and the post-processing chain.
+ * the sky, the exposure, the gravel under the town hall, the detail layer
+ * over the district ground, the soft darkening that seats the buildings on
+ * the plate, and the post-processing chain.
  *
  * It is mounted by `CityCanvas`, outside the keyed `<City>` subtree, because
  * all of it outlives a model: analysing another repository should not throw
@@ -24,8 +25,11 @@ import { Bloom, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import {
   ACESFilmicToneMapping,
   BackSide,
+  BufferAttribute,
+  BufferGeometry,
   CanvasTexture,
   type Mesh,
+  MultiplyBlending,
   RepeatWrapping,
   SRGBColorSpace,
 } from "three";
@@ -34,7 +38,7 @@ import { plazaRect } from "./groundwork";
 import { PLAZA_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
 import { useQuality, useQualityProbe, type QualitySettings } from "./quality";
 import { revealEnd } from "./reveal";
-import { useGrass } from "./Terrain";
+import { surfaceTexture, useTiledSurface } from "./textures/surfaces";
 
 /**
  * The dome sits on its own layer so that drei's `<ContactShadows>`, which
@@ -152,13 +156,19 @@ function SkyDome({ atmosphere, radius }: { atmosphere: SceneAtmosphere; radius: 
   );
 }
 
+/** World units per tile of the gravel and of the ground detail. */
+const GRAVEL_TILE = 7;
+const GROUND_TILE = 17;
+/** Above the district plates (0.01) and the plaza (0.02), under every kerb. */
+const GROUND_DETAIL_Y = 0.03;
+
 /**
  * Raked gravel under the civic centre, so the town hall stands on a square
  * rather than on the same lawn as everything else (PLAN.md section 36).
  */
 function Plaza({ city, atmosphere }: { city: CityModel; atmosphere: SceneAtmosphere }) {
   const rect = useMemo(() => plazaRect(city), [city]);
-  const gravel = useGrass(rect ? Math.max(rect.w, rect.d) * 1.6 : 1);
+  const gravel = useTiledSurface("gravel", rect ? Math.max(rect.w, rect.d) : 1, GRAVEL_TILE);
   if (!rect) return null;
 
   return (
@@ -174,6 +184,77 @@ function Plaza({ city, atmosphere }: { city: CityModel; atmosphere: SceneAtmosph
         map={gravel}
         roughness={1}
         metalness={0}
+      />
+    </mesh>
+  );
+}
+
+/**
+ * One flat quad per district, UV'd in world units so the pattern runs
+ * continuously from one district into the next.
+ */
+function districtQuads(city: CityModel): BufferGeometry | null {
+  const count = city.districts.length;
+  if (count === 0) return null;
+  const positions = new Float32Array(count * 4 * 3);
+  const uvs = new Float32Array(count * 4 * 2);
+  const index: number[] = [];
+  city.districts.forEach(({ rect }, n) => {
+    const x0 = rect.x - rect.w / 2;
+    const x1 = rect.x + rect.w / 2;
+    const z0 = rect.z - rect.d / 2;
+    const z1 = rect.z + rect.d / 2;
+    const corners = [
+      [x0, z0],
+      [x1, z0],
+      [x1, z1],
+      [x0, z1],
+    ];
+    corners.forEach(([x, z], k) => {
+      positions.set([x, GROUND_DETAIL_Y, z], (n * 4 + k) * 3);
+      uvs.set([x / GROUND_TILE, z / GROUND_TILE], (n * 4 + k) * 2);
+    });
+    const b = n * 4;
+    // Wound to face up.
+    index.push(b, b + 2, b + 1, b, b + 3, b + 2);
+  });
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new BufferAttribute(uvs, 2));
+  geometry.setIndex(index);
+  return geometry;
+}
+
+/**
+ * The ground detail layer (`textures/patterns.ts`, `groundDetailPattern`).
+ *
+ * The district plates belong to `District.tsx`, and a hovered or selected
+ * district retints its plate. Rather than reach into that material, the
+ * detail is laid over the top as a multiply: an unlit, depth-tested quad that
+ * darkens whatever is underneath by a few percent in a soft mottle. So the
+ * hover tint, the hour, the shadows and an archived city's grey all come
+ * through untouched -- the layer only ever says "a little darker here" -- and
+ * anything standing on the ground hides it by being nearer the camera.
+ *
+ * It is a transparent pass over most of the frame, so the low tier drops it.
+ */
+function GroundDetail({ city }: { city: CityModel }) {
+  const { textureSize, anisotropy } = useQuality();
+  const geometry = useMemo(() => districtQuads(city), [city]);
+  const texture = surfaceTexture("ground", textureSize, anisotropy);
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+  if (!geometry) return null;
+
+  return (
+    <mesh geometry={geometry} raycast={() => null} renderOrder={-10}>
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        premultipliedAlpha
+        blending={MultiplyBlending}
+        depthWrite={false}
+        toneMapped={false}
+        fog={false}
       />
     </mesh>
   );
@@ -303,6 +384,7 @@ export default function Environment({
       <SkyDome atmosphere={atmosphere} radius={Math.min(Math.max(size * 4, 700), 1400)} />
 
       {city && <Plaza city={city} atmosphere={atmosphere} />}
+      {city && quality.groundDetail && <GroundDetail city={city} />}
 
       {quality.contactShadows && (
         // Lifted clear of the kerbs and the road markings: anything below the

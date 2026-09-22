@@ -7,12 +7,14 @@
  * `District.tsx`, pavements by `Roads.tsx`, the civic gravel by
  * `Environment.tsx`.
  *
- * Both planes carry a procedural grass texture, generated into a canvas at
- * runtime: a flat plane of one colour is the single strongest tell that a
- * frame is a render rather than a photograph of a model, and section 4 rules
- * out downloading an asset for it. Two octaves of wrapped value noise, a few
- * percent either side of the base colour -- enough to break the flatness at
- * the overview camera, not enough to read as a pattern up close.
+ * Both planes carry a procedural grass texture (`textures/patterns.ts`): a
+ * flat plane of one colour is the single strongest tell that a frame is a
+ * render rather than a photograph of a model, and section 4 rules out
+ * downloading an asset for it. Wrapped value noise a few percent either side
+ * of the base colour, warmer where it is dry. The city plate is mown lawn --
+ * the parks between the blocks are the plate showing through -- so it also
+ * carries soft mowing stripes that come and go in patches; the landscape past
+ * the ring road is meadow and does not.
  *
  * The landscape is also the "nothing here" click target: clicking it clears
  * the selection (PLAN.md section 6).
@@ -20,112 +22,24 @@
 
 import { useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
-import {
-  BufferAttribute,
-  CanvasTexture,
-  Color,
-  RepeatWrapping,
-  SRGBColorSpace,
-  type Texture,
-} from "three";
+import { BufferAttribute, Color } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import { mix, type SceneAtmosphere } from "./palette";
+import { useTiledSurface } from "./textures/surfaces";
 
 interface TerrainProps {
   size: number;
   atmosphere: SceneAtmosphere;
 }
 
-const GRASS_PIXELS = 256;
-
 /**
- * World units covered by one tile of the noise, per surface. The landscape
- * runs to three hundred units and more: tiled every eleven units, as the city
- * plate is, the repeat reads as a woven pattern rather than as ground.
+ * World units covered by one tile of grass, per surface. The landscape runs
+ * to three hundred units and more: tiled every thirteen units, as the city
+ * plate is, the repeat reads as a woven pattern rather than as ground. The
+ * plate's tile carries four mower passes, so a stripe is about a unit and a
+ * half wide: two cars, which is what a lawn stripe is on a model railway.
  */
 const GRASS_TILE = { plate: 13, landscape: 52 } as const;
-
-/** Deterministic hash on a wrapped lattice, so the tile joins itself. */
-function latticeValue(x: number, y: number, period: number): number {
-  const ix = ((x % period) + period) % period;
-  const iy = ((y % period) + period) % period;
-  const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453;
-  return n - Math.floor(n);
-}
-
-function smoothNoise(u: number, v: number, period: number): number {
-  const x = u * period;
-  const y = v * period;
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const fx = x - x0;
-  const fy = y - y0;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sy = fy * fy * (3 - 2 * fy);
-  const a = latticeValue(x0, y0, period);
-  const b = latticeValue(x0 + 1, y0, period);
-  const c = latticeValue(x0, y0 + 1, period);
-  const d = latticeValue(x0 + 1, y0 + 1, period);
-  return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
-}
-
-let grassSource: CanvasTexture | null = null;
-
-/**
- * One canvas for the whole session; callers clone it so each surface can set
- * its own repeat without fighting over the shared texture's.
- */
-function grassTexture(): CanvasTexture | null {
-  if (grassSource) return grassSource;
-  if (typeof document === "undefined") return null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = GRASS_PIXELS;
-  canvas.height = GRASS_PIXELS;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-
-  const image = context.createImageData(GRASS_PIXELS, GRASS_PIXELS);
-  const { data } = image;
-  for (let y = 0; y < GRASS_PIXELS; y++) {
-    for (let x = 0; x < GRASS_PIXELS; x++) {
-      const u = x / GRASS_PIXELS;
-      const v = y / GRASS_PIXELS;
-      // Broad patches plus a fine graininess, both centred on 0.5.
-      const broad = smoothNoise(u, v, 4) - 0.5;
-      const fine = smoothNoise(u, v, 16) - 0.5;
-      // The texture multiplies the material colour, so it lives just below
-      // white: 1.0 would be the base colour exactly.
-      const level = 0.97 + broad * 0.1 + fine * 0.045;
-      const byte = Math.max(0, Math.min(255, Math.round(level * 255)));
-      const i = (y * GRASS_PIXELS + x) * 4;
-      data[i] = byte;
-      data[i + 1] = byte;
-      data[i + 2] = byte;
-      data[i + 3] = 255;
-    }
-  }
-  context.putImageData(image, 0, 0);
-
-  grassSource = new CanvasTexture(canvas);
-  grassSource.colorSpace = SRGBColorSpace;
-  grassSource.wrapS = RepeatWrapping;
-  grassSource.wrapT = RepeatWrapping;
-  return grassSource;
-}
-
-/** A private copy of the grass, tiled every `tile` units across `extent`. */
-export function useGrass(extent: number, tile: number = GRASS_TILE.plate): Texture | null {
-  return useMemo(() => {
-    const source = grassTexture();
-    if (!source) return null;
-    const texture = source.clone();
-    const repeat = Math.max(1, Math.round(extent / tile));
-    texture.repeat.set(repeat, repeat);
-    texture.needsUpdate = true;
-    return texture;
-  }, [extent, tile]);
-}
 
 /** How far the landscape runs past the city, as a multiple of `bounds.size`. */
 const LANDSCAPE = 3.2;
@@ -172,8 +86,8 @@ const HAZE_SEGMENTS = 32;
 
 export default function Terrain({ size, atmosphere }: TerrainProps) {
   const actions = useCityStore((s) => s.actions);
-  const landscape = useGrass(size * LANDSCAPE, GRASS_TILE.landscape);
-  const plate = useGrass(size * 1.04);
+  const landscape = useTiledSurface("meadow", size * LANDSCAPE, GRASS_TILE.landscape);
+  const plate = useTiledSurface("lawn", size * 1.04, GRASS_TILE.plate);
   const haze = useMemo(
     () => hazeColors(HAZE_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
     [atmosphere.terrainColor, atmosphere.skyGroundColor],
