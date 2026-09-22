@@ -166,6 +166,12 @@ export function pruneTree(items: GhTreeItem[], githubTruncated = false): Omit<Pr
   const warnings: string[] = [];
   const kept: TreeEntry[] = [];
   let tooDeep = 0;
+  // Uncapped counts for settlement classification (PLAN.md section 76.4):
+  // everything that passes the exclusions, counted BEFORE the depth skip and
+  // the entry cap, because the depth skip alone would undercount deep Java
+  // trees and the cap cannot tell vscode from react.
+  let totalFiles = 0;
+  let totalDirs = 0;
 
   for (const item of items) {
     // "commit" entries are submodule pointers: a name with no contents.
@@ -173,6 +179,9 @@ export function pruneTree(items: GhTreeItem[], githubTruncated = false): Omit<Pr
     const path = typeof item.path === "string" ? item.path : "";
     if (path === "") continue;
     if (isExcluded(path, item.type)) continue;
+
+    if (item.type === "blob") totalFiles += 1;
+    else totalDirs += 1;
 
     if (depthOf(path) > MAX_DEPTH) {
       tooDeep += 1;
@@ -218,7 +227,7 @@ export function pruneTree(items: GhTreeItem[], githubTruncated = false): Omit<Pr
   const files = entries.filter((entry) => entry.type === "blob").length;
 
   return {
-    tree: { truncated, totalEntries, entries },
+    tree: { truncated, totalEntries, entries, totalFiles, totalDirs, githubTruncated },
     warnings,
     stats: {
       rawEntries: items.length,
