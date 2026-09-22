@@ -89,8 +89,8 @@ const VERGE_HEIGHT = 0.06;
 /** The avenue median: a kerb as tall as a pavement, the grass a hair above. */
 const MEDIAN_GRASS_INSET = 0.16;
 /** The motorway's central barrier. */
-const BARRIER_WIDTH = 0.34;
-const BARRIER_HEIGHT = 0.42;
+const BARRIER_WIDTH = 0.4;
+const BARRIER_HEIGHT = 0.55;
 
 /** Places an instance in a road's own frame: `s` along it, `lateral` across. */
 function place(lay: RoadLay, s: number, lateral: number, y: number): void {
@@ -100,6 +100,16 @@ function place(lay: RoadLay, s: number, lateral: number, y: number): void {
     lay.z + lay.dz * s - lay.dx * lateral,
   );
   scratch.rotation.set(0, lay.angle, 0);
+}
+
+/**
+ * How far along a road its pieces may be laid: as far as the road has grown,
+ * and without limit once it is whole. A pavement, verge or edge line mitred
+ * round a bend runs on a little past its own segment's end, and must not be
+ * cut off at the node once there is nothing left to grow.
+ */
+function reach(fronts: Float32Array, lays: readonly RoadLay[], road: number): number {
+  return fronts[road] >= lays[road].length - 1e-3 ? Number.POSITIVE_INFINITY : fronts[road];
 }
 
 /** The carriageways: each one as long as its road has grown so far. */
@@ -136,7 +146,7 @@ function layStrips(
   if (!mesh) return;
   strips.forEach((strip, i) => {
     const lay = lays[strip.road];
-    const along = Math.min(Math.max(fronts[strip.road] - strip.start, 0), strip.along);
+    const along = Math.min(Math.max(reach(fronts, lays, strip.road) - strip.start, 0), strip.along);
     place(lay, strip.start + along / 2, strip.lateral, y);
     scratch.scale.set(along > 0.01 ? width : 0, 1, Math.max(along, 0.0001));
     scratch.updateMatrix();
@@ -248,7 +258,7 @@ export default function Roads({
       walks.forEach((walk, i) => {
         const lay = lays[walk.road];
         // The slab is laid behind the front, never ahead of it.
-        const along = Math.min(Math.max(fronts[walk.road] - walk.start, 0), walk.along);
+        const along = Math.min(Math.max(reach(fronts, lays, walk.road) - walk.start, 0), walk.along);
         const centre = walk.start + along / 2;
         const side = Math.sign(walk.lateral);
 
@@ -272,7 +282,7 @@ export default function Roads({
       marks.forEach((mark, i) => {
         const lay = lays[mark.road];
         // Paint lands whole, once the road under it exists.
-        const painted = fronts[mark.road] >= mark.s + mark.along / 2;
+        const painted = reach(fronts, lays, mark.road) >= mark.s + mark.along / 2;
         place(lay, mark.s, mark.lateral, MARK_Y);
         scratch.scale.set(painted ? mark.across : 0, 1, painted ? mark.along : 0.0001);
         scratch.updateMatrix();
