@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import sample from "@/fixtures/sample.analysis.json";
 import type { RepoAnalysis } from "@/types/analysis";
 import type { CityModel, Incident } from "@/types/city";
-import { resolveEntity } from "./entities";
+import { daysBetween, resolveEntity } from "./entities";
 
 const analysis = sample as unknown as RepoAnalysis;
+
+/** Same wording the resolver uses, so the expectation is not a second copy. */
+const relativeDaysFor = (iso: string): string => {
+  const days = daysBetween(iso, NOW);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days.toLocaleString("en-US")} days ago`;
+};
 
 /** 2026-09-21, the day of the fixture, so relative days are stable. */
 const NOW = Date.parse("2026-09-21T12:00:00.000Z");
@@ -66,11 +74,31 @@ describe("resolveEntity", () => {
     expect(resolved?.facts).toEqual([
       { label: "State", value: "Major incident" },
       { label: "Open", value: "64 days" },
+      { label: "Last activity", value: relativeDaysFor(issue.updatedAt) },
       { label: "Comments", value: "27 comments" },
       { label: "Reported by", value: "mara-quinn" },
+      { label: "Labels", value: "bug, priority-high, router" },
+      ...(issue.relatedPath
+        ? [
+            {
+              label: "Near",
+              value: issue.relatedPath,
+              href: `${analysis.repo.url}/tree/${analysis.repo.headSha}/${issue.relatedPath}`,
+            },
+          ]
+        : []),
     ]);
     expect(resolved?.tags).toEqual(["bug", "priority-high", "router"]);
     expect(resolved?.reason).toMatch(/unresolved bug/);
+    expect(resolved?.tooltip).toBe("Issue #412 · Major incident");
+  });
+
+  it("separates thousands in every counted fact", () => {
+    const old = structuredClone(city) as CityModel;
+    old.incidents[0].issue = { ...issue, createdAt: "2018-01-01T00:00:00.000Z" };
+    const resolved = resolveEntity("inc-412", old, analysis, NOW);
+    const open = resolved?.facts.find((fact) => fact.label === "Open");
+    expect(open?.value).toMatch(/^\d,\d{3} days$/);
   });
 
   it("resolves nothing without a city model", () => {

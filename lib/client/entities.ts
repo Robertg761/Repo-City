@@ -6,14 +6,23 @@
  * components only lay the result out. The header labels are the ones listed in
  * section 41; the "WHY THIS EXISTS" text is always `entity.reason`, because
  * teaching the visual language is the point of the inspector (section 12).
+ *
+ * Two rules this file holds for the whole interface:
+ *
+ *   - every number is formatted with `toLocaleString`, so a count never
+ *     appears as `3083` beside the same count as `3,083`;
+ *   - every fact is a repository fact. Nothing here invents, rounds towards a
+ *     flattering number, or describes something the analysis did not measure.
  */
 
-import type { RepoAnalysis } from "@/types/analysis";
+import type { BuildingPlan, RepoAnalysis } from "@/types/analysis";
 import type { CityModel, EntityKind, LandmarkType } from "@/types/city";
 
 export interface EntityFact {
   label: string;
   value: string;
+  /** When set, the value renders as a link out to GitHub. */
+  href?: string;
 }
 
 export interface ResolvedEntity {
@@ -30,12 +39,20 @@ export interface ResolvedEntity {
   facts: EntityFact[];
   /** Issue or pull request labels, rendered as chips. */
   tags: string[];
+  /**
+   * Second line of the hover card (PLAN.md section 42). Never empty: for a
+   * building it is the curated role when there is one and the district
+   * otherwise, and for everything else it names the thing and its state.
+   */
+  tooltip: string;
 }
 
 const LANDMARK_LABELS: Record<LandmarkType, string> = {
   power: "POWER GRID",
   fire: "FIRE STATION",
-  info: "INFORMATION CENTER",
+  // British spelling, matching the legend and the landmark's own title
+  // (QA-2026-09-21 bug 5).
+  info: "INFORMATION CENTRE",
   station: "STATION",
   // Section 41 does not name the civic landmark; "CITY HALL" reads naturally
   // next to the others and stays in the city metaphor.
@@ -62,81 +79,187 @@ export function daysBetween(iso: string, now = Date.now()): number {
   return Math.max(0, Math.round((now - then) / 86_400_000));
 }
 
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count.toLocaleString("en-US")} ${count === 1 ? one : many}`;
+const count = (value: number): string => value.toLocaleString("en-US");
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${count(n)} ${n === 1 ? one : many}`;
 }
 
 function relativeDays(iso: string, now = Date.now()): string {
   const days = daysBetween(iso, now);
   if (days === 0) return "today";
   if (days === 1) return "yesterday";
-  return `${days.toLocaleString("en-US")} days ago`;
+  return `${count(days)} days ago`;
 }
 
 function strengthLabel(strength: 0 | 1 | 2 | 3): string {
   return ["None detected", "Light", "Solid", "Strong"][strength];
 }
 
+const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
+
+/** `owner/repo` tree link pinned to the surveyed commit. */
+function treeLink(analysis: RepoAnalysis | null, path: string): string | undefined {
+  const repo = analysis?.repo;
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!repo || !clean) return undefined;
+  return `${repo.url}/tree/${repo.headSha || repo.defaultBranch}/${clean}`;
+}
+
 /** Facts for a landmark come from the metrics it visualises, not from geometry. */
-function landmarkFacts(type: LandmarkType, analysis: RepoAnalysis | null): EntityFact[] {
+function landmarkFacts(
+  type: LandmarkType,
+  analysis: RepoAnalysis | null,
+  detail: { trainsPerMinute?: number; releaseTag?: string | null } | undefined,
+): EntityFact[] {
   const metrics = analysis?.metrics;
   if (!metrics) return [];
 
   if (type === "power") {
-    return [
+    const facts: EntityFact[] = [
       { label: "CI", value: metrics.ci.state.replace("-", " ") },
       { label: "Provider", value: metrics.ci.provider.replace("-", " ") },
-      { label: "Failure rate", value: `${Math.round(metrics.ci.failureRate * 100)}%` },
-      { label: "Recent runs", value: `${metrics.ci.recentRuns}` },
     ];
+    if (metrics.ci.workflows !== undefined) {
+      facts.push({ label: "Workflows", value: plural(metrics.ci.workflows, "workflow") });
+    }
+    facts.push(
+      { label: "Recent runs", value: count(metrics.ci.recentRuns) },
+      // The pass rate is the number people actually read a CI badge for.
+      { label: "Passing", value: percent(1 - metrics.ci.failureRate) },
+    );
+    if (analysis) facts.push({ label: "Actions", value: "All runs", href: `${analysis.repo.url}/actions` });
+    return facts;
   }
+
   if (type === "fire") {
     return [
       { label: "Test infrastructure", value: strengthLabel(metrics.tests.strength) },
-      { label: "Signals", value: metrics.tests.signals.join(", ") || "none detected" },
+      { label: "Detected from", value: metrics.tests.signals.join(", ") || "no signals" },
+      { label: "Measured", value: "Infrastructure only, never coverage" },
     ];
   }
+
   if (type === "info") {
     return [
       { label: "Documentation", value: strengthLabel(metrics.docs.strength) },
-      { label: "README", value: `${metrics.docs.readmeLength.toLocaleString("en-US")} characters` },
-      { label: "Signals", value: metrics.docs.signals.join(", ") || "none detected" },
+      { label: "README", value: `${count(metrics.docs.readmeLength)} characters` },
+      { label: "Detected from", value: metrics.docs.signals.join(", ") || "no signals" },
     ];
   }
+
   if (type === "station") {
-    return [
-      { label: "Releases", value: `${metrics.releases.count}` },
+    const facts: EntityFact[] = [
+      { label: "Releases", value: plural(metrics.releases.count, "published release") },
       { label: "Cadence", value: metrics.releases.cadence },
-      {
-        label: "Latest",
-        value:
-          metrics.releases.lastDaysAgo === null
-            ? "none published"
-            : `${metrics.releases.lastDaysAgo} days ago`,
-      },
     ];
+    const tag = metrics.releases.lastTag ?? detail?.releaseTag ?? null;
+    const ago =
+      metrics.releases.lastDaysAgo === null
+        ? "none published"
+        : metrics.releases.lastDaysAgo === 0
+          ? "today"
+          : `${count(metrics.releases.lastDaysAgo)} days ago`;
+    facts.push({
+      label: "Last release",
+      value: tag ? `${tag}, ${ago}` : ago,
+      href: metrics.releases.lastUrl ?? undefined,
+    });
+    if (detail?.trainsPerMinute) {
+      facts.push({
+        label: "Arrivals",
+        value: `${detail.trainsPerMinute} a minute on the platform clock`,
+      });
+    }
+    return facts;
   }
+
+  // City hall. The two file counts measure different things and are labelled
+  // so (QA-2026-09-21 bug 2).
+  const surveyed = metrics.scale.surveyedFiles;
   return [
-    { label: "Files", value: metrics.scale.files.toLocaleString("en-US") },
-    { label: "Districts", value: `${analysis?.districts.length ?? 0}` },
+    {
+      label: "Files",
+      value:
+        surveyed && surveyed > metrics.scale.files
+          ? `${count(metrics.scale.files)} mapped of ${count(surveyed)} surveyed`
+          : `${count(metrics.scale.files)} mapped`,
+    },
+    { label: "Districts", value: count(analysis?.districts.length ?? 0) },
     { label: "Size", value: metrics.scale.tier },
+    { label: "Languages", value: topLanguages(metrics.scale.languages, 3) || "unknown" },
   ];
 }
 
+function topLanguages(languages: Record<string, number>, limit: number): string {
+  return Object.entries(languages)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name]) => name)
+    .join(", ");
+}
+
 function buildingFacts(
-  path: string,
-  kind: "file" | "directory",
+  plan: BuildingPlan,
   districtName: string | null,
   tier: number,
-  role: string | null,
+  analysis: RepoAnalysis | null,
 ): EntityFact[] {
   const facts: EntityFact[] = [
-    { label: "Path", value: path },
-    { label: "Kind", value: kind === "file" ? "File" : "Directory" },
+    { label: "Path", value: plan.path, href: treeLink(analysis, plan.path) },
+    { label: "Kind", value: plan.kind === "file" ? "File" : "Directory" },
   ];
   if (districtName) facts.push({ label: "District", value: districtName });
-  facts.push({ label: "Tier", value: `${tier} of 5` });
-  if (role) facts.push({ label: "Role", value: role });
+  if (plan.kind === "directory") {
+    facts.push({ label: "Contains", value: plural(plan.descendantCount, "file") });
+  }
+  if (plan.language) facts.push({ label: "Language", value: plan.language });
+  facts.push({ label: "Tier", value: `${tier} of 5, by importance score` });
+  if (plan.role) facts.push({ label: "Role", value: plan.role });
+  return facts;
+}
+
+/** Files under a district, its share of the repository, and its named modules. */
+function districtFacts(
+  sourcePath: string,
+  buildingCount: number,
+  analysis: RepoAnalysis | null,
+): EntityFact[] {
+  const facts: EntityFact[] = [{ label: "Path", value: sourcePath }];
+  const plan = analysis?.districts.find((d) => d.sourcePath === sourcePath);
+  const total = analysis?.metrics.scale.files ?? 0;
+
+  if (plan) {
+    const share = total > 0 ? ` (${Math.max(1, Math.round((plan.fileCount / total) * 100))}% of the repository)` : "";
+    facts.push({ label: "Files", value: `${plural(plan.fileCount, "file")}${share}` });
+  }
+  // Buildings are capped and pooled, so this is smaller than the file count
+  // and has to say why (QA-2026-09-21, section 2 item 3).
+  facts.push({ label: "Buildings", value: `${count(buildingCount)} drawn` });
+
+  const members = (analysis?.buildings ?? []).filter((b) => b.districtId === plan?.id);
+  const languages = new Map<string, number>();
+  for (const member of members) {
+    if (!member.language) continue;
+    languages.set(member.language, (languages.get(member.language) ?? 0) + 1);
+  }
+  if (languages.size > 0) {
+    const named = [...languages.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name]) => name)
+      .join(", ");
+    facts.push({ label: "Languages", value: named });
+  }
+
+  for (const member of members.filter((b) => b.role).slice(0, 3)) {
+    facts.push({
+      label: member.path.split("/").pop() ?? member.path,
+      value: member.role ?? "",
+      href: treeLink(analysis, member.path),
+    });
+  }
+
   return facts;
 }
 
@@ -144,7 +267,7 @@ function buildingFacts(
  * Ids are resolved from the city model, which the store builds for every
  * successful analysis (live, cached and fixture alike), so an id the model
  * does not know belongs to no entity. `analysis` is still read, but only for
- * the landmark facts: those come from the metrics, not from the geometry.
+ * the facts that come from the metrics rather than from the geometry.
  */
 export function resolveEntity(
   id: string | null,
@@ -158,6 +281,24 @@ export function resolveEntity(
     const incident = city.incidents.find((entity) => entity.id === id);
     if (incident) {
       const issue = incident.issue;
+      const state = INCIDENT_STATE_LABELS[incident.state] ?? incident.state;
+      const facts: EntityFact[] = [
+        { label: "State", value: state },
+        { label: "Open", value: plural(daysBetween(issue.createdAt, now), "day") },
+        { label: "Last activity", value: relativeDays(issue.updatedAt, now) },
+        { label: "Comments", value: plural(issue.comments, "comment") },
+      ];
+      if (issue.author) facts.push({ label: "Reported by", value: issue.author });
+      if (issue.labels.length > 0) {
+        facts.push({ label: "Labels", value: issue.labels.join(", ") });
+      }
+      if (issue.relatedPath) {
+        facts.push({
+          label: "Near",
+          value: issue.relatedPath,
+          href: treeLink(analysis, issue.relatedPath),
+        });
+      }
       return {
         id,
         kind: "incident",
@@ -167,19 +308,30 @@ export function resolveEntity(
         description: issue.bodyExcerpt,
         reason: incident.reason || issue.reason,
         sourceUrl: incident.sourceUrl ?? issue.url,
-        facts: [
-          { label: "State", value: INCIDENT_STATE_LABELS[incident.state] ?? incident.state },
-          { label: "Open", value: plural(daysBetween(issue.createdAt, now), "day") },
-          { label: "Comments", value: plural(issue.comments, "comment") },
-          ...(issue.author ? [{ label: "Reported by", value: issue.author }] : []),
-        ],
+        facts,
         tags: issue.labels,
+        tooltip: `Issue #${issue.number} · ${state}`,
       };
     }
 
     const site = city.constructionSites.find((entity) => entity.id === id);
     if (site) {
       const pull = site.pull;
+      const state = CONSTRUCTION_STATE_LABELS[site.state] ?? site.state;
+      const facts: EntityFact[] = [{ label: "State", value: state }];
+      if (pull.draft) facts.push({ label: "Draft", value: "Not ready for review" });
+      if (pull.author) facts.push({ label: "Author", value: pull.author });
+      facts.push(
+        { label: "Opened", value: relativeDays(pull.createdAt, now) },
+        { label: "Updated", value: relativeDays(pull.updatedAt, now) },
+        {
+          label: "Merged",
+          value: pull.mergedAt ? relativeDays(pull.mergedAt, now) : "not merged yet",
+        },
+      );
+      if (pull.comments > 0) {
+        facts.push({ label: "Comments", value: plural(pull.comments, "comment") });
+      }
       return {
         id,
         kind: "construction",
@@ -189,16 +341,9 @@ export function resolveEntity(
         description: "",
         reason: site.reason || pull.reason,
         sourceUrl: site.sourceUrl ?? pull.url,
-        facts: [
-          { label: "State", value: CONSTRUCTION_STATE_LABELS[site.state] ?? site.state },
-          ...(pull.author ? [{ label: "Author", value: pull.author }] : []),
-          { label: "Updated", value: relativeDays(pull.updatedAt, now) },
-          {
-            label: "Merged",
-            value: pull.mergedAt ? relativeDays(pull.mergedAt, now) : "not merged yet",
-          },
-        ],
+        facts,
         tags: pull.labels,
+        tooltip: `Pull request #${pull.number} · ${state}`,
       };
     }
 
@@ -213,8 +358,9 @@ export function resolveEntity(
         description: landmark.description,
         reason: landmark.reason,
         sourceUrl: landmark.sourceUrl,
-        facts: landmarkFacts(landmark.landmarkType, analysis),
+        facts: landmarkFacts(landmark.landmarkType, analysis, landmark.detail),
         tags: [],
+        tooltip: landmark.subtitle || LANDMARK_LABELS[landmark.landmarkType].toLowerCase(),
       };
     }
 
@@ -230,19 +376,17 @@ export function resolveEntity(
         description: building.description,
         reason: building.reason,
         sourceUrl: building.sourceUrl,
-        facts: buildingFacts(
-          building.plan.path,
-          building.plan.kind,
-          district?.name ?? null,
-          building.tier,
-          building.plan.role,
-        ),
+        facts: buildingFacts(building.plan, district?.name ?? null, building.tier, analysis),
         tags: [],
+        // The curated role is the most useful thing anyone could read on a
+        // hover; the district is the fallback (PLAN.md section 42).
+        tooltip: building.plan.role ?? district?.name ?? building.plan.path,
       };
     }
 
     const district = city.districts.find((entity) => entity.id === id);
     if (district) {
+      const plan = analysis?.districts.find((d) => d.id === district.id);
       return {
         id,
         kind: "district",
@@ -255,11 +399,11 @@ export function resolveEntity(
           district.reason ||
           "Top-level directories become districts; their size follows their file count.",
         sourceUrl: district.sourceUrl,
-        facts: [
-          { label: "Path", value: district.sourcePath },
-          { label: "Buildings", value: `${district.buildingIds.length}` },
-        ],
+        facts: districtFacts(district.sourcePath, district.buildingIds.length, analysis),
         tags: [],
+        tooltip: plan
+          ? `${district.sourcePath} · ${plural(plan.fileCount, "file")}`
+          : district.sourcePath,
       };
     }
   }

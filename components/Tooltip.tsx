@@ -50,11 +50,11 @@ export default function Tooltip() {
       }}
     >
       <p className="truncate text-[13px] font-medium text-white">{entity.title}</p>
-      <p className="truncate text-[11px] text-white/55">
-        {/* Two lines, always: a repeated subtitle gives way to the kind. */}
-        {entity.subtitle && entity.subtitle !== entity.title
-          ? entity.subtitle
-          : entity.label.toLowerCase()}
+      {/* Two lines, always (PLAN.md section 42). `tooltip` is built in
+          `lib/client/entities.ts`: for a building it is the curated role when
+          the interpretation named one, and the district otherwise. */}
+      <p className="line-clamp-2 text-[11px] leading-snug text-white/55">
+        {entity.tooltip || entity.label.toLowerCase()}
       </p>
     </div>
   );
