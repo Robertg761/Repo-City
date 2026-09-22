@@ -176,8 +176,45 @@ export default function CameraRig({
   }, [controls, city, selectedId, overviewNonce]);
 
   useCameraDebugHandle(controls);
+  usePinchAsDolly();
 
   return null;
+}
+
+/**
+ * A trackpad pinch arrives as a wheel event with `ctrlKey` set, and
+ * camera-controls always turns that into a lens zoom (`camera.zoom`) that
+ * nothing ever resets, instead of the dolly the wheel does. Catch it before
+ * the controls see it and hand it back as a plain wheel turn, so a pinch
+ * moves the camera towards the cursor like the mouse wheel does. Stopping the
+ * original also keeps the browser from zooming the page.
+ */
+function usePinchAsDolly(): void {
+  const gl = useThree((state) => state.gl);
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !event.isTrusted || event.target !== canvas) return;
+      event.preventDefault();
+      event.stopPropagation();
+      canvas.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          deltaZ: event.deltaZ,
+          deltaMode: event.deltaMode,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          screenX: event.screenX,
+          screenY: event.screenY,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    };
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", onWheel, { capture: true });
+  }, [gl]);
 }
 
 /**
