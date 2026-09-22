@@ -19,9 +19,12 @@ import {
   BufferGeometry,
   Color,
   Euler,
+  ExtrudeGeometry,
   Float32BufferAttribute,
   Matrix4,
   Quaternion,
+  Shape,
+  Vector2,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -38,6 +41,14 @@ export interface Part {
    * rusty or scorched.
    */
   color: string;
+  /**
+   * Whether the per-instance colour paints this part. Only meaningful under a
+   * `tintedMaterial` (`./material`): there a car's paintwork takes the
+   * instance colour while its glass and tyres keep their own, and a tree's
+   * crown takes its leaf tint while the trunk stays bark. Under an ordinary
+   * material the flag is carried and ignored.
+   */
+  paint?: boolean;
   position?: Triple;
   /** Euler angles in radians, XYZ order. */
   rotation?: Triple;
@@ -51,8 +62,11 @@ const scratchEuler = new Euler();
 const scratchScale = new Vector3();
 const scratchColor = new Color();
 
+/** The per-vertex paint mask `tintedMaterial` reads: 1 painted, 0 not. */
+export const PAINT_ATTRIBUTE = "paint";
+
 /** Attributes every merged geometry carries; merging needs identical sets. */
-const KEPT = new Set(["position", "normal", "uv", "color"]);
+const KEPT = new Set(["position", "normal", "uv", "color", PAINT_ATTRIBUTE]);
 
 /**
  * A clone of `part`, transformed into the assembly frame and coloured.
@@ -91,6 +105,15 @@ function preparePart(part: Part): BufferGeometry {
   }
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 
+  // A part that is itself a merged assembly keeps its own mask: a parked car
+  // baked into a wreck still knows which of its faces were paintwork.
+  const existingPaint = geometry.getAttribute(PAINT_ATTRIBUTE);
+  const paint = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    paint[i] = existingPaint ? existingPaint.getX(i) : part.paint ? 1 : 0;
+  }
+  geometry.setAttribute(PAINT_ATTRIBUTE, new Float32BufferAttribute(paint, 1));
+
   for (const name of Object.keys(geometry.attributes)) {
     if (!KEPT.has(name)) geometry.deleteAttribute(name);
   }
@@ -108,6 +131,32 @@ export function mergeParts(parts: readonly Part[]): BufferGeometry {
   if (!merged) throw new Error("mergeParts: geometries could not be merged");
   merged.computeBoundingSphere();
   return merged;
+}
+
+/** A point in a side profile: `[z, y]`, forward and up. */
+export type ProfilePoint = [number, number];
+
+/**
+ * A side profile pushed straight across `width`, centred on `x = 0`.
+ *
+ * This is what gives a car a raked windscreen and a sloping bonnet without a
+ * modelling tool: draw the silhouette as a polygon seen from the side, and
+ * extrude it across the body. No bevels, so an eight point profile costs 28
+ * triangles and still reads as a car rather than as a stack of crates.
+ *
+ * The polygon is `[z, y]` pairs in either winding; three sorts out which way
+ * round the caps face.
+ */
+export function prismGeometry(profile: readonly ProfilePoint[], width: number): BufferGeometry {
+  if (profile.length < 3) throw new Error("prismGeometry: a profile needs three points");
+  const shape = new Shape(profile.map(([z, y]) => new Vector2(z, y)));
+  const geometry = new ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, steps: 1 });
+  // The shape is drawn in (x, y) and extruded along +z. Turn it a quarter so
+  // shape x becomes forward (+z) and the extrusion runs across the body,
+  // then centre that extrusion on the axis.
+  geometry.rotateY(-Math.PI / 2);
+  geometry.translate(width / 2, 0, 0);
+  return geometry;
 }
 
 /** Triangles in a geometry, for the budget assertions in the model tests. */
