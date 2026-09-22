@@ -17,6 +17,7 @@
 
 import { create } from "zustand";
 import { analyzeRepository, AnalyzeError } from "@/lib/client/analyzeStream";
+import { constructedLine } from "@/lib/client/descriptors";
 import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
@@ -195,7 +196,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
 
         const city = generateCity(analysis, { tier: devTierOverride() });
 
-        markStage("done", "done", city ? "City constructed" : "Placeholder city");
+        markStage("done", "done", city ? constructedLine(city.settlement) : "Placeholder city");
         set({ city, phase: "ready" });
       } catch (cause) {
         if (controller.signal.aborted) return;
@@ -270,9 +271,11 @@ async function loadFixture(
   const analysis = loaded as unknown as RepoAnalysis;
 
   markStage("discover", "done", analysis.repo.fullName);
-  markStage("tree", "done", `${analysis.metrics.scale.files} files mapped`);
-  markStage("issues", "done", `${analysis.metrics.issues.open} issues inspected`);
-  markStage("pulls", "done", `${analysis.metrics.pulls.open} pull requests open`);
+  const { issues, pulls, scale } = analysis.metrics;
+  const count = (value: number) => value.toLocaleString("en-US");
+  markStage("tree", "done", `${count(scale.files)} files mapped`);
+  markStage("issues", "done", `${count(issues.total ?? issues.open)} open issues surveyed`);
+  markStage("pulls", "done", `${count(pulls.total ?? pulls.open)} open pull requests surveyed`);
   markStage("ci", "done", `CI ${analysis.metrics.ci.state}`);
   markStage(
     "activity",

@@ -7,6 +7,7 @@
  */
 
 import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
+import type { Overflow, OverflowCount, SettlementInfo } from "@/types/city";
 
 const count = (value: number): string => value.toLocaleString("en-US");
 
@@ -83,6 +84,7 @@ const staleCount = (open: number, share: number): number => Math.round(open * sh
 export function scoreLines(analysis: RepoAnalysis): ScoreLine[] {
   const { metrics } = analysis;
   const { breakdown } = metrics.health;
+  const exact = analysis.totalsExact !== false;
   const pushed = metrics.activity.lastPushDaysAgo;
 
   const ci =
@@ -147,13 +149,51 @@ export function scoreLines(analysis: RepoAnalysis): ScoreLine[] {
       inputs: [
         metrics.issues.open === 0
           ? "no open issues sampled"
-          : `${count(staleCount(metrics.issues.open, metrics.issues.staleShare))} of ${count(metrics.issues.open)} sampled issues stale`,
+          : `${count(staleCount(metrics.issues.open, metrics.issues.staleShare))} of ${count(metrics.issues.open)} sampled issues stale${beyondSample(metrics.issues.open, metrics.issues.total, exact)}`,
         metrics.pulls.open === 0
           ? "no open pull requests sampled"
-          : `${count(staleCount(metrics.pulls.open, metrics.pulls.staleShare))} of ${count(metrics.pulls.open)} open pull requests stale`,
+          : `${count(staleCount(metrics.pulls.open, metrics.pulls.staleShare))} of ${count(metrics.pulls.open)} sampled pull requests stale${beyondSample(metrics.pulls.open, metrics.pulls.total, exact)}`,
       ],
     },
   ];
+}
+
+/**
+ * The last line of the survey panel (PLAN.md 76.10): "Village constructed",
+ * "Town constructed". A model from before settlements existed is a city.
+ */
+export function constructedLine(settlement: SettlementInfo | undefined): string {
+  const tier = settlement?.tier ?? "city";
+  return `${tier.charAt(0).toUpperCase()}${tier.slice(1)} constructed`;
+}
+
+/**
+ * The queue chip under the settlement name (PLAN.md 76.10): "1,000 of 21,011
+ * issues on the streets". Only kinds with something queued are named, and the
+ * total says "about" when it is an estimate. Empty when nothing is queued.
+ */
+export function queueChip(overflow: Overflow | null | undefined): string | null {
+  if (!overflow) return null;
+  const about = overflow.exact ? "" : "about ";
+  const part = (c: OverflowCount, one: string, many: string): string | null =>
+    c.hidden > 0 ? `${count(c.drawn)} of ${about}${count(c.total)} ${c.total === 1 ? one : many}` : null;
+  const parts = [
+    part(overflow.issues, "issue", "issues"),
+    part(overflow.pulls, "pull request", "pull requests"),
+  ].filter((text): text is string => text !== null);
+  if (parts.length === 0) return null;
+  return `${parts.join(" and ")} on the streets`;
+}
+
+/**
+ * Real open totals beside the health sample, for the responsiveness line.
+ * Only said when the repository holds more than was sampled, and never used
+ * for a score: the sample is what the health number reads (PLAN.md 76.1,
+ * decision 6).
+ */
+function beyondSample(sampled: number, total: number | undefined, exact: boolean): string {
+  if (total === undefined || total <= sampled) return "";
+  return ` (${exact ? "" : "about "}${count(total)} open in all)`;
 }
 
 export function describeRepository(metrics: RepoMetrics): string[] {

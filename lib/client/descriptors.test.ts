@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import sample from "@/fixtures/sample.analysis.json";
 import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
+import type { Overflow } from "@/types/city";
 import {
   attentionChips,
   cityPopulation,
+  constructedLine,
   describeRepository,
   explainPopulation,
+  queueChip,
   scoreLines,
 } from "./descriptors";
 
@@ -113,5 +116,82 @@ describe("scoreLines (PLAN.md section 23)", () => {
     const reliability = scoreLines(noCi)[1].inputs.join(" ");
     expect(reliability).toContain("no CI detected");
     expect(reliability).not.toMatch(/fail/i);
+  });
+
+  it("adds the real open totals beside the sample without changing its numbers", () => {
+    const big = structuredClone(analysis);
+    big.metrics.issues = { ...big.metrics.issues, open: 100, staleShare: 0.25, total: 18604 };
+    big.metrics.pulls = { ...big.metrics.pulls, open: 50, staleShare: 0.1, total: 2651 };
+    const [issues, pulls] = scoreLines(big)[4].inputs;
+    expect(issues).toBe("25 of 100 sampled issues stale (18,604 open in all)");
+    expect(pulls).toBe("5 of 50 sampled pull requests stale (2,651 open in all)");
+    // The score line's value is the health breakdown, untouched.
+    expect(scoreLines(big)[4].value).toBe(analysis.metrics.health.breakdown.responsiveness);
+
+    big.totalsExact = false;
+    expect(scoreLines(big)[4].inputs[0]).toBe(
+      "25 of 100 sampled issues stale (about 18,604 open in all)",
+    );
+  });
+
+  it("says nothing extra when the sample is the whole repository", () => {
+    const small = structuredClone(analysis);
+    small.metrics.issues = { ...small.metrics.issues, total: small.metrics.issues.open };
+    expect(scoreLines(small)[4].inputs[0]).not.toContain("in all");
+  });
+});
+
+describe("constructedLine (PLAN.md 76.10)", () => {
+  it.each([
+    ["village", "Village constructed"],
+    ["town", "Town constructed"],
+    ["city", "City constructed"],
+    ["metropolis", "Metropolis constructed"],
+  ] as const)("names the %s", (tier, line) => {
+    expect(constructedLine({ tier, name: "", reason: "" })).toBe(line);
+  });
+
+  it("calls a model without a settlement a city", () => {
+    expect(constructedLine(undefined)).toBe("City constructed");
+  });
+});
+
+describe("queueChip (PLAN.md 76.10)", () => {
+  const queue = (
+    issues: [number, number],
+    pulls: [number, number],
+    exact = true,
+  ): Overflow =>
+    ({
+      issues: { drawn: issues[0], total: issues[1], hidden: issues[1] - issues[0] },
+      pulls: { drawn: pulls[0], total: pulls[1], hidden: pulls[1] - pulls[0] },
+      exact,
+    }) as Overflow;
+
+  it("counts the issues on the streets against the real total", () => {
+    expect(queueChip(queue([1000, 21011], [40, 40]))).toBe(
+      "1,000 of 21,011 issues on the streets",
+    );
+  });
+
+  it("says about when the total is an estimate", () => {
+    expect(queueChip(queue([1000, 21011], [40, 40], false))).toBe(
+      "1,000 of about 21,011 issues on the streets",
+    );
+  });
+
+  it("names pull requests too when some of them wait", () => {
+    expect(queueChip(queue([1000, 21011], [500, 2651]))).toBe(
+      "1,000 of 21,011 issues and 500 of 2,651 pull requests on the streets",
+    );
+    expect(queueChip(queue([12, 12], [500, 2651]))).toBe(
+      "500 of 2,651 pull requests on the streets",
+    );
+  });
+
+  it("is absent when nothing waits", () => {
+    expect(queueChip(null)).toBeNull();
+    expect(queueChip(undefined)).toBeNull();
+    expect(queueChip(queue([12, 12], [3, 3]))).toBeNull();
   });
 });
