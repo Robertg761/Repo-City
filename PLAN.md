@@ -3156,3 +3156,691 @@ The MVP and polish rounds shipped on Monday. Robert's direction for Tuesday: ric
 | E5 Depth | `lib/city/**`, `lib/analysis/**`, `types/**` (additive), HUD and inspector components, `lib/client/**`, `fixtures/interpretations/**` | Forks as highways, stars as visitor traffic, releases as arriving trains, richer inspector facts, deeper curated interpretations |
 
 Performance gate for the round: 60 fps on the 300-building city on a discrete GPU, and an automatic quality step-down (no post-processing, smaller shadow map) when the first three seconds average worse than 25 ms per frame. Every agent screenshots before and after and keeps section 37 limits.
+
+
+---
+
+# 76. Settlements: village, town, city, metropolis, and every open issue and PR
+
+Robert, 2026-09-22: "I want there to be different City types. Like full big city if it's a big repo. Maybe a smaller town if it's small. A village if it's smaller. This will require different building types and stuff. I also want it to be physically larger if it's a large city. I want every single issue and PR to show up as something in the city, whether that's construction, road block, car accident, a fire, anything."
+
+Later the same day: "Don't worry about the time." This section is therefore designed for the best result, not the fastest landing. It amends sections 30 (request budget), 34 (payload size), 37 (limits), 43 (reveal window) and 71 (types, additively).
+
+## 76.1 Decisions
+
+1. There are four settlement tiers: `village`, `town`, `city`, `metropolis`. Metropolis is for giants (react, vscode, next.js, linux). Mid-to-large repositories are cities.
+2. Codebase size sets the base tier. The measure is files plus directories, counted before any cap. Activity can raise the tier one step, and only when the repository already sits in the upper third of its band. Activity never lowers a tier. An archived repository is never promoted. A huge abandoned repo is a big quiet city, and a tiny busy repo is a lively village.
+3. Classification runs on the server in `lib/analysis`, where the uncapped counts exist. The result crosses the wire as `RepoAnalysis.settlement`. The generator reads `analysis.settlement?.tier ?? "city"`, so any analysis without the field, old cache entries and old fixtures included, renders exactly as it does today.
+4. Every open issue and every open PR becomes its own object in the world, up to 1,000 open issues and 500 open PRs, most recently active first. Anything past the ceilings, or past what the survey reached in time, or past the ground the settlement has room for, appears as a queue at the city limits: a signboard reading "+20,112 more open issues" plus stationary gridlock on the approach roads. The numbers come from the repository's real open totals.
+5. There are two levels of detail. "Heroes" are the existing animated `IssueIncident` and `ConstructionSite` assemblies with their emergency vehicles, capped per tier (6 to 16 incidents, 3 to 10 sites). "Crowd" objects are everything else. They draw as instanced cheap forms (roadblocks, fender-benders, small fires, wrecks, potholes, survey pegs, signposts, scaffolds, trenches, works vans, hoardings). Every crowd object can be hovered, clicked and inspected.
+6. Health must not move because of this feature. Health and confidence keep reading exactly today's samples: the first 100 open issues by comment count, and the first 50 open PRs by update time. A test pins this.
+7. Each tier has its own look. The village has cottages, farmhouses, barns, a chapel on a green, a lane network and fields. The town has a high street of shops, small civic buildings and low apartment blocks. The city is today's look. The metropolis is today's look scaled up, with more and taller towers, avenues, a highway ring and highways out.
+8. Physical size scales with tier, in non-overlapping bands for typical repositories. A village is 80 to 125 units across and a metropolis 285 to 320, so the metropolis covers about eight times the ground.
+9. The settlement name in the HUD is "Village of p-limit", "Town of zustand", "City of hono" or "Greater react". It uses the repository name, not the owner. Hovering it gives the reason.
+10. Ingestion stays on REST for listing, because REST pages can be fetched in parallel by page number. GraphQL is used only where it does something REST cannot do cheaply: exact open totals in one call, and per-PR review decision, CI rollup, comment and reaction counts, and touched file paths, fetched as aliased batches in parallel.
+
+## 76.2 What the code does today (verified, and why it matters)
+
+- `lib/github/issues.ts` `fetchIssues` makes one request: `sort=comments`, `per_page=100`. It drops PR items. `lib/github/pulls.ts` `fetchPulls` makes one open page (`OPEN_PULLS_PER_PAGE = 50`) and one closed page (30). `GitHubClient.getList` throws away response headers, so the `Link` header is never read.
+- `lib/analysis/metrics.ts` slices issues to `MAX_INCIDENTS = 12`, and pulls to `MAX_OPEN_CONSTRUCTION = 6` plus `MAX_COMPLETED_CONSTRUCTION = 2`. `metrics.issues.open` and `metrics.pulls.open` are sample sizes, not repository totals. `scoring.ts` reads `issues.staleShare`, `pulls.staleShare`, `issues.open` and `recentlyTouchedIssues(snapshot)`, which is why decision 6 matters.
+- `lib/github/tree.ts` `pruneTree` drops paths deeper than 6 segments and caps at `MAX_ENTRIES = 5000`, half of it reserved for directories. `metrics.scale.files` is counted after that cap. The vscode fixture shows 2,013 files (2,500 surveyed) against react's 2,806, so today's file count cannot tell vscode from react. Classification needs new uncapped counts.
+- The react fixture has only 115 buildings, because `selectBuildings` fell through granularity levels to depth 2. A metropolis needs a building floor, otherwise it is a big plate with nothing on it.
+- `lib/city/layout.ts`: `districtSquareSide = clamp(40 + 7.2·√n, 56, 170)` and `cityBoundsSize` add the landmark band, ring gap, ring road and margin. Size is about 108 at 10 buildings and 226 at 300. Road widths (7 and 4.5), `TARGET_BLOCK` (22) and `TARGET_PITCH` (7.2) are file constants.
+- `lib/city/generator.ts` `findRoadSpot` checks each candidate spot against every incident already placed. That is quadratic, fine for 12 and not for 1,500. `components/city/blockages.ts` `blockedStretches` loops segments times obstacles, and its own comment says "twenty-odd obstacles at most".
+- `components/city/useEntity.ts` `useInstanceHandlers(ids)` already maps `event.instanceId` to an entity id for buildings. The crowd reuses that pattern.
+- `components/CityCanvas.tsx` sets camera `far: 2000`. `Environment.tsx` caps the sky dome radius at `min(max(size*4, 700), 1400)`. `Lighting.tsx` fits one 2048 shadow map over `size * (0.62 + 0.22·evening)`. `components/city/entities.ts` `cameraBoundary` has a 24-unit ceiling written for 23-unit towers. All of these are checked at metropolis scale in 76.5.
+- `lib/client/entities.ts` `resolveEntity` and `components/city/entities.ts` `focusTargetFor` search the arrays linearly. That is acceptable at 1,500 items, but a shared index is cleaner (S0).
+
+## 76.3 Type contracts
+
+All additive. Names are binding, as in section 71. Every new field is optional, so every existing fixture still type-checks and renders as it does today.
+
+### `types/repository.ts`
+
+```ts
+export interface RepositorySnapshot {
+  // ...existing fields...
+  tree: {
+    truncated: boolean;
+    totalEntries: number;
+    entries: TreeEntry[];
+    /** Blobs that passed the exclusions, counted BEFORE the depth cap and the 5,000-entry cap. */
+    totalFiles?: number;
+    /** Directories that passed the exclusions, counted the same way. */
+    totalDirs?: number;
+    /** GitHub itself truncated the recursive listing (100,000 entries or 7 MB). */
+    githubTruncated?: boolean;
+  };
+  /**
+   * Open issues beyond `issues`, most recently updated first. Never repeats a
+   * number from `issues`, which stays the comment-sorted health sample.
+   */
+  issueBacklog?: IssueSummary[];
+  /** Real open totals for the overflow queue. */
+  openTotals?: OpenTotals;
+  /** How far the survey got before a budget ran out. */
+  coverage?: SurveyCoverage;
+}
+
+export interface OpenTotals {
+  issues: number;
+  pulls: number;
+  /** False when estimated from `open_issues_count` minus a PR count. */
+  exact: boolean;
+  source: "graphql" | "rest-link" | "estimate";
+}
+
+export interface SurveyCoverage {
+  issuePages: { planned: number; received: number };
+  pullPages: { planned: number; received: number };
+  enrichment: "complete" | "partial" | "skipped";
+  stoppedBy: "deadline" | "rate-limit" | "error" | null;
+}
+
+export interface IssueSummary {
+  // ...existing fields...
+  /** `reactions.total_count` from the REST issue object. */
+  reactions?: number;
+  assignees?: number;
+  milestone?: string | null;
+}
+
+export type PullReview = "approved" | "changes-requested" | "review-required";
+export type PullChecks = "passing" | "failing" | "pending";
+
+export interface PullSummary {
+  // ...existing fields...
+  reactions?: number;
+  requestedReviewers?: number;
+  headSha?: string;
+  /** GraphQL enrichment; null or absent when enrichment did not run. */
+  review?: PullReview | null;
+  checks?: PullChecks | null;
+  /** Up to 8 touched paths, from GraphQL `files(first: 8)`. */
+  files?: string[];
+  changedFiles?: number;
+}
+```
+
+### `types/analysis.ts`
+
+```ts
+import type { PullChecks, PullReview, SurveyCoverage } from "./repository";
+
+export type SettlementTier = "village" | "town" | "city" | "metropolis";
+
+export interface SettlementPlan {
+  tier: SettlementTier;
+  /** Tier from size alone, before any activity promotion. */
+  baseTier: SettlementTier;
+  promoted: boolean;
+  /** totalFiles + 2 * totalDirs, the number the thresholds read. */
+  footprint: number;
+  files: number;
+  dirs: number;
+  /** The counts are a floor: GitHub truncated the tree, or a legacy fixture was capped. */
+  lowerBound: boolean;
+  activity: { commitsLast90d: number; activeContributors90d: number; busy: boolean };
+  /** Inspector and HUD sentence, generated from the rule that matched. */
+  reason: string;
+}
+
+/** What an issue looks like in the street. Severity stays in `IncidentState`. */
+export type IncidentForm =
+  | "fire" | "collision" | "wreck" | "pothole" | "roadblock" | "survey" | "signpost";
+
+/** What a pull request looks like. `site` is the hero crane site. */
+export type WorksForm = "site" | "scaffold" | "trench" | "van" | "hoarding";
+
+/**
+ * Compact open issue for the crowd. No body and no URL: the body is only used
+ * server side for `relatedPath`, and the URL is `${repo.url}/issues/${number}`.
+ */
+export interface BacklogIssue {
+  number: number;
+  title: string;              // at most 140 characters
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  reactions: number;
+  labels: string[];           // at most 4, each at most 32 characters
+  author: string | null;
+  state: IncidentState;
+  form: IncidentForm;
+  score: number;
+  relatedPath: string | null;
+  /** 0..1 from discussion and reactions; drives scale and beacon brightness. */
+  heat: number;
+}
+
+export interface BacklogPull {
+  number: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  draft: boolean;
+  comments: number;
+  reactions: number;
+  labels: string[];
+  author: string | null;
+  state: ConstructionState;   // never "completed" in the backlog
+  form: WorksForm;            // never "site"
+  score: number;
+  relatedPath: string | null;
+  files: string[];            // at most 5
+  review: PullReview | null;
+  checks: PullChecks | null;
+  heat: number;
+}
+
+export interface RankedIssue extends IssueSummary {
+  // ...existing fields...
+  form?: IncidentForm;
+  heat?: number;
+}
+
+export interface RankedPull extends Omit<PullSummary, "state"> {
+  // ...existing fields...
+  form?: WorksForm;
+  relatedPath?: string | null;
+  heat?: number;
+}
+
+export interface RepoMetrics {
+  scale: {
+    // ...existing fields...
+    totalFiles?: number;
+    totalDirs?: number;
+    lowerBound?: boolean;
+  };
+  issues: {
+    open: number; ranked: RankedIssue[]; staleShare: number;   // unchanged meaning: the health sample
+    /** Real open issue total, for the HUD and the overflow queue. */
+    total?: number;
+    /** Every other open issue surveyed, significance order, heroes excluded. */
+    backlog?: BacklogIssue[];
+  };
+  pulls: {
+    open: number; ranked: RankedPull[]; staleShare: number;    // unchanged meaning
+    total?: number;
+    backlog?: BacklogPull[];
+  };
+  // ...rest unchanged...
+}
+
+export interface RepoAnalysis {
+  // ...existing fields...
+  settlement?: SettlementPlan;
+  coverage?: SurveyCoverage;
+  totalsExact?: boolean;
+}
+```
+
+### `types/city.ts`
+
+```ts
+import type { IncidentForm, SettlementTier, WorksForm } from "./analysis";
+
+export type EntityKind =
+  | "building" | "district" | "incident" | "construction" | "landmark" | "overflow";
+
+/** Unknown kinds draw as "street". */
+export type RoadKind = "street" | "highway" | "lane" | "avenue";
+
+export interface RoadSegment {
+  // ...existing fields...
+  /** Town high street: shops face it. */
+  main?: boolean;
+}
+
+/** Hero: the animated assembly. Crowd: one instance of an instanced form. */
+export type Lod = "hero" | "crowd";
+
+export interface Incident extends CityEntity {
+  // ...existing fields...
+  form?: IncidentForm;
+  lod?: Lod;
+  /** Sits in a traffic lane and closes it (blockages.ts). Kerbside otherwise. */
+  lane?: boolean;
+  /** Footprint `[w, h, d]` in the incident's own frame; crowd only. */
+  size?: Vec3;
+  heat?: number;
+}
+
+export interface ConstructionSite extends CityEntity {
+  // ...existing fields...
+  form?: WorksForm;
+  lod?: Lod;
+  lane?: boolean;
+  /** Scaffold host. `position` is then the host's facade centre and `rotationY` faces out. */
+  buildingId?: string | null;
+  heat?: number;
+}
+
+export interface Building extends CityEntity {
+  // ...existing fields...
+  /** Town slot on the high street: the renderer puts a shopfront here. */
+  frontage?: "main-street" | null;
+}
+
+export interface SettlementInfo {
+  tier: SettlementTier;
+  /** "Village of p-limit", "Town of zustand", "City of hono", "Greater react". */
+  name: string;
+  reason: string;
+}
+
+export interface FieldPatch { x: number; z: number; w: number; d: number; rotationY: number; crop: 0 | 1 | 2 | 3 }
+
+export interface OverflowCount { total: number; drawn: number; hidden: number }
+
+export interface Overflow extends CityEntity {
+  kind: "overflow";
+  issues: OverflowCount;
+  pulls: OverflowCount;
+  exact: boolean;
+  /** Signboard plot `[w, h, d]`. */
+  size: Vec3;
+  /** Stationary queue on the approach roads, one entry per car. */
+  queue: { position: Vec3; rotationY: number; body: number; roadId: string }[];
+}
+
+export interface CityModel {
+  // ...existing fields...
+  settlement?: SettlementInfo;
+  /** Crowd-level objects. `incidents` and `constructionSites` stay heroes only. */
+  backlog?: { incidents: Incident[]; constructionSites: ConstructionSite[] };
+  overflow?: Overflow | null;
+  /** Civic ground: paved plaza (city), setts (town), grass green (village). */
+  plaza?: { rect: { x: number; z: number; w: number; d: number }; surface: "paved" | "setts" | "green" };
+  props: { trees: Vec3[]; lamps: Vec3[]; fields?: FieldPatch[] };
+}
+
+export type SelectableEntity = Building | Incident | ConstructionSite | Landmark | Overflow;
+```
+
+Crowd objects are genuine `Incident` and `ConstructionSite` values. The generator turns each `BacklogIssue` into a `RankedIssue` (`bodyExcerpt: ""`, URL derived from `repo.url`, `reason` from `lib/city/entities.ts`). Every existing inspector, focus and tooltip path therefore works on them unchanged. They live in `city.backlog`, a separate array, so a renderer that knows nothing about it simply does not draw them. Nothing old ever tries to draw 1,500 hero assemblies.
+
+### `types/github.ts` (S1 owns; listed here because they are additive)
+
+```ts
+export interface GhIssue { /* ... */ reactions?: { total_count: number }; assignees?: GhUser[]; milestone?: { title: string } | null }
+export interface GhPull  { /* ... */ requested_reviewers?: GhUser[] }
+export interface GhGraphTotals { data?: { repository: { issues: { totalCount: number }; pullRequests: { totalCount: number } } | null } }
+export interface GhGraphPull {
+  number: number;
+  reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  comments: { totalCount: number };
+  reactions: { totalCount: number };
+  changedFiles: number;
+  files: { nodes: { path: string }[] } | null;
+  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
+}
+```
+
+## 76.4 Settlement classification
+
+`lib/analysis/settlement.ts`, pure and unit tested.
+
+```text
+footprint = totalFiles + 2 * totalDirs
+  totalFiles / totalDirs: counted in lib/github/tree.ts pruneTree, for entries that
+  pass isExcluded, BEFORE the depth-6 skip and the 5,000 cap. The depth skip
+  would otherwise undercount deep Java trees.
+
+base tier
+  village      footprint <    120
+  town         footprint <    600
+  city         footprint < 10,000
+  metropolis   footprint >= 10,000, or githubTruncated
+
+promotion, one step at most, never when archived, needs lastPushDaysAgo <= 30
+  village -> town         footprint >=    40  and commitsLast90d >= 30 and activeContributors90d >= 4
+  town -> city            footprint >=   200  and commitsLast90d >= 60 and activeContributors90d >= 12
+  city -> metropolis      footprint >= 3,334  and commitsLast90d >= 90 and activeContributors90d >= 20
+  (the size condition is "upper third of the band": next threshold / 3)
+```
+
+`commitsLast90d` saturates at 100, because the commits request is one page. The metropolis step asks for 90, which in practice means "saturated". `activeContributors90d` is counted from those same commits.
+
+Calibration. Fixture rows use the real numbers in `fixtures/*.analysis.json`, with `surveyedFiles` standing in for `totalFiles`. Rows marked "est." are my estimates, to be replaced by live values in integration step I.
+
+| Repository | files | dirs | footprint | base | activity | tier |
+|---|---|---|---|---|---|---|
+| a 20-file library | 20 | 2 | 24 | village | any | village |
+| sindresorhus/p-limit (fixture) | 16 | 1 | 18 | village | 7 commits, 3 people | village |
+| pmndrs/zustand (est.) | ~180 | ~35 | ~250 | town | ~8 active people, not busy | town |
+| expressjs/express (est.) | ~190 | ~30 | ~250 | town | not busy | town |
+| honojs/hono (fixture) | 470 | 110 | 690 | city | busy, but not in the metropolis zone | city |
+| atom/atom (fixture, archived) | 1,139 | 295 | 1,729 | city | archived | quiet city |
+| vercel/turborepo (fixture) | 2,887 | 1,392 | 5,671 | city, in zone | 9 active people | city |
+| react/react (fixture) | 2,922 | 516 | 3,954 | city, in zone | 100 commits, 32 people | metropolis |
+| microsoft/vscode (fixture capped, est. ~10k files) | 10k+ | 2k+ | 14k+ | metropolis | | metropolis |
+| vercel/next.js (est.) | ~20k | ~6k | ~32k | metropolis | | metropolis |
+| torvalds/linux | tree truncated by GitHub | | floor | metropolis | | metropolis |
+
+Legacy fixtures: `scripts/migrate-fixtures.ts` (S0) writes `settlement` into every `fixtures/*.analysis.json`. For fixtures whose warnings include the tree-cap or truncation line (vscode), it sets `lowerBound: true` and raises the footprint to at least 10,000. The generator never classifies. It reads the field or defaults to `"city"`.
+
+`reason` examples:
+- "18 files in 1 folder make a village. It is busy, but a village stays a village until it has 40 files and folders."
+- "2,922 files in 516 folders make a city. 100 commits from 32 people in the last 90 days raise it to a metropolis."
+
+## 76.5 Per-tier layout and scale
+
+`lib/city/settlement.ts` holds one `SETTLEMENT_PARAMS: Record<SettlementTier, SettlementParams>` table. The generator, the layout and the renderer all read their constants from it. City values are exactly today's constants, so a city-tier repository renders byte-identically.
+
+| Parameter | village | town | city (today) | metropolis |
+|---|---|---|---|---|
+| layout | organic lanes (`lib/city/village.ts`) | grid | grid | grid |
+| buildings, min to max (server `selectBuildings`) | 6 to 40 | 30 to 120 | 75 to 300 | 300 to 450 |
+| tier heights 1..5 | 3.4, 4.2, 5.2, 6.4, 7.6 | 3.8, 5.4, 7.6, 10.5, 14 | 4.2, 7, 11, 16, 23 | 5, 8.5, 14, 22, 34 |
+| tier shares 5/4/3/2/1 | 0.02/0.05/0.13/0.3/0.5 | 0.03/0.08/0.14/0.3/0.45 | 0.05/0.1/0.15/0.25/0.45 | 0.08/0.14/0.2/0.26/0.32 |
+| footprint min to max | 3 to 5.2 | 3.6 to 7 | 4 to 8.5 | 4.5 to 10 |
+| road widths | main 5, lane 3.6 (`kind: "lane"`) | major 6, minor 4.2 | 7, 4.5 | avenue 9.5 (`kind: "avenue"`), minor 5.5 |
+| block side, slot pitch | lane pitch 7 | 19, 6.6 | 22, 7.2 | 27, 8.6 |
+| district square side | n/a | 36 + 6.6·√n, clamped 70 to 125 | 40 + 7.2·√n, clamped 115 to 175 | 48 + 8.8·√n, clamped 215 to 270 |
+| landmark band | none, plots along the main street | 10 to 14 | 12 to 20 | 20 to 26 |
+| ring road | none (loop round the green) | street | street | highway, width 10 |
+| highways out | the main street runs out of the village, 0 to 2 | 0 to 2 | 0 to 4 | at least 2, up to 4 |
+| bounds.size | 80 to 125 | 115 to 165 | 170 to 230 | 285 to 320 |
+| hero incidents / hero sites | 6 / 3 | 9 / 5 | 12 / 8 | 16 / 10 |
+| moving vehicles cap | 10 (tractors allowed) | 24 | 40 | 64 |
+| trees / lamps | 160 / 30 | 100 / 90 | 100 / 120 | 120 / 160 |
+
+On the server, `selectBuildings` takes `{ min, max }`. `min` replaces `MIN_CANDIDATES` as the "keep the finer granularity" floor. `max` replaces `MAX_BUILDINGS` (now 450 as the absolute cap). `tierForRank` takes the settlement's share table. `analyzeSnapshot` is reordered so it computes metrics, then classifies, then selects buildings.
+
+### Village (`lib/city/village.ts`, returns a `CityLayout`)
+
+The layout stays a pure function of the district list and counts. It reads no PRNG. Bends come from `hash32(district.id)`, as section 35 requires.
+
+1. The village green sits at the origin: square side `clamp(16 + 0.5n, 16, 26)`, with chamfered corners. It becomes `layout.civic.rect`, and the chapel (the civic landmark) stands on its north edge. The root landmark files (README, manifest and so on) stand round the green facing it. `CityModel.plaza.surface` is `"green"`.
+2. A lane loops the green in eight segments.
+3. The main street runs along the green's south side and out east and west in two or three segments per side. Each bend is 8 to 18 degrees, and the half-length is `clamp(24 + 1.6n, 30, 55)`. It carries `major: true`, width 5.
+4. Each district gets one lane. The lane leaves the loop or the main street and heads outward in a compass sector (sectors go to districts in weight order, with ±20 degrees of jitter). It has two or three segments with bends, is `kind: "lane"`, width 3.6, and ends in a dead end. Its length is `3.5 × houses + 8`.
+5. Houses sit along both sides of each lane at pitch 7. Cells are squares of side 6, set back `lane.width/2 + KERB + 3`. A house faces its lane (`rotationY` = lane heading ± π/2) and its footprint is at most `cell/√2`, so it fits its cell at any rotation. A cell is rejected if it comes within road clearance of any segment (exact `distanceToRoad`) or overlaps another cell (a uniform grid check). The next pitch position is tried instead.
+6. Landmark plots, 9 to 12 units, are reserved first along the main street. Fire and info go beside the green. The power substation goes at the east end and the station halt at the west end, next to the road out.
+7. Fields (`props.fields`): 6 to 14 rectangles, 10 to 22 units, fill the ring between the houses and the bounds. Each is oriented along its nearest lane and has hedgerow trees on its edges.
+8. District rects are the bounding boxes of each lane's house cells, used for labels and focus. `bounds.size = 2 × max extent + 10`, clamped to 80 to 125.
+
+The renderer already handles angled roads: `groundwork.ts` `roadLays` derives `angle` from `atan2`. S7 draws `lane` without pavements or crossings, and puts a joint disc at degree-2 nodes so bends have no wedge gaps. Traffic handles dead ends with U-turns already (`traffic.ts`).
+
+### Town
+
+The town uses today's `planLayout` with the town parameters. The east-west major roads along the civic square's south edge, continued to the ring, get `main: true` (the high street). Slots whose cell edge is within `KERB + 1` of a main road get `frontage: "main-street"`. The generator copies that onto `Building.frontage`, and S6 puts shopfronts there. `plaza.surface` is `"setts"`.
+
+### Metropolis
+
+The metropolis uses today's `planLayout` with metropolis parameters. Treemap seams become `kind: "avenue"`, drawn as a dual carriageway with a planted median. Ring segments become `kind: "highway"`, width 10. `planHighways` returns at least two highways. The 300-building floor on the server keeps the plate full.
+
+### Scale checks at both ends
+
+| Quantity (file) | Village 90 | City 226 | Metropolis 320 | Action |
+|---|---|---|---|---|
+| overview distance `1.45·size·widen` (`entities.ts overviewFraming`) | 130 | 328 | 464, 974 on a phone | ok |
+| `maxCameraDistance = max(160, 1.9·size)·widen` | 160 | 429 | 608, 1,277 on a phone | ok |
+| camera `far: 2000` (`CityCanvas.tsx`) | ok | ok | phone camera 974 plus landscape radius 512·√2 ≈ 1,700, which is close to the limit | S7: `far = max(2000, 7·size)` |
+| sky dome radius cap 1,400 (`Environment.tsx`) | 700 | 904 | 1,280; a phone camera at 974 is inside it, but only just | S7: radius `max(1400, 1.3·maxCameraDistance)` |
+| fog `2.9 / 4.4 × size·widen` (`palette.ts`, `City.tsx`) | 261 / 396 | ok | 928 / 1,408 | ok |
+| shadow texel `2·reach / 2048` (`Lighting.tsx`) | 0.05 | 0.14 to 0.19 | 0.19 to 0.26 (low tier 0.39 to 0.53) | S7 measures. Options are 4096 on the high tier for metropolis only, or fitting the shadow camera to the view. Decide with S9 numbers |
+| `cameraBoundary` ceiling 24 | ok | ok | tallest tower is 34 × 1.15 ≈ 39, aimed at 55% = 21.5 | S5: ceiling `max(24, 0.6 × tallest)` |
+| terrain `3.2·size`, textures tiled per world unit | ok | ok | 1,024 wide, same texel density | ok |
+| district label scale `0.72·size` | labels large against cottages | ok | ok | S6 checks in `District.tsx` |
+| inspection distance clamp 140 | ok | ok | 34-unit tower gives 93 | ok |
+
+## 76.6 Ingestion design (S1)
+
+Survey start is T0, the moment `fetchSnapshot` begins. Metadata comes first, as today, and yields `open_issues_count` (issues plus PRs) and `x-ratelimit-remaining`.
+
+Wave A fires in parallel with the tree, CI and activity requests:
+
+- A1, the health sample: `/issues?state=open&sort=comments&direction=desc&per_page=100`. This is today's request 4, unchanged. It becomes `snapshot.issues`.
+- A2, bulk issue pages: `/issues?state=open&sort=updated&direction=desc&per_page=100&page=p` for p = 1..K, where K = `min(12, ceil(open_issues_count / 100))`. They are skipped when `open_issues_count <= 100`, because A1 already holds everything. Twelve pages rather than ten, because PR items share these pages.
+- A3, open PRs page 1: `/pulls?state=open&sort=updated&direction=desc&per_page=100`. This replaces today's `per_page=50`. The health sample is the first 50 of these by `updatedAt`, which is exactly the set the old request returned.
+- A4, closed PRs: unchanged request 6.
+- A5, totals: GraphQL `repository { issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount } }`. It costs 1 point and needs the token. Fallback: `/pulls?state=open&per_page=1` and read `rel="last"` from `Link` to get the PR count. Issues are then `open_issues_count − PRs`, with `exact: false` if even that fails.
+
+Wave A' fires when A5 lands. With the real split known, if 1,000 issues need more pages than K (a PR-heavy repository), it fires top-up pages up to 15 in total.
+
+Wave B fires after A3: pull pages 2..`min(5, lastPage)`, in parallel.
+
+Wave C, enrichment (token only), fires after all open PRs are known. It sends batches of 50 PR numbers as aliased GraphQL queries (`p123: pullRequest(number: 123) { reviewDecision comments { totalCount } reactions { totalCount } changedFiles files(first: 8) { nodes { path } } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }`). All batches run in parallel, at most 10. REST cannot give touched files for 500 PRs without 500 requests. This is what puts a scaffold on the actual file a PR changes.
+
+Separating issues from PRs: `mapIssue` still drops items with `pull_request`. PR items from the `/issues` pages are no longer thrown away. Their `comments` and `reactions.total_count` fill in `PullSummary.comments` and `reactions` when GraphQL did not run. That fixes the gap noted in `mapPull`, where the list endpoint has no `comments`. Everything is deduped by number. `issueBacklog` never repeats an A1 issue.
+
+New client pieces:
+- `GitHubClient.getPage<T>(path, options) → { items: T[]; lastPage: number | null }`, which parses `Link`.
+- `RequestOptions.signal`, merged into `fetchRaw` so a page can be abandoned without aborting the whole survey.
+- `client.graphql<T>(query, variables)`, a POST to `/graphql` that reads `x-ratelimit-remaining` in points.
+- `lib/github/paginate.ts` `fetchPages(client, path, query, pages, deadline)`, which returns the items from the settled pages plus received and failed counts.
+
+Budgets:
+- The page deadline is T0 + 22 s and the enrichment deadline is T0 + 30 s. Both are `AbortSignal.timeout`s merged with the route's signal. The route keeps `SURVEY_BUDGET_MS = 45_000` and `maxDuration = 60`. The tree, which is fatal, never waits on pagination.
+- Rate guard. If REST remaining is below 400 after metadata, there are no bulk pages and only PR page 1. If GraphQL remaining is below 300 points, enrichment is skipped. Either case adds a warning such as "GitHub's request budget is low right now, so only the first 100 issues are drawn."
+- Request count per uncached analysis is at most about 35 REST requests (today's 15, plus up to 15 issue pages and 4 PR pages, plus the Link fallback) and at most 7 GraphQL queries. Small repositories are unchanged. Section 30's 10 to 20 target still holds for anything with 100 or fewer open issues.
+
+Partial results: a page lost to the deadline, an error or the rate guard is recorded in `coverage` and is never fatal. The stage stays `done`, with a factual detail such as "700 of 21,011 open issues surveyed (time limit)". While pages land, the `issues` and `pulls` stages emit repeated `running` events with rising counts. The store keys stages by id, so the row updates in place.
+
+Caching: the in-memory `lib/cache.ts` entry grows to about 0.5 to 0.9 MB for giants. `MAX_ENTRIES` drops from 50 to 30. Every page request keeps `cache: "force-cache"` and `next: { revalidate: 600 }`. According to `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/fetch.md`, `force-cache` caches POST too, so identical GraphQL batches dedupe across instances for 10 minutes. Fixture fallback analyses have no backlog, so their overflow is estimated from `repo.openIssuesCount` and marked "about".
+
+Payload: the server truncates backlog titles to 140 characters, labels to 4 × 32, and files to 5, and drops bodies and URLs. Estimate: 1,000 issues × about 260 bytes plus 500 PRs × about 380 bytes ≈ 450 KB, on top of today's 100 to 200 KB. Section 34's 300 KB target becomes "300 KB plus the backlog, hard ceiling 1 MB", enforced by a test on the maximal synthetic analysis.
+
+Health invariance: `computeHealth` and `computeConfidence` read only `snapshot.issues` (A1) and the first 50 open PRs by `updatedAt`. `metrics.issues.open` and `metrics.pulls.open` keep their sample meaning. The new `total` fields carry the real counts to the HUD.
+
+## 76.7 Mapping issues and PRs to kinds (S2, `lib/analysis/forms.ts`)
+
+Severity stays with the existing rules: `classifyIssue` gives `major`, `collision`, `stale` or `minor`, and `classifyPull` gives `active`, `slow`, `abandoned` or `completed`. The form is new and decides the shape. First match wins. `labels` is the lower-cased joined label text. `idle` is days since `updatedAt`.
+
+Issue form:
+1. `fire`: state `major`, or labels match `/security|vulnerab|cve/`, or (bug and severe label and (comments >= 5 or reactions >= 10)).
+2. `wreck`: state `stale`, or `idle >= 365`. The car was abandoned.
+3. `collision`: state `collision`.
+4. `roadblock`: `/blocked|on[- ]?hold|waiting|awaiting|needs[- ]?(info|repro|reproduction|feedback|triage)|triage|question/`.
+5. `signpost`: `/doc|typo|readme|website|example/`.
+6. `survey`: `/enhancement|feature|proposal|rfc|idea|suggestion|request/`.
+7. `pothole`: everything else, including "good first issue" and "help wanted". Those two carry a volunteer flag in the inspector copy.
+
+PR form:
+1. `van` (utility works): the author matches `/\[bot\]$|^dependabot|^renovate/`, or labels match `/dependenc|deps|bump|renovate|dependabot/`.
+2. `hoarding` (a fenced empty plot): `draft`.
+3. `trench` (road dug up): labels match `/\bci\b|build|infra|tooling|chore|refactor|perf|workflow|actions/`, or more than half the touched files are under `.github/`, build scripts or config files.
+4. `scaffold` (on the building the change touches): every other open PR.
+5. `site` (the crane): heroes only, never in the backlog.
+
+PR modifiers are drawn per instance and written into the inspector:
+- `checks: "failing"` adds a red alarm beacon: "Its checks are failing."
+- `review: "changes-requested"` adds a red stop board.
+- `review: "approved"` adds a green flag.
+- `abandoned` gives a rust tint and no worker. `slow` is dimmed.
+
+Heat: `heat = clamp(log2(1 + comments + 2·reactions) / 7, 0, 1)`. Instance scale is `0.9 + 0.35·heat`, and heat also sets beacon brightness.
+
+`relatedPath`:
+- Issues: the existing `relatedPathFor`, run server side over title and body for all 1,000 issues. The body is then dropped.
+- PRs: the deepest directory holding the majority of the touched files. Otherwise the title path token. Otherwise `null`.
+
+Heroes: `metrics.issues.ranked` keeps today's ranking over the A1 sample, sliced to 16. The generator slices it per tier, so a city keeps exactly today's 12. Open PR heroes keep `classifyPull`'s score, sliced to 8 open plus 2 merged. Heroes are removed from the backlog.
+
+Backlog: everything else, up to 1,000 issues in total and 500 PRs in total, heroes included. Items are chosen by recency of update ("most active first") and then ordered by significance score. That order decides who gets the spots nearest their code.
+
+## 76.8 Placement at scale (S4)
+
+New `lib/city/spots.ts` builds a `SpotIndex` once per city. There are four spot classes, all deterministic, with a uniform 16-unit grid for nearest-free queries:
+
+1. Kerb spots. On every street, lane and avenue segment, excluding highways, both sides. The lateral offset is `width/2 + SIDEWALK_WIDTH/2` (on the pavement). The pitch along the road is 3.2, and the first and last 3.5 units of each segment are skipped (junction reach and crossings). Spots within 1.4 of a lamp are skipped, so lamps are placed before the crowd.
+2. Lane spots. At `laneOffset(width)` on the same segments, for lane-intruding forms.
+3. Ground spots. A 3.5-pitch grid over unclaimed district slots, the green, fields and landmark-band corners. Wrecks, survey pegs and hoardings can stand here. Hoardings prefer whole vacant slots, because a draft PR is a fenced empty plot.
+4. Facades. For each building, the face whose outward normal points at the nearest road carries at most one scaffold.
+
+Algorithm, seeded with `prngFor(seed, "backlog")` so no existing stream moves:
+1. Reserve the hero incidents (today's `findRoadSpot`, unchanged), hero site plots, landmark plots and lamps. Spots within 7 units of a hero are marked taken.
+2. Anchor each backlog item. An item with a `relatedPath` anchors to the building with the longest path prefix. Failing that, it anchors to its district's rect centre (`districtForPath`, then `districtForText`). Failing that, it has no anchor.
+3. In significance order, an anchored item takes the nearest free spot of an allowed class within 40 units. An unanchored item takes the next spot in a seeded stride through a shuffled global list, which spreads it evenly.
+4. Scaffolds go to the host building's facade. If that facade is taken, they go to the next building in the same district by distance. Scaffolds are capped at 35% of buildings. Past the cap a scaffold becomes a trench beside the host.
+5. Lane budget. At most one lane-intruding crowd object per segment. None on bridge segments of the street graph (Tarjan, computed once), so no crowd object ever cuts off part of the network. None on highways. At most 25% of street segments may carry any lane blocker, hero or crowd. Anything over the budget goes to the kerb with `lane: false`.
+6. An item that finds no spot counts as hidden in the overflow.
+
+Rough capacity: a village about 400 spots, a town about 700, a city about 1,300, a metropolis about 2,500. So a village with 1,000 open issues honestly shows about 400 of them and queues the rest.
+
+Overflow (`lib/city/overflow.ts`):
+- `hidden = total − drawn` for each of issues and PRs. `total` comes from `metrics.*.total`, or from `repo.openIssuesCount` with `exact: false`.
+- The queue has `Q = clamp(round(8·log10(hidden + 1)), 4, 60)` cars at 5.2-unit spacing on the inbound lane of each highway, starting just outside the ring. With no highway, the queue goes on the main road out (village) or the outer ring segment nearest the sign.
+- The signboard stands on the verge beside the first queue, with plot `[6, 5, 1]` and id `"overflow"`.
+- If nothing is hidden, `overflow` is `null`.
+
+Reveal: the backlog appears between 2,700 and 3,900 ms, ordered by distance from the centre, so it ripples outward (section 43, amended).
+
+Performance target: `generateCity` for the maximal metropolis in at most 120 ms on the reference desktop.
+
+## 76.9 Rendering (S5, with forms art by S5, S6 and S7 as owned)
+
+| Budget | village | town | city | metropolis |
+|---|---|---|---|---|
+| hero incidents (about 12 draw calls each) | 6 | 9 | 12 | 16 |
+| hero sites (about 6 draw calls each) | 3 | 5 | 8 | 10 |
+| crowd objects | every placed backlog item, at most 1,500 minus heroes | | | |
+| crowd draw calls | about 22 whatever the count: 7 issue forms, 4 PR forms, beacons, flames, smoke, review flags, up to 6 queue body types, 1 sign | | | |
+| crowd triangles | at most 160 per issue form, 220 per scaffold, total at most 250k | | | |
+| buildings | 40 | 120 | 300 | 450 |
+
+Crowd layer (`components/city/backlog/**`):
+- One `InstancedMesh` per form, built from merged geometry in the same style as `incidentDecor.ts` and `constructionDecor.ts`. The queue reuses `parkedGeometry` from `models/vehicles/shapes.ts`.
+- `castShadow = false`, `receiveShadow = true`.
+- Per-instance colour carries state tint, age rust and hover or selection tint, as `Buildings.tsx` does.
+- Animation lives in the shader. Flames, beacons and smoke bob get an `instancePhase` attribute and a single `uTime` uniform set once per frame. There is no per-instance CPU work after the reveal settles. `prefers-reduced-motion` freezes `uTime`.
+- The low quality tier drops smoke and beacon halos (a new `crowdEffects` flag in `quality.ts`). It never drops a crowd object.
+
+Picking: each crowd mesh gets a custom `raycast` in `components/city/backlog/pick.ts`. A `Float32Array` holds `[x, z, cos, sin, hx, hy, hz]` per instance. The ray goes into each instance's frame for a slab test against its `size`. The function writes `{ distance, point, object, instanceId }` exactly as three's `InstancedMesh.raycast` does, so R3F sorts by distance and `useInstanceHandlers(ids)` maps `instanceId` to the entity id. There are no geometry triangle tests, and 1,500 instances cost tens of microseconds per pointer move. A scaffold's pick box covers only its facade slab, 0.9 deep, so the building's other faces and roof still select the building.
+
+Inspector path. S0 adds `lib/city/entityIndex.ts` with `indexEntities(city)`, a `WeakMap`-memoised `Map<string, SelectableEntity>` over buildings, landmarks, heroes, backlog and overflow.
+- `resolveEntity` (S8) and `focusTargetFor` / `SelectionRing` (S5) use it.
+- Crowd entities reuse the incident and construction branches, with new facts: form, reactions, CI, review, touched files as links, and "Near" (the related path).
+- The overflow gets its own branch. Its label is "QUEUE AT THE CITY LIMITS", and its facts are open, drawn and queued totals for issues and PRs. It says "about" when not exact, and links to `${repo.url}/issues` and `/pulls`.
+- Street-level focus (`STREET_POLAR`) applies to crowd objects because their kinds are still `incident` and `construction`.
+
+Blockages and traffic:
+- `cityObstacles` takes heroes, crowd items with `lane: true` (footprints come from a `CROWD_FOOTPRINT` table held to the decor bounding boxes by a test, as `INCIDENT_FOOTPRINT` is) and the overflow queue.
+- `blockedStretches` bins segments into a 16-unit grid and tests each obstacle only against the segments in the cells it overlaps. A test proves the result identical to the brute-force loop.
+- `MAX_CARS` becomes the tier's vehicle cap, up to 64.
+- `revealEnd` and the quality probe's settle time include the backlog.
+- `streetFurniture.ts` `blockersOf` adds crowd items, so benches and parked cars never sit on top of a pothole.
+
+## 76.10 HUD and copy (S8, with copy in S4)
+
+- The identity block (`CityHUD.tsx`) gets one line under the repository link, in the style of the existing "Archived repository" line: "Town of zustand". Hovering it gives `settlement.reason`.
+- The final stage reads "Town constructed" instead of "City constructed".
+- A chip reads "1,000 of 21,011 issues on the streets" when anything is queued.
+- The civic landmark title follows the tier: "VILLAGE CHAPEL", "TOWN HALL", "CITY HALL", "CITY HALL". The copy lives in `lib/city/entities.ts` `planLandmarks` (S4). The label map moves off `LandmarkType` to the landmark's own title (S8).
+- `Legend.tsx` lists the seven issue forms, the four crowd PR forms and the queue.
+- Crowd inspector copy comes from `lib/city/entities.ts` (S4). There is one rule sentence per form and state, for example "An open question waiting on its author: the road is closed until someone answers." It is generated, never free-form (section 12).
+
+## 76.11 Workstreams
+
+S0 is serial and lands first. It takes about half a day of one agent.
+- It adds every type in 76.3 exactly.
+- It writes `lib/analysis/settlement.ts` with tests, `lib/city/settlement.ts` (the params table, with city values equal to today's constants, and `settlementName()`), and `lib/city/entityIndex.ts`.
+- The generator reads `analysis.settlement?.tier ?? "city"`, sets `CityModel.settlement`, and passes `{ tier }` to `planLayout`, which ignores it until S3.
+- It adds the new `ArchetypeId`s mapped to the nearest existing geometry as placeholders: cottage, farmhouse, barn, shopfront, terrace, apartment-low, tower-glass, tower-twin, tower-spire.
+- It adds stub components that return null, `backlog/Backlog.tsx`, `Overflow.tsx` and `Fields.tsx`, already mounted in `City.tsx`.
+- It writes `scripts/migrate-fixtures.ts` and runs it.
+- It writes `scripts/make-backlog-fixture.ts`, which produces `fixtures/backlog.analysis.json`: the react fixture plus 984 synthetic backlog issues and 490 PRs, forms assigned round-robin, tier metropolis.
+- It adds a dev-only `?tier=` override in the store.
+- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` pass with 906+ tests and no visual change.
+
+Then nine parallel agents in isolated worktrees, disjoint ownership:
+
+| Agent | Owns | Goal |
+|---|---|---|
+| S1 Ingestion | `lib/github/**`, `types/github.ts`, `app/api/analyze/route.ts`, `lib/cache.ts`, `lib/ratelimit.ts`, `scripts/snapshot.ts` | 76.6: uncapped tree counts, parallel pages, totals, GraphQL enrichment, deadlines, rate guard, coverage, progress lines |
+| S2 Interpretation | `lib/analysis/**` (settlement.ts after S0), new `forms.ts`, `backlog.ts`, `scripts/migrate-fixtures.ts` | classification tuning, per-tier building budgets and shares, forms, heat, relatedPath for PRs, compact backlog, health invariance, payload ceiling |
+| S3 Layout | `lib/city/layout.ts`, new `lib/city/village.ts`, `lib/city/settlement.ts` (after S0), `scripts/city-stats.ts` | per-tier grid parameters, the organic village, town high street and frontage, metropolis avenues, highway ring and highways, `plaza`, `fields` |
+| S4 Population | `lib/city/generator.ts`, new `lib/city/spots.ts`, `lib/city/backlog.ts`, `lib/city/overflow.ts`, `lib/city/entities.ts` | 76.8: tiered heights, footprints and limits, hero slicing per tier, spot index, crowd placement, scaffold hosts, lane budget and bridges, overflow and queue, copy |
+| S5 Crowd and traffic | `components/city/backlog/**`, `Overflow.tsx`, `City.tsx`, `blockages.ts`, `traffic.ts`, `Traffic.tsx`, `entities.ts`, `SelectionRing.tsx`, `useEntity.ts`, `reveal.ts`, `useReveal.ts`, `IssueIncident.tsx`, `ConstructionSite.tsx`, `models/props/{incidentDecor,constructionDecor,streetFurniture}.ts`, new `fixtures/dev.backlog.ts` | 76.9: instanced forms, shader animation, picking, overflow sign and queue, blockage grid, vehicle caps, camera ceiling |
+| S6 Village and town art | `components/city/models/buildings/**` except `metropolis.ts`, `Buildings.tsx`, `Building.tsx`, `District.tsx`, `Fields.tsx`, `Landmark.tsx`, `models/landmarks/**`, `models/vehicles/shapes.ts`, `models/props/trees.ts` | cottage, farmhouse, barn, shopfront, terrace and low apartment models; per-settlement archetype tables (metropolis ids included); lane-facing yaw in the village instead of `doorTurn`; chapel; landmarks scaled for a village; fields and hedgerows; tractor; village district labels without ground tint |
+| S7 Metropolis, roads and scale | `models/buildings/metropolis.ts`, `Roads.tsx`, `groundwork.ts`, `textures/**`, `Terrain.tsx`, `Lighting.tsx`, `Environment.tsx`, `CityCanvas.tsx`, `palette.ts`, `effects.tsx`, `Props.tsx`, `Pedestrians.tsx` | glass, twin and spire towers; lane, avenue and highway-ring surfaces and bend joints; plaza surface per tier; camera far, sky dome, shadow fit and pedestrian density per tier (76.5 table) |
+| S8 HUD and inspector | `components/*.tsx` except `CityCanvas.tsx`, `lib/client/**`, `store/useCityStore.ts`, `app/page.tsx` | settlement line and hover, queue chip, crowd and overflow inspector facts, legend, stage copy, entity index in `resolveEntity` |
+| S9 Performance | `components/city/quality.ts`, new `components/city/perf/**` (a dev `?perf=1` overlay with fps, frame p95, draw calls, triangles), `scripts/make-stress-fixture.ts`, `fixtures/stress.analysis.json`, perf tests | builds the harness in parallel, then runs the serial tuning pass after all merges (below) |
+
+Rules from section 72 still apply. Agents work only inside owned paths, report any cross-boundary change instead of making it, and never edit `types/**` after S0 (propose additions in the report). Tests are required for all pure logic, typecheck, lint and test pass before reporting, and every renderer agent screenshots all four tiers before and after.
+
+Until S4 lands, renderer agents work from `?tier=` plus `fixtures/backlog.analysis.json`, and S5 uses its own `fixtures/dev.backlog.ts` (the `?dev=city` pattern).
+
+## 76.12 Merge order
+
+1. S0.
+2. S3. Tiers become physically visible at once.
+3. S2, then S1. The server produces settlement, backlog and totals. Nothing is drawn yet, so this is safe.
+4. S6, then S7. The tiers get their own look.
+5. S4. `city.backlog` and `overflow` are populated, still undrawn.
+6. S5, rebased on S4 and checked against real placement. Everything is drawn.
+7. S8.
+8. S9 tuning pass (serial). The orchestrator grants temporary write access to renderer files. Any budget change goes back into `lib/city/settlement.ts` and 76.9.
+9. Integration step I:
+   - re-capture `fixtures/react__react.analysis.json` and `microsoft__vscode.analysis.json` with the new server, replacing the estimates in 76.4;
+   - run section 59's reference set plus zustand, express and next.js;
+   - screenshot one repository per tier;
+   - deploy and verify on the hosted URL.
+
+After each merge: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`, plus the four-tier screenshots.
+
+## 76.13 Performance gate
+
+The existing gate stays: 60 fps on the 300-building city.
+
+New, measured with the `?perf=1` overlay on `fixtures/stress.analysis.json`. That fixture is a metropolis with 450 buildings, 16 hero incidents, 10 hero sites, 984 crowd issues, 490 crowd PRs, 64 cars and a 60-car queue.
+
+| Check | Target |
+|---|---|
+| Median fps, discrete GPU, 1920×1080, high tier | at least 60 |
+| Frame time p95 on the same machine | at most 20 ms |
+| Integrated GPU (M1 or Iris Xe class), after the automatic step-down | at least 30 fps |
+| `renderer.info.render.calls` | at most 450 |
+| Triangles, shadow pass included | at most 1.2 M |
+| Pointer-move raycast over all crowd meshes (Vitest micro-benchmark) | at most 1 ms |
+| `generateCity(stress)` | at most 120 ms on desktop; CI bound 600 ms |
+| `blockedStretches(stress)` | at most 30 ms |
+| `/api/analyze` microsoft/vscode, uncached | at most 30 s, at most 1 MB, at most 35 REST and 7 GraphQL requests |
+| village, town and city fixtures | no fps regression against today |
+
+If the gate fails, fix it in section 63's order: effects first, then crowd effects, shadows, pedestrians, trees and cars. Heroes and crowd objects are incidents, and incidents are never cut.
+
+## 76.14 Test plan
+
+- Classification (S0, S2): a table test over the 76.4 rows, using fixture numbers where they exist. Promotion boundaries. An archived repository is never promoted. GitHub truncation gives metropolis. The migration sets `lowerBound` on the capped vscode fixture.
+- Ingestion (S1, mocked fetch):
+  - `Link` parsing;
+  - page planning from `open_issues_count` and the top-up after totals;
+  - PR items dropped from the issue list but used to enrich PR comments and reactions;
+  - dedupe against A1;
+  - the deadline yields a partial snapshot with correct `coverage`;
+  - the rate guard trims pages;
+  - a GraphQL failure leaves `review`, `checks` and `files` null without failing the survey;
+  - a small repository makes exactly today's requests.
+- Health invariance (S2): `analyzeSnapshot` on `mid.snapshot.ts` and `archived.snapshot.ts`, with and without a large `issueBacklog` and 500 PRs, gives identical `health` and `confidence`.
+- Interpretation (S2): form rule tables, first-match order, heat, PR `relatedPath` from touched files, backlog ceilings, heroes excluded, and a payload of at most 1 MB on the maximal synthetic snapshot.
+- Layout (S3):
+  - every tier's `bounds.size` falls in its band;
+  - city output is byte-identical to today's for every fixture;
+  - the village: no cell on a road, no overlapping cells, every house faces a lane, the graph is connected, same inputs give the same layout;
+  - town frontage slots touch a `main` road;
+  - metropolis rings are highways.
+- Population (S4):
+  - byte-identical output over two runs;
+  - `drawn + hidden = total` for issues and for PRs;
+  - no crowd object overlaps a building, a landmark plot or another crowd object;
+  - lane blockers stay within budget and off bridges;
+  - scaffolds are capped at 35% and sit on the host facade;
+  - hero incidents for a city-tier fixture are unchanged.
+- Renderer pure modules (S5): `pick.ts` against three's own raycast on sample instances; `instanceId` to id mapping; the grid blockages equal the brute-force result; `CROWD_FOOTPRINT` covers each form's decor bounding box; queue obstacles close the lane.
+- HUD and inspector (S8): `settlementName` per tier; crowd and overflow facts format numbers with `toLocaleString`; "about" appears when totals are not exact.
+- Perf (S9): the micro-benchmarks above run in Vitest with generous CI bounds.
+
+## 76.15 Risks
+
+- Classification is calibrated on estimates. Zustand, express, next.js and the uncapped vscode count need live numbers (step I). The thresholds sit in one table so that tuning them touches no other code.
+- GraphQL enrichment of 500 PRs, with `statusCheckRollup` and `files`, may be slow on huge repositories, or may trip GitHub's secondary limits at 10 parallel queries. The deadline makes it partial, never fatal. If it misbehaves, drop the batch concurrency to 4.
+- A village with hundreds of issues cannot show them all. The queue and the reason copy have to make that read as a fact about the repository, not as a bug.
+- Organic village lanes are the first angled roads in the city. Pavement joints, crossing logic in `groundwork.ts`, AABB-based checks such as `clearHalfExtent` and `roadFootprint` (conservative for diagonals), and `doorTurn` all assume axis-aligned streets. S3 and S7 must test the angled cases explicitly.
+- Crowd objects on pavements share space with pedestrians (`Pedestrians.tsx`). If people visibly walk through wrecks, S5 adds crowd items to the pedestrian blockers.
+- At metropolis size the one-map shadow gets blurrier. Moving to a 4096 map costs GPU memory and fill rate, so S9 decides with numbers.
+- Cached and fixture analyses from before this feature render as city-tier with no backlog, and their overflow counts are estimates. That is correct behaviour, but the demo fixtures must be re-captured before voting.
+- A payload near 1 MB is one NDJSON line. Parsing costs about 10 ms. Hosting and proxy limits on streamed response size were not tested.
