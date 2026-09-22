@@ -276,7 +276,7 @@ export function atmosphere(ambience: CityModel["ambience"], archived: boolean): 
     // fade into something, and a seam there is the one thing that makes a
     // diorama look like a box.
     skyHorizonColor: background,
-    skyGroundColor: desaturate(mix(background, mix(COOL_TERRAIN, WARM_TERRAIN, warmth), 0.45), 0.2),
+    skyGroundColor: desaturate(mix(background, mix(COOL_TERRAIN, WARM_TERRAIN, warmth), 0.55), 0.2),
     sunGlowColor: mix(mix("#fff6e2", sunColor, 0.5), EVENING_GLOW, evening),
     // The halo is the sun's only presence in frame, so it grows as the sun
     // drops towards the haze it has to shine through.

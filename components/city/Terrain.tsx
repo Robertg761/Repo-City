@@ -138,7 +138,7 @@ const LANDSCAPE = 3.2;
 const HAZE_NEAR = 0.6;
 const HAZE_FAR = 1;
 /** The rim never goes all the way to the sky's colour: distance, not fog. */
-const HAZE_DEPTH = 0.8;
+const HAZE_DEPTH = 0.72;
 
 /**
  * Vertex colours that fade the landscape into the sky's own horizon haze at
