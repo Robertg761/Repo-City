@@ -216,13 +216,13 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
           />
           <Smoke
             origin={[4, 8.6, -2.4]}
-            color={failing ? "#5e5b57" : "#8d8b87"}
+            color={failing ? "#5e5b57" : "#7c7974"}
             rate={failing ? 0.42 : 0.3}
-            height={failing ? 15 : 11}
+            height={failing ? 15 : 12}
             spread={1.5}
-            radius={0.85}
-            puffs={failing ? 7 : 5}
-            opacity={failing ? 0.5 : 0.36}
+            radius={0.9}
+            puffs={failing ? 7 : 6}
+            opacity={failing ? 0.5 : 0.44}
           />
           {failing && (
             <Smoke
