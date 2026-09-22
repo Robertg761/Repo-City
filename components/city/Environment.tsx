@@ -2,9 +2,11 @@
 
 /**
  * Everything around the city rather than in it (PLAN.md sections 4 and 39):
- * the sky, the exposure, the gravel under the town hall, the detail layer
- * over the district ground, the soft darkening that seats the buildings on
- * the plate, and the post-processing chain.
+ * the sky, the exposure, the civic ground under the town hall (gravel, setts
+ * or a village green, by settlement), the detail layer over the district
+ * ground, the soft darkening that seats the buildings on the plate, and the
+ * post-processing chain. The sky dome grows with the furthest the camera may
+ * pull back (`scale.ts`), so a phone framing a metropolis stays inside it.
  *
  * It is mounted by `CityCanvas`, outside the keyed `<City>` subtree, because
  * all of it outlives a model: analysing another repository should not throw
