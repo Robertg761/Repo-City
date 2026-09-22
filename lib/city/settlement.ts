@@ -89,7 +89,9 @@ export const SETTLEMENT_PARAMS: Record<SettlementTier, SettlementParams> = {
     roads: { major: { width: 6, kind: "street" }, minor: { width: 4.2, kind: "street" } },
     blockSide: 19,
     slotPitch: 6.6,
-    districtSide: { base: 36, perRootBuilding: 6.6, min: 70, max: 125 },
+    // 76.5 says 6.6 per root building; 6.3 keeps a full town (120 buildings)
+    // smaller than the smallest city (75), as the ruling after S0 requires.
+    districtSide: { base: 36, perRootBuilding: 6.3, min: 70, max: 125 },
     landmarkBand: { min: 10, max: 14 },
     ring: { width: 6, kind: "street" },
     highways: { min: 0, max: 2 },
