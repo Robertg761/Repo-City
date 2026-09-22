@@ -27,15 +27,27 @@ import type {
   BuildingPlan,
   BuildingTier,
   ConstructionState,
+  IncidentForm,
   IncidentState,
   RankedIssue,
   RankedPull,
   RepoMetrics,
+  SettlementTier,
+  WorksForm,
 } from "./analysis";
 
 export type Vec3 = [number, number, number];
 
-export type EntityKind = "building" | "district" | "incident" | "construction" | "landmark";
+export type EntityKind =
+  | "building"
+  | "district"
+  | "incident"
+  | "construction"
+  | "landmark"
+  | "overflow";
+
+/** Hero: the animated assembly. Crowd: one instance of an instanced form (PLAN.md 76.3). */
+export type Lod = "hero" | "crowd";
 
 export interface CityEntity {
   id: string;
@@ -59,6 +71,8 @@ export interface Building extends CityEntity {
   tier: BuildingTier;
   colorIndex: number;
   plan: BuildingPlan;
+  /** Town slot on the high street: the renderer puts a shopfront here. */
+  frontage?: "main-street" | null;
 }
 
 export interface Incident extends CityEntity {
@@ -67,6 +81,13 @@ export interface Incident extends CityEntity {
   issue: RankedIssue;
   /** District the incident sits next to, when placement was path-related. */
   districtId?: string;
+  form?: IncidentForm;
+  lod?: Lod;
+  /** Sits in a traffic lane and closes it (blockages.ts). Kerbside otherwise. */
+  lane?: boolean;
+  /** Footprint `[w, h, d]` in the incident's own frame; crowd only. */
+  size?: Vec3;
+  heat?: number;
 }
 
 export interface ConstructionSite extends CityEntity {
@@ -79,6 +100,12 @@ export interface ConstructionSite extends CityEntity {
    */
   size?: Vec3;
   districtId?: string;
+  form?: WorksForm;
+  lod?: Lod;
+  lane?: boolean;
+  /** Scaffold host. `position` is then the host's facade centre and `rotationY` faces out. */
+  buildingId?: string | null;
+  heat?: number;
 }
 
 export type LandmarkType = "power" | "fire" | "info" | "station" | "civic";
@@ -145,8 +172,11 @@ export interface District {
  * horizon (PLAN.md section 22). A renderer that knows nothing about the field
  * draws a highway as the ordinary major road it already is; one that does can
  * taper it into the distance.
+ *
+ * PLAN.md 76.3 adds `"lane"` (a village lane: narrow, no pavements) and
+ * `"avenue"` (a metropolis dual carriageway). Unknown kinds draw as "street".
  */
-export type RoadKind = "street" | "highway";
+export type RoadKind = "street" | "highway" | "lane" | "avenue";
 
 export interface RoadSegment {
   id: string;
@@ -158,6 +188,43 @@ export interface RoadSegment {
   appearAt: number;
   /** Absent means `"street"`. Highways are always `major: true`. */
   kind?: RoadKind;
+  /** Town high street: shops face it. */
+  main?: boolean;
+}
+
+/** PLAN.md 76.3: the settlement line in the HUD. */
+export interface SettlementInfo {
+  tier: SettlementTier;
+  /** "Village of p-limit", "Town of zustand", "City of hono", "Greater react". */
+  name: string;
+  reason: string;
+}
+
+export interface FieldPatch {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  rotationY: number;
+  crop: 0 | 1 | 2 | 3;
+}
+
+export interface OverflowCount {
+  total: number;
+  drawn: number;
+  hidden: number;
+}
+
+/** The queue at the city limits: everything open that is not drawn as its own object. */
+export interface Overflow extends CityEntity {
+  kind: "overflow";
+  issues: OverflowCount;
+  pulls: OverflowCount;
+  exact: boolean;
+  /** Signboard plot `[w, h, d]`. */
+  size: Vec3;
+  /** Stationary queue on the approach roads, one entry per car. */
+  queue: { position: Vec3; rotationY: number; body: number; roadId: string }[];
 }
 
 export interface CityModel {
@@ -187,7 +254,7 @@ export interface CityModel {
   landmarks: Landmark[];
   incidents: Incident[];
   constructionSites: ConstructionSite[];
-  props: { trees: Vec3[]; lamps: Vec3[] };
+  props: { trees: Vec3[]; lamps: Vec3[]; fields?: FieldPatch[] };
   vehicles: {
     count: number;
     /**
@@ -199,7 +266,17 @@ export interface CityModel {
     visitorShare?: number;
   };
   seed: string;
+  /** PLAN.md 76.3. Absent on a model generated before settlements existed. */
+  settlement?: SettlementInfo;
+  /** Crowd-level objects. `incidents` and `constructionSites` stay heroes only. */
+  backlog?: { incidents: Incident[]; constructionSites: ConstructionSite[] };
+  overflow?: Overflow | null;
+  /** Civic ground: paved plaza (city), setts (town), grass green (village). */
+  plaza?: {
+    rect: { x: number; z: number; w: number; d: number };
+    surface: "paved" | "setts" | "green";
+  };
 }
 
 /** Every selectable thing in the world. Keyed by `CityEntity["id"]`. */
-export type SelectableEntity = Building | Incident | ConstructionSite | Landmark;
+export type SelectableEntity = Building | Incident | ConstructionSite | Landmark | Overflow;

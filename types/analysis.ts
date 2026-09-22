@@ -7,11 +7,99 @@
  * Binding contract: field names may be added, never renamed.
  */
 
-import type { IssueSummary, PullSummary, RepositorySnapshot } from "./repository";
+import type {
+  IssueSummary,
+  PullChecks,
+  PullReview,
+  PullSummary,
+  RepositorySnapshot,
+  SurveyCoverage,
+} from "./repository";
 
 export type CiState = "healthy" | "recent-failure" | "failing" | "unknown" | "none";
 export type IncidentState = "major" | "collision" | "stale" | "minor";
 export type ConstructionState = "active" | "slow" | "abandoned" | "completed";
+
+// ---------------------------------------------------------------------------
+// Settlements (PLAN.md section 76.3)
+// ---------------------------------------------------------------------------
+
+export type SettlementTier = "village" | "town" | "city" | "metropolis";
+
+export interface SettlementPlan {
+  tier: SettlementTier;
+  /** Tier from size alone, before any activity promotion. */
+  baseTier: SettlementTier;
+  promoted: boolean;
+  /** totalFiles + 2 * totalDirs, the number the thresholds read. */
+  footprint: number;
+  files: number;
+  dirs: number;
+  /** The counts are a floor: GitHub truncated the tree, or a legacy fixture was capped. */
+  lowerBound: boolean;
+  activity: { commitsLast90d: number; activeContributors90d: number; busy: boolean };
+  /** Inspector and HUD sentence, generated from the rule that matched. */
+  reason: string;
+}
+
+/** What an issue looks like in the street. Severity stays in `IncidentState`. */
+export type IncidentForm =
+  | "fire"
+  | "collision"
+  | "wreck"
+  | "pothole"
+  | "roadblock"
+  | "survey"
+  | "signpost";
+
+/** What a pull request looks like. `site` is the hero crane site. */
+export type WorksForm = "site" | "scaffold" | "trench" | "van" | "hoarding";
+
+/**
+ * Compact open issue for the crowd. No body and no URL: the body is only used
+ * server side for `relatedPath`, and the URL is `${repo.url}/issues/${number}`.
+ */
+export interface BacklogIssue {
+  number: number;
+  /** At most 140 characters. */
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  reactions: number;
+  /** At most 4, each at most 32 characters. */
+  labels: string[];
+  author: string | null;
+  state: IncidentState;
+  form: IncidentForm;
+  score: number;
+  relatedPath: string | null;
+  /** 0..1 from discussion and reactions; drives scale and beacon brightness. */
+  heat: number;
+}
+
+export interface BacklogPull {
+  number: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  draft: boolean;
+  comments: number;
+  reactions: number;
+  labels: string[];
+  author: string | null;
+  /** Never "completed" in the backlog. */
+  state: ConstructionState;
+  /** Never "site". */
+  form: WorksForm;
+  score: number;
+  relatedPath: string | null;
+  /** At most 5. */
+  files: string[];
+  review: PullReview | null;
+  checks: PullChecks | null;
+  heat: number;
+}
 
 export interface RepoMetrics {
   scale: {
@@ -27,6 +115,11 @@ export interface RepoMetrics {
      * captured before this field existed simply omit it.
      */
     surveyedFiles?: number;
+    /** PLAN.md 76.3: blobs counted before the depth and entry caps. */
+    totalFiles?: number;
+    totalDirs?: number;
+    /** The totals are a floor (GitHub truncated the tree). */
+    lowerBound?: boolean;
   };
   activity: {
     commitsLast30d: number;
@@ -42,8 +135,24 @@ export interface RepoMetrics {
      */
     contributors?: number;
   };
-  issues: { open: number; ranked: RankedIssue[]; staleShare: number };
-  pulls: { open: number; ranked: RankedPull[]; staleShare: number };
+  issues: {
+    /** Unchanged meaning: the health sample, not the repository total. */
+    open: number;
+    ranked: RankedIssue[];
+    staleShare: number;
+    /** Real open issue total, for the HUD and the overflow queue. */
+    total?: number;
+    /** Every other open issue surveyed, significance order, heroes excluded. */
+    backlog?: BacklogIssue[];
+  };
+  pulls: {
+    /** Unchanged meaning: the health sample. */
+    open: number;
+    ranked: RankedPull[];
+    staleShare: number;
+    total?: number;
+    backlog?: BacklogPull[];
+  };
   ci: {
     state: CiState;
     provider: "github-actions" | "other" | "none";
@@ -95,6 +204,8 @@ export interface RankedIssue extends IssueSummary {
   state: IncidentState;
   reason: string;
   relatedPath: string | null;
+  form?: IncidentForm;
+  heat?: number;
 }
 
 /**
@@ -109,6 +220,9 @@ export interface RankedPull extends Omit<PullSummary, "state"> {
   score: number;
   state: ConstructionState;
   reason: string;
+  form?: WorksForm;
+  relatedPath?: string | null;
+  heat?: number;
 }
 
 export interface DistrictPlan {
@@ -165,4 +279,8 @@ export interface RepoAnalysis {
   warnings: string[];
   generatedAt: string;
   source: "live" | "fixture";
+  /** PLAN.md 76.4. Absent means "city", which is how every older analysis renders. */
+  settlement?: SettlementPlan;
+  coverage?: SurveyCoverage;
+  totalsExact?: boolean;
 }

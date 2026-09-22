@@ -97,6 +97,9 @@ export interface GhIssue {
   body: string | null;
   draft?: boolean;
   pull_request?: { url: string; html_url: string };
+  reactions?: { total_count: number };
+  assignees?: GhUser[];
+  milestone?: { title: string } | null;
 }
 
 /** GET /repos/{o}/{r}/pulls */
@@ -116,6 +119,25 @@ export interface GhPull {
   user: GhUser | null;
   head: { ref: string; sha: string };
   base: { ref: string; sha: string };
+  requested_reviewers?: GhUser[];
+}
+
+/** POST /graphql: open issue and PR totals in one call (PLAN.md 76.6, A5). */
+export interface GhGraphTotals {
+  data?: {
+    repository: { issues: { totalCount: number }; pullRequests: { totalCount: number } } | null;
+  };
+}
+
+/** POST /graphql: one aliased `pullRequest(number: n)` in an enrichment batch (PLAN.md 76.6, wave C). */
+export interface GhGraphPull {
+  number: number;
+  reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  comments: { totalCount: number };
+  reactions: { totalCount: number };
+  changedFiles: number;
+  files: { nodes: { path: string }[] } | null;
+  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 }
 
 /** GET /repos/{o}/{r}/contributors — may answer 204/202 with no body. */

@@ -201,11 +201,11 @@ const PLAZA_INSET = 1.6;
  * The layout reserves a square cell for the civic centre and tiles the
  * districts around it, but `CityModel` carries only the districts, so the cell
  * is recovered by standing at the town hall and walking outwards until a
- * district rect gets in the way. If E5 ever puts the rect in the model
- * (`city.plaza`), that wins.
+ * district rect gets in the way. When the generator puts the rect in the model
+ * (`city.plaza.rect`, PLAN.md 76.3), that wins.
  */
 export function plazaRect(city: CityModel): PlazaRect | null {
-  const given = (city as CityModel & { plaza?: PlazaRect }).plaza;
+  const given = city.plaza?.rect;
   if (given && given.w > 0 && given.d > 0) return given;
 
   const hall = city.landmarks.find((landmark) => landmark.landmarkType === "civic");
