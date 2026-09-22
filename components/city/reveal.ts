@@ -57,3 +57,55 @@ export function craneSwing(now: number, start: number, appearAt: number): number
   const inv = 1 - t;
   return 1 - inv * inv * inv;
 }
+
+/**
+ * The backlog's window (PLAN.md 76.8, amending section 43): after the heroes,
+ * from 2.7 to 3.9 seconds, ordered by distance from the centre so it ripples
+ * outward across the city.
+ */
+export const BACKLOG_REVEAL: readonly [number, number] = [2700, 3900];
+
+/**
+ * When a crowd object at `(x, z)` appears, in a city `size` across: the
+ * centre at the start of the window, the corners and anything beyond them at
+ * its end. The generator writes this into `appearAt`; the renderer only reads
+ * `appearAt`, so the two cannot disagree.
+ */
+export function crowdAppearAt(x: number, z: number, size: number): number {
+  const reach = Math.max(1, size * Math.SQRT1_2);
+  const t = Math.min(1, Math.hypot(x, z) / reach);
+  const [start, end] = BACKLOG_REVEAL;
+  return Math.round(start + (end - start) * t);
+}
+
+/** Anything with a reveal time. */
+interface Appears {
+  appearAt: number;
+}
+
+/**
+ * The moment the whole model has finished revealing, backlog and queue
+ * included: when traffic starts and when the quality probe may begin timing
+ * frames (PLAN.md 76.9).
+ */
+export function cityRevealEnd(city: {
+  buildings: readonly Appears[];
+  landmarks: readonly Appears[];
+  incidents: readonly Appears[];
+  constructionSites: readonly Appears[];
+  backlog?: { incidents: readonly Appears[]; constructionSites: readonly Appears[] };
+  overflow?: Appears | null;
+}): number {
+  const times: number[] = [];
+  const add = (list: readonly Appears[] | undefined) => {
+    for (const item of list ?? []) times.push(item.appearAt);
+  };
+  add(city.buildings);
+  add(city.landmarks);
+  add(city.incidents);
+  add(city.constructionSites);
+  add(city.backlog?.incidents);
+  add(city.backlog?.constructionSites);
+  if (city.overflow) times.push(city.overflow.appearAt);
+  return revealEnd(times);
+}
