@@ -258,6 +258,13 @@ export interface Panel {
   h: number;
   /** Half-extent of the volume this wall belongs to. */
   plane: number;
+  /**
+   * Centre of the volume on x and z, for a wall that does not sit on the
+   * model's centreline -- a clock tower off to one side, a dormer, a lantern.
+   * The archetypes never need these; the civic buildings do.
+   */
+  cx?: number;
+  cz?: number;
 }
 
 /** Nudge outward so a panel never z-fights the wall behind it. */
@@ -266,15 +273,17 @@ export const PANEL_LIFT = 0.006;
 /** World-space centre of a panel, in the archetype's unit space. */
 export function panelCentre(panel: Panel, extraLift = 0): [number, number, number] {
   const out = panel.plane + PANEL_LIFT + extraLift;
+  const cx = panel.cx ?? 0;
+  const cz = panel.cz ?? 0;
   switch (panel.facing) {
     case "+z":
-      return [panel.u, panel.v, out];
+      return [cx + panel.u, panel.v, cz + out];
     case "-z":
-      return [-panel.u, panel.v, -out];
+      return [cx - panel.u, panel.v, cz - out];
     case "+x":
-      return [out, panel.v, -panel.u];
+      return [cx + out, panel.v, cz - panel.u];
     default:
-      return [-out, panel.v, panel.u];
+      return [cx - out, panel.v, cz + panel.u];
   }
 }
 
@@ -296,6 +305,33 @@ export function addPanel(draft: MeshDraft, panel: Panel, color: Rgb3): void {
     default:
       addQuad(draft, [cx, cy - hh, cz - hw], [cx, cy - hh, cz + hw], [cx, cy + hh, cz + hw], [cx, cy + hh, cz - hw], color);
       break;
+  }
+}
+
+/** A flat disc on a wall: clock faces, portholes, roundels. */
+export function addDisc(
+  draft: MeshDraft,
+  panel: Omit<Panel, "w" | "h"> & { radius: number; segments?: number },
+  color: Rgb3,
+): void {
+  const [cx, cy, cz] = panelCentre({ ...panel, w: 0, h: 0 });
+  const seg = panel.segments ?? 12;
+  const r = panel.radius;
+  // Two in-plane axes for this wall: one along it, one straight up.
+  const alongX = panel.facing === "+z" || panel.facing === "-z";
+  // Wind the fan so its normal points out of the wall it sits on.
+  const sign = panel.facing === "+z" || panel.facing === "+x" ? 1 : -1;
+  const point = (i: number): [number, number, number] => {
+    const a = (i / seg) * Math.PI * 2;
+    const u = Math.cos(a) * r * sign;
+    const v = Math.sin(a) * r;
+    return alongX ? [cx + u, cy + v, cz] : [cx, cy + v, cz - u];
+  };
+  for (let i = 0; i < seg; i++) {
+    const j = (i + 1) % seg;
+    const a = point(i);
+    const b = point(j);
+    addQuad(draft, [cx, cy, cz], a, b, b, color);
   }
 }
 
