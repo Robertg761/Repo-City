@@ -42,8 +42,10 @@ const WALL_SOFT: Rgb3 = [0.93, 0.93, 0.94];
 const TRIM: Rgb3 = [1.06, 1.06, 1.05];
 const ROOF: Rgb3 = [0.6, 0.62, 0.66];
 const ROOF_LIGHT: Rgb3 = [0.72, 0.73, 0.75];
-const WINDOW: Rgb3 = [0.34, 0.39, 0.46];
-const GLASS: Rgb3 = [0.46, 0.54, 0.6];
+// Dark enough to read as glass against a pale wall, light enough that a
+// facade in shadow is still a facade and not a grid of holes.
+const WINDOW: Rgb3 = [0.42, 0.47, 0.54];
+const GLASS: Rgb3 = [0.58, 0.65, 0.7];
 const DOOR: Rgb3 = [0.4, 0.36, 0.34];
 const MECH: Rgb3 = [0.68, 0.69, 0.71];
 const PLINTH: Rgb3 = [0.8, 0.8, 0.81];
@@ -271,14 +273,16 @@ function warehouseSawtooth(): ArchetypeModel {
   addBox(draft, { y: 0.05, w: 0.98, h: 0.6, d: 0.96, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.65, w: 1.0, h: 0.025, d: 0.98, color: TRIM, skipBottom: true });
 
-  const teeth = 4;
+  // Five shallow teeth rather than four deep ones: from the overview the roof
+  // should read as texture, not as black stripes.
+  const teeth = 5;
   const toothW = 0.98 / teeth;
   for (let i = 0; i < teeth; i++) {
     addSawtooth(draft, {
       x: -0.49 + toothW * (i + 0.5),
       y: 0.675,
       w: toothW,
-      rise: 0.18,
+      rise: 0.13,
       d: 0.96,
       color: ROOF,
       glassColor: GLASS,
@@ -286,7 +290,7 @@ function warehouseSawtooth(): ArchetypeModel {
   }
   // Two vent pipes, because nothing else stands on a sawtooth roof.
   addCylinder(draft, { x: -0.3, y: 0.7, z: 0.28, radius: 0.028, h: 0.12, segments: 6, color: MECH });
-  addCylinder(draft, { x: 0.18, y: 0.78, z: -0.26, radius: 0.028, h: 0.12, segments: 6, color: MECH });
+  addCylinder(draft, { x: 0.18, y: 0.74, z: -0.26, radius: 0.028, h: 0.12, segments: 6, color: MECH });
 
   const windows = [
     ...windowGrid({ facing: "+z", plane: 0.48, span: 0.7, columns: 3, rows: 1, from: 0.5, to: 0.5, w: 0.14, h: 0.1 }),
