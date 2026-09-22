@@ -154,7 +154,7 @@ const EARTH = "#6e5540";
 const HOLE = "#2f302c";
 const SCORCH = "#2b2724";
 const BURNT = "#4a433d";
-const SKIP = "#6c5a44";
+const SKIP = "#c9922f";
 const FLAME_OUTER = "#ff8a2a";
 const FLAME_INNER = "#ffd35a";
 const HIVIS = "#e6c02f";
@@ -210,7 +210,7 @@ function carParts(
   position: Triple,
   rotationY: number,
   color: string,
-  cabin = "#3b4450",
+  cabin = "#5a6874",
   roll = 0,
   tyres: string | null = null,
 ): Part[] {

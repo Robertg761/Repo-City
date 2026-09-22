@@ -272,6 +272,11 @@ export function orbitFraming(target: Vec3, angles: ViewAngles, distance: number)
 export const INSPECT_POLAR = { min: 0.86, max: 1.2 } as const;
 /** Street-level objects keep the steeper look down between the blocks. */
 export const STREET_POLAR = { min: 0.45, max: 0.72 } as const;
+/**
+ * A crowd object is a few units across on a pavement between tall blocks:
+ * look down on it from closer and steeper still, from over the street.
+ */
+export const CROWD_POLAR = { min: 0.32, max: 0.58 } as const;
 
 /**
  * A useful inspection distance for one entity, inside the camera limits.
@@ -290,24 +295,29 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
     (focus.kind === "incident" || focus.kind === "construction" || focus.kind === "overflow");
   // A crowd object is a few units across: stand closer, or the next block
   // stands between the camera and the thing that was clicked.
-  const small = focus.radius < 3;
+  const small = street && focus.radius < 3;
   const distance = clamp(
-    focus.radius * 3.4 + (street ? (small ? 10 : 15) : 12),
+    small ? focus.radius * 2.5 + 9 : focus.radius * 3.4 + (street ? 15 : 12),
     MIN_DISTANCE + 2,
     MAX_DISTANCE - 20,
   );
-  const band = street ? STREET_POLAR : INSPECT_POLAR;
+  const band = small ? CROWD_POLAR : street ? STREET_POLAR : INSPECT_POLAR;
   if (facade) {
     // Keep the user's bearing when it already looks at the face, otherwise
-    // come round to the nearer edge of the half circle in front of it.
+    // come round to the nearer edge of the half circle in front of it. Look
+    // down steeply from over the street and stand close: from across the
+    // street the camera would be inside the building opposite.
     const facing = focus.facing as number;
     const bearing = from && Number.isFinite(from.azimuth) ? from.azimuth : facing;
     const offset = Math.atan2(Math.sin(bearing - facing), Math.cos(bearing - facing));
-    const polar = from && Number.isFinite(from.polar) ? from.polar : (band.min + band.max) / 2;
+    const polar = from && Number.isFinite(from.polar) ? from.polar : FACADE_POLAR.max;
     return orbitFraming(
       focus.lookAt,
-      { azimuth: facing + clamp(offset, -FACADE_SWING, FACADE_SWING), polar: clamp(polar, band.min, band.max) },
-      distance,
+      {
+        azimuth: facing + clamp(offset, -FACADE_SWING, FACADE_SWING),
+        polar: clamp(polar, FACADE_POLAR.min, FACADE_POLAR.max),
+      },
+      clamp(focus.radius * 2 + 9, MIN_DISTANCE + 2, MAX_DISTANCE - 20),
     );
   }
   if (!from || !Number.isFinite(from.azimuth) || !Number.isFinite(from.polar)) {
@@ -322,6 +332,8 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
 
 /** How far either side of straight on a facade may be inspected from, radians. */
 const FACADE_SWING = 0.9;
+/** The tilt a facade is inspected at: from over the street in front of it. */
+export const FACADE_POLAR = { min: 0.35, max: 0.55 } as const;
 
 /** Today's tallest tower: tier 5 in a city, 23 units (PLAN.md 76.5). */
 export const CITY_TALLEST = 23;
