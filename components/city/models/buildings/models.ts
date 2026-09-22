@@ -31,7 +31,9 @@ import {
   type Panel,
   type Rgb3,
 } from "./mesh";
-import type { ArchetypeId } from "./archetypes";
+import type { ArchetypeId, ModelKey } from "./archetypes";
+import { apartmentLow, shopfront, terrace } from "./town";
+import { barn, cottage, farmhouse } from "./village";
 
 /**
  * Vertex colours are MULTIPLIERS on the district's building colour: 1 is the
@@ -61,7 +63,7 @@ export interface RoofPad {
 }
 
 export interface ArchetypeModel {
-  id: ArchetypeId;
+  id: ModelKey;
   draft: MeshDraft;
   /** Window rectangles, in the same unit space, for the lit-window pass. */
   windows: Panel[];
@@ -436,7 +438,7 @@ const standIn =
   (id: ArchetypeId, build: () => ArchetypeModel) =>
   (): ArchetypeModel => ({ ...build(), id });
 
-const BUILDERS: Record<ArchetypeId, () => ArchetypeModel> = {
+const BUILDERS: Record<ModelKey, () => ArchetypeModel> = {
   house,
   "lowrise-parapet": lowriseParapet,
   "lowrise-pitched": lowrisePitched,
@@ -445,22 +447,26 @@ const BUILDERS: Record<ArchetypeId, () => ArchetypeModel> = {
   "midrise-mech": midriseMech,
   "tower-stepped": towerStepped,
   "tower-crown": towerCrown,
-  // Placeholders (PLAN.md 76.11, S0). S6 and S7 replace these with real models.
-  cottage: standIn("cottage", house),
-  farmhouse: standIn("farmhouse", house),
-  barn: standIn("barn", warehouseSawtooth),
-  shopfront: standIn("shopfront", lowriseParapet),
-  terrace: standIn("terrace", lowrisePitched),
-  "apartment-low": standIn("apartment-low", midriseSetback),
+  // The village and town (PLAN.md 76.11, S6): `village.ts` and `town.ts`.
+  cottage: () => cottage("thatch"),
+  "cottage/tile": () => cottage("tile"),
+  farmhouse,
+  barn,
+  shopfront: () => shopfront(2),
+  "shopfront/tall": () => shopfront(3),
+  terrace,
+  "apartment-low": () => apartmentLow(false),
+  "apartment-low/retail": () => apartmentLow(true),
+  // Placeholders (PLAN.md 76.11, S0) until S7's `metropolis.ts` lands.
   "tower-glass": standIn("tower-glass", towerStepped),
   "tower-twin": standIn("tower-twin", towerStepped),
   "tower-spire": standIn("tower-spire", towerCrown),
 };
 
-const CACHE = new Map<ArchetypeId, ArchetypeModel>();
+const CACHE = new Map<ModelKey, ArchetypeModel>();
 
-/** Built once per archetype per page, then shared by every instance of it. */
-export function archetypeModel(id: ArchetypeId): ArchetypeModel {
+/** Built once per model per page, then shared by every instance of it. */
+export function archetypeModel(id: ModelKey): ArchetypeModel {
   const cached = CACHE.get(id);
   if (cached) return cached;
   const model = BUILDERS[id]();

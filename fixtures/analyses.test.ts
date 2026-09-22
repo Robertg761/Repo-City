@@ -16,12 +16,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RepoAnalysis } from "@/types/analysis";
 import {
-  LIMITS,
   buildingsOnRoads,
   generateCity,
   obstructedPlots,
   overlappingBuildings,
 } from "@/lib/city/generator";
+import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 
 const DIR = path.join(process.cwd(), "fixtures");
 
@@ -68,11 +68,13 @@ describe("committed analysis fixtures", () => {
     );
 
     const city = generateCity(analysis);
-    expect(city.buildings.length).toBeLessThanOrEqual(LIMITS.buildings);
-    expect(city.props.trees.length).toBeLessThanOrEqual(LIMITS.trees);
-    expect(city.vehicles.count).toBeLessThanOrEqual(LIMITS.vehicles);
-    expect(city.incidents.length).toBeLessThanOrEqual(LIMITS.incidents);
-    expect(city.constructionSites.length).toBeLessThanOrEqual(LIMITS.construction);
+    // Section 37's limits, per settlement tier (76.5).
+    const limits = SETTLEMENT_PARAMS[city.settlement!.tier];
+    expect(city.buildings.length).toBeLessThanOrEqual(limits.buildings.max);
+    expect(city.props.trees.length).toBeLessThanOrEqual(limits.trees);
+    expect(city.vehicles.count).toBeLessThanOrEqual(limits.vehicles.max);
+    expect(city.incidents.length).toBeLessThanOrEqual(limits.heroes.incidents);
+    expect(city.constructionSites.length).toBeLessThanOrEqual(limits.heroes.sites);
     expect(city.landmarks.length).toBeGreaterThan(0);
 
     // The geometric invariants hold for real repositories, not just the
