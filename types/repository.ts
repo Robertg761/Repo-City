@@ -30,7 +30,17 @@ export interface RepositorySnapshot {
     topics: string[];
   };
   /** Pruned tree: exclusions from PLAN.md section 8 applied before storing. */
-  tree: { truncated: boolean; totalEntries: number; entries: TreeEntry[] };
+  tree: {
+    truncated: boolean;
+    totalEntries: number;
+    entries: TreeEntry[];
+    /** Blobs that passed the exclusions, counted BEFORE the depth cap and the 5,000-entry cap. */
+    totalFiles?: number;
+    /** Directories that passed the exclusions, counted the same way. */
+    totalDirs?: number;
+    /** GitHub itself truncated the recursive listing (100,000 entries or 7 MB). */
+    githubTruncated?: boolean;
+  };
   commits: { sha: string; date: string; authorLogin: string | null; message: string }[];
   issues: IssueSummary[];
   pulls: PullSummary[];
@@ -51,6 +61,33 @@ export interface RepositorySnapshot {
   fetchedAt: string;
   requestCount: number;
   warnings: string[];
+  /**
+   * Open issues beyond `issues`, most recently updated first. Never repeats a
+   * number from `issues`, which stays the comment-sorted health sample
+   * (PLAN.md section 76.3).
+   */
+  issueBacklog?: IssueSummary[];
+  /** Real open totals for the overflow queue. */
+  openTotals?: OpenTotals;
+  /** How far the survey got before a budget ran out. */
+  coverage?: SurveyCoverage;
+}
+
+/** PLAN.md section 76.3: the repository's real open issue and PR counts. */
+export interface OpenTotals {
+  issues: number;
+  pulls: number;
+  /** False when estimated from `open_issues_count` minus a PR count. */
+  exact: boolean;
+  source: "graphql" | "rest-link" | "estimate";
+}
+
+/** PLAN.md section 76.3: how much of the issue and PR survey landed in time. */
+export interface SurveyCoverage {
+  issuePages: { planned: number; received: number };
+  pullPages: { planned: number; received: number };
+  enrichment: "complete" | "partial" | "skipped";
+  stoppedBy: "deadline" | "rate-limit" | "error" | null;
 }
 
 export interface TreeEntry {
@@ -69,6 +106,10 @@ export interface IssueSummary {
   labels: string[];
   author: string | null;
   bodyExcerpt: string;
+  /** `reactions.total_count` from the REST issue object. */
+  reactions?: number;
+  assignees?: number;
+  milestone?: string | null;
 }
 
 export interface PullSummary {
@@ -83,7 +124,19 @@ export interface PullSummary {
   labels: string[];
   author: string | null;
   state: "open" | "merged" | "closed";
+  reactions?: number;
+  requestedReviewers?: number;
+  headSha?: string;
+  /** GraphQL enrichment; null or absent when enrichment did not run. */
+  review?: PullReview | null;
+  checks?: PullChecks | null;
+  /** Up to 8 touched paths, from GraphQL `files(first: 8)`. */
+  files?: string[];
+  changedFiles?: number;
 }
+
+export type PullReview = "approved" | "changes-requested" | "review-required";
+export type PullChecks = "passing" | "failing" | "pending";
 
 /** Convenience alias: the repo header block reused by `RepoAnalysis`. */
 export type RepositoryMeta = RepositorySnapshot["repo"];

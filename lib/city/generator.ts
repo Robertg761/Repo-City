@@ -25,6 +25,7 @@ import type {
   RankedIssue,
   RankedPull,
   RepoAnalysis,
+  SettlementTier,
 } from "@/types/analysis";
 import type {
   Building,
@@ -34,6 +35,7 @@ import type {
   Incident,
   Landmark,
   RoadSegment,
+  SettlementInfo,
   Vec3,
 } from "@/types/city";
 import {
@@ -66,6 +68,7 @@ import {
 } from "./layout.ts";
 import type { Prng } from "./prng.ts";
 import { prngFor, seedFor } from "./seed.ts";
+import { DEFAULT_SETTLEMENT_TIER, settlementName } from "./settlement.ts";
 
 // ---------------------------------------------------------------------------
 // Limits (PLAN.md section 37) and timings (PLAN.md section 43)
@@ -148,9 +151,37 @@ const NATURAL_SITE_HEIGHT = 12.6;
 // Generator
 // ---------------------------------------------------------------------------
 
-export function generateCity(analysis: RepoAnalysis): CityModel {
+export interface GenerateOptions {
+  /**
+   * Forces the settlement tier, overriding `analysis.settlement`. Only the
+   * dev-only `?tier=` override in the store passes it (PLAN.md 76.11).
+   */
+  tier?: SettlementTier;
+}
+
+/**
+ * The settlement the city is built as. The generator never classifies: it
+ * reads the server's `analysis.settlement` and, when that is absent (older
+ * caches and fixtures), renders today's city (PLAN.md 76.1 decision 3).
+ */
+export function settlementFor(analysis: RepoAnalysis, forced?: SettlementTier): SettlementInfo {
+  const planned = analysis.settlement;
+  const tier = forced ?? planned?.tier ?? DEFAULT_SETTLEMENT_TIER;
+  let reason: string;
+  if (planned && planned.tier === tier) {
+    reason = planned.reason;
+  } else if (forced) {
+    reason = `Shown as ${tier === "city" ? "a city" : `a ${tier}`} by the ?tier= development override.`;
+  } else {
+    reason = "This analysis predates settlement sizes, so it is drawn as a city.";
+  }
+  return { tier, name: settlementName(tier, analysis.repo.name), reason };
+}
+
+export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = {}): CityModel {
   const seed = analysis.seed || seedFor(analysis);
   const { metrics, repo } = analysis;
+  const settlement = settlementFor(analysis, options.tier);
 
   // -- Stage 1: districts -------------------------------------------------
   const districtPlans = analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT];
@@ -179,7 +210,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
   const layout = planLayout(
     districtPlans.map((d) => ({ id: d.id, buildingCount: countsById.get(d.id) ?? 0 })),
     allPlans.length,
-    { landmarkFiles: wanted.length },
+    { landmarkFiles: wanted.length, tier: settlement.tier },
   );
   const layoutById = new Map(layout.districts.map((d) => [d.id, d]));
 
@@ -312,6 +343,7 @@ export function generateCity(analysis: RepoAnalysis): CityModel {
       visitorShare: visitorShare(repo.stars),
     },
     seed,
+    settlement,
   };
 }
 

@@ -428,6 +428,14 @@ function towerCrown(): ArchetypeModel {
   };
 }
 
+/**
+ * A settlement archetype that has no model of its own yet borrows its
+ * stand-in's (`ARCHETYPE_STAND_IN`), under its own id.
+ */
+const standIn =
+  (id: ArchetypeId, build: () => ArchetypeModel) =>
+  (): ArchetypeModel => ({ ...build(), id });
+
 const BUILDERS: Record<ArchetypeId, () => ArchetypeModel> = {
   house,
   "lowrise-parapet": lowriseParapet,
@@ -437,6 +445,16 @@ const BUILDERS: Record<ArchetypeId, () => ArchetypeModel> = {
   "midrise-mech": midriseMech,
   "tower-stepped": towerStepped,
   "tower-crown": towerCrown,
+  // Placeholders (PLAN.md 76.11, S0). S6 and S7 replace these with real models.
+  cottage: standIn("cottage", house),
+  farmhouse: standIn("farmhouse", house),
+  barn: standIn("barn", warehouseSawtooth),
+  shopfront: standIn("shopfront", lowriseParapet),
+  terrace: standIn("terrace", lowrisePitched),
+  "apartment-low": standIn("apartment-low", midriseSetback),
+  "tower-glass": standIn("tower-glass", towerStepped),
+  "tower-twin": standIn("tower-twin", towerStepped),
+  "tower-spire": standIn("tower-spire", towerCrown),
 };
 
 const CACHE = new Map<ArchetypeId, ArchetypeModel>();

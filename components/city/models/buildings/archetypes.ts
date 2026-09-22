@@ -17,7 +17,8 @@
 import type { BuildingTier } from "@/types/analysis";
 import type { Building } from "@/types/city";
 
-export type ArchetypeId =
+/** The eight shapes of today's city. `chooseArchetype` only ever returns these. */
+export type CityArchetypeId =
   | "house"
   | "lowrise-parapet"
   | "lowrise-pitched"
@@ -27,7 +28,26 @@ export type ArchetypeId =
   | "tower-stepped"
   | "tower-crown";
 
-export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
+/**
+ * Settlement shapes (PLAN.md 76.1 decision 7): village cottages, farmhouses
+ * and barns; town shopfronts, terraces and low apartment blocks; metropolis
+ * glass, twin and spire towers. Declared by S0 and drawn with the nearest
+ * city shape (`ARCHETYPE_STAND_IN`) until S6 and S7 model them.
+ */
+export type SettlementArchetypeId =
+  | "cottage"
+  | "farmhouse"
+  | "barn"
+  | "shopfront"
+  | "terrace"
+  | "apartment-low"
+  | "tower-glass"
+  | "tower-twin"
+  | "tower-spire";
+
+export type ArchetypeId = CityArchetypeId | SettlementArchetypeId;
+
+export const CITY_ARCHETYPE_IDS: readonly CityArchetypeId[] = [
   "house",
   "lowrise-parapet",
   "lowrise-pitched",
@@ -37,6 +57,42 @@ export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
   "tower-stepped",
   "tower-crown",
 ];
+
+export const SETTLEMENT_ARCHETYPE_IDS: readonly SettlementArchetypeId[] = [
+  "cottage",
+  "farmhouse",
+  "barn",
+  "shopfront",
+  "terrace",
+  "apartment-low",
+  "tower-glass",
+  "tower-twin",
+  "tower-spire",
+];
+
+/** Every archetype with a model, placeholders included. */
+export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
+  ...CITY_ARCHETYPE_IDS,
+  ...SETTLEMENT_ARCHETYPE_IDS,
+];
+
+/**
+ * Placeholder geometry for each settlement archetype: the closest shape the
+ * city already has. `models.ts` builds a placeholder from its stand-in, so a
+ * tier table can name "cottage" today and get a house. Remove an entry when
+ * the real model lands.
+ */
+export const ARCHETYPE_STAND_IN: Partial<Record<SettlementArchetypeId, CityArchetypeId>> = {
+  cottage: "house",
+  farmhouse: "house",
+  barn: "warehouse-sawtooth",
+  shopfront: "lowrise-parapet",
+  terrace: "lowrise-pitched",
+  "apartment-low": "midrise-setback",
+  "tower-glass": "tower-stepped",
+  "tower-twin": "tower-stepped",
+  "tower-spire": "tower-crown",
+};
 
 export type LanguageFamily = "script" | "compiled" | "markup" | "data" | "config" | "unknown";
 

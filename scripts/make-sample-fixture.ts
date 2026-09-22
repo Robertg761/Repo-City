@@ -13,6 +13,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hashString, mulberry32 } from "../lib/city/prng.ts";
+import { fixtureSettlement } from "./migrate-fixtures.ts";
 import type {
   AiInterpretation,
   BuildingPlan,
@@ -604,6 +605,8 @@ const analysis: RepoAnalysis = {
   generatedAt: new Date(NOW).toISOString(),
   source: "fixture",
 };
+// PLAN.md 76.4, the same rule `migrate-fixtures.ts` applies to every fixture.
+analysis.settlement = fixtureSettlement(analysis);
 
 if (analysis.seed !== `${analysis.repo.owner}/${analysis.repo.name}@${analysis.repo.headSha}`) {
   throw new Error("fixture seed does not match owner/name@headSha");

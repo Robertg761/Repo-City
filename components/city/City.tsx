@@ -11,13 +11,16 @@
 
 import { useMemo, useRef } from "react";
 import type { CityModel } from "@/types/city";
+import Backlog from "./backlog/Backlog";
 import Buildings from "./Buildings";
 import CivicBuilding from "./Building";
 import ConstructionSitePiece from "./ConstructionSite";
 import DistrictGround from "./District";
+import Fields from "./Fields";
 import IssueIncident from "./IssueIncident";
 import LandmarkPiece from "./Landmark";
 import Lighting from "./Lighting";
+import Overflow from "./Overflow";
 import Pedestrians from "./Pedestrians";
 import Props from "./Props";
 import Roads from "./Roads";
@@ -100,6 +103,7 @@ export default function City({
       <Lighting atmosphere={atmosphere} size={size} />
 
       <Terrain size={size} atmosphere={atmosphere} />
+      <Fields city={city} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
         <DistrictGround
@@ -131,6 +135,9 @@ export default function City({
       {city.constructionSites.map((site) => (
         <ConstructionSitePiece key={site.id} site={site} atmosphere={atmosphere} />
       ))}
+
+      <Backlog city={city} atmosphere={atmosphere} />
+      <Overflow city={city} atmosphere={atmosphere} />
 
       <Props city={city} atmosphere={atmosphere} />
       <Traffic city={city} startAt={trafficStart} atmosphere={atmosphere} />

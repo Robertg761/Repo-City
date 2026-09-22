@@ -26,6 +26,7 @@ import { planDistricts } from "./districts";
 import { selectBuildings } from "./fileSelection";
 import { computeMetrics, type MetricsResult } from "./metrics";
 import { computeConfidence, computeHealth, recentlyTouchedIssues } from "./scoring";
+import { classifySettlement, settlementInputFor } from "./settlement";
 import { blobsOf, isManifest, pruneTree, segments } from "./tree";
 
 /** PLAN.md section 28's input budget. */
@@ -323,6 +324,8 @@ export async function analyzeSnapshot(
     warnings: [...new Set(warnings)],
     generatedAt: now.toISOString(),
     source: "live",
+    // PLAN.md 76.4. Reads only sizes and activity, never health.
+    settlement: classifySettlement(settlementInputFor(snapshot, fullMetrics)),
   };
 
   stage({ type: "stage", id: "done", status: "done", detail: `${fullMetrics.health.score}` });

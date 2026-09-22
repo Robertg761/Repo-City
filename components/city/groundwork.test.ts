@@ -220,10 +220,10 @@ describe("plazaRect", () => {
   });
 
   it("prefers a rect the model carries, if the generator ever adds one", () => {
-    const model = {
+    const model: CityModel = {
       ...city([], [hall([0, 0, 0], [14, 10, 14])]),
-      plaza: { x: 1, z: 2, w: 30, d: 20 },
-    } as CityModel;
+      plaza: { rect: { x: 1, z: 2, w: 30, d: 20 }, surface: "paved" },
+    };
     expect(plazaRect(model)).toEqual({ x: 1, z: 2, w: 30, d: 20 });
   });
 

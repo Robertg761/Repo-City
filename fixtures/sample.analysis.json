@@ -1499,5 +1499,20 @@
   "seed": "sample/repo-city@fixture0001",
   "warnings": [],
   "generatedAt": "2026-09-21T12:00:00.000Z",
-  "source": "fixture"
+  "source": "fixture",
+  "settlement": {
+    "tier": "city",
+    "baseTier": "city",
+    "promoted": false,
+    "footprint": 605,
+    "files": 479,
+    "dirs": 63,
+    "lowerBound": false,
+    "activity": {
+      "commitsLast90d": 71,
+      "activeContributors90d": 4,
+      "busy": false
+    },
+    "reason": "479 files in 63 folders make a city."
+  }
 }

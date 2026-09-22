@@ -10,6 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "fixture": "node scripts/make-sample-fixture.ts",
+    "fixture:backlog": "node scripts/make-backlog-fixture.ts",
+    "fixtures:migrate": "node scripts/migrate-fixtures.ts",
     "city:stats": "node scripts/city-stats.ts"
   },
   "dependencies": {

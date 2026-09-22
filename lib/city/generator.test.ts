@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import sampleAnalysis from "@/fixtures/sample.analysis.json";
-import type { BuildingPlan, RepoAnalysis } from "@/types/analysis";
+import type {
+  BuildingPlan,
+  RepoAnalysis,
+  SettlementPlan,
+  SettlementTier,
+} from "@/types/analysis";
 import type { CityModel } from "@/types/city";
 import { distanceToRoad, ROAD_MAJOR_WIDTH, ROAD_MINOR_WIDTH } from "./layout";
 import {
@@ -609,5 +614,57 @@ describe("releases as arriving trains (PLAN.md section 20)", () => {
     };
     const model = generateCity(quiet);
     expect(model.landmarks.some((l) => l.landmarkType === "station")).toBe(false);
+  });
+});
+
+describe("generateCity: settlement (PLAN.md 76.3 and 76.4)", () => {
+  const plan = (tier: SettlementTier): SettlementPlan => ({
+    tier,
+    baseTier: "city",
+    promoted: tier !== "city",
+    footprint: 4000,
+    files: 3000,
+    dirs: 500,
+    lowerBound: false,
+    activity: { commitsLast90d: 100, activeContributors90d: 30, busy: true },
+    reason: "Some rule matched.",
+  });
+  const withSettlement = (settlement: SettlementPlan | undefined): RepoAnalysis => {
+    const analysis = clone();
+    if (settlement) analysis.settlement = settlement;
+    else delete analysis.settlement;
+    return analysis;
+  };
+  const strip = (model: CityModel): Omit<CityModel, "settlement"> => {
+    const { settlement: _settlement, ...rest } = model;
+    void _settlement;
+    return rest;
+  };
+
+  it("draws an analysis without a settlement as a city", () => {
+    const model = generateCity(withSettlement(undefined));
+    expect(model.settlement?.tier).toBe("city");
+    expect(model.settlement?.name).toBe(`City of ${fixture.repo.name}`);
+    expect(model.settlement?.reason).toMatch(/drawn as a city/);
+  });
+
+  it("carries the server's tier and reason through, named after the repository", () => {
+    expect(generateCity(withSettlement(plan("metropolis"))).settlement).toEqual({
+      tier: "metropolis",
+      name: `Greater ${fixture.repo.name}`,
+      reason: "Some rule matched.",
+    });
+  });
+
+  it("lets the dev override force the tier", () => {
+    const model = generateCity(withSettlement(plan("city")), { tier: "village" });
+    expect(model.settlement?.tier).toBe("village");
+    expect(model.settlement?.name).toBe(`Village of ${fixture.repo.name}`);
+    expect(model.settlement?.reason).toMatch(/\?tier=/);
+  });
+
+  it("changes nothing but the settlement field for a city-tier or legacy analysis", () => {
+    const legacy = JSON.stringify(strip(generateCity(withSettlement(undefined))));
+    expect(JSON.stringify(strip(generateCity(withSettlement(plan("city")))))).toBe(legacy);
   });
 });
