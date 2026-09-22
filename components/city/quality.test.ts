@@ -79,6 +79,14 @@ describe("the tiers themselves", () => {
     expect(QUALITY_SETTINGS.low.contactShadows).toBe(false);
   });
 
+  it("keeps the surface textures on the low tier, smaller, and drops the detail pass", () => {
+    expect(QUALITY_SETTINGS.low.textureSize).toBeLessThan(QUALITY_SETTINGS.high.textureSize);
+    expect(QUALITY_SETTINGS.low.textureSize).toBeGreaterThanOrEqual(64);
+    expect(QUALITY_SETTINGS.low.anisotropy).toBe(1);
+    expect(QUALITY_SETTINGS.high.groundDetail).toBe(true);
+    expect(QUALITY_SETTINGS.low.groundDetail).toBe(false);
+  });
+
   it("names itself, so the chosen tier can be reported", () => {
     expect(QUALITY_SETTINGS.high.tier).toBe("high");
     expect(QUALITY_SETTINGS.low.tier).toBe("low");

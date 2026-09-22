@@ -11,7 +11,9 @@
  * frame took longer than 25 ms.
  *
  * What a step down removes follows section 63's order exactly: expensive
- * post-processing first, then the realtime shadow budget. Nothing that carries
+ * post-processing first, then the realtime shadow budget. The surface
+ * textures shrink and the ground detail pass goes with the post-processing,
+ * since both are fill rate spent on decoration. Nothing that carries
  * meaning -- buildings, incidents, selection, camera, inspector -- is ever
  * touched by this file.
  *
@@ -44,6 +46,18 @@ export interface QualitySettings {
   contactShadows: boolean;
   /** Upper bound on the device pixel ratio. */
   maxDpr: number;
+  /**
+   * Side in pixels of every procedural surface texture (`textures/`). The low
+   * tier halves it: less to upload and a smaller mip chain to sample.
+   */
+  textureSize: number;
+  /** Anisotropic filtering on those textures; it is what keeps paint crisp at a slant. */
+  anisotropy: number;
+  /**
+   * The detail layer over the district ground: a transparent pass over most
+   * of the city, so it goes with the post-processing on a slow machine.
+   */
+  groundDetail: boolean;
 }
 
 export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
@@ -56,6 +70,9 @@ export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 2048,
     contactShadows: false,
     maxDpr: 2,
+    textureSize: 256,
+    anisotropy: 4,
+    groundDetail: true,
   },
   low: {
     tier: "low",
@@ -66,6 +83,9 @@ export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
     shadowMapSize: 1024,
     contactShadows: false,
     maxDpr: 1.25,
+    textureSize: 128,
+    anisotropy: 1,
+    groundDetail: false,
   },
 };
 

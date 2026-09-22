@@ -6,6 +6,11 @@
  * inner edge, and every painted mark -- zebra bands at the junctions and the
  * dashed centre line of the avenues -- in one mesh of scaled unit boxes.
  *
+ * Surfaces are procedural textures (`textures/`): asphalt with a patchy oil
+ * line down each lane, pavement flags in a running bond, and paint scuffed by
+ * the same wear. The kerb stays plain -- at this scale it is a line, and a
+ * line with texture on it is noise.
+ *
  * Roads are not selectable: they are the surface incidents and traffic live
  * on. The geometry is derived in `groundwork.ts`, which is pure and tested;
  * this file only animates it.
@@ -38,6 +43,7 @@ import {
   type SceneAtmosphere,
 } from "./palette";
 import { revealScale } from "./reveal";
+import { useStreetMaterial } from "./textures/surfaces";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
@@ -78,6 +84,10 @@ export default function Roads({
   const markRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
+
+  const asphalt = useStreetMaterial("asphalt", desaturate(ROAD_COLOR, atmosphere.desaturation), 0.95);
+  const pavers = useStreetMaterial("pavers", desaturate(SIDEWALK_COLOR, atmosphere.desaturation), 0.92);
+  const paint = useStreetMaterial("paint", desaturate(CROSSWALK_COLOR, atmosphere.desaturation), 0.85);
 
   /** How far each road has drawn itself in, in world units from `from`. */
   const fronts = useMemo(() => new Float32Array(lays.length), [lays]);
@@ -153,11 +163,7 @@ export default function Roads({
         frustumCulled={false}
       >
         <boxGeometry args={[1, 0.08, 1]} />
-        <meshStandardMaterial
-          color={desaturate(ROAD_COLOR, atmosphere.desaturation)}
-          roughness={0.95}
-          metalness={0}
-        />
+        <primitive object={asphalt} attach="material" />
       </instancedMesh>
 
       {walks.length > 0 && (
@@ -170,11 +176,7 @@ export default function Roads({
             frustumCulled={false}
           >
             <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
-            <meshStandardMaterial
-              color={desaturate(SIDEWALK_COLOR, atmosphere.desaturation)}
-              roughness={0.92}
-              metalness={0}
-            />
+            <primitive object={pavers} attach="material" />
           </instancedMesh>
 
           <instancedMesh
@@ -200,11 +202,7 @@ export default function Roads({
           frustumCulled={false}
         >
           <boxGeometry args={[1, 0.02, 1]} />
-          <meshStandardMaterial
-            color={desaturate(CROSSWALK_COLOR, atmosphere.desaturation)}
-            roughness={0.85}
-            metalness={0}
-          />
+          <primitive object={paint} attach="material" />
         </instancedMesh>
       )}
     </group>
