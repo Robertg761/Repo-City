@@ -9,6 +9,10 @@
  * the information centre. An archived city keeps two or three of them, which
  * is the difference between quiet and dead (section 19).
  *
+ * The crowd follows the settlement (PLAN.md 76.5): a village's lanes carry
+ * fewer people than a city's streets, a metropolis's more, and nobody walks
+ * along the metropolis motorway ring.
+ *
  * COST. Two instanced meshes, whatever the crowd size, and a frame loop that
  * allocates nothing. Section 63 lists pedestrians third among the things to
  * cut if the frame rate drops: they are cheap here precisely so that step is
@@ -30,6 +34,8 @@ import {
   walkerCount,
   walkerPose,
 } from "./models/props/pedestrians";
+import { roadStyle } from "./groundwork";
+import { crowdScale, tierOf } from "./scale";
 import { roadGraph } from "./traffic";
 import { useRevealClock } from "./useReveal";
 
@@ -58,11 +64,18 @@ export default function Pedestrians({
 
   const { graph, walkers, idle, prng, total } = useMemo(() => {
     const rng = prngFor(city.seed, "pedestrians");
-    const wanted = walkerCount(city.ambience.pedestrianDensity, city.repository.archived);
-    const crowd = spawnWalkers(city.roads, wanted, rng);
+    // Nobody walks the motorway. Every road a city has is a street, so a
+    // city's crowd walks exactly the graph it always did.
+    const streets = city.roads.filter((road) => roadStyle(road) !== "motorway");
+    // A village's lanes carry a quarter of a city's crowd, a metropolis's
+    // avenues more than half as many again (`scale.ts`); a city is unchanged.
+    const wanted = Math.round(
+      walkerCount(city.ambience.pedestrianDensity, city.repository.archived) * crowdScale(tierOf(city)),
+    );
+    const crowd = spawnWalkers(streets, wanted, rng);
     const standing = city.repository.archived ? [] : idleGroups(city.landmarks, rng);
     return {
-      graph: roadGraph(city.roads),
+      graph: roadGraph(streets),
       walkers: crowd,
       idle: standing,
       prng: rng,

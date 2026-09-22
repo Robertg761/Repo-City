@@ -1,10 +1,15 @@
 "use client";
 
 /**
- * Cosmetic props (PLAN.md sections 36 stage 8, 37, 38): up to a hundred trees
- * of four species, swaying a little, a run of street lamps, and up to 150 small things --
- * benches, bins, bus stops, bushes, flower beds and parked cars -- placed
- * along the roads and around the parks.
+ * Cosmetic props (PLAN.md sections 36 stage 8, 37, 38): trees of four
+ * species, swaying a little, a run of street lamps, and up to 150 small
+ * things -- benches, bins, bus stops, bushes, flower beds and parked cars --
+ * placed along the roads and around the parks.
+ *
+ * How many trees and lamps depends on the settlement (PLAN.md 76.5,
+ * `scale.ts`): a city keeps its hundred trees and 120 lamps, a village gets
+ * 160 trees and 30 lamps, a metropolis 120 and 160, plus poplars down the
+ * median of every avenue.
  *
  * Everything is instanced and everything is merged: a bus stop is six boxes in
  * one geometry, so the entire layer costs about a dozen draw calls at any city
@@ -29,19 +34,23 @@ import {
 } from "./models/props/streetFurniture";
 import { WIND_CLOCK, tintedMaterial } from "./models/props/material";
 import {
+  SPECIES_LEAF,
   SWAY_AMOUNT,
   SWAY_BASE,
+  TREE_CAP,
   TREE_SPECIES,
+  jitterLeaf,
   planTrees,
   treeGeometry,
+  type PlannedTree,
 } from "./models/props/trees";
+import { medianLays, medianTreeSpots, roadLays } from "./groundwork";
 import { revealScale } from "./reveal";
+import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf, treeCap } from "./scale";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
-
-const LAMP_CAP = 120;
 
 /**
  * Street lamps are the smallest thing in the city that still has to read as
@@ -61,6 +70,30 @@ const prefersStill = (): boolean =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** Poplars on an avenue's median: columnar, so they stay over the median. */
+const AVENUE_SPECIES = "poplar";
+const AVENUE_SCALE: [number, number] = [0.72, 0.9];
+
+/**
+ * The trees down the middle of every metropolis avenue (PLAN.md 76.5), over
+ * and above the settlement's own planting. None in a city, which has no
+ * avenues.
+ */
+function avenueTrees(city: CityModel): PlannedTree[] {
+  const lays = roadLays(city.roads);
+  const spots = medianTreeSpots(medianLays(lays), lays, MEDIAN_TREE_CAP);
+  if (spots.length === 0) return [];
+  const prng = prngFor(city.seed, "avenue-trees");
+  return spots.map((spot) => ({
+    position: [spot.x, 0, spot.z],
+    species: AVENUE_SPECIES,
+    scale: prng.range(AVENUE_SCALE[0], AVENUE_SCALE[1]),
+    stretch: prng.range(1, 1.12),
+    rotation: prng.range(0, Math.PI * 2),
+    tint: jitterLeaf(SPECIES_LEAF[AVENUE_SPECIES], prng),
+  }));
+}
+
 export default function Props({
   city,
   atmosphere,
@@ -77,7 +110,16 @@ export default function Props({
   const settled = useRef(false);
 
   const { trees, species } = useMemo(() => {
+    const tier = tierOf(city);
+    // The first hundred exactly as a city has always planted them; a village
+    // or a metropolis plants the rest from a stream of its own, so the city's
+    // trees never move (`planTrees` stops at section 37's hundred).
     const list = planTrees(city.props.trees, city.districts, prngFor(city.seed, "trees"));
+    const extra = city.props.trees.slice(TREE_CAP, treeCap(tier));
+    if (extra.length > 0) {
+      list.push(...planTrees(extra, city.districts, prngFor(city.seed, "trees-extra")));
+    }
+    list.push(...avenueTrees(city));
     return {
       trees: list,
       species: TREE_SPECIES.map((kind) => ({
@@ -86,6 +128,7 @@ export default function Props({
       })).filter((group) => group.trees.length > 0),
     };
   }, [city]);
+  const treeStagger = Math.min(12, 1200 / Math.max(trees.length, 1));
 
   // The wind: one clock uniform (`WIND_CLOCK`) shared by every tree. The
   // material is built once and kept; only the uniform moves per frame.
@@ -110,7 +153,9 @@ export default function Props({
     WIND_CLOCK.value = sceneClock.elapsedTime;
   });
 
-  const lamps = useMemo(() => city.props.lamps.slice(0, LAMP_CAP), [city]);
+  // Per tier: a village's handful, a metropolis's avenues. Thinned evenly, so
+  // a cap never leaves one end of the settlement dark.
+  const lamps = useMemo(() => thinEvenly(city.props.lamps, lampCap(tierOf(city))), [city]);
 
   const { furniture, parked } = useMemo(() => {
     const placed = placeStreetProps(city, prngFor(city.seed, "street-props"));
@@ -145,7 +190,9 @@ export default function Props({
       if (!mesh) return;
       group.trees.forEach((index, slot) => {
         const tree = trees[index];
-        const grow = revealScale(now, clock.current, 700 + index * 12);
+        // Twelve milliseconds apart, as always; a planting larger than the
+        // city's hundred shares the same 1.2 seconds out.
+        const grow = revealScale(now, clock.current, 700 + index * treeStagger);
         if (grow < 1) done = false;
         const size = tree.scale * grow;
         scratch.rotation.set(0, tree.rotation, 0);

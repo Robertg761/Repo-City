@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import { NeutralToneMapping, PCFShadowMap } from "three";
 import { useCityStore } from "@/store/useCityStore";
@@ -25,6 +25,7 @@ import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
+import { cameraFar } from "@/components/city/scale";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -52,21 +53,34 @@ const EMPTY_ATMOSPHERE = atmosphere(
   false,
 );
 
+/** The dev scenes: the fixture city, and one settlement at each end of the scale. */
+type DevScene = "city" | "metropolis" | "village" | "town";
+const DEV_SCENES: readonly string[] = ["city", "metropolis", "village", "town"];
+
 /**
- * The dev fixture city (`?dev=city`). It exists so the renderer can be built
- * and screenshotted before the generator lands, and so a broken generator is
- * immediately distinguishable from a broken renderer. Never in production.
+ * The dev fixture cities (`?dev=city`, and `?dev=metropolis`, `?dev=village`
+ * or `?dev=town` for the settlements in `fixtures/dev.settlements.ts`). They
+ * exist so the renderer can be built and screenshotted before the generator
+ * lands, and so a broken generator is immediately distinguishable from a
+ * broken renderer. Never in production.
  */
 function useDevCity(hasRealCity: boolean): CityModel | null {
   const [devCity, setDevCity] = useState<CityModel | null>(null);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production" || hasRealCity || devCity) return;
-    if (new URLSearchParams(window.location.search).get("dev") !== "city") return;
+    const scene = new URLSearchParams(window.location.search).get("dev");
+    if (!scene || !DEV_SCENES.includes(scene)) return;
 
     let cancelled = false;
-    void import("@/fixtures/dev.city").then((module) => {
-      if (!cancelled) setDevCity(module.devCity);
+    const load =
+      scene === "city"
+        ? import("@/fixtures/dev.city").then((module) => module.devCity)
+        : import("@/fixtures/dev.settlements").then((module) =>
+            module.devSettlements[scene as Exclude<DevScene, "city">](),
+          );
+    void load.then((model) => {
+      if (!cancelled) setDevCity(model);
     });
     return () => {
       cancelled = true;
@@ -74,6 +88,38 @@ function useDevCity(hasRealCity: boolean): CityModel | null {
   }, [hasRealCity, devCity]);
 
   return devCity;
+}
+
+/**
+ * Keeps the far plane past everything a settlement can put in frame: the
+ * landscape and the far side of the sky dome at the furthest the camera may
+ * pull back (PLAN.md 76.5). Today's 2,000 for every city on a desktop; a
+ * metropolis framed from a phone needs half as much again.
+ */
+function FarPlane({ size, aspect }: { size: number; aspect: number }) {
+  const far = cameraFar(size, maxCameraDistance(size, aspect));
+  // From the frame loop, as `Film` sets the exposure: the camera belongs to
+  // R3F, and the comparison is all it costs on every other frame.
+  useFrame(({ camera }) => {
+    if (camera.far === far) return;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+  });
+  return null;
+}
+
+/**
+ * Development-only: `__repoCity.controls` is the orbit controller, so a
+ * scripted screenshot can frame an exact view (`setLookAt`, `dollyTo`).
+ */
+function ControlsDebugHandle() {
+  const controls = useThree((state) => state.controls);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production" || !controls) return;
+    const handle = (window as unknown as { __repoCity?: { controls?: unknown } }).__repoCity;
+    if (handle) handle.controls = controls;
+  }, [controls]);
+  return null;
 }
 
 /**
@@ -169,7 +215,14 @@ export default function CityCanvas() {
         <EmptyStage aspect={aspect} />
       )}
 
-      <Environment city={city} atmosphere={scene} size={city?.bounds.size ?? EMPTY_SIZE} />
+      <Environment
+        city={city}
+        atmosphere={scene}
+        size={city?.bounds.size ?? EMPTY_SIZE}
+        aspect={aspect}
+      />
+      <FarPlane size={city?.bounds.size ?? EMPTY_SIZE} aspect={aspect} />
+      <ControlsDebugHandle />
 
       <CameraRig city={city} aspect={aspect} />
 
