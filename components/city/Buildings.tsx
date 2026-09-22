@@ -19,12 +19,20 @@
  * Picking still goes through `event.instanceId`, now into the per-archetype
  * `ids` array from `planBuildings`. Hover tints the instance, selection tints
  * it harder, and the ground ring does the rest; neither spawns a mesh.
+ *
+ * Settlements (PLAN.md 76.1 decision 7): a village builds with cottages,
+ * farmhouses and barns and a town with terraces, shopfronts and low blocks
+ * of flats (`ARCHETYPE_TABLES`). Those models carry absolute colours for
+ * their thatch, tile and glass, and take a wall colour and an accent colour
+ * per instance from `palettes.ts`, through `settlementMaterial`. Still one
+ * instanced mesh per model. The city's archetypes draw exactly as before.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type InstancedMesh } from "three";
-import type { Building } from "@/types/city";
+import { Color, InstancedBufferAttribute, Object3D, type InstancedMesh } from "three";
+import type { SettlementTier } from "@/types/analysis";
+import type { Building, RoadSegment } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
 import {
   PROP_MESH,
@@ -33,6 +41,7 @@ import {
   propTankGeometry,
   windowPanelGeometry,
 } from "./models/buildings/geometry";
+import { ACCENT_ATTRIBUTE, settlementMaterial } from "./models/buildings/material";
 import {
   planBuildings,
   type ArchetypeGroup,
@@ -73,15 +82,50 @@ function ArchetypeInstances({
   const hoveredId = useCityStore((s) => s.hoveredId);
   const selectedId = useCityStore((s) => s.selectedId);
 
-  const geometry = useMemo(() => archetypeGeometry(group.archetype), [group.archetype]);
   const instances = useMemo(
     () => plan.instances.slice(group.offset, group.offset + group.count),
     [plan, group],
   );
+  // A settlement model paints its walls and its accents per instance; the
+  // city's archetypes shade the district colour, as they always have.
+  const painted = instances.length > 0 && instances[0].paint !== undefined;
+  const geometry = useMemo(() => {
+    const shared = archetypeGeometry(group.model);
+    if (!painted) return shared;
+    // The accent is a per-instance attribute on the geometry, so each mesh
+    // gets its own shallow copy rather than writing into the shared one.
+    const own = shared.clone();
+    own.setAttribute(
+      ACCENT_ATTRIBUTE,
+      new InstancedBufferAttribute(new Float32Array(Math.max(1, instances.length) * 3), 3),
+    );
+    return own;
+  }, [group.model, painted, instances.length]);
+  const material = useMemo(
+    () => (painted ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }) : null),
+    [painted],
+  );
+  useEffect(
+    () => () => {
+      if (painted) geometry.dispose();
+      material?.dispose();
+    },
+    [geometry, material, painted],
+  );
   const baseColors = useMemo(
     () =>
       instances.map((instance) =>
-        desaturate(buildingColor(instance.building.colorIndex), atmosphere.desaturation),
+        desaturate(
+          instance.paint?.wall ?? buildingColor(instance.building.colorIndex),
+          atmosphere.desaturation,
+        ),
+      ),
+    [instances, atmosphere.desaturation],
+  );
+  const accentColors = useMemo(
+    () =>
+      instances.map((instance) =>
+        instance.paint ? desaturate(instance.paint.accent, atmosphere.desaturation) : null,
       ),
     [instances, atmosphere.desaturation],
   );
@@ -123,22 +167,33 @@ function ArchetypeInstances({
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
+    const accent = geometry.getAttribute(ACCENT_ATTRIBUTE) as InstancedBufferAttribute | undefined;
     for (let i = 0; i < instances.length; i++) {
       const instance = instances[i];
       const b = instance.building;
-      scratchColor.set(stateTint(baseColors[i], b.id === hoveredId, b.id === selectedId));
+      const hovered = b.id === hoveredId;
+      const selected = b.id === selectedId;
+      scratchColor.set(stateTint(baseColors[i], hovered, selected));
       // A little hue and value drift inside the district's own colour: a block
       // of twelve buildings should not be twelve copies (PLAN.md section 4).
-      scratchColor.offsetHSL(instance.hueShift, instance.satShift, instance.lightShift);
+      // A settlement wall already has its own colour, so it drifts less.
+      const drift = instance.paint ? 0.5 : 1;
+      scratchColor.offsetHSL(instance.hueShift * drift, instance.satShift * drift, instance.lightShift * drift);
       mesh.setColorAt(i, scratchColor);
+      const accentHex = accentColors[i];
+      if (accent && accentHex) {
+        scratchColor.set(stateTint(accentHex, hovered, selected));
+        accent.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
+      }
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [instances, baseColors, hoveredId, selectedId]);
+    if (accent) accent.needsUpdate = true;
+  }, [instances, baseColors, accentColors, geometry, hoveredId, selectedId]);
 
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, undefined, instances.length]}
+      args={[geometry, material ?? undefined, instances.length]}
       castShadow
       receiveShadow
       frustumCulled={false}
@@ -146,7 +201,7 @@ function ArchetypeInstances({
     >
       {/* Vertex colours carry the roof, cornice, door and window shading; the
           instance colour carries the district. One material, one draw call. */}
-      <meshStandardMaterial vertexColors flatShading roughness={0.82} metalness={0} />
+      {!material && <meshStandardMaterial vertexColors flatShading roughness={0.82} metalness={0} />}
     </instancedMesh>
   );
 }
@@ -326,13 +381,31 @@ function RoofProps({
 export default function Buildings({
   buildings,
   atmosphere,
+  settlement,
+  roads,
 }: {
   buildings: readonly Building[];
   atmosphere: SceneAtmosphere;
+  /**
+   * The settlement tier and the street network. `City.tsx` may pass them;
+   * until it does they come from the model in the store, and a model without
+   * a settlement is today's city.
+   */
+  settlement?: SettlementTier;
+  roads?: readonly RoadSegment[];
 }) {
+  const storedTier = useCityStore((s) => s.city?.settlement?.tier);
+  const storedRoads = useCityStore((s) => s.city?.roads);
+  const tier = settlement ?? storedTier ?? "city";
+  const network = roads ?? storedRoads;
   const plan = useMemo(
-    () => planBuildings(buildings, { litShare: atmosphere.litWindowShare }),
-    [buildings, atmosphere.litWindowShare],
+    () =>
+      planBuildings(buildings, {
+        litShare: atmosphere.litWindowShare,
+        settlement: tier,
+        roads: network,
+      }),
+    [buildings, atmosphere.litWindowShare, tier, network],
   );
   const blockProps = useMemo(
     () => plan.props.filter((prop) => PROP_MESH[prop.kind] === "block"),
@@ -347,7 +420,7 @@ export default function Buildings({
     <group>
       {plan.groups.map((group) => (
         <ArchetypeInstances
-          key={group.archetype}
+          key={group.model}
           plan={plan}
           group={group}
           atmosphere={atmosphere}
