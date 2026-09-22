@@ -130,3 +130,19 @@ describe("revealScale", () => {
     expect(revealEnd([])).toBe(REVEAL_MS);
   });
 });
+
+describe("windowBands share", () => {
+  const block = Array.from({ length: 40 }, (_, i) => building(`b-${i}`, 1, 12));
+
+  it("keeps every band at full share", () => {
+    expect(windowBands(block, 600, 1).length).toBe(windowBands(block).length);
+  });
+
+  it("lights fewer windows as the share drops, and always the same ones", () => {
+    const dim = windowBands(block, 600, 0.35);
+    const lit = windowBands(block, 600, 1);
+    expect(dim.length).toBeLessThan(lit.length);
+    expect(dim.length).toBeGreaterThan(0);
+    expect(windowBands(block, 600, 0.35)).toEqual(dim);
+  });
+});

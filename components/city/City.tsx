@@ -23,12 +23,20 @@ import Roads from "./Roads";
 import SelectionRing from "./SelectionRing";
 import Terrain from "./Terrain";
 import Traffic from "./Traffic";
+import { REFERENCE_ASPECT, aspectWiden } from "./entities";
 import { splitBuildings } from "./instances";
 import { atmosphere as buildAtmosphere } from "./palette";
 import { revealEnd } from "./reveal";
 import { RevealContext, useRevealTicker } from "./useReveal";
 
-export default function City({ city }: { city: CityModel }) {
+export default function City({
+  city,
+  aspect = REFERENCE_ASPECT,
+}: {
+  city: CityModel;
+  /** Canvas width over height: a narrow viewport watches from further back. */
+  aspect?: number;
+}) {
   const atmosphere = useMemo(
     () => buildAtmosphere(city.ambience, city.repository.archived),
     [city],
@@ -53,6 +61,27 @@ export default function City({ city }: { city: CityModel }) {
   );
 
   const size = city.bounds.size;
+  // The overview pulls back on a narrow screen, so the haze has to pull back
+  // with it or a phone shows a city behind frosted glass (PLAN.md section 39).
+  const fogReach = size * aspectWiden(aspect);
+
+  /**
+   * Where each district's label hangs. A district full of eighteen unit
+   * towers needs its name higher than a district of sheds, or the DOM label
+   * lands across a facade (PLAN.md section 8).
+   */
+  const labelHeights = useMemo(() => {
+    const tallest = new Map<string, number>();
+    for (const building of city.buildings) {
+      const top = building.position[1] + building.size[1];
+      if (top > (tallest.get(building.districtId) ?? 0)) tallest.set(building.districtId, top);
+    }
+    const heights = new Map<string, number>();
+    for (const district of city.districts) {
+      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, 12));
+    }
+    return heights;
+  }, [city]);
 
   return (
     <RevealContext.Provider value={clock}>
@@ -61,8 +90,8 @@ export default function City({ city }: { city: CityModel }) {
         attach="fog"
         args={[
           atmosphere.background,
-          size * atmosphere.fogNearFactor,
-          size * atmosphere.fogFarFactor,
+          fogReach * atmosphere.fogNearFactor,
+          fogReach * atmosphere.fogFarFactor,
         ]}
       />
 
@@ -71,7 +100,15 @@ export default function City({ city }: { city: CityModel }) {
       <Terrain size={size} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
-        <DistrictGround key={district.id} district={district} atmosphere={atmosphere} />
+        <DistrictGround
+          key={district.id}
+          district={district}
+          atmosphere={atmosphere}
+          labelY={labelHeights.get(district.id) ?? 12}
+          // The overview sits at about 1.45 times the city's side, so a label
+          // scaled off `bounds.size` reads the same in a town and a metropolis.
+          labelScale={size * 0.72}
+        />
       ))}
 
       <Roads roads={city.roads} atmosphere={atmosphere} />

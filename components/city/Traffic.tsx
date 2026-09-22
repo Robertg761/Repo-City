@@ -54,22 +54,25 @@ export default function Traffic({
     // Cap the step so a backgrounded tab does not teleport the whole fleet.
     const step = running ? Math.min(delta, 0.1) : 0;
 
-    cars.forEach((car, i) => {
+    // A plain loop, and one shared `Object3D`: nothing here allocates per
+    // frame (PLAN.md section 63).
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i];
       if (step > 0) advanceCar(graph, car, step, prng);
       const pose = carPose(graph, car);
       const visible = running ? 1 : 0;
-      scratch.position.set(pose.x, 0.42, pose.z);
+      scratch.position.set(pose.x, 0.36, pose.z);
       scratch.rotation.set(0, pose.angle, 0);
       scratch.scale.setScalar(visible);
       scratch.updateMatrix();
       body.setMatrixAt(i, scratch.matrix);
       if (cabin) {
-        scratch.position.set(pose.x, 0.86, pose.z);
-        scratch.translateZ(-0.12);
+        scratch.position.set(pose.x, 0.76, pose.z);
+        scratch.translateZ(-0.1);
         scratch.updateMatrix();
         cabin.setMatrixAt(i, scratch.matrix);
       }
-    });
+    }
 
     body.instanceMatrix.needsUpdate = true;
     if (cabin) cabin.instanceMatrix.needsUpdate = true;
@@ -106,7 +109,10 @@ export default function Traffic({
         castShadow
         frustumCulled={false}
       >
-        <boxGeometry args={[1.35, 0.6, 2.9]} />
+        {/* A car is about two thirds of a minor road's width long: the same
+            proportion a real street has, which is what keeps the fleet
+            reading as miniature rather than as toys. */}
+        <boxGeometry args={[1.2, 0.52, 2.7]} />
         <meshStandardMaterial roughness={0.5} metalness={0.05} />
       </instancedMesh>
 
@@ -116,7 +122,7 @@ export default function Traffic({
         castShadow
         frustumCulled={false}
       >
-        <boxGeometry args={[1.15, 0.52, 1.5]} />
+        <boxGeometry args={[1.02, 0.46, 1.35]} />
         <meshStandardMaterial roughness={0.35} metalness={0.05} />
       </instancedMesh>
     </group>

@@ -30,10 +30,14 @@ import {
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
+import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
-import { useRevealGroup } from "./useReveal";
+import { useRevealClock, useRevealGroup } from "./useReveal";
 
 const SITE = 11;
+
+/** Where a crane's opening sweep starts, in radians. */
+const SWING_FROM = -1.5;
 
 function Fence({ color }: { color: string }) {
   const half = SITE / 2;
@@ -63,17 +67,28 @@ function Fence({ color }: { color: string }) {
 function Crane({
   state,
   color,
+  appearAt,
 }: {
   state: ConstructionSite["state"];
   color: string;
+  /** The site's slot in the reveal, so the opening sweep lands with it. */
+  appearAt: number;
 }) {
   const jib = useRef<Group>(null);
   const moving = state === "active";
+  const revealClock = useRevealClock();
 
   useFrame(({ clock }) => {
     if (!jib.current) return;
-    // A slow sweep: noticeable over a few seconds, never distracting.
-    jib.current.rotation.y = moving ? clock.elapsedTime * 0.22 : 0.9;
+    // Construction is the last thing to arrive (PLAN.md section 43, step 7):
+    // every crane sweeps once as its site lands, which is what makes the
+    // reveal end on movement rather than on a set of frozen toys. After the
+    // sweep an active crane keeps turning slowly and the rest hold still.
+    const swing = craneSwing(performance.now(), revealClock.current, appearAt);
+    const idle = moving ? clock.elapsedTime * 0.22 : 0.9;
+    // The sweep eases from a quarter turn back into wherever the idle
+    // behaviour has reached, so it never jumps when it hands over.
+    jib.current.rotation.y = swing >= 1 ? idle : SWING_FROM + swing * (idle - SWING_FROM);
   });
 
   const lean = state === "abandoned" ? 0.09 : 0;
@@ -175,7 +190,11 @@ export default function ConstructionSitePiece({
               <meshStandardMaterial color={mix(shell, "#ffffff", 0.18)} roughness={0.95} />
             </mesh>
           ))}
-          <Crane state={site.state} color={weathered ? RUST : WARNING_ORANGE} />
+          <Crane
+            state={site.state}
+            color={weathered ? RUST : WARNING_ORANGE}
+            appearAt={site.appearAt}
+          />
           {!weathered && <Fence color={desaturate("#bdb6a4", atmosphere.desaturation)} />}
           {weathered && (
             <>

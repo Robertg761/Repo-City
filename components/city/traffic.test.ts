@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_CARS, advanceCar, carPose, nextRide, roadGraph, spawnCars } from "./traffic";
 import { prngFor } from "@/lib/city/seed";
 import type { RoadSegment } from "@/types/city";
+import { devCity } from "@/fixtures/dev.city";
 
 /** A plus-shaped junction: four arms meeting at the origin. */
 const CROSS: RoadSegment[] = [
@@ -139,5 +140,44 @@ describe("advanceCar", () => {
     advanceCar(graph, car, 1, prng);
     expect(car.t).toBeLessThan(1);
     expect(car.t).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * The generator splits its roads at every junction, so a car's whole journey
+ * is a chain of short segments. Half a minute of a full fleet on the fixture
+ * network is the cheapest way to be sure they hand off cleanly rather than
+ * drifting onto the pavement.
+ */
+describe("a fleet driving the fixture network", () => {
+  /** Half the width of the car body drawn by `Traffic.tsx`. */
+  const CAR_HALF_WIDTH = 0.6;
+
+  it("keeps every car on a road, inside its carriageway, and turning", () => {
+    const graph = roadGraph(devCity.roads);
+    const prng = prngFor(devCity.seed, "traffic");
+    const cars = spawnCars(devCity.roads, MAX_CARS, prng);
+    const visited = cars.map((car) => new Set<number>([car.segment]));
+
+    for (let frame = 0; frame < 60 * 30; frame++) {
+      cars.forEach((car, i) => {
+        advanceCar(graph, car, 1 / 60, prng);
+        visited[i].add(car.segment);
+      });
+    }
+
+    cars.forEach((car, i) => {
+      const segment = graph.segments[car.segment];
+      expect(segment).toBeDefined();
+      expect(car.t).toBeGreaterThanOrEqual(0);
+      expect(car.t).toBeLessThan(1);
+      // The lane offset plus half a car body has to fit in half a carriageway.
+      expect(car.lane + CAR_HALF_WIDTH).toBeLessThanOrEqual(segment.width / 2);
+      const pose = carPose(graph, car);
+      expect(Number.isFinite(pose.x)).toBe(true);
+      expect(Number.isFinite(pose.z)).toBe(true);
+      // Half a minute at the fixture's block size is several junctions.
+      expect(visited[i].size).toBeGreaterThan(1);
+    });
   });
 });

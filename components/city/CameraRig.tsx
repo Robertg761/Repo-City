@@ -35,7 +35,14 @@ interface FocusControls {
 const isFocusControls = (value: unknown): value is FocusControls =>
   typeof (value as FocusControls | null)?.setLookAt === "function";
 
-export default function CameraRig({ city }: { city: CityModel | null }) {
+export default function CameraRig({
+  city,
+  aspect,
+}: {
+  city: CityModel | null;
+  /** Canvas width over height: a narrow viewport frames from further back. */
+  aspect: number;
+}) {
   const controls = useThree((state) => state.controls);
   const selectedId = useCityStore((s) => s.selectedId);
   const lastCity = useRef<CityModel | null>(null);
@@ -45,7 +52,7 @@ export default function CameraRig({ city }: { city: CityModel | null }) {
 
     const size = city?.bounds.size ?? 120;
     const focus = city && selectedId ? focusTargetFor(city, selectedId) : null;
-    const framing = focus ? inspectionFraming(focus) : overviewFraming(size);
+    const framing = focus ? inspectionFraming(focus) : overviewFraming(size, aspect);
 
     // A brand new model snaps into frame; everything after that glides.
     const isNewModel = lastCity.current !== city;
@@ -60,7 +67,7 @@ export default function CameraRig({ city }: { city: CityModel | null }) {
       framing.target[2],
       !isNewModel,
     );
-  }, [controls, city, selectedId]);
+  }, [controls, city, selectedId, aspect]);
 
   return null;
 }

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_DISTANCE,
   MIN_DISTANCE,
+  REFERENCE_ASPECT,
+  aspectWiden,
   districtCenter,
   focusTargetFor,
   inspectionFraming,
@@ -110,7 +112,9 @@ describe("the dev fixture", () => {
     expect(devCity.districts).toHaveLength(4);
     expect(devCity.buildings.length).toBeGreaterThanOrEqual(55);
     expect(devCity.buildings.length).toBeLessThanOrEqual(70);
-    expect(devCity.landmarks).toHaveLength(5);
+    // Five landmark types, plus the row of power stations that carries the
+    // CI states the main plant does not show.
+    expect(devCity.landmarks).toHaveLength(9);
     expect(devCity.vehicles.count).toBe(12);
   });
 
@@ -122,13 +126,21 @@ describe("the dev fixture", () => {
   });
 
   it("covers every landmark type", () => {
-    expect(devCity.landmarks.map((l) => l.landmarkType).sort()).toEqual([
+    expect([...new Set(devCity.landmarks.map((l) => l.landmarkType))].sort()).toEqual([
       "civic",
       "fire",
       "info",
       "power",
       "station",
     ]);
+  });
+
+  it("covers every CI state the power station can be in", () => {
+    const states = devCity.landmarks
+      .filter((l) => l.landmarkType === "power")
+      .map((l) => l.state)
+      .sort();
+    expect(states).toEqual(["failing", "healthy", "none", "recent-failure", "unknown"]);
   });
 
   it("has landmark-file buildings for the civic look", () => {
@@ -193,5 +205,27 @@ describe("the dev fixture", () => {
     expect(Math.max(...devCity.incidents.map((i) => i.appearAt))).toBeLessThan(minSite);
     // Section 43: the whole reveal lands in two to four seconds.
     expect(Math.max(...devCity.constructionSites.map((c) => c.appearAt))).toBeLessThan(3400);
+  });
+});
+
+describe("narrow viewports", () => {
+  it("leaves a desktop-shaped canvas exactly where it was", () => {
+    expect(aspectWiden(REFERENCE_ASPECT)).toBe(1);
+    expect(aspectWiden(16 / 9)).toBe(1);
+    expect(overviewFraming(128, 16 / 9)).toEqual(overviewFraming(128));
+  });
+
+  it("frames from further back on a phone held upright, inside the cap", () => {
+    const phone = overviewFraming(128, 430 / 900);
+    const desktop = overviewFraming(128);
+    const back = distance(phone.position, phone.target);
+    expect(back).toBeGreaterThan(distance(desktop.position, desktop.target));
+    expect(back).toBeLessThanOrEqual(maxCameraDistance(128, 430 / 900));
+    expect(aspectWiden(430 / 900)).toBeLessThanOrEqual(2.1);
+  });
+
+  it("survives a degenerate aspect rather than flying off", () => {
+    expect(aspectWiden(0)).toBe(1);
+    expect(aspectWiden(Number.NaN)).toBe(1);
   });
 });
