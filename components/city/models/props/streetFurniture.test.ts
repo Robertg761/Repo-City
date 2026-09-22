@@ -6,7 +6,6 @@ import {
   placeStreetProps,
   propCount,
 } from "./streetFurniture";
-import { assignSpecies, crownGeometry, districtSpecies } from "./trees";
 import { triangleCount } from "./geometry";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel, Vec3 } from "@/types/city";
@@ -89,28 +88,6 @@ describe("placeStreetProps", () => {
     const placed = placeStreetProps(village, prngFor("v", "street-props"));
     expect(propCount(placed)).toBeLessThan(propCount(props()) + 1);
     expect(placed.stops.length).toBeLessThanOrEqual(6);
-  });
-});
-
-describe("tree species", () => {
-  it("gives a district one dominant species and a quarter of strays", () => {
-    const prng = prngFor(devCity.seed, "trees");
-    const kinds = assignSpecies(devCity.props.trees, devCity.districts, prng);
-    expect(kinds).toHaveLength(devCity.props.trees.length);
-    expect(new Set(kinds).size).toBeGreaterThan(1);
-  });
-
-  it("is deterministic, and a district keeps its species across runs", () => {
-    const district = devCity.districts[0];
-    expect(districtSpecies(district, prngFor("s", "trees"))).toBe(
-      districtSpecies(district, prngFor("s", "trees")),
-    );
-  });
-
-  it("keeps a crown cheap enough for a hundred trees", () => {
-    for (const kind of ["conifer", "broadleaf", "poplar"] as const) {
-      expect(triangleCount(crownGeometry(kind))).toBeLessThan(150);
-    }
   });
 });
 

@@ -2,7 +2,7 @@
 
 /**
  * Cosmetic props (PLAN.md sections 36 stage 8, 37, 38): up to a hundred trees
- * of three species, a run of street lamps, and up to 150 small things --
+ * of four species, swaying a little, a run of street lamps, and up to 150 small things --
  * benches, bins, bus stops, bushes, flower beds and parked cars -- placed
  * along the roads and around the parks.
  *
@@ -17,16 +17,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, Object3D, type InstancedMesh } from "three";
 import { prngFor } from "@/lib/city/seed";
-import type { CityModel, Vec3 } from "@/types/city";
-import {
-  LAMP_POST,
-  TREE_LEAF,
-  TREE_TRUNK,
-  WINDOW_COLOR,
-  desaturate,
-  mix,
-  type SceneAtmosphere,
-} from "./palette";
+import type { CityModel } from "@/types/city";
+import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import {
   furnitureGeometry,
@@ -35,13 +27,13 @@ import {
   type ParkedVehicle,
   type PlacedProp,
 } from "./models/props/streetFurniture";
+import { WIND_CLOCK, tintedMaterial } from "./models/props/material";
 import {
-  SPECIES_SCALE,
+  SWAY_AMOUNT,
+  SWAY_BASE,
   TREE_SPECIES,
-  assignSpecies,
-  crownGeometry,
-  trunkGeometry,
-  type TreeSpecies,
+  planTrees,
+  treeGeometry,
 } from "./models/props/trees";
 import { revealScale } from "./reveal";
 import { useRevealClock } from "./useReveal";
@@ -49,7 +41,6 @@ import { useRevealClock } from "./useReveal";
 const scratch = new Object3D();
 const scratchColor = new Color();
 
-const TREE_CAP = 100;
 const LAMP_CAP = 120;
 
 /**
@@ -64,15 +55,11 @@ const LAMP_HEIGHT = 2.7;
 /** The kinds of furniture, in the order their meshes are declared. */
 const FURNITURE: readonly FurnitureKind[] = ["bench", "bin", "stop", "bush", "bed"];
 
-interface TreeInstance {
-  position: Vec3;
-  scale: number;
-  rotation: number;
-  appearAt: number;
-  species: TreeSpecies;
-  /** Seeded leaf tint, multiplied into the crown's baked shading. */
-  tint: string;
-}
+/** A viewer who asked the system for less motion gets still trees. */
+const prefersStill = (): boolean =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export default function Props({
   city,
@@ -81,8 +68,7 @@ export default function Props({
   city: CityModel;
   atmosphere: SceneAtmosphere;
 }) {
-  const trunkRef = useRef<InstancedMesh>(null);
-  const crownRefs = useRef<(InstancedMesh | null)[]>([]);
+  const treeRefs = useRef<(InstancedMesh | null)[]>([]);
   const poleRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
   const furnitureRefs = useRef<(InstancedMesh | null)[]>([]);
@@ -91,22 +77,7 @@ export default function Props({
   const settled = useRef(false);
 
   const { trees, species } = useMemo(() => {
-    const prng = prngFor(city.seed, "trees");
-    const positions = city.props.trees.slice(0, TREE_CAP);
-    const kinds = assignSpecies(positions, city.districts, prng);
-    const list = positions.map<TreeInstance>((position, i) => {
-      const kind = kinds[i];
-      const [low, high] = SPECIES_SCALE[kind];
-      return {
-        position,
-        scale: prng.range(low, high),
-        rotation: prng.range(0, Math.PI),
-        appearAt: 700 + i * 12,
-        species: kind,
-        // A wood is never one green: each tree leans a little warm or cool.
-        tint: mix(TREE_LEAF, prng.next() < 0.5 ? "#9db070" : "#5f8f63", prng.range(0, 0.55)),
-      };
-    });
+    const list = planTrees(city.props.trees, city.districts, prngFor(city.seed, "trees"));
     return {
       trees: list,
       species: TREE_SPECIES.map((kind) => ({
@@ -115,6 +86,29 @@ export default function Props({
       })).filter((group) => group.trees.length > 0),
     };
   }, [city]);
+
+  // The wind: one clock uniform (`WIND_CLOCK`) shared by every tree. The
+  // material is built once and kept; only the uniform moves per frame.
+  const treeMaterial = useMemo(
+    () =>
+      tintedMaterial(
+        { roughness: 1, flatShading: true },
+        { time: WIND_CLOCK, amount: prefersStill() ? 0 : SWAY_AMOUNT, base: SWAY_BASE },
+      ),
+    [],
+  );
+  const parkedMaterial = useMemo(() => tintedMaterial({ roughness: 0.55, metalness: 0.08 }), []);
+  useEffect(
+    () => () => {
+      treeMaterial.dispose();
+      parkedMaterial.dispose();
+    },
+    [treeMaterial, parkedMaterial],
+  );
+
+  useFrame(({ clock: sceneClock }) => {
+    WIND_CLOCK.value = sceneClock.elapsedTime;
+  });
 
   const lamps = useMemo(() => city.props.lamps.slice(0, LAMP_CAP), [city]);
 
@@ -146,35 +140,21 @@ export default function Props({
     const now = performance.now();
     let done = true;
 
-    const trunk = trunkRef.current;
-    if (trunk) {
-      trees.forEach((tree, i) => {
-        const grow = revealScale(now, clock.current, tree.appearAt);
-        if (grow < 1) done = false;
-        const s = tree.scale * grow;
-        scratch.rotation.set(0, tree.rotation, 0);
-        scratch.position.set(tree.position[0], 0, tree.position[2]);
-        scratch.scale.setScalar(s);
-        scratch.updateMatrix();
-        trunk.setMatrixAt(i, scratch.matrix);
-      });
-      trunk.instanceMatrix.needsUpdate = true;
-    }
-
     species.forEach((group, g) => {
-      const crown = crownRefs.current[g];
-      if (!crown) return;
+      const mesh = treeRefs.current[g];
+      if (!mesh) return;
       group.trees.forEach((index, slot) => {
         const tree = trees[index];
-        const grow = revealScale(now, clock.current, tree.appearAt);
+        const grow = revealScale(now, clock.current, 700 + index * 12);
         if (grow < 1) done = false;
+        const size = tree.scale * grow;
         scratch.rotation.set(0, tree.rotation, 0);
         scratch.position.set(tree.position[0], 0, tree.position[2]);
-        scratch.scale.setScalar(tree.scale * grow);
+        scratch.scale.set(size, size * tree.stretch, size);
         scratch.updateMatrix();
-        crown.setMatrixAt(slot, scratch.matrix);
+        mesh.setMatrixAt(slot, scratch.matrix);
       });
-      crown.instanceMatrix.needsUpdate = true;
+      mesh.instanceMatrix.needsUpdate = true;
     });
 
     const pole = poleRef.current;
@@ -231,15 +211,17 @@ export default function Props({
     if (done) settled.current = true;
   });
 
+  // A new city, or a new tone -- which rebuilds the tone-keyed geometries and
+  // with them the meshes -- has to lay every instance out again.
   useEffect(() => {
     settled.current = false;
-  }, [city]);
+  }, [city, atmosphere.desaturation]);
 
   // Per-instance colour: the crowns carry their seeded leaf tint, the parked
   // cars their paint. Everything else is coloured in its merged geometry.
   useEffect(() => {
     species.forEach((group, g) => {
-      const mesh = crownRefs.current[g];
+      const mesh = treeRefs.current[g];
       if (!mesh) return;
       group.trees.forEach((index, slot) => {
         scratchColor.set(desaturate(trees[index].tint, atmosphere.desaturation));
@@ -262,35 +244,23 @@ export default function Props({
 
   return (
     <group>
-      {trees.length > 0 && (
-        <>
-          <instancedMesh
-            ref={trunkRef}
-            args={[trunkGeometry(), undefined, trees.length]}
-            castShadow
-            frustumCulled={false}
-          >
-            <meshStandardMaterial
-              color={desaturate(TREE_TRUNK, atmosphere.desaturation)}
-              roughness={0.95}
-              vertexColors
-            />
-          </instancedMesh>
-          {species.map((group, g) => (
-            <instancedMesh
-              key={group.kind}
-              ref={(mesh) => {
-                crownRefs.current[g] = mesh;
-              }}
-              args={[crownGeometry(group.kind), undefined, group.trees.length]}
-              castShadow
-              frustumCulled={false}
-            >
-              <meshStandardMaterial roughness={1} flatShading vertexColors />
-            </instancedMesh>
-          ))}
-        </>
-      )}
+      {species.map((group, g) => (
+        <instancedMesh
+          key={group.kind}
+          ref={(mesh) => {
+            treeRefs.current[g] = mesh;
+          }}
+          args={[
+            treeGeometry(group.kind, atmosphere.desaturation),
+            undefined,
+            group.trees.length,
+          ]}
+          castShadow
+          frustumCulled={false}
+        >
+          <primitive object={treeMaterial} attach="material" />
+        </instancedMesh>
+      ))}
 
       {lamps.length > 0 && (
         <>
@@ -350,7 +320,7 @@ export default function Props({
           castShadow
           frustumCulled={false}
         >
-          <meshStandardMaterial roughness={0.55} metalness={0.08} vertexColors />
+          <primitive object={parkedMaterial} attach="material" />
         </instancedMesh>
       ))}
     </group>
