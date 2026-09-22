@@ -3,16 +3,22 @@
 /**
  * Pull requests as construction (PLAN.md section 13). Four states:
  *
- *   active     crane with a slowly rotating jib, fenced site, partial building
- *   slow       the same site with the crane idle
- *   abandoned  weathered, unfenced, the crane stopped and leaning
- *   completed  a finished building with a clean highlight
+ *   active     crane with a slowly rotating jib, scaffolding, a mixer, an
+ *              excavator, stacked materials, a hut and a crew in yellow
+ *   slow       the same site with one worker left and the crane idle
+ *   abandoned  weathered, unfenced, the crane stopped and leaning, weeds
+ *              through the hardstanding and a sign nobody took away
+ *   completed  a finished building, a swept forecourt and a ribbon
  *
- * At most eight of these, so plain meshes with their own handlers.
+ * At most eight of these, so they are plain meshes with their own handlers.
  *
  * The assembly is modelled on an eleven unit square plot; `site.size` is the
  * plot the generator actually cleared for it, and the whole thing is scaled
  * uniformly into that, so a crane never grows through the building next door.
+ *
+ * COST. The dressing is one merged geometry per state and tone
+ * (`models/props/constructionDecor.ts`) and the crane is two more -- tower and
+ * jib -- so a site is about six draw calls however much is going on inside it.
  */
 
 import { useRef } from "react";
@@ -20,57 +26,34 @@ import { useFrame } from "@react-three/fiber";
 import type { Group } from "three";
 import type { ConstructionSite } from "@/types/city";
 import {
-  CONCRETE,
   HIGHLIGHT,
-  RUST,
-  WARNING_ORANGE,
   WINDOW_COLOR,
   desaturate,
   mix,
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
+import {
+  SHELL_HEIGHT,
+  SITE,
+  constructionDecor,
+  craneJibGeometry,
+  craneMastGeometry,
+} from "./models/props/constructionDecor";
 import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
 
-const SITE = 11;
-
 /** Where a crane's opening sweep starts, in radians. */
 const SWING_FROM = -1.5;
 
-function Fence({ color }: { color: string }) {
-  const half = SITE / 2;
-  return (
-    <group>
-      {[
-        [0, half, 0],
-        [0, -half, 0],
-        [half, 0, Math.PI / 2],
-        [-half, 0, Math.PI / 2],
-      ].map(([x, z, rotation], i) => (
-        <group key={i} position={[x, 0, z]} rotation-y={rotation}>
-          <mesh position-y={0.95} castShadow>
-            <boxGeometry args={[SITE, 1.5, 0.12]} />
-            <meshStandardMaterial color={color} roughness={0.8} />
-          </mesh>
-          <mesh position-y={1.78}>
-            <boxGeometry args={[SITE, 0.16, 0.16]} />
-            <meshStandardMaterial color={WARNING_ORANGE} roughness={0.7} />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
 function Crane({
   state,
-  color,
+  atmosphere,
   appearAt,
 }: {
   state: ConstructionSite["state"];
-  color: string;
+  atmosphere: SceneAtmosphere;
   /** The site's slot in the reveal, so the opening sweep lands with it. */
   appearAt: number;
 }) {
@@ -92,35 +75,15 @@ function Crane({
   });
 
   const lean = state === "abandoned" ? 0.09 : 0;
-  const mast = desaturate(state === "abandoned" ? RUST : "#e0b750", 0.15);
 
   return (
     <group position={[-SITE * 0.32, 0, -SITE * 0.3]} rotation-z={lean}>
-      <mesh position-y={0.3} receiveShadow>
-        <boxGeometry args={[2.4, 0.6, 2.4]} />
-        <meshStandardMaterial color={CONCRETE} roughness={0.95} />
+      <mesh geometry={craneMastGeometry(state, atmosphere.desaturation)} castShadow receiveShadow>
+        <meshStandardMaterial vertexColors roughness={0.6} metalness={0.15} />
       </mesh>
-      <mesh position-y={6.6} castShadow>
-        <boxGeometry args={[0.55, 12, 0.55]} />
-        <meshStandardMaterial color={mast} roughness={0.6} metalness={0.15} />
-      </mesh>
-
       <group ref={jib} position={[0, 12.6, 0]}>
-        <mesh position={[2.6, 0, 0]} castShadow>
-          <boxGeometry args={[9, 0.42, 0.42]} />
-          <meshStandardMaterial color={mast} roughness={0.6} metalness={0.15} />
-        </mesh>
-        <mesh position={[-2.2, 0, 0]} castShadow>
-          <boxGeometry args={[2.4, 0.7, 0.7]} />
-          <meshStandardMaterial color={mix(mast, "#000000", 0.35)} roughness={0.7} />
-        </mesh>
-        <mesh position={[5.4, -1.4, 0]}>
-          <boxGeometry args={[0.07, 2.8, 0.07]} />
-          <meshStandardMaterial color="#6f7270" />
-        </mesh>
-        <mesh position={[5.4, -3, 0]} castShadow>
-          <boxGeometry args={[0.9, 0.5, 0.9]} />
-          <meshStandardMaterial color={color} roughness={0.7} />
+        <mesh geometry={craneJibGeometry(state, atmosphere.desaturation)} castShadow>
+          <meshStandardMaterial vertexColors roughness={0.6} metalness={0.15} />
         </mesh>
       </group>
     </group>
@@ -143,80 +106,70 @@ export default function ConstructionSitePiece({
 
   const done = site.state === "completed";
   const weathered = site.state === "abandoned";
-  const shellHeight = done ? 8.5 : site.state === "active" ? 5.4 : site.state === "slow" ? 4.2 : 3.4;
+  const shellHeight = SHELL_HEIGHT[site.state];
   const shell = stateTint(
-    desaturate(done ? "#ecdfcb" : weathered ? mix(CONCRETE, RUST, 0.35) : CONCRETE, atmosphere.desaturation),
+    desaturate(
+      done ? "#ecdfcb" : weathered ? mix("#cfcabd", "#9a7b5f", 0.35) : "#cfcabd",
+      atmosphere.desaturation,
+    ),
     hovered,
     selected,
   );
   const ground = desaturate(weathered ? "#8f8a7c" : "#a89f8c", atmosphere.desaturation);
+  // The dressing carries its own colours; hover and selection multiply them,
+  // at half strength so a site never turns into a gold model of itself.
+  const tint = mix("#ffffff", stateTint("#ffffff", hovered, selected), 0.5);
 
   return (
     <group ref={reveal} position={site.position} rotation-y={site.rotationY} {...handlers}>
       <group scale={fit}>
-      <mesh rotation-x={-Math.PI / 2} position-y={0.05} receiveShadow>
-        <planeGeometry args={[SITE, SITE]} />
-        <meshStandardMaterial color={ground} roughness={1} />
-      </mesh>
+        <mesh rotation-x={-Math.PI / 2} position-y={0.05} receiveShadow>
+          <planeGeometry args={[SITE, SITE]} />
+          <meshStandardMaterial color={ground} roughness={1} />
+        </mesh>
 
-      {/* The structure under construction, or the finished one. */}
-      <mesh position={[SITE * 0.12, shellHeight / 2, SITE * 0.1]} castShadow receiveShadow>
-        <boxGeometry args={[5.4, shellHeight, 5.4]} />
-        <meshStandardMaterial color={shell} roughness={done ? 0.7 : 0.95} />
-      </mesh>
+        {/* The structure under construction, or the finished one. */}
+        <mesh position={[SITE * 0.12, shellHeight / 2, SITE * 0.1]} castShadow receiveShadow>
+          <boxGeometry args={[5.4, shellHeight, 5.4]} />
+          <meshStandardMaterial color={shell} roughness={done ? 0.7 : 0.95} />
+        </mesh>
 
-      {done ? (
-        <>
-          <mesh position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}>
-            <boxGeometry args={[5.46, 0.34, 5.46]} />
-            <meshStandardMaterial
-              color={WINDOW_COLOR}
-              emissive={WINDOW_COLOR}
-              emissiveIntensity={0.3 + atmosphere.windowGlow}
-              toneMapped={false}
-            />
-          </mesh>
-          <mesh rotation-x={-Math.PI / 2} position-y={0.08}>
-            <ringGeometry args={[SITE * 0.38, SITE * 0.41, 40]} />
-            <meshBasicMaterial color={HIGHLIGHT} transparent opacity={0.35} toneMapped={false} />
-          </mesh>
-        </>
-      ) : (
-        <>
-          {/* Exposed floor slabs read as "unfinished" from a distance. */}
-          {[0.45, 0.78].map((f) => (
-            <mesh key={f} position={[SITE * 0.12, shellHeight * f, SITE * 0.1]}>
-              <boxGeometry args={[5.8, 0.18, 5.8]} />
-              <meshStandardMaterial color={mix(shell, "#ffffff", 0.18)} roughness={0.95} />
+        <mesh
+          geometry={constructionDecor(site.state, atmosphere.desaturation)}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial vertexColors color={tint} roughness={0.85} />
+        </mesh>
+
+        {done ? (
+          <>
+            <mesh position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}>
+              <boxGeometry args={[5.46, 0.34, 5.46]} />
+              <meshStandardMaterial
+                color={WINDOW_COLOR}
+                emissive={WINDOW_COLOR}
+                emissiveIntensity={0.3 + atmosphere.windowGlow}
+                toneMapped={false}
+              />
             </mesh>
-          ))}
-          <Crane
-            state={site.state}
-            color={weathered ? RUST : WARNING_ORANGE}
-            appearAt={site.appearAt}
-          />
-          {!weathered && <Fence color={desaturate("#bdb6a4", atmosphere.desaturation)} />}
-          {weathered && (
-            <>
-              {[
-                [-3.4, 2.8],
-                [3.6, -3.6],
-                [2.2, 3.9],
-              ].map(([x, z], i) => (
-                <mesh key={i} position={[x, 0.28, z]} rotation-y={i * 0.7} castShadow>
-                  <coneGeometry args={[0.28, 0.56, 5]} />
-                  <meshStandardMaterial color="#8d9a6a" roughness={1} />
-                </mesh>
-              ))}
-            </>
-          )}
-          {/* Stacked materials on the site. */}
-          <mesh position={[-3.6, 0.4, 3.4]} rotation-y={0.4} castShadow>
-            <boxGeometry args={[2.4, 0.8, 1.4]} />
-            <meshStandardMaterial color={desaturate(weathered ? RUST : "#b59a6f", 0.1)} roughness={0.9} />
-          </mesh>
-        </>
-      )}
+            <mesh rotation-x={-Math.PI / 2} position-y={0.08}>
+              <ringGeometry args={[SITE * 0.38, SITE * 0.41, 40]} />
+              <meshBasicMaterial color={HIGHLIGHT} transparent opacity={0.35} toneMapped={false} />
+            </mesh>
+          </>
+        ) : (
+          <>
+            {/* Exposed floor slabs read as "unfinished" from a distance. */}
+            {[0.45, 0.78].map((f) => (
+              <mesh key={f} position={[SITE * 0.12, shellHeight * f, SITE * 0.1]}>
+                <boxGeometry args={[5.8, 0.18, 5.8]} />
+                <meshStandardMaterial color={mix(shell, "#ffffff", 0.18)} roughness={0.95} />
+              </mesh>
+            ))}
+            <Crane state={site.state} atmosphere={atmosphere} appearAt={site.appearAt} />
+          </>
+        )}
       </group>
     </group>
   );
