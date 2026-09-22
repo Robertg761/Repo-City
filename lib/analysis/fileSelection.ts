@@ -1,7 +1,9 @@
 /**
  * Building selection (PLAN.md section 9).
  *
- * Turns a pruned tree into at most 300 `BuildingPlan`s. Granularity adapts:
+ * Turns a pruned tree into at most `max` `BuildingPlan`s, where the budget is
+ * the settlement tier's (PLAN.md 76.5: a village 6 to 40, a town 30 to 120, a
+ * city 75 to 300, a metropolis 300 to 450). Granularity adapts:
  * a building is a file in a small repository and a folder in a large one, and
  * `kind` records which so the inspector can say so.
  *
@@ -25,8 +27,14 @@ import {
   segments,
 } from "./tree";
 
-/** PLAN.md sections 9 and 37: "Suggested maximum: 300 buildings". */
+/**
+ * PLAN.md sections 9 and 37: "Suggested maximum: 300 buildings". This is the
+ * city tier's budget and the default when no budget is passed.
+ */
 export const MAX_BUILDINGS = 300;
+
+/** PLAN.md 76.5: the absolute cap, the metropolis budget. No budget exceeds it. */
+export const BUILDING_CAP = 450;
 
 /** PLAN.md section 9 step 4: no district renders empty. */
 export const MIN_PER_DISTRICT = 4;
@@ -34,14 +42,25 @@ export const MIN_PER_DISTRICT = 4;
 /** PLAN.md section 9 step 2: file level first, then directories at 3, then 2. */
 const GRANULARITY_LEVELS = [MAX_DEPTH, 3, 2];
 
-/** Below this many candidates a coarser level makes the city look deserted. */
+/**
+ * Below this many candidates a coarser level makes the city look deserted.
+ * The city tier's floor and the default; each settlement tier has its own.
+ */
 export const MIN_CANDIDATES = 75;
 
 export interface FileSelectionOptions {
   /** README text; paths it mentions earn a bonus (PLAN.md section 9 step 3). */
   readme?: string;
-  /** Hard cap on buildings. Defaults to `MAX_BUILDINGS`, never exceeds it. */
+  /**
+   * The keep-the-finer-granularity floor: a coarser level with fewer
+   * candidates than this is passed over for the finer one, trimmed to `max`.
+   * Defaults to `MIN_CANDIDATES`.
+   */
+  min?: number;
+  /** Hard cap on buildings. Defaults to `MAX_BUILDINGS`, never exceeds `BUILDING_CAP`. */
   max?: number;
+  /** Share of the buildings per tier. Defaults to `TIER_SHARES`, the city's. */
+  shares?: TierShares;
 }
 
 interface Candidate {
@@ -118,13 +137,18 @@ function scoreCandidate(
  */
 export const TIER_SHARES = { 5: 0.05, 4: 0.1, 3: 0.15, 2: 0.25, 1: 0.45 } as const;
 
+/** A tier-share table: the city's above, or a settlement tier's (PLAN.md 76.5). */
+export type TierShares = Readonly<Record<BuildingTier, number>>;
+
 /** Cumulative share of the buildings at or above each tier, tallest first. */
-const CUMULATIVE = [
-  TIER_SHARES[5],
-  TIER_SHARES[5] + TIER_SHARES[4],
-  TIER_SHARES[5] + TIER_SHARES[4] + TIER_SHARES[3],
-  TIER_SHARES[5] + TIER_SHARES[4] + TIER_SHARES[3] + TIER_SHARES[2],
-] as const;
+function cumulative(shares: TierShares): [number, number, number, number] {
+  return [
+    shares[5],
+    shares[5] + shares[4],
+    shares[5] + shares[4] + shares[3],
+    shares[5] + shares[4] + shares[3] + shares[2],
+  ];
+}
 
 /**
  * Smallest tier 5 count. A city of twenty or more buildings always gets at
@@ -144,8 +168,12 @@ function minTallest(total: number): number {
  * big enough to fill it, and each tier has to be at least as populous as the
  * one above, so the counts always form a pyramid rather than an hourglass.
  */
-export function tierCuts(total: number): [number, number, number, number] {
+export function tierCuts(
+  total: number,
+  shares: TierShares = TIER_SHARES,
+): [number, number, number, number] {
   if (total <= 0) return [0, 0, 0, 0];
+  const targets = cumulative(shares);
   const cuts: number[] = [];
   const minimums = [minTallest(total), 6, 10, 14];
   for (let i = 0; i < 4; i++) {
@@ -153,7 +181,7 @@ export function tierCuts(total: number): [number, number, number, number] {
     const gap = i === 0 ? minimums[0] : above + (total >= minimums[i] ? 1 : 0);
     // Pyramid: this tier holds at least as many as the one above it.
     const pyramid = i === 0 ? 0 : above + (above - (i >= 2 ? cuts[i - 2] : 0));
-    cuts.push(Math.max(gap, pyramid, Math.round(CUMULATIVE[i] * total)));
+    cuts.push(Math.max(gap, pyramid, Math.round(targets[i] * total)));
   }
   // Clamp back down from the bottom so the cuts stay inside the city.
   cuts[3] = Math.min(cuts[3], total);
@@ -165,9 +193,13 @@ export function tierCuts(total: number): [number, number, number, number] {
  * Tier from score rank (PLAN.md section 9 step 5). Rank 0 is the tallest.
  * Root landmark files are ranked separately: see `LANDMARK_TIER`.
  */
-export function tierForRank(rank: number, total: number): BuildingTier {
+export function tierForRank(
+  rank: number,
+  total: number,
+  shares: TierShares = TIER_SHARES,
+): BuildingTier {
   if (total <= 1) return 5;
-  const [c5, c4, c3, c2] = tierCuts(total);
+  const [c5, c4, c3, c2] = tierCuts(total, shares);
   if (rank < c5) return 5;
   if (rank < c4) return 4;
   if (rank < c3) return 3;
@@ -241,7 +273,9 @@ export function selectBuildings(
   districts: readonly DistrictPlan[],
   options: FileSelectionOptions = {},
 ): BuildingPlan[] {
-  const max = Math.min(options.max ?? MAX_BUILDINGS, MAX_BUILDINGS);
+  const max = Math.max(1, Math.min(options.max ?? MAX_BUILDINGS, BUILDING_CAP));
+  const min = Math.min(options.min ?? MIN_CANDIDATES, max);
+  const shares = options.shares ?? TIER_SHARES;
   const blobs = blobsOf(entries);
   if (blobs.length === 0 || districts.length === 0) return [];
 
@@ -249,13 +283,13 @@ export function selectBuildings(
 
   // Step 2: the finest granularity whose candidate count fits the cap. If a
   // coarser level would leave the city under-built, keep the finer set and let
-  // the cap below trim it to 300 instead.
+  // the cap below trim it to `max` instead.
   let candidates: Candidate[] | null = null;
   let finer: Candidate[] | null = null;
   for (const level of GRANULARITY_LEVELS) {
     const set = buildCandidates(blobs, districts, level, mentioned);
     if (set.length <= max) {
-      candidates = set.length < MIN_CANDIDATES && finer ? finer : set;
+      candidates = set.length < min && finer ? finer : set;
       break;
     }
     finer = set;
@@ -285,7 +319,7 @@ export function selectBuildings(
     score: round(candidate.score, 2),
     tier: candidate.landmark
       ? LANDMARK_TIER[candidate.landmark]
-      : tierForRank(rankOf.get(candidate) ?? 0, ranked),
+      : tierForRank(rankOf.get(candidate) ?? 0, ranked, shares),
     descendantCount: candidate.descendantCount,
     language: candidate.language,
     role: null,

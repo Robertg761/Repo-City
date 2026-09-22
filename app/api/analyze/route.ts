@@ -23,6 +23,10 @@ import type { NextRequest } from "next/server";
 import { getInterpreter } from "@/lib/ai";
 import { analyzeSnapshot } from "@/lib/analysis/analyze";
 import { getCachedAnalysis, setCachedAnalysis } from "@/lib/cache";
+// Whole-request budget (45 s under `maxDuration = 60`, leaving room to still
+// write a TIMEOUT line). The survey's page (22 s) and enrichment (30 s)
+// deadlines sit inside it; `lib/github/budgets.ts` holds all three.
+import { SURVEY_BUDGET_MS } from "@/lib/github/budgets";
 import { ERROR_COPY, LOCAL_RATE_LIMIT_MESSAGE, errorCodeOf } from "@/lib/github/errors";
 import { isFixtureFallbackEnabled, loadFixtureAnalysis } from "@/lib/github/fixtures";
 import { parseRepoUrl } from "@/lib/github/parseRepoUrl";
@@ -42,12 +46,6 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 /** The route is a live survey; it must never be prerendered or cached. */
 export const dynamic = "force-dynamic";
-
-/**
- * Whole-request budget. Under `maxDuration = 60`, this leaves room to still
- * write a TIMEOUT line instead of having the platform cut the connection.
- */
-const SURVEY_BUDGET_MS = 45_000;
 
 export async function GET(request: NextRequest): Promise<Response> {
   return handle(request, request.nextUrl.searchParams.get("repo") ?? "");
@@ -159,17 +157,13 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, note: string): void {
       status: "done",
       detail: `${analysis.repo?.fullName ?? ""} (${note})`,
     }),
-    stageLine({ id: "tree", status: "done", detail: `${count(metrics.scale?.files)} files mapped` }),
     stageLine({
-      id: "issues",
+      id: "tree",
       status: "done",
-      detail: `${count(metrics.issues?.open)} issues inspected`,
+      detail: `${count(metrics.scale?.totalFiles ?? metrics.scale?.files)} files mapped`,
     }),
-    stageLine({
-      id: "pulls",
-      status: "done",
-      detail: `${count(metrics.pulls?.open)} pull requests reviewed`,
-    }),
+    stageLine({ id: "issues", status: "done", detail: issuesReplayDetail(analysis) }),
+    stageLine({ id: "pulls", status: "done", detail: pullsReplayDetail(analysis) }),
     stageLine({ id: "ci", status: "done", detail: ciDetail(analysis) }),
     stageLine({
       id: "activity",
@@ -188,6 +182,31 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, note: string): void {
   // the health score there, and a replay must not look different.
   events.push(stageLine({ id: "done", status: "done", detail: doneDetail(analysis) }));
   for (const event of events) emit(event);
+}
+
+/**
+ * Replayed issue and pull lines. An analysis that carries real open totals
+ * (PLAN.md section 76.6) says those; an older one keeps today's sample line.
+ */
+function issuesReplayDetail(analysis: RepoAnalysis): string {
+  const issues = analysis.metrics?.issues;
+  if (typeof issues?.total === "number") {
+    return `${totalText(issues.total, analysis.totalsExact)} open issues`;
+  }
+  return `${(issues?.open ?? 0).toLocaleString("en-US")} issues inspected`;
+}
+
+function pullsReplayDetail(analysis: RepoAnalysis): string {
+  const pulls = analysis.metrics?.pulls;
+  if (typeof pulls?.total === "number") {
+    return `${totalText(pulls.total, analysis.totalsExact)} open pull requests`;
+  }
+  return `${(pulls?.open ?? 0).toLocaleString("en-US")} pull requests reviewed`;
+}
+
+function totalText(total: number, exact: boolean | undefined): string {
+  const text = total.toLocaleString("en-US");
+  return exact === false ? `about ${text}` : text;
 }
 
 /** The `done` detail, always the health score, on every path. */
