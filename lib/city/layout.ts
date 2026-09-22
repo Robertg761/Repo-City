@@ -32,7 +32,9 @@
  */
 
 import type { SettlementTier } from "@/types/analysis";
-import type { LandmarkType, RoadSegment, Vec3 } from "@/types/city";
+import type { FieldPatch, LandmarkType, RoadKind, RoadSegment, Vec3 } from "@/types/city";
+import { SETTLEMENT_PARAMS, type RoadClass } from "./settlement.ts";
+import { planVillage } from "./village.ts";
 
 /** Axis-aligned rectangle on the XZ plane. `x` and `z` are the centre. */
 export interface Rect {
@@ -60,6 +62,16 @@ export interface Slot {
    */
   facing?: number;
   maxHeight?: number;
+  /**
+   * Village houses (PLAN.md 76.5 step 5): the yaw that turns the building's
+   * front, its local +z, towards its lane. Unlike `facing` the slot is still
+   * an ordinary parking space. `cellW` and `cellD` are the lane-aligned
+   * cell's side over the square root of two, so any footprint up to them
+   * fits the cell at any rotation and any jitter inside them.
+   */
+  rotationY?: number;
+  /** Town (PLAN.md 76.5): the cell fronts the high street, so a shop goes here. */
+  frontage?: "main-street";
 }
 
 /** A tree or a lamp the layout placed itself, on the XZ plane. */
@@ -99,6 +111,22 @@ export interface CivicLayout {
   props: { trees: PropSpot[]; lamps: PropSpot[] };
 }
 
+/** Civic ground (`CityModel.plaza`, PLAN.md 76.3). */
+export interface PlazaLayout {
+  rect: Rect;
+  surface: "paved" | "setts" | "green";
+}
+
+/** Where a road leaves the settlement: the start of a way out. */
+export interface RoadExit {
+  x: number;
+  z: number;
+  /** `roadHeading` convention, `atan2(dx, dz)`, of the direction out. */
+  heading: number;
+  /** The segment that ends here. */
+  roadId: string;
+}
+
 export interface CityLayout {
   /** `CityModel.bounds.size`: side of the square centred on the origin. */
   size: number;
@@ -113,6 +141,20 @@ export interface CityLayout {
   /** Power north, fire east, info west, station south, in the band. */
   landmarkPlots: Record<Exclude<LandmarkType, "civic">, LandmarkPlot>;
   roads: RoadSegment[];
+  /**
+   * PLAN.md 76.5, all additive. The settlement this layout was planned for;
+   * absent means a city. `planHighways` reads it.
+   */
+  tier?: SettlementTier;
+  /** The civic ground for `CityModel.plaza`: paved, setts, or the village green. */
+  plaza?: PlazaLayout;
+  /** Village only: the fields for `CityModel.props.fields`. */
+  fields?: FieldPatch[];
+  /**
+   * Village only: the two ends of the main street, east then west. The
+   * highways out continue from here; with none, the overflow queue waits here.
+   */
+  exits?: RoadExit[];
 }
 
 export interface LayoutDistrictInput {
@@ -179,8 +221,9 @@ const ROW_PER_SIDE = Math.ceil(CIVIC_BUILDING_SLOTS / 2);
  * serves. The band shrinks with the district square, and the landmark plots
  * inside it shrink with the band (see `planLandmarkPlots`).
  */
-export function landmarkBandDepth(districtSide: number): number {
-  return round3(clamp(4 + 0.12 * districtSide, LANDMARK_BAND_MIN, LANDMARK_BAND_MAX));
+export function landmarkBandDepth(districtSide: number, tier: SettlementTier = "city"): number {
+  const band = gridSpec(tier).band;
+  return round3(clamp(4 + 0.12 * districtSide, band.min, band.max));
 }
 
 /**
@@ -226,22 +269,85 @@ const insetRect = (r: Rect, by: number): Rect => ({
   d: Math.max(0, r.d - 2 * by),
 });
 
+// ---------------------------------------------------------------------------
+// Per-settlement grid (PLAN.md 76.5): the town, the city and the metropolis
+// share this file's plan and differ only in these numbers. The city's are
+// exactly the constants above, which `settlement.test.ts` pins.
+// ---------------------------------------------------------------------------
+
+/** A road class with the `major` flag the traffic and the reveal read. */
+interface RoadStyle {
+  width: number;
+  major: boolean;
+  kind: RoadKind;
+}
+
+interface GridSpec {
+  tier: Exclude<SettlementTier, "village">;
+  major: RoadStyle;
+  minor: RoadStyle;
+  ring: RoadStyle;
+  block: number;
+  pitch: number;
+  side: { base: number; perRootBuilding: number; min: number; max: number };
+  band: { min: number; max: number };
+  surface: PlazaLayout["surface"];
+}
+
+const style = (road: RoadClass, major: boolean): RoadStyle => ({
+  width: road.width,
+  major,
+  kind: road.kind,
+});
+
+const SURFACE: Record<SettlementTier, PlazaLayout["surface"]> = {
+  village: "green",
+  town: "setts",
+  city: "paved",
+  metropolis: "paved",
+};
+
+/**
+ * The grid numbers for a tier. The village has no grid; asking for its spec
+ * gives the town's, which is only ever used by the size helpers below when a
+ * caller passes "village" to them.
+ */
+function gridSpec(tier: SettlementTier = "city"): GridSpec {
+  const gridTier = tier === "village" ? "town" : tier;
+  const params = SETTLEMENT_PARAMS[gridTier];
+  return {
+    tier: gridTier,
+    major: style(params.roads.major, true),
+    minor: style(params.roads.minor, false),
+    ring: style(params.ring ?? params.roads.major, true),
+    block: params.blockSide ?? TARGET_BLOCK,
+    pitch: params.slotPitch,
+    side: params.districtSide ?? SETTLEMENT_PARAMS.city.districtSide!,
+    band: params.landmarkBand ?? { min: LANDMARK_BAND_MIN, max: LANDMARK_BAND_MAX },
+    surface: SURFACE[gridTier],
+  };
+}
+
 /** Side of the square the districts and the civic centre tile. */
-export function districtSquareSide(totalBuildings: number): number {
+export function districtSquareSide(totalBuildings: number, tier: SettlementTier = "city"): number {
+  const side = gridSpec(tier).side;
   const n = clamp(totalBuildings, 1, 600);
-  return round3(clamp(40 + 7.2 * Math.sqrt(n), 56, 170));
+  return round3(clamp(side.base + side.perRootBuilding * Math.sqrt(n), side.min, side.max));
 }
 
 /**
  * Side of the world square: the district square plus the landmark band, the
  * ring road and a margin of open terrain. About 108 units for a ten-building
- * town, about 230 for a three-hundred-building metropolis.
+ * city, about 230 for a three-hundred-building one; a town and a metropolis
+ * use their own numbers (PLAN.md 76.5).
  */
-export function cityBoundsSize(totalBuildings: number): number {
-  const districtSide = districtSquareSide(totalBuildings);
+export function cityBoundsSize(totalBuildings: number, tier: SettlementTier = "city"): number {
+  const spec = gridSpec(tier);
+  const districtSide = districtSquareSide(totalBuildings, spec.tier);
   return round3(
     districtSide +
-      2 * (landmarkBandDepth(districtSide) + RING_GAP + MAJOR_HALF + OUTER_MARGIN),
+      2 *
+        (landmarkBandDepth(districtSide, spec.tier) + RING_GAP + spec.ring.width / 2 + OUTER_MARGIN),
   );
 }
 
@@ -489,6 +595,7 @@ interface RoadDraft {
   z2: number;
   width: number;
   major: boolean;
+  kind: RoadKind;
 }
 
 const EPS = 1e-6;
@@ -497,7 +604,7 @@ class RoadSet {
   private readonly seen = new Set<string>();
   private readonly drafts: RoadDraft[] = [];
 
-  add(x1: number, z1: number, x2: number, z2: number, major: boolean): void {
+  add(x1: number, z1: number, x2: number, z2: number, road: RoadStyle): void {
     const a = `${round3(x1)},${round3(z1)}`;
     const b = `${round3(x2)},${round3(z2)}`;
     if (a === b) return;
@@ -509,20 +616,21 @@ class RoadSet {
       z1: round3(z1),
       x2: round3(x2),
       z2: round3(z2),
-      width: major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH,
-      major,
+      width: road.width,
+      major: road.major,
+      kind: road.kind,
     });
   }
 
-  addRectEdges(rect: Rect, major: boolean): void {
+  addRectEdges(rect: Rect, road: RoadStyle): void {
     const x0 = rectMinX(rect);
     const x1 = rectMaxX(rect);
     const z0 = rectMinZ(rect);
     const z1 = rectMaxZ(rect);
-    this.add(x0, z0, x1, z0, major);
-    this.add(x0, z1, x1, z1, major);
-    this.add(x0, z0, x0, z1, major);
-    this.add(x1, z0, x1, z1, major);
+    this.add(x0, z0, x1, z0, road);
+    this.add(x0, z1, x1, z1, road);
+    this.add(x0, z0, x0, z1, road);
+    this.add(x1, z0, x1, z1, road);
   }
 
   /**
@@ -558,6 +666,8 @@ class RoadSet {
       appearAt: r.major
         ? spreadWindow(ROAD_REVEAL.major, index, majors)
         : spreadWindow(ROAD_REVEAL.minor, index - majors, minors),
+      // Absent means "street", which keeps a city's roads byte-identical.
+      ...(r.kind !== "street" ? { kind: r.kind } : {}),
     }));
   }
 }
@@ -642,12 +752,14 @@ function splitAtJunctions(drafts: readonly RoadDraft[]): RoadDraft[] {
  * reads as a small neighbourhood with a green around it, which is what a
  * three-file corner of a repository honestly is.
  */
-function subdivide(rect: Rect, roads: RoadSet, buildingCount: number): Rect[] {
-  const usable = insetRect(rect, MAJOR_HALF + KERB);
+function subdivide(rect: Rect, roads: RoadSet, buildingCount: number, spec: GridSpec): Rect[] {
+  const majorHalf = spec.major.width / 2;
+  const minorHalf = spec.minor.width / 2;
+  const usable = insetRect(rect, majorHalf + KERB);
   if (usable.w <= 1 || usable.d <= 1) return [];
 
-  let cols = Math.max(1, Math.round(usable.w / TARGET_BLOCK));
-  let rows = Math.max(1, Math.round(usable.d / TARGET_BLOCK));
+  let cols = Math.max(1, Math.round(usable.w / spec.block));
+  let rows = Math.max(1, Math.round(usable.d / spec.block));
   const wanted = Math.max(1, Math.ceil(Math.max(0, buildingCount) / BUILDINGS_PER_BLOCK));
   while (cols * rows > wanted && cols + rows > 2) {
     if (cols >= rows && cols > 1) cols -= 1;
@@ -663,20 +775,20 @@ function subdivide(rect: Rect, roads: RoadSet, buildingCount: number): Rect[] {
 
   for (let c = 1; c < cols; c++) {
     const x = x0 + c * cellW;
-    roads.add(x, rectMinZ(rect), x, rectMaxZ(rect), false);
+    roads.add(x, rectMinZ(rect), x, rectMaxZ(rect), spec.minor);
   }
   for (let r = 1; r < rows; r++) {
     const z = z0 + r * cellD;
-    roads.add(rectMinX(rect), z, rectMaxX(rect), z, false);
+    roads.add(rectMinX(rect), z, rectMaxX(rect), z, spec.minor);
   }
 
   const blocks: Rect[] = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
-      const left = x0 + c * cellW + (c === 0 ? 0 : MINOR_HALF + KERB);
-      const right = x0 + (c + 1) * cellW - (c === cols - 1 ? 0 : MINOR_HALF + KERB);
-      const top = z0 + r * cellD + (r === 0 ? 0 : MINOR_HALF + KERB);
-      const bottom = z0 + (r + 1) * cellD - (r === rows - 1 ? 0 : MINOR_HALF + KERB);
+      const left = x0 + c * cellW + (c === 0 ? 0 : minorHalf + KERB);
+      const right = x0 + (c + 1) * cellW - (c === cols - 1 ? 0 : minorHalf + KERB);
+      const top = z0 + r * cellD + (r === 0 ? 0 : minorHalf + KERB);
+      const bottom = z0 + (r + 1) * cellD - (r === rows - 1 ? 0 : minorHalf + KERB);
       if (right - left <= 1 || bottom - top <= 1) continue;
       blocks.push(rectFromBounds(left, top, right, bottom));
     }
@@ -717,7 +829,7 @@ function slotsForBlocks(blocks: Rect[], pitch: number): Slot[] {
  * A crowded district never drops a building (PLAN.md section 9 keeps them all):
  * its blocks are re-gridded at a tighter pitch until the buildings fit.
  */
-function planSlots(blocks: Rect[], buildingCount: number): Slot[] {
+function planSlots(blocks: Rect[], buildingCount: number, targetPitch: number): Slot[] {
   const need = Math.max(1, Math.ceil((buildingCount + 2) * 1.1));
   // One pitch for the whole city, tightened only where a district cannot fit
   // its buildings at it. Spacing the slots to fill the available ground was
@@ -725,7 +837,7 @@ function planSlots(blocks: Rect[], buildingCount: number): Slot[] {
   // even nine-unit pitch across a 149 by 52 region read as sprawl, while the
   // same thirty-five around the district centre read as a village with a green
   // around it, which is what the slot order and the park pass then deliver.
-  let pitch = TARGET_PITCH;
+  let pitch = targetPitch;
   let slots = slotsForBlocks(blocks, pitch);
   for (let guard = 0; guard < 32 && slots.length < need && pitch > 3; guard++) {
     pitch *= 0.92;
@@ -810,8 +922,8 @@ function facingHall(x: number, z: number): number {
  * there is no room north or south of the hall, so the ring degenerates into a
  * row along the band: an avenue of civic buildings rather than a ring.
  */
-function planCivic(civicRect: Rect, landmarkFiles: number): CivicLayout {
-  const plaza = insetRect(civicRect, MAJOR_HALF + KERB);
+function planCivic(civicRect: Rect, landmarkFiles: number, majorHalf = MAJOR_HALF): CivicLayout {
+  const plaza = insetRect(civicRect, majorHalf + KERB);
   const shortest = Math.max(1, Math.min(plaza.w, plaza.d));
   const longest = Math.max(1, Math.max(plaza.w, plaza.d));
   const count = clamp(Math.round(landmarkFiles), 0, CIVIC_BUILDING_SLOTS);
@@ -947,26 +1059,51 @@ function rowSpots(
 function planLandmarkPlots(
   districtSide: number,
   ringRadius: number,
+  spec?: GridSpec,
+  highStreetZ?: number,
 ): Record<Exclude<LandmarkType, "civic">, LandmarkPlot> {
   const half = districtSide / 2;
+  const edgeHalf = spec ? spec.major.width / 2 : MAJOR_HALF;
+  const ringHalf = spec ? spec.ring.width / 2 : MAJOR_HALF;
   // The clear strip runs from the outer kerb of the district square's edge
   // road to the inner kerb of the ring road.
-  const from = half + MAJOR_HALF;
-  const to = ringRadius - MAJOR_HALF;
+  const from = half + edgeHalf;
+  const to = ringRadius - ringHalf;
   const centre = round3((from + to) / 2);
   const depth = round3((to - from) * 0.94);
   // Narrow enough to leave the two spokes on this side of the city alone.
   const maxWidth = 0.5 * districtSide;
+
+  // A town's high street runs on through the band to the ring (PLAN.md 76.5),
+  // straight through where the fire station and the information centre would
+  // stand. They move along the band into the longer of the two stretches the
+  // street leaves between the spokes, and narrow to fit it.
+  let sideZ = 0;
+  let sideWidth = maxWidth;
+  if (highStreetZ !== undefined && spec) {
+    const spoke = round3(districtSide / 3);
+    const clear = edgeHalf + KERB;
+    const lo = -spoke + clear;
+    const hi = spoke - clear;
+    const cutLo = highStreetZ - clear;
+    const cutHi = highStreetZ + clear;
+    const below = [lo, Math.min(hi, cutLo)] as const;
+    const above = [Math.max(lo, cutHi), hi] as const;
+    const [a, b] = below[1] - below[0] >= above[1] - above[0] ? below : above;
+    sideZ = round3((a + b) / 2);
+    sideWidth = Math.max(1, Math.min(maxWidth, b - a));
+  }
 
   const plot = (
     type: Exclude<LandmarkType, "civic">,
     x: number,
     z: number,
     rotationY: number,
+    width = maxWidth,
   ): LandmarkPlot => {
     const [naturalW, , naturalD] = NATURAL_LANDMARK_SIZE[type];
     // Uniform: the renderer scales the assembly, it never stretches it.
-    const scale = Math.min(1, maxWidth / naturalW, depth / naturalD);
+    const scale = Math.min(1, width / naturalW, depth / naturalD);
     return {
       x,
       z,
@@ -978,8 +1115,8 @@ function planLandmarkPlots(
 
   return {
     power: plot("power", 0, -centre, 0),
-    fire: plot("fire", centre, 0, -Math.PI / 2),
-    info: plot("info", -centre, 0, Math.PI / 2),
+    fire: plot("fire", centre, sideZ, -Math.PI / 2, sideWidth),
+    info: plot("info", -centre, sideZ, Math.PI / 2, sideWidth),
     station: plot("station", 0, centre, Math.PI),
   };
 }
@@ -992,18 +1129,30 @@ function planLandmarkPlots(
  * Stages 1 to 4 of PLAN.md section 36. Deterministic and seed independent:
  * the same district ids and counts always produce the same rectangles.
  *
- * `tier` is the settlement (PLAN.md 76.5). It is accepted and not yet read:
- * every tier lays out as today's city until S3 wires `SETTLEMENT_PARAMS` in.
+ * `tier` is the settlement (PLAN.md 76.5). A village is organic and comes
+ * from `village.ts`. A town, a city and a metropolis share the grid below with
+ * their own numbers from `SETTLEMENT_PARAMS`; a city's are today's constants,
+ * so a city is byte-identical to the city before settlements existed.
+ *
+ *   town        the east-west road along the civic square's south edge,
+ *               continued to the ring, is the high street (`main: true`), and
+ *               the cells that front it carry `frontage: "main-street"`
+ *   metropolis  every arterial is an avenue, the ring is a highway
  */
 export function planLayout(
   districts: LayoutDistrictInput[],
   totalBuildings: number,
   options: { landmarkFiles?: number; tier?: SettlementTier } = {},
 ): CityLayout {
-  const size = cityBoundsSize(totalBuildings);
-  const districtSide = districtSquareSide(totalBuildings);
+  const tier = options.tier ?? "city";
+  if (tier === "village") {
+    return planVillage(districts, totalBuildings, { landmarkFiles: options.landmarkFiles });
+  }
+  const spec = gridSpec(tier);
+  const size = cityBoundsSize(totalBuildings, tier);
+  const districtSide = districtSquareSide(totalBuildings, tier);
   const half = districtSide / 2;
-  const band = landmarkBandDepth(districtSide);
+  const band = landmarkBandDepth(districtSide, tier);
   const ringRadius = round3(half + band + RING_GAP);
   const civic = civicSide(districtSide);
 
@@ -1029,44 +1178,99 @@ export function planLayout(
 
   // Ring road around the whole city.
   const ring = rectFromBounds(-ringRadius, -ringRadius, ringRadius, ringRadius);
-  roads.addRectEdges(ring, true);
+  roads.addRectEdges(ring, spec.ring);
   // Two spokes per side, clear of the landmark plots in the middle of each.
   const spoke = round3(districtSide / 3);
   for (const offset of [-spoke, spoke]) {
-    roads.add(offset, -half, offset, -ringRadius, true);
-    roads.add(offset, half, offset, ringRadius, true);
-    roads.add(-half, offset, -ringRadius, offset, true);
-    roads.add(half, offset, ringRadius, offset, true);
+    roads.add(offset, -half, offset, -ringRadius, spec.major);
+    roads.add(offset, half, offset, ringRadius, spec.major);
+    roads.add(-half, offset, -ringRadius, offset, spec.major);
+    roads.add(half, offset, ringRadius, offset, spec.major);
   }
 
   // Major roads on every treemap seam, including the civic centre's edges.
-  roads.addRectEdges(civicRect, true);
+  roads.addRectEdges(civicRect, spec.major);
   const laidOut: DistrictLayout[] = [];
   for (const district of districts) {
     const rect = rects.get(district.id);
     if (!rect) continue;
-    roads.addRectEdges(rect, true);
+    roads.addRectEdges(rect, spec.major);
+  }
+
+  // The town's high street: the seam along the civic square's south edge,
+  // run on through the landmark band to the ring on both sides. With a single
+  // district there is nothing south of the square, so it takes the north edge,
+  // which is the one the district fronts.
+  let highStreetZ: number | undefined;
+  if (tier === "town") {
+    const south = rectMaxZ(civicRect);
+    highStreetZ = round3(south < half - EPS ? south : rectMinZ(civicRect));
+    roads.add(-half, highStreetZ, -ringRadius, highStreetZ, spec.major);
+    roads.add(half, highStreetZ, ringRadius, highStreetZ, spec.major);
   }
 
   // Blocks and slots, after every major road exists so nothing is built on one.
   for (const district of districts) {
     const rect = rects.get(district.id);
     if (!rect) continue;
-    const blocks = subdivide(rect, roads, district.buildingCount);
-    const slots = orderSlots(planSlots(blocks, district.buildingCount), rect);
+    const blocks = subdivide(rect, roads, district.buildingCount, spec);
+    const slots = orderSlots(planSlots(blocks, district.buildingCount, spec.pitch), rect);
     laidOut.push({ id: district.id, rect, blocks, slots });
   }
 
-  return {
+  const built = roads.build();
+  if (highStreetZ !== undefined) markHighStreet(built, highStreetZ, laidOut);
+
+  const layout: CityLayout = {
     size,
     districtSide,
     bandDepth: band,
     ringRadius,
     districts: laidOut,
-    civic: planCivic(civicRect, options.landmarkFiles ?? CIVIC_BUILDING_SLOTS),
-    landmarkPlots: planLandmarkPlots(districtSide, ringRadius),
-    roads: roads.build(),
+    civic: planCivic(civicRect, options.landmarkFiles ?? CIVIC_BUILDING_SLOTS, spec.major.width / 2),
+    landmarkPlots: planLandmarkPlots(districtSide, ringRadius, spec, highStreetZ),
+    roads: built,
+    tier,
+    plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
   };
+  return layout;
+}
+
+/**
+ * The plaza surface stops this far inside the civic cell's edge roads, which
+ * is where `components/city/groundwork.ts` stopped its recovered gravel.
+ */
+const PLAZA_INSET = 1.6;
+
+/**
+ * Flag the high street (`main: true`) and the cells that front it
+ * (`frontage: "main-street"`): a cell whose edge comes within `KERB + 1` of
+ * the high street's kerb. Every road here is axis aligned, so the distance
+ * from a cell to a segment is the larger of the two per-axis gaps.
+ */
+function markHighStreet(roads: RoadSegment[], z: number, districts: DistrictLayout[]): void {
+  const main: RoadSegment[] = [];
+  for (const road of roads) {
+    if (!road.major) continue;
+    if (Math.abs(road.from[2] - z) > EPS || Math.abs(road.to[2] - z) > EPS) continue;
+    road.main = true;
+    main.push(road);
+  }
+  for (const district of districts) {
+    for (const slot of district.slots) {
+      for (const road of main) {
+        const x0 = Math.min(road.from[0], road.to[0]);
+        const x1 = Math.max(road.from[0], road.to[0]);
+        const gapX = Math.max(0, x0 - (slot.x + slot.cellW / 2), slot.x - slot.cellW / 2 - x1);
+        const gapZ = Math.max(0, Math.abs(slot.z - z) - slot.cellD / 2);
+        const kerbGap = Math.max(gapX, gapZ - road.width / 2);
+        if (gapX === 0 && kerbGap <= KERB + 1 + 1e-6) {
+          slot.frontage = "main-street";
+          break;
+        }
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,12 +1300,23 @@ const HIGHWAY_REACH = 0.95;
  * highway does not sit opposite another until there are two.
  */
 export function planHighways(layout: CityLayout, count: number): RoadSegment[] {
-  const wanted = Math.max(0, Math.min(4, Math.floor(count)));
+  // PLAN.md 76.5: each settlement clamps the fork count to its own range. A
+  // metropolis always has at least two ways out, a village and a town at
+  // most two; a city keeps today's zero to four.
+  const tier = layout.tier ?? "city";
+  const range = SETTLEMENT_PARAMS[tier].highways;
+  const asked = Number.isFinite(count) ? Math.floor(count) : 0;
+  const wanted = Math.max(range.min, Math.min(range.max, 4, Math.max(0, asked)));
   if (wanted === 0) return [];
+  if (layout.exits) return villageHighways(layout, layout.exits, wanted);
 
   const ring = layout.ringRadius;
   const spoke = round3(layout.districtSide / 3);
   const reach = round3(layout.size * HIGHWAY_REACH);
+  // A metropolis ring is itself a highway; the roads out match it.
+  const ringRoad = SETTLEMENT_PARAMS[tier].ring;
+  const width =
+    ringRoad?.kind === "highway" ? Math.max(ROAD_HIGHWAY_WIDTH, ringRoad.width) : ROAD_HIGHWAY_WIDTH;
 
   const arms: { from: [number, number]; to: [number, number] }[] = [
     { from: [spoke, -ring], to: [spoke, -reach] },
@@ -1114,12 +1329,36 @@ export function planHighways(layout: CityLayout, count: number): RoadSegment[] {
     id: `road-hwy-${index}`,
     from: [arm.from[0], 0, arm.from[1]] as Vec3,
     to: [arm.to[0], 0, arm.to[1]] as Vec3,
-    width: ROAD_HIGHWAY_WIDTH,
+    width,
     major: true,
     kind: "highway" as const,
     // After the arterials: the city draws its skeleton first, then reaches out.
     appearAt: spreadWindow(ROAD_REVEAL.minor, index, wanted),
   }));
+}
+
+/**
+ * A village's ways out: the main street carried on, straight, from each of
+ * its ends to the horizon, east first. They are as wide as the main street,
+ * a country road rather than a motorway.
+ */
+function villageHighways(layout: CityLayout, exits: RoadExit[], wanted: number): RoadSegment[] {
+  const reach = layout.size * HIGHWAY_REACH;
+  const width = SETTLEMENT_PARAMS.village.roads.major.width;
+  return exits.slice(0, wanted).map((exit, index) => {
+    const dx = Math.sin(exit.heading);
+    const dz = Math.cos(exit.heading);
+    const out = Math.max(10, reach - Math.hypot(exit.x, exit.z));
+    return {
+      id: `road-hwy-${index}`,
+      from: [exit.x, 0, exit.z] as Vec3,
+      to: [round3(exit.x + dx * out), 0, round3(exit.z + dz * out)] as Vec3,
+      width,
+      major: true,
+      kind: "highway" as const,
+      appearAt: spreadWindow(ROAD_REVEAL.minor, index, wanted),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
