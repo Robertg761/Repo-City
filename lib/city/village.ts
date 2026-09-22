@@ -383,7 +383,7 @@ export function planVillage(
   // the road out stands across the street, so it only needs the arm to reach
   // a little past the straight.
   const straight = a - b + plotSide + 7.5;
-  const armLength = Math.min(55 - b, Math.max(halfLength - b, straight + 8));
+  const armLength = Math.min(55 - b, Math.max(halfLength - b, straight + 16));
   const east = mainArm(V[4], 0, armLength, straight, `${key}:east`);
   const west = mainArm(V[5], Math.PI, armLength, straight, `${key}:west`);
 
@@ -398,7 +398,7 @@ export function planVillage(
   const exitWest = exitsFor(west);
   const outRoads: Seg[] = [exitEast, exitWest].map((exit) => ({
     a: exit.p,
-    b: add(exit.p, dirOf(exit.a), 120),
+    b: add(exit.p, dirOf(exit.a), 300),
     width: MAIN_WIDTH,
     stroke: null,
   }));
@@ -444,12 +444,13 @@ export function planVillage(
   const need = new Map(order.map((d) => [d.id, housesWanted(d.buildingCount)]));
   const laneCount = lanesPerDistrict(order, need);
 
-  // A second pass only when the first could not seat everyone, which no
-  // village inside its building budget needs: its lanes may then run past the
-  // band rather than leave a building without a house.
+  // Later passes only when the first could not seat every building, which is
+  // rare inside the village budget: the village then grows past its band a
+  // step at a time rather than leave a building without a house.
   let result: { lanes: Lane[]; houses: House[]; deficit: Map<string, number> } | null = null;
-  for (let pass = 0; pass < (process.env.VILLAGE_PASS0 ? 1 : 2); pass++) {
-    const unbounded = pass === 1;
+  let usedReach = HOUSE_REACH;
+  for (const reach of [HOUSE_REACH, HOUSE_REACH + 6, HOUSE_REACH + 14, 400]) {
+    usedReach = reach;
     result = growLanes(order, laneCount, need, {
       loop,
       main: [centre, east, west],
@@ -463,14 +464,11 @@ export function planVillage(
         ...plotPolys.map((poly) => ({ poly, gap: 0, plot: true })),
       ],
       key,
-      unbounded,
+      reach,
     });
     if ([...result.deficit.values()].every((missing) => missing <= 0)) break;
   }
   const { lanes, houses } = result!;
-  if (process.env.VILLAGE_DEBUG) {
-    console.log("lanes", lanes.map((l, i) => `${l.districtId}:${houses.filter((h) => h.lane === i).length}/${strokeLength(l.stroke.points).toFixed(0)}`).join(" "), "front", houses.filter((h) => h.lane < 0).length, "counts", JSON.stringify([...laneCount]), "deficit", JSON.stringify([...result!.deficit]));
-  }
 
   // Trim every lane to just past its last house: a dead end, not a spur into
   // the fields.
@@ -494,16 +492,31 @@ export function planVillage(
   for (const district of order) {
     const own = lanes.filter((lane) => lane.districtId === district.id);
     const sites: Slot[] = [];
+    const around = (): Obstacle[] => [
+      ...staticObstacles,
+      ...housePolys.map((poly) => ({ poly, gap: 1 })),
+      ...sitePolys.map((poly) => ({ poly, gap: 2 })),
+    ];
     for (const lane of own) {
       if (sites.length >= 2) break;
-      const site = siteAtLaneEnd(lane, allSegs, [
-        ...staticObstacles,
-        ...housePolys.map((poly) => ({ poly, gap: 1 })),
-        ...sitePolys.map((poly) => ({ poly, gap: 2 })),
-      ]);
+      const site = siteAtLaneEnd(lane, allSegs, around(), usedReach);
       if (!site) continue;
       sites.push(site.slot);
       sitePolys.push(site.poly);
+    }
+    // No room at a lane end: behind one of its own houses instead. A district
+    // with houses and no open plot would see its construction built on a
+    // house plot beside a slanted lane.
+    if (sites.length === 0) {
+      for (const house of houses.filter((h) => h.districtId === district.id)) {
+        const yaw = house.slot.rotationY ?? 0;
+        const behind = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
+        const site = siteNear({ x: house.slot.x, z: house.slot.z }, behind, allSegs, around(), usedReach);
+        if (!site) continue;
+        sites.push(site.slot);
+        sitePolys.push(site.poly);
+        break;
+      }
     }
     sitesByDistrict.set(district.id, sites);
   }
@@ -688,25 +701,22 @@ function planGreen(green: Rect, landmarkFiles: number): CivicLayout {
  * alternate, so the street wanders but keeps its line out of the village.
  */
 function mainArm(start: P, heading: number, length: number, straight: number, key: string): Stroke {
-  // The first stretch runs straight on from the green for at least `straight`,
-  // long enough for the plot that stands beside the green. What is left is
-  // cut into one or two bent stretches of at least eight units.
-  const room = length - Math.min(straight, length - 8);
-  const segments = room >= 24 ? 2 + (hashString(`${key}:segments`) % 2) : 2;
+  // Three stretches: straight on from the green for at least `straight`, long
+  // enough for the plot beside the green; then a bend of 8 to 18 degrees; then
+  // the same bend back, so the street leaves the village on its own line.
+  // Leaving square to the world keeps the road out's bounding box honest,
+  // which is what the generator checks plots and sites against.
   const sign = unit(`${key}:sign`) < 0.5 ? -1 : 1;
-  const first = Math.min(length - 8 * (segments - 1), Math.max(length / segments, straight));
-  const rest = (length - first) / (segments - 1);
+  const bend = (8 + 10 * unit(`${key}:bend`)) * DEG;
+  const first = Math.min(length - 16, Math.max(length / 3, straight));
+  const rest = (length - first) / 2;
+  const headings = [heading, heading + sign * bend, heading];
   const points: P[] = [start];
-  let a = heading;
   let at = start;
-  for (let i = 0; i < segments; i++) {
-    if (i > 0) {
-      const bend = (8 + 10 * unit(`${key}:bend${i}`)) * DEG;
-      a += (i % 2 === 1 ? sign : -sign) * bend;
-    }
+  headings.forEach((a, i) => {
     at = add(at, dirOf(a), i === 0 ? first : rest);
     points.push(pt(at.x, at.z));
-  }
+  });
   return { points, width: MAIN_WIDTH, major: true, kind: "street", cuts: [] };
 }
 
@@ -809,8 +819,11 @@ interface GrowContext {
   /** What a lane keeps clear of. */
   laneObstacles: Obstacle[];
   key: string;
-  /** Last pass: lanes may run past the band so no building is left out. */
-  unbounded: boolean;
+  /**
+   * How far from the centre, on either axis, a house may stand. The first
+   * pass holds the band; later passes let it out so no building is left out.
+   */
+  reach: number;
 }
 
 /**
@@ -863,7 +876,7 @@ function growLanes(
     let wanted = need.get(district.id)!;
     // Only the houses its buildings need count as missing; the spare ones
     // are parkland and construction room, nice to have and nothing more.
-    const spare = need.get(district.id)! - Math.max(1, district.buildingCount);
+    const spare = need.get(district.id)! - Math.max(0, district.buildingCount);
     const cursor = new Map<number, number>();
     // Round robin over the district's lanes, one pitch position at a time.
     const fill = (members: { lane: Lane; index: number }[]): void => {
@@ -983,7 +996,7 @@ function branchLane(lane: Lane, lanes: readonly Lane[], houses: readonly House[]
   const key = `${lane.districtId}:${end.x}:${end.z}`;
   for (const sign of [1, -1]) {
     const h0 = a + (sign * Math.PI) / 2;
-    const maxLength = ctx.unbounded ? 400 : reachLimit(end, h0);
+    const maxLength = reachLimit(end, h0, ctx.reach);
     const bend = (8 + 10 * unit(`${key}:${sign}`)) * DEG;
     let laid: Lane | null = null;
     for (const scale of [1, 0.7, 0.5]) {
@@ -992,7 +1005,7 @@ function branchLane(lane: Lane, lanes: readonly Lane[], houses: readonly House[]
       for (const turn of [bend, -bend, 0]) {
         const headings = [h0, h0 + turn];
         const branch = polyline(end, headings, length);
-        if (!ctx.unbounded && !insideReach(branch)) continue;
+        if (!insideReach(branch, ctx.reach)) continue;
         const others = [...segs, ...segmentsOf(out.map((b) => b.stroke))];
         if (!laneClear(branch, others, ctx.laneObstacles, parent)) continue;
         const blocked = houses.some((house) =>
@@ -1033,13 +1046,19 @@ function loopOutside(loop: Stroke): number {
  * How many lanes each district gets: enough for its houses at
  * `LANE_CAPACITY` a lane, but never more than `MAX_LANES` in all, because
  * lanes packed tighter than that only block each other's houses. Every
- * district keeps at least one; the heaviest give theirs up first.
+ * district with a building keeps at least one, and the one with the most
+ * gives them up first. A district with no building gets no lane: it has
+ * nothing to put along it.
  */
 function lanesPerDistrict(order: readonly LayoutDistrictInput[], need: Map<string, number>): Map<string, number> {
-  const count = new Map(order.map((d) => [d.id, Math.max(1, Math.ceil(need.get(d.id)! / LANE_CAPACITY))]));
+  const count = new Map(
+    order.map((d) => [d.id, d.buildingCount > 0 ? Math.max(1, Math.ceil(need.get(d.id)! / LANE_CAPACITY)) : 0]),
+  );
+  const occupied = order.filter((d) => d.buildingCount > 0).length;
   let total = [...count.values()].reduce((sum, m) => sum + m, 0);
-  while (total > Math.max(MAX_LANES, order.length)) {
-    const heaviest = order.find((d) => count.get(d.id)! > 1 && count.get(d.id)! === Math.max(...count.values()));
+  while (total > Math.max(MAX_LANES, occupied)) {
+    const most = Math.max(...count.values());
+    const heaviest = order.find((d) => count.get(d.id)! > 1 && count.get(d.id)! === most);
     if (!heaviest) break;
     count.set(heaviest.id, count.get(heaviest.id)! - 1);
     total -= 1;
@@ -1133,7 +1152,7 @@ function layLane(
       // Square to the road, turned towards its bearing: square enough for a
       // house either side at the junction, turned enough to fan apart.
       const heading = junction.normal + clamp(wrap(target - junction.normal), -LEAN, LEAN);
-      const maxLength = ctx.unbounded ? 400 : reachLimit(start, heading);
+      const maxLength = reachLimit(start, heading, ctx.reach);
       const length = Math.min(wantLength, maxLength) * scale;
       if (length < 10) continue;
       for (const flip of [1, -1, 0]) {
@@ -1143,14 +1162,8 @@ function layLane(
           headings.push(headings[i - 1] + turn);
         }
         const points = polyline(start, headings, length);
-        if (!ctx.unbounded && !insideReach(points)) {
-          if (process.env.VILLAGE_DEBUG) console.log("reach", key, JSON.stringify(start), length.toFixed(1));
-          continue;
-        }
-        if (!laneClear(points, segs, ctx.laneObstacles, junction.stroke)) {
-          if (process.env.VILLAGE_DEBUG) console.log("clear", key, JSON.stringify(start), length.toFixed(1), (heading / DEG).toFixed(0));
-          continue;
-        }
+        if (!insideReach(points, ctx.reach)) continue;
+        if (!laneClear(points, segs, ctx.laneObstacles, junction.stroke)) continue;
         const stroke: Stroke = { points, width: LANE_WIDTH, major: false, kind: LANE_KIND, cuts: [] };
         if (!junction.stroke.points.some((v) => same(v, start))) junction.stroke.cuts.push(start);
         return { districtId: member.id, stroke, maxLength, headings, lastHouse: 0 };
@@ -1179,8 +1192,8 @@ function polyline(start: P, headings: readonly number[], length: number): P[] {
 }
 
 /** How far a lane may run before a house beside its end leaves the band. */
-function reachLimit(start: P, a: number): number {
-  const limit = HOUSE_REACH - SETBACK - VILLAGE_CELL / 2;
+function reachLimit(start: P, a: number, reach: number): number {
+  const limit = reach - SETBACK - VILLAGE_CELL / 2;
   const d = dirOf(a);
   let t = Infinity;
   if (Math.abs(d.x) > 1e-9) t = Math.min(t, ((d.x > 0 ? limit : -limit) - start.x) / d.x);
@@ -1188,8 +1201,9 @@ function reachLimit(start: P, a: number): number {
   return Math.max(0, t - 1);
 }
 
-function insideReach(points: readonly P[]): boolean {
-  const limit = HOUSE_REACH - SETBACK - VILLAGE_CELL / 2 + 1e-6;
+/** Every point of a lane lies where a house beside it stays inside `reach`. */
+function insideReach(points: readonly P[], reach: number): boolean {
+  const limit = reach - SETBACK - VILLAGE_CELL / 2 + 1e-6;
   return points.every((p) => Math.abs(p.x) <= limit && Math.abs(p.z) <= limit);
 }
 
@@ -1226,19 +1240,25 @@ function laneClear(
       if (segmentDistance(from, b, seg.a, seg.b) < (seg.width + LANE_WIDTH) / 2 + ROAD_GAP) return false;
     }
     walked += len;
-    const half = LANE_WIDTH / 2;
-    const own = aabb(
-      Math.min(a.x, b.x) - half,
-      Math.min(a.z, b.z) - half,
-      Math.max(a.x, b.x) + half,
-      Math.max(a.z, b.z) + half,
-    );
-    for (const o of obstacles) {
-      if (polygonSegmentDistance(o.poly, a, b) < half + KERB + o.gap) return false;
-      // The same bounding-box honesty as `roadClear`: the generator checks
-      // landmark plots against each road's axis-aligned box.
-      if (o.plot && polygonsOverlap(own, o.poly, 0.2)) return false;
-    }
+    if (!obstaclesClear(a, b, obstacles)) return false;
+  }
+  return true;
+}
+
+/** One lane segment clear of the green, the chapel and the landmark plots. */
+function obstaclesClear(a: P, b: P, obstacles: readonly Obstacle[]): boolean {
+  const half = LANE_WIDTH / 2;
+  const own = aabb(
+    Math.min(a.x, b.x) - half,
+    Math.min(a.z, b.z) - half,
+    Math.max(a.x, b.x) + half,
+    Math.max(a.z, b.z) + half,
+  );
+  for (const o of obstacles) {
+    if (polygonSegmentDistance(o.poly, a, b) < half + KERB + o.gap) return false;
+    // The same bounding-box honesty as `roadClear`: the generator checks
+    // landmark plots against each road's axis-aligned box.
+    if (o.plot && polygonsOverlap(own, o.poly, 0.2)) return false;
   }
   return true;
 }
@@ -1279,11 +1299,10 @@ function extendLane(lane: Lane, index: number, lanes: readonly Lane[], ctx: Grow
   for (const seg of others) {
     if (segmentDistance(last, next, seg.a, seg.b) < (seg.width + LANE_WIDTH) / 2 + ROAD_GAP) return false;
   }
-  if (!ctx.unbounded && !insideReach(stretch)) return false;
+  if (!insideReach(stretch, ctx.reach)) return false;
   const half = LANE_WIDTH / 2;
-  for (const o of ctx.laneObstacles) {
-    if (polygonSegmentDistance(o.poly, last, next) < half + KERB + o.gap) return false;
-  }
+  // The whole lengthened segment, whose bounding box grows with it.
+  if (!obstaclesClear(prev, next, ctx.laneObstacles)) return false;
   for (const cell of grid.near({ x: (last.x + next.x) / 2, z: (last.z + next.z) / 2 }, PITCH)) {
     if (polygonSegmentDistance(cell, last, next) < half + KERB - 1e-6) return false;
   }
@@ -1318,7 +1337,7 @@ function tryHouse(
   for (const other of grid.near(c, VILLAGE_CELL * 1.5)) {
     if (polygonsOverlap(poly, other, 0.4)) return null;
   }
-  if (!ctx.unbounded && poly.some((v) => Math.abs(v.x) > HOUSE_REACH || Math.abs(v.z) > HOUSE_REACH)) {
+  if (poly.some((v) => Math.abs(v.x) > ctx.reach || Math.abs(v.z) > ctx.reach)) {
     return null;
   }
   // Facing the road: from the house towards it.
@@ -1379,11 +1398,25 @@ function siteAtLaneEnd(
   lane: Lane,
   segs: readonly Seg[],
   obstacles: readonly Obstacle[],
+  reach: number,
 ): { slot: Slot; poly: Poly } | null {
   const points = lane.stroke.points;
   const end = points[points.length - 1];
   const prev = points[points.length - 2];
-  const a = Math.atan2(end.z - prev.z, end.x - prev.x);
+  return siteNear(end, Math.atan2(end.z - prev.z, end.x - prev.x), segs, obstacles, reach);
+}
+
+/**
+ * An open square plot near `end`, looking along direction `a`: beside it
+ * first, nearest first, and ahead of it only when nothing beside it is free.
+ */
+function siteNear(
+  end: P,
+  a: number,
+  segs: readonly Seg[],
+  obstacles: readonly Obstacle[],
+  reach: number,
+): { slot: Slot; poly: Poly } | null {
   const d = dirOf(a);
   const n = { x: -d.z, z: d.x };
   // Beside the dead end first, nearest first; beyond it only when nothing
@@ -1398,7 +1431,7 @@ function siteAtLaneEnd(
     for (const [out, lateral] of offsets) {
       const x = round3(end.x + d.x * out + n.x * lateral);
       const z = round3(end.z + d.z * out + n.z * lateral);
-      if (Math.max(Math.abs(x), Math.abs(z)) + half > HOUSE_REACH + 1e-6) continue;
+      if (Math.max(Math.abs(x), Math.abs(z)) + half > reach + 1e-6) continue;
       const poly = aabb(x - half, z - half, x + half, z + half);
       if (!roadClear(poly, segs, KERB)) continue;
       if (!clearOf(poly, obstacles)) continue;

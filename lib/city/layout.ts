@@ -1218,6 +1218,8 @@ export function planLayout(
     laidOut.push({ id: district.id, rect, blocks, slots });
   }
 
+  if (tier !== "city") lendSlots(laidOut, districts);
+
   const built = roads.build();
   if (highStreetZ !== undefined) markHighStreet(built, highStreetZ, laidOut);
 
@@ -1234,6 +1236,41 @@ export function planLayout(
     plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
   };
   return layout;
+}
+
+/**
+ * A district the treemap cut too thin for a single block (two files beside a
+ * busy neighbour, in a town's smaller square) would otherwise have its
+ * buildings dropped on the nearest road by the generator's fallback. It
+ * borrows the spare slots nearest its own rect from the district with the
+ * most to spare instead. The city never needs this and never runs it, so it
+ * stays byte-identical.
+ */
+function lendSlots(laidOut: DistrictLayout[], inputs: readonly LayoutDistrictInput[]): void {
+  const count = new Map(inputs.map((d) => [d.id, d.buildingCount]));
+  const spare = (d: DistrictLayout): number => d.slots.length - (count.get(d.id) ?? 0) - 2;
+  for (const short of laidOut) {
+    const missing = (count.get(short.id) ?? 0) - short.slots.length;
+    if (missing <= 0) continue;
+    const donor = [...laidOut]
+      .filter((d) => d !== short && spare(d) > 0)
+      .sort((a, b) => spare(b) - spare(a) || (a.id < b.id ? -1 : 1))[0];
+    if (!donor) continue;
+    const take = Math.min(missing, spare(donor));
+    const nearest = [...donor.slots]
+      .map((slot, index) => ({ slot, index }))
+      // Only the donor's outermost slots, which its own buildings never reach.
+      .slice(donor.slots.length - spare(donor))
+      .sort(
+        (a, b) =>
+          Math.hypot(a.slot.x - short.rect.x, a.slot.z - short.rect.z) -
+            Math.hypot(b.slot.x - short.rect.x, b.slot.z - short.rect.z) || a.index - b.index,
+      )
+      .slice(0, take);
+    const lent = new Set(nearest.map((n) => n.slot));
+    donor.slots = donor.slots.filter((slot) => !lent.has(slot));
+    short.slots = [...short.slots, ...nearest.map((n) => n.slot)];
+  }
 }
 
 /**
