@@ -6,10 +6,12 @@ import {
   buildingColor,
   desaturate,
   districtColor,
+  eveningFactor,
   hexToRgb,
   mix,
   rgbToHex,
   stateTint,
+  sunDirection,
 } from "./palette";
 import type { CityModel } from "@/types/city";
 
@@ -132,5 +134,77 @@ describe("atmosphere", () => {
     expect(atmosphere(AMBIENCE, true).windowGlow).toBeLessThan(
       atmosphere(AMBIENCE, false).windowGlow,
     );
+  });
+});
+
+describe("time of day", () => {
+  it("holds a quiet city at midday and lifts a busy one to the golden hour", () => {
+    expect(eveningFactor(0)).toBe(0);
+    expect(eveningFactor(0.55)).toBe(0);
+    expect(eveningFactor(1)).toBe(1);
+    expect(eveningFactor(0.78)).toBeGreaterThan(0.4);
+    expect(eveningFactor(0.78)).toBeLessThan(0.6);
+  });
+
+  it("keeps an archived repository near noon whatever it scores", () => {
+    // Section 19 is an abandoned town under a flat cold sky, not a sunset.
+    expect(eveningFactor(1, true)).toBeLessThan(0.3);
+    expect(eveningFactor(0.05, true)).toBe(0);
+  });
+
+  it("drops the sun towards the horizon as the evening comes on", () => {
+    const noon = sunDirection(0);
+    const dusk = sunDirection(1);
+    expect(dusk[1]).toBeLessThan(noon[1]);
+    // Still well above the horizon: section 39 forbids an unreadable city.
+    expect(dusk[1]).toBeGreaterThan(0.4);
+    for (const direction of [noon, dusk]) {
+      expect(Math.hypot(...direction)).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("gives a golden-hour city more light and more exposure, not less", () => {
+    const midday = atmosphere({ ...AMBIENCE, litWindowShare: 0.2 }, false);
+    const golden = atmosphere({ ...AMBIENCE, litWindowShare: 1 }, false);
+
+    expect(golden.evening).toBeGreaterThan(midday.evening);
+    expect(golden.sunIntensity).toBeGreaterThan(midday.sunIntensity);
+    expect(golden.exposure).toBeGreaterThan(midday.exposure);
+    expect(golden.lampGlow).toBeGreaterThan(midday.lampGlow);
+    // Warmer: the low sun is the amber one.
+    expect(blueness(golden.sunColor)).toBeLessThan(blueness(midday.sunColor));
+  });
+
+  it("keeps exposure within a sane photographic range for every city", () => {
+    for (const fog of [0, 0.5, 1]) {
+      for (const litWindowShare of [0, 0.5, 1]) {
+        for (const archived of [false, true]) {
+          const a = atmosphere({ ...AMBIENCE, fog, litWindowShare }, archived);
+          expect(a.exposure).toBeGreaterThan(0.9);
+          expect(a.exposure).toBeLessThanOrEqual(1.3);
+        }
+      }
+    }
+  });
+});
+
+describe("sky", () => {
+  it("meets the fog at the horizon, so distance dissolves into sky", () => {
+    const a = atmosphere(AMBIENCE, false);
+    expect(a.skyHorizonColor).toBe(a.background);
+  });
+
+  it("keeps the zenith darker than the horizon", () => {
+    for (const archived of [false, true]) {
+      const a = atmosphere(AMBIENCE, archived);
+      expect(luma(a.skyZenithColor)).toBeLessThan(luma(a.skyHorizonColor));
+    }
+  });
+
+  it("gives an archived city a cooler sky and a dimmer lamp", () => {
+    const live = atmosphere(AMBIENCE, false);
+    const archived = atmosphere(AMBIENCE, true);
+    expect(blueness(archived.skyZenithColor)).toBeLessThan(blueness(live.skyZenithColor));
+    expect(archived.lampGlow).toBeLessThan(live.lampGlow);
   });
 });
