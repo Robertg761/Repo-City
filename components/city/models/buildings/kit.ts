@@ -400,6 +400,8 @@ export interface WindowSpec {
   glass?: Mat;
   /** Width of the white frame round the glass. */
   frame?: number;
+  /** A stone sill under the window; on by default. */
+  sill?: boolean;
 }
 
 /** Proud of the frame, so the lit pane never fights it. */
@@ -425,11 +427,13 @@ export function framedWindow(draft: MeshDraft, spec: WindowSpec): Panel {
     }
   }
 
-  wallBox(
-    draft,
-    { ...base, plane: spec.plane, v: spec.v - spec.h / 2 - frame - 0.014, w: spec.w + frame * 3, h: 0.014, depth: 0.03 },
-    M.stone,
-  );
+  if (spec.sill !== false) {
+    wallBox(
+      draft,
+      { ...base, plane: spec.plane, v: spec.v - spec.h / 2 - frame - 0.014, w: spec.w + frame * 3, h: 0.014, depth: 0.03 },
+      M.stone,
+    );
+  }
   if (spec.shutters) {
     for (const side of [-1, 1]) {
       panel(

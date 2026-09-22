@@ -294,12 +294,12 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
   const columns = [-0.32, -0.11, 0.11, 0.32];
   for (const v of upper) {
     for (const u of columns) {
-      windows.push(framedWindow(draft, { facing: "+z", plane: halfD, u, v, w: 0.12, h: floorH * 0.5, bars: "none" }));
-      windows.push(framedWindow(draft, { facing: "-z", plane: halfD, u, v, w: 0.12, h: floorH * 0.5, bars: "none" }));
+      windows.push(framedWindow(draft, { facing: "+z", plane: halfD, u, v, w: 0.12, h: floorH * 0.5, bars: "none", sill: false }));
+      windows.push(framedWindow(draft, { facing: "-z", plane: halfD, u, v, w: 0.12, h: floorH * 0.5, bars: "none", sill: false }));
     }
     for (const u of [-0.2, 0.2]) {
-      windows.push(framedWindow(draft, { facing: "+x", plane: halfW, u, v, w: 0.11, h: floorH * 0.5, bars: "none" }));
-      windows.push(framedWindow(draft, { facing: "-x", plane: halfW, u, v, w: 0.11, h: floorH * 0.5, bars: "none" }));
+      windows.push(framedWindow(draft, { facing: "+x", plane: halfW, u, v, w: 0.11, h: floorH * 0.5, bars: "none", sill: false }));
+      windows.push(framedWindow(draft, { facing: "-x", plane: halfW, u, v, w: 0.11, h: floorH * 0.5, bars: "none", sill: false }));
     }
     // Balconies on the two middle bays of the front.
     const floorY = v - floorH * 0.5 + 0.004;
