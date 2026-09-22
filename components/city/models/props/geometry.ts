@@ -48,9 +48,18 @@ const scratchColor = new Color();
 /** Attributes every merged geometry carries; merging needs identical sets. */
 const KEPT = new Set(["position", "normal", "uv", "color"]);
 
-/** A clone of `part`, transformed into the assembly frame and coloured. */
+/**
+ * A clone of `part`, transformed into the assembly frame and coloured.
+ *
+ * Boxes and cylinders are indexed and the polyhedra are not, and three will
+ * only merge geometries that agree about that, so everything is expanded to
+ * non-indexed here. It costs a few dozen extra vertices in an assembly that is
+ * drawn with one instanced call; triangles, which are what the budget is
+ * written in, are unchanged.
+ */
 function preparePart(part: Part): BufferGeometry {
-  const geometry = part.geometry.clone();
+  const source = part.geometry;
+  const geometry = source.getIndex() ? source.toNonIndexed() : source.clone();
 
   const [px, py, pz] = part.position ?? [0, 0, 0];
   const [rx, ry, rz] = part.rotation ?? [0, 0, 0];
