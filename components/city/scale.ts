@@ -50,11 +50,6 @@ export function lampCap(tier: SettlementTier): number {
   return SETTLEMENT_PARAMS[tier].lamps;
 }
 
-/** Trees drawn at most, per tier. A village has more of them than a city. */
-export function treeCap(tier: SettlementTier): number {
-  return SETTLEMENT_PARAMS[tier].trees;
-}
-
 /**
  * How many people walk the streets, relative to the city: the same share of
  * the tier's traffic cap the city has. A village's lanes carry a quarter of

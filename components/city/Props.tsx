@@ -7,9 +7,9 @@
  * placed along the roads and around the parks.
  *
  * How many trees and lamps depends on the settlement (PLAN.md 76.5,
- * `scale.ts`): a city keeps its hundred trees and 120 lamps, a village gets
- * 160 trees and 30 lamps, a metropolis 120 and 160, plus poplars down the
- * median of every avenue.
+ * `treeCapFor` and `scale.ts`): a city keeps its hundred trees and 120
+ * lamps, a village gets 160 trees and 30 lamps, a metropolis 120 and 160,
+ * plus poplars down the median of every avenue.
  *
  * Everything is instanced and everything is merged: a bus stop is six boxes in
  * one geometry, so the entire layer costs about a dozen draw calls at any city
@@ -37,16 +37,16 @@ import {
   SPECIES_LEAF,
   SWAY_AMOUNT,
   SWAY_BASE,
-  TREE_CAP,
   TREE_SPECIES,
   jitterLeaf,
   planTrees,
+  treeCapFor,
   treeGeometry,
   type PlannedTree,
 } from "./models/props/trees";
 import { medianLays, medianTreeSpots, roadLays } from "./groundwork";
 import { revealScale } from "./reveal";
-import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf, treeCap } from "./scale";
+import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf } from "./scale";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
@@ -110,15 +110,13 @@ export default function Props({
   const settled = useRef(false);
 
   const { trees, species } = useMemo(() => {
-    const tier = tierOf(city);
-    // The first hundred exactly as a city has always planted them; a village
-    // or a metropolis plants the rest from a stream of its own, so the city's
-    // trees never move (`planTrees` stops at section 37's hundred).
-    const list = planTrees(city.props.trees, city.districts, prngFor(city.seed, "trees"));
-    const extra = city.props.trees.slice(TREE_CAP, treeCap(tier));
-    if (extra.length > 0) {
-      list.push(...planTrees(extra, city.districts, prngFor(city.seed, "trees-extra")));
-    }
+    // A city keeps its hundred; a village plants 160, a metropolis 120.
+    const list = planTrees(
+      city.props.trees,
+      city.districts,
+      prngFor(city.seed, "trees"),
+      treeCapFor(tierOf(city)),
+    );
     list.push(...avenueTrees(city));
     return {
       trees: list,

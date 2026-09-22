@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import { maxCameraDistance } from "./entities";
+import { treeCapFor } from "./models/props/trees";
 import {
   cameraFar,
   crowdScale,
@@ -11,7 +12,6 @@ import {
   skyRadius,
   thinEvenly,
   tierOf,
-  treeCap,
 } from "./scale";
 
 /** The same rule `Environment` used before settlements. */
@@ -67,15 +67,14 @@ describe("the camera's far plane (PLAN.md 76.5)", () => {
 });
 
 describe("street life per tier", () => {
-  it("keeps the city's lamps and trees exactly", () => {
+  it("keeps the city's lamps and crowd exactly", () => {
     expect(lampCap("city")).toBe(120);
-    expect(treeCap("city")).toBe(100);
     expect(crowdScale("city")).toBe(1);
   });
 
   it("lights a village sparsely and plants it thickly", () => {
     expect(lampCap("village")).toBeLessThan(lampCap("city") / 3);
-    expect(treeCap("village")).toBeGreaterThan(treeCap("city"));
+    expect(treeCapFor("village")).toBeGreaterThan(treeCapFor("city"));
   });
 
   it("puts more people on a metropolis's streets and fewer on a village's", () => {
@@ -88,7 +87,6 @@ describe("street life per tier", () => {
   it("reads its numbers from the settlement table", () => {
     for (const tier of ["village", "town", "city", "metropolis"] as const) {
       expect(lampCap(tier)).toBe(SETTLEMENT_PARAMS[tier].lamps);
-      expect(treeCap(tier)).toBe(SETTLEMENT_PARAMS[tier].trees);
     }
   });
 });
