@@ -2,7 +2,7 @@
 
 /**
  * The ground the city sits on (PLAN.md section 36). Two planes: the wide
- * landscape that runs out into the fog, and the slightly lighter city plate
+ * landscape that runs out into the pale backdrop, and the slightly lighter city plate
  * that gives the diorama an edge. District tints are drawn on top by
  * `District.tsx`, pavements by `Roads.tsx`, the civic gravel by
  * `Environment.tsx`.
@@ -44,22 +44,22 @@ const GRASS_TILE = { plate: 13, landscape: 52 } as const;
 /** How far the landscape runs past the city, as a multiple of `bounds.size`. */
 const LANDSCAPE = 3.2;
 /**
- * Where the haze starts and ends, as a fraction of the landscape's radius.
- * The city plate reaches about a third of the way out, so the haze has to
- * begin well past it: start it too close and the lawn beside the ring road is
- * already grey.
+ * Where the rim fade starts and ends, as a fraction of the landscape's radius.
+ * The city plate reaches about a third of the way out and the overview frame
+ * about two thirds, so the fade begins past both: the grass in frame stays
+ * grass, full colour, and only the outer edge that a tilted camera sees goes
+ * pale. This is a backdrop, not air: it must never reach the city.
  */
-const HAZE_NEAR = 0.6;
-const HAZE_FAR = 1;
-/** The rim never goes all the way to the sky's colour: distance, not fog. */
-const HAZE_DEPTH = 0.72;
+const RIM_NEAR = 0.72;
+const RIM_FAR = 1;
 
 /**
- * Vertex colours that fade the landscape into the sky's own horizon haze at
- * its rim. Without it the ground simply stops, in a hard diagonal line against
- * the sky, and the diorama turns back into a flat plane in a viewport.
+ * Vertex colours that fade the landscape into the pale backdrop at its rim,
+ * the way a model on a table sits in front of a studio sweep. Without it the
+ * ground simply stops, in a hard diagonal line against the sky, and the
+ * diorama turns back into a flat plane in a viewport.
  */
-function hazeColors(segments: number, near: string, far: string): BufferAttribute {
+function rimColors(segments: number, near: string, far: string): BufferAttribute {
   const near3 = new Color(near);
   const far3 = new Color(far);
   const side = segments + 1;
@@ -71,8 +71,8 @@ function hazeColors(segments: number, near: string, far: string): BufferAttribut
       const dx = x / segments - 0.5;
       const dy = y / segments - 0.5;
       const radius = Math.hypot(dx, dy) / 0.5;
-      const t = Math.max(0, Math.min(1, (radius - HAZE_NEAR) / (HAZE_FAR - HAZE_NEAR)));
-      const smooth = t * t * (3 - 2 * t) * HAZE_DEPTH;
+      const t = Math.max(0, Math.min(1, (radius - RIM_NEAR) / (RIM_FAR - RIM_NEAR)));
+      const smooth = t * t * (3 - 2 * t);
       const i = (y * side + x) * 3;
       colors[i] = near3.r + (far3.r - near3.r) * smooth;
       colors[i + 1] = near3.g + (far3.g - near3.g) * smooth;
@@ -82,14 +82,14 @@ function hazeColors(segments: number, near: string, far: string): BufferAttribut
   return new BufferAttribute(colors, 3);
 }
 
-const HAZE_SEGMENTS = 32;
+const RIM_SEGMENTS = 32;
 
 export default function Terrain({ size, atmosphere }: TerrainProps) {
   const actions = useCityStore((s) => s.actions);
   const landscape = useTiledSurface("meadow", size * LANDSCAPE, GRASS_TILE.landscape);
   const plate = useTiledSurface("lawn", size * 1.04, GRASS_TILE.plate);
-  const haze = useMemo(
-    () => hazeColors(HAZE_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
+  const rim = useMemo(
+    () => rimColors(RIM_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
     [atmosphere.terrainColor, atmosphere.skyGroundColor],
   );
 
@@ -112,10 +112,10 @@ export default function Terrain({ size, atmosphere }: TerrainProps) {
         onClick={clearSelection}
         onPointerMove={clearHover}
       >
-        <planeGeometry args={[size * LANDSCAPE, size * LANDSCAPE, HAZE_SEGMENTS, HAZE_SEGMENTS]}>
-          <primitive attach="attributes-color" object={haze} />
+        <planeGeometry args={[size * LANDSCAPE, size * LANDSCAPE, RIM_SEGMENTS, RIM_SEGMENTS]}>
+          <primitive attach="attributes-color" object={rim} />
         </planeGeometry>
-        {/* White, because the colour is in the vertices: the haze fade has to
+        {/* White, because the colour is in the vertices: the rim fade has to
             multiply the grass, not be multiplied by a second base colour. */}
         <meshStandardMaterial color="#ffffff" vertexColors map={landscape} roughness={1} metalness={0} />
       </mesh>

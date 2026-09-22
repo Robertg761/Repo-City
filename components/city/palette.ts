@@ -121,12 +121,27 @@ export const HAZARD_RED = "#c8493c";
 export const CONCRETE = "#cfcabd";
 export const RUST = "#9a7b5f";
 
-/** Hover brightens, selection pushes to a warm accent (PLAN.md section 42). */
+/**
+ * How far hover and selection move a colour (PLAN.md section 42). Exported so
+ * a mesh that tints its own vertex colours can use the same amounts.
+ *
+ * Both are deliberately light. Selection used to mix 38% of the orange accent
+ * in, which turned a selected tower sepia and hid the very colours the
+ * inspector was describing. The dashed ground ring in `SelectionRing.tsx` is
+ * what says "selected" now; the tint only has to agree with it, so a
+ * selected entity is lifted a fifth of the way towards a warm white -- a
+ * little brighter, a little warmer, still its own colour. Hover is a fainter
+ * pale-gold glint, so the two never read as the same state.
+ */
+export const HOVER_TINT = 0.14;
+export const SELECT_TINT = 0.2;
+/** What a selection is lifted towards: warm white, not the orange accent. */
+export const SELECT_LIFT = "#fff0da";
+
+/** Hover glints, selection brightens; neither repaints the entity. */
 export function stateTint(base: string, hovered: boolean, selected: boolean): string {
-  // Enough to read at overview distance, not so much that the entity stops
-  // looking like a building: the ground ring carries the rest of the signal.
-  if (selected) return mix(base, SELECT, 0.38);
-  if (hovered) return mix(base, HIGHLIGHT, 0.28);
+  if (selected) return mix(base, SELECT_LIFT, SELECT_TINT);
+  if (hovered) return mix(base, HIGHLIGHT, HOVER_TINT);
   return base;
 }
 
@@ -168,7 +183,7 @@ const SUN_AZIMUTH = [58, 86] as const;
 /**
  * Unit vector from the city centre towards the sun. `Lighting` multiplies it
  * by the city size to place the directional light, and `Environment` paints
- * the glow in the sky dome at the same bearing, so the haze and the shadows
+ * the glow in the sky dome at the same bearing, so the sky and the shadows
  * always agree about where the sun is.
  */
 export function sunDirection(evening: number): [number, number, number] {
@@ -181,7 +196,10 @@ export function sunDirection(evening: number): [number, number, number] {
 
 export interface SceneAtmosphere {
   background: string;
-  /** Multiplied by `bounds.size` to get the fog near/far planes. */
+  /**
+   * Multiplied by the overview's reach to get the fog near/far planes. Fixed,
+   * and always past the city: the fog only hides the rim of the landscape.
+   */
   fogNearFactor: number;
   fogFarFactor: number;
   sunColor: string;
@@ -207,13 +225,13 @@ export interface SceneAtmosphere {
   evening: number;
   /** Unit vector towards the sun; shared by the light and the sky dome. */
   sunDirection: [number, number, number];
-  /** ACES filmic exposure. A low sun and thick haze both need a little more. */
+  /** Tone-mapping exposure. A low sun needs a little more. */
   exposure: number;
   /** Top of the sky dome. */
   skyZenithColor: string;
-  /** The band at eye level. Matches the fog, so distance dissolves into sky. */
+  /** The band at eye level. Matches the fog and the backdrop colour. */
   skyHorizonColor: string;
-  /** Below the horizon: the haze the ground plate runs out into. */
+  /** Below the horizon: the clean backdrop the landscape runs out into. */
   skyGroundColor: string;
   /** The halo painted around the sun's bearing in the dome. */
   sunGlowColor: string;
@@ -229,29 +247,52 @@ export interface SceneAtmosphere {
   contactShadowOpacity: number;
 }
 
-const COOL_SUN = "#cfe0ff";
-const WARM_SUN = "#ffeccb";
-const COOL_SKY = "#a8c3dd";
-const WARM_SKY = "#cfe5ee";
-const COOL_TERRAIN = "#78877f";
-const WARM_TERRAIN = "#8a9470";
+const COOL_SUN = "#e6eeff";
+const WARM_SUN = "#fff3de";
+/** The backdrop: a clean pale blue, never a grey, never an olive. */
+const COOL_SKY = "#c9dcec";
+const WARM_SKY = "#dcebf4";
+/**
+ * Grass. Fresh, light and a little blue-green in the cool case; a sunny lawn
+ * in the warm one. The old warm end (#8a9470) was an olive: across the
+ * landscape that surrounds the city it tinted the whole frame khaki.
+ */
+const COOL_TERRAIN = "#93b497";
+const WARM_TERRAIN = "#97bf8c";
 
 /** Zenith colours: flat overcast, clear afternoon, and the golden hour. */
-const ZENITH_COOL = "#8ba6bf";
-const ZENITH_WARM = "#5f92c9";
-const ZENITH_EVENING = "#43719f";
+const ZENITH_COOL = "#8fb0cf";
+const ZENITH_WARM = "#6fa3d8";
+const ZENITH_EVENING = "#5a86b8";
 /** The colour the low sun turns its own halo. */
 const EVENING_GLOW = "#ffca8a";
 
 /**
- * Ambience drives light temperature, fog and background tint (section 39).
- * Archived repositories get the deliberate cool, foggy, quiet treatment of
- * section 19 -- but never so dark that the city stops being readable.
+ * Fog planes, as multiples of the overview's reach (`bounds.size` widened for
+ * a narrow screen). The overview camera sits about 1.45 of that from the
+ * centre and backs off to 1.9 at most, and the far corner of the city is 0.74
+ * past the centre, so no part of the city is ever further than about 2.65:
+ * the fog starts beyond that, and only the outer landscape runs into it. It
+ * is there to hide where the ground plate ends, not to put air in the frame.
+ */
+const FOG_NEAR = 2.9;
+const FOG_FAR = 4.4;
+
+/**
+ * Ambience drives light temperature, sky and background tint (section 39).
+ *
+ * Deliberately no haze. `ambience.fog` is still in the model, but a diorama
+ * is looked at across a table, not across a valley: every city is clear, and
+ * the fog value only buys a little extra soft fill in the shadows. Archived
+ * repositories read as abandoned through colour and light instead -- the
+ * palette drains, the sun goes cool and weaker, the sky pales -- and never by
+ * disappearing into murk (section 19).
  */
 export function atmosphere(ambience: CityModel["ambience"], archived: boolean): SceneAtmosphere {
   const warmth = clamp01(archived ? ambience.warmth * 0.5 - 0.1 : ambience.warmth);
   const saturation = clamp01(archived ? ambience.saturation * 0.55 : ambience.saturation);
-  const fog = clamp01(archived ? ambience.fog * 0.6 + 0.35 : ambience.fog);
+  // Clamped hard: whatever the generator says, this can only soften shadows.
+  const overcast = clamp01(ambience.fog) * 0.3 + (archived ? 0.35 : 0);
 
   const desaturation = (1 - saturation) * 0.55;
   const background = desaturate(mix(COOL_SKY, WARM_SKY, warmth), desaturation * 0.6);
@@ -265,45 +306,45 @@ export function atmosphere(ambience: CityModel["ambience"], archived: boolean): 
     background,
     evening,
     sunDirection: sunDirection(evening),
-    // Haze scatters light and a low sun delivers less of it; both want the
-    // shutter open a little wider. Capped so no city blows out its facades.
-    exposure: Math.min(0.96 + evening * 0.16 + fog * 0.13, 1.3),
+    // A low sun delivers less light; the shutter opens a little for it.
+    exposure: 1 + evening * 0.1,
     skyZenithColor: desaturate(
-      mix(mix(ZENITH_COOL, ZENITH_WARM, warmth), ZENITH_EVENING, evening * 0.75),
+      mix(mix(ZENITH_COOL, ZENITH_WARM, warmth), ZENITH_EVENING, evening * 0.6),
       desaturation * 0.75,
     ),
-    // The horizon IS the fog colour: anything far enough away to fade has to
-    // fade into something, and a seam there is the one thing that makes a
-    // diorama look like a box.
+    // The horizon is the backdrop colour, and so is the fog: the landscape
+    // runs out into a clean pale sky, the way a model sits in front of a
+    // studio sweep, and there is no seam where the two meet.
     skyHorizonColor: background,
-    skyGroundColor: desaturate(mix(background, mix(COOL_TERRAIN, WARM_TERRAIN, warmth), 0.55), 0.2),
+    // Below the horizon the dome only shows past the rim of the landscape, so
+    // it is the same backdrop lifted a touch, not a darker ground haze.
+    skyGroundColor: mix(background, "#ffffff", 0.2),
     sunGlowColor: mix(mix("#fff6e2", sunColor, 0.5), EVENING_GLOW, evening),
     // The halo is the sun's only presence in frame, so it grows as the sun
-    // drops towards the haze it has to shine through.
+    // drops towards the horizon.
     sunGlowStrength: 0.3 + evening * 0.45 - desaturation * 0.25,
     lampGlow: clamp01((archived ? 0.35 : 1) * (0.2 + evening * 0.8)),
     // Deliberately gentle: the directional light already draws the cast
     // shadow, and this only has to seat the building on the ground.
-    contactShadowOpacity: 0.3 + fog * 0.1,
-    // Both planes are multiples of `bounds.size`, and the overview sits at
-    // about 1.75 of it: the near plane starts just short of the city so haze
-    // reads as depth rather than as a dirty window.
-    fogNearFactor: 2 - fog * 1.1,
-    fogFarFactor: 5.6 - fog * 2.6,
+    contactShadowOpacity: 0.32,
+    fogNearFactor: FOG_NEAR,
+    fogFarFactor: FOG_FAR,
     sunColor,
-    // Floor of ~1.5 so a struggling city is still lit well enough to read.
+    // A bright, direct sun is most of what makes a model look crisp: it puts
+    // a clear step between the lit face and the shade. An archived city gets
+    // a weaker one and more fill, which is flatter without being murkier.
     // A sun at 30 degrees lands about two thirds as much light on a roof as
     // one at 52, and from this camera the roofs are most of the frame: the
     // evening term buys that back, so the hour reads as long shadows and warm
     // light rather than as somebody turning the lights down.
-    sunIntensity: 1.55 + warmth * 0.75 - fog * 0.25 + evening * 0.85,
+    sunIntensity: 3.0 + warmth * 0.5 - (archived ? 0.5 : 0) + evening * 0.9,
     // The hemisphere fill is the sky and the ground bouncing back into the
     // shadows, so it is tinted by both rather than being neutral grey.
-    skyColor: mix(mix("#c3d7ea", "#e2eef4", warmth), ZENITH_EVENING, evening * 0.35),
-    groundBounceColor: desaturate(mix("#5d6a63", "#7b7358", warmth), desaturation),
+    skyColor: mix(mix("#d2e2f2", "#e6f0f7", warmth), ZENITH_EVENING, evening * 0.3),
+    groundBounceColor: desaturate(mix("#7d8a80", "#8c9278", warmth), desaturation),
     // Overcast means more fill and less sun; a clear golden hour is the
     // opposite, and that contrast is most of what sells the hour.
-    hemiIntensity: 0.7 + fog * 0.35 - evening * 0.08,
+    hemiIntensity: 0.85 + overcast * 0.35 - evening * 0.1,
     terrainColor: desaturate(mix(COOL_TERRAIN, WARM_TERRAIN, warmth), desaturation),
     desaturation,
     windowGlow: clamp01(ambience.litWindowShare) * (archived ? 0.25 : 1),

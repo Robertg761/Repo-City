@@ -12,24 +12,27 @@
  *
  * WHY A SKY DOME. The scene used to end at a flat background colour, which
  * gave the frame two flat fields -- ground and sky -- meeting at a hard line
- * near the top of the viewport. A photograph of a model has neither: the sky
- * is graded from zenith to horizon, it carries the sun's haze, and the
- * distance dissolves into it. The dome's horizon band IS the fog colour, so
- * the terrain runs out into exactly the value the sky has there.
+ * near the top of the viewport. The dome is graded from a clear blue zenith
+ * down to a pale backdrop at the horizon, and the landscape's rim, the fog
+ * and the dome below the horizon are all that same backdrop colour, so the
+ * ground ends in a clean sweep rather than a seam. None of it is haze: the
+ * city itself is always drawn at full clarity (`palette.ts`).
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { ContactShadows } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Bloom, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
+import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import {
-  ACESFilmicToneMapping,
   BackSide,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
   type Mesh,
   MultiplyBlending,
+  NeutralToneMapping,
+  NoToneMapping,
   RepeatWrapping,
   SRGBColorSpace,
 } from "three";
@@ -73,10 +76,10 @@ function paintSky(atmosphere: SceneAtmosphere): CanvasTexture | null {
   grade.addColorStop(0, zenith);
   grade.addColorStop(0.3, mix(zenith, horizon, 0.4));
   grade.addColorStop(0.44, mix(zenith, horizon, 0.82));
-  // The horizon band is held for a few percent either side: haze piles up at
-  // eye level, and a single stop there reads as a drawn line.
+  // The horizon is a band rather than a single stop, which reads as a drawn
+  // line; below it the dome is the pale backdrop the landscape fades into.
   grade.addColorStop(0.5, horizon);
-  grade.addColorStop(0.54, mix(horizon, ground, 0.45));
+  grade.addColorStop(0.53, ground);
   grade.addColorStop(1, ground);
   context.fillStyle = grade;
   context.fillRect(0, 0, SKY_W, SKY_H);
@@ -151,7 +154,15 @@ function SkyDome({ atmosphere, radius }: { atmosphere: SceneAtmosphere; radius: 
   return (
     <mesh ref={mesh} renderOrder={-1000} frustumCulled={false} raycast={() => null}>
       <sphereGeometry args={[radius, 48, 24]} />
-      <meshBasicMaterial map={texture} side={BackSide} depthWrite={false} fog={false} />
+      <meshBasicMaterial
+        map={texture}
+        side={BackSide}
+        depthWrite={false}
+        fog={false}
+        // Painted in final colours: in the low tier the fog it meets at the
+        // horizon is not tone mapped either, so the two stay the same value.
+        toneMapped={false}
+      />
     </mesh>
   );
 }
@@ -261,22 +272,40 @@ function GroundDetail({ city }: { city: CityModel }) {
 }
 
 /**
- * ACES filmic tone mapping with an exposure chosen by the hour and the haze
- * (`palette.ts`). Filmic is what keeps a sunlit white facade from clipping to
- * paper while the shadowed side still has colour in it -- the difference
- * between a render and a photograph of a model.
+ * Khronos PBR Neutral tone mapping, with an exposure chosen by the hour
+ * (`palette.ts`). Neutral leaves every colour below the highlights exactly as
+ * the palette wrote it -- a sage roof renders sage, a lawn renders green --
+ * and only rolls the brightest sunlit faces off before they clip. ACES filmic
+ * shifted hues and pulled the pale palette towards a brown-grey; a diorama
+ * wants its paint to read true.
+ *
+ * Where the tone mapping happens depends on the tier. Without the composer
+ * the renderer does it per material. With it, three renders the scene into a
+ * half-float target, where it never tone maps, and the composer forces
+ * `NoToneMapping` besides -- so the high tier used to reach the screen with
+ * no tone mapping and no exposure at all. `Post` ends its chain with the same
+ * operator instead, and both tiers read the exposure from the renderer.
  */
-function Film({ atmosphere, maxDpr }: { atmosphere: SceneAtmosphere; maxDpr: number }) {
+function Film({
+  atmosphere,
+  maxDpr,
+  composed,
+}: {
+  atmosphere: SceneAtmosphere;
+  maxDpr: number;
+  /** The composer is running and tone maps at the end of its chain. */
+  composed: boolean;
+}) {
   const camera = useThree((state) => state.camera);
   const setDpr = useThree((state) => state.setDpr);
   const exposure = atmosphere.exposure;
+  const toneMapping = composed ? NoToneMapping : NeutralToneMapping;
 
   // Written from the frame loop rather than an effect: the renderer belongs
   // to R3F, and the comparison costs a great deal less than a re-render.
-  useFrame((state) => {
-    if (state.gl.toneMappingExposure === exposure) return;
-    state.gl.toneMapping = ACESFilmicToneMapping;
-    state.gl.toneMappingExposure = exposure;
+  useFrame(({ gl }) => {
+    if (gl.toneMappingExposure !== exposure) gl.toneMappingExposure = exposure;
+    if (gl.toneMapping !== toneMapping) gl.toneMapping = toneMapping;
   });
 
   useEffect(() => {
@@ -298,11 +327,16 @@ function Film({ atmosphere, maxDpr }: { atmosphere: SceneAtmosphere; maxDpr: num
  * reach -- between a tower and its neighbour, under an eave, along a kerb --
  * which is most of what makes a lit model read as three dimensional.
  *
- * Bloom is deliberately threshold-limited to values above 1, which only the
- * emissive materials reach: lit windows, beacons, sparks and lamps are all
- * drawn with `toneMapped={false}`, so they survive into the half-float buffer
- * above white while every tone-mapped surface lands below it. The result is
- * that the lights glow and the facades do not.
+ * Bloom is deliberately threshold-limited to values above 1.1 in the scene's
+ * own linear light, before the tone mapping: the palest roof under the
+ * strongest midday sun lands just under 1 there, and the emissive windows,
+ * beacons, sparks and lamps well above it.
+ * So the lights glow and the facades do not, and the glow is kept small: a
+ * wide soft bloom over a whole frame is exactly the veil this scene is not
+ * meant to have.
+ *
+ * The chain ends in the tone mapping (see `Film`), after the bloom so the
+ * glow is rolled off with everything else rather than clipping.
  */
 function Post({
   atmosphere,
@@ -335,13 +369,14 @@ function Post({
       <Bloom
         key="bloom"
         mipmapBlur
-        luminanceThreshold={1}
+        luminanceThreshold={1.1}
         luminanceSmoothing={0.25}
-        intensity={0.34 + atmosphere.evening * 0.24}
-        radius={0.7}
+        intensity={0.26 + atmosphere.evening * 0.22}
+        radius={0.55}
       />,
     );
   }
+  effects.push(<ToneMapping key="tone" mode={ToneMappingMode.NEUTRAL} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
 
   return (
@@ -380,7 +415,7 @@ export default function Environment({
 
   return (
     <>
-      <Film atmosphere={atmosphere} maxDpr={quality.maxDpr} />
+      <Film atmosphere={atmosphere} maxDpr={quality.maxDpr} composed={quality.postProcessing} />
       <SkyDome atmosphere={atmosphere} radius={Math.min(Math.max(size * 4, 700), 1400)} />
 
       {city && <Plaza city={city} atmosphere={atmosphere} />}

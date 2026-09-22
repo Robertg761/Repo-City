@@ -34,7 +34,9 @@ import {
   CIVIC_ROOF,
   HAZARD_RED,
   HIGHLIGHT,
-  SELECT,
+  HOVER_TINT,
+  SELECT_LIFT,
+  SELECT_TINT,
   WINDOW_COLOR,
   desaturate,
   mix,
@@ -75,16 +77,16 @@ function civicPalette(desaturation: number): CivicPalette {
   };
 }
 
-/** Hover brightens, selection pushes to the warm accent (PLAN.md section 42). */
+/** Same tints as `stateTint`: hover warms slightly, selection lifts towards warm white (PLAN.md section 42). */
 function tintInto(geometry: BufferGeometry, base: Float32Array, hovered: boolean, selected: boolean) {
   const attribute = geometry.getAttribute("color") as BufferAttribute | undefined;
   if (!attribute) return;
   const array = attribute.array as Float32Array;
-  const amount = selected ? 0.38 : hovered ? 0.28 : 0;
+  const amount = selected ? SELECT_TINT : hovered ? HOVER_TINT : 0;
   if (amount === 0) {
     array.set(base);
   } else {
-    scratchColor.set(selected ? SELECT : HIGHLIGHT);
+    scratchColor.set(selected ? SELECT_LIFT : HIGHLIGHT);
     const { r, g, b } = scratchColor;
     for (let i = 0; i < array.length; i += 3) {
       array[i] = base[i] + (r - base[i]) * amount;
