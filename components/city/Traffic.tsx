@@ -4,11 +4,12 @@
  * Street movement (PLAN.md sections 17, 18, 37). `vehicles.count` vehicles,
  * capped at 40, driving the road graph from `traffic.ts`.
  *
- * The simulation is unchanged -- a car picks a segment, drives it, turns at
- * the junction -- but the fleet is no longer one box per car. Each car gets a
- * seeded body type (`models/vehicles/shapes.ts`), wheels that turn at the
- * speed it is actually doing, and head and tail lamps that come up as the
- * city's windows do.
+ * A car picks a segment, drives it, turns at the junction. It keeps out of
+ * the stretches incidents and construction close (`blockages.ts`): it will
+ * not turn into a road it cannot use, and one that finds cones ahead pulls
+ * up short and turns round. Each car gets a seeded body type
+ * (`models/vehicles/shapes.ts`), wheels that turn at the speed it is actually
+ * doing, and head and tail lamps that come up as the city's windows do.
  *
  * COST. One instanced draw per body type present, one more for that type's
  * lamps, and a single instanced mesh carrying every wheel in the city: about
@@ -36,6 +37,7 @@ import {
 } from "./models/vehicles/shapes";
 import { tintedMaterial } from "./models/props/material";
 import { MAX_CARS, advanceCar, carPose, roadGraph, spawnCars } from "./traffic";
+import { blockedStretches, cityObstacles } from "./blockages";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
@@ -58,10 +60,13 @@ export default function Traffic({
 }) {
   const clock = useRevealClock();
 
-  const { graph, cars, prng, looks, groups } = useMemo(() => {
+  const { graph, blocks, cars, prng, looks, groups } = useMemo(() => {
     const rng = prngFor(city.seed, "traffic");
     const wanted = Math.max(0, Math.min(city.vehicles.count, MAX_CARS));
-    const fleet = spawnCars(city.roads, wanted, rng);
+    const network = roadGraph(city.roads);
+    // Incidents and any site that reaches a lane, once per city.
+    const closures = blockedStretches(network, cityObstacles(city));
+    const fleet = spawnCars(city.roads, wanted, rng, closures);
     // A separate stream, so adding body types cannot change where the cars
     // spawn or which way they drive (PLAN.md section 35).
     const shapes = fleetLooks(fleet.length, prngFor(city.seed, "fleet"));
@@ -72,7 +77,8 @@ export default function Traffic({
       else byBody.set(look.body, [i]);
     });
     return {
-      graph: roadGraph(city.roads),
+      graph: network,
+      blocks: closures,
       cars: fleet,
       prng: rng,
       looks: shapes,
@@ -121,7 +127,7 @@ export default function Traffic({
       for (let slot = 0; slot < group.cars.length; slot++) {
         const index = group.cars[slot];
         const car = cars[index];
-        if (step > 0) advanceCar(graph, car, step, prng);
+        if (step > 0) advanceCar(graph, car, step, prng, blocks);
         const pose = carPose(graph, car);
 
         scratch.position.set(pose.x, ROAD_SURFACE, pose.z);
@@ -135,7 +141,7 @@ export default function Traffic({
         // Wheels turn at the speed the car is doing: the distance covered this
         // frame over the tyre's radius, which is what stops them looking like
         // stickers when a car slows into a turn.
-        if (step > 0) spins[index] += (car.speed * step) / spec.wheelRadius;
+        if (step > 0) spins[index] += (car.v * step) / spec.wheelRadius;
         const angle = spins[index];
         const cos = Math.cos(pose.angle);
         const sin = Math.sin(pose.angle);
