@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   FIRE_AT,
   frames,
+  glowFalloff,
+  glowTexture,
   incidentDecor,
   incidentLayout,
   variantFor,
@@ -143,6 +145,37 @@ describe("emergency vehicles", () => {
         expect(y - below).toBeLessThan(light.radius + 0.1);
       }
     }
+  });
+});
+
+describe("fire glow", () => {
+  it("fades from a bright centre to nothing at the rim, with no edge", () => {
+    const size = 32;
+    const data = glowFalloff(size);
+    expect(data).toHaveLength(size * size * 4);
+    const alpha = (x: number, y: number) => data[(y * size + x) * 4 + 3];
+    const mid = size / 2;
+    expect(alpha(mid, mid)).toBeGreaterThan(230);
+    // The corners and the middle of every edge are dark: a square quad never
+    // shows its outline.
+    for (const [x, y] of [
+      [0, 0],
+      [size - 1, 0],
+      [0, size - 1],
+      [size - 1, size - 1],
+      [mid, 0],
+      [0, mid],
+    ]) {
+      expect(alpha(x, y)).toBeLessThan(3);
+    }
+    // Monotonic along a radius.
+    for (let x = mid; x < size - 1; x++) expect(alpha(x + 1, mid)).toBeLessThanOrEqual(alpha(x, mid));
+    // White: the colour comes from the material.
+    expect(data[(mid * size + mid) * 4]).toBe(255);
+  });
+
+  it("builds the texture once and shares it", () => {
+    expect(glowTexture()).toBe(glowTexture());
   });
 });
 

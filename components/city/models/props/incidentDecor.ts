@@ -28,7 +28,10 @@ import {
   BoxGeometry,
   ConeGeometry,
   CylinderGeometry,
+  DataTexture,
   IcosahedronGeometry,
+  LinearFilter,
+  RGBAFormat,
   type BufferGeometry,
 } from "three";
 import type { IncidentState } from "@/types/analysis";
@@ -484,6 +487,47 @@ export function incidentLayout(
 
 /** Converts between an incident's frame and a parked vehicle's. */
 export const frames = { toIncident, toVehicle };
+
+/**
+ * The fire's glow, as a soft round falloff: a `size` by `size` RGBA image,
+ * white, opaque at the centre and fading smoothly to nothing at the rim. It is
+ * drawn additively under and around the flames in place of a point light,
+ * which would have cost every lit material in the city a light per fire.
+ * Generated here, never downloaded (PLAN.md section 4).
+ */
+export function glowFalloff(size = 64): Uint8Array {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = ((x + 0.5) / size) * 2 - 1;
+      const dy = ((y + 0.5) / size) * 2 - 1;
+      const t = Math.max(0, 1 - Math.hypot(dx, dy));
+      // Smoothstep, squared: a warm core that falls away quickly and dies
+      // out without a visible edge.
+      const smooth = t * t * (3 - 2 * t);
+      const i = (y * size + x) * 4;
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = Math.round(smooth * smooth * 255);
+    }
+  }
+  return data;
+}
+
+let glowCache: DataTexture | null = null;
+
+/** The falloff as a texture, built once and shared by every fire. */
+export function glowTexture(): DataTexture {
+  if (glowCache) return glowCache;
+  const size = 64;
+  const texture = new DataTexture(glowFalloff(size), size, size, RGBAFormat);
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+  glowCache = texture;
+  return texture;
+}
 
 /** Which variant an incident gets: stable per id, no state of its own. */
 export function variantFor(id: string): number {
