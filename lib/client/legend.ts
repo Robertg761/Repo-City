@@ -74,7 +74,7 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
       // the whole point of PLAN.md sections 21 and 22 is that a popular
       // repository is not thereby a healthy one.
       ["Highway", "forks leaving for the wider ecosystem"],
-      ["Queue", "open issues and pull requests past what the streets can hold"],
+      ["Queue", "open issues and PRs the streets had no room for"],
     ],
   },
   {

@@ -261,7 +261,7 @@ function SettlementLine({ settlement }: { settlement: SettlementInfo }) {
     <div className="mt-1">
       <Explained
         note={settlement.reason}
-        className={`text-[10px] uppercase tracking-[0.2em] text-white/80 decoration-white/35 hover:text-white focus-visible:text-white ${SHADOW}`}
+        className={`text-[10px] uppercase tracking-[0.2em] text-white/90 decoration-white/40 hover:text-white focus-visible:text-white ${SHADOW}`}
       >
         {settlement.name}
       </Explained>
@@ -297,8 +297,10 @@ export default function CityHUD() {
   return (
     <>
       {/* On a phone the identity block and the health card sit below the repo
-          control rather than beside it; there is no room for three columns. */}
-      <div className="pointer-events-none absolute left-4 top-[7rem] z-20 max-w-[min(18rem,42vw)] select-none sm:top-4">
+          control rather than beside it; there is no room for three columns.
+          One step above the health card, so the settlement note can open
+          over it on a narrow screen instead of sliding underneath. */}
+      <div className="pointer-events-none absolute left-4 top-[7rem] z-[21] max-w-[min(18rem,calc(48vw-2.5rem))] select-none sm:top-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           Repo City
           <span
