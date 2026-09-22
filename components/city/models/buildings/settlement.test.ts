@@ -139,10 +139,10 @@ describe("settlement archetype tables (PLAN.md 76.1 decision 7)", () => {
     }
   });
 
-  it("names the metropolis towers S7 builds, at the top of the metropolis table", () => {
+  it("names the metropolis towers S7 built, at the top of the metropolis table", () => {
     const top = new Set([...ARCHETYPE_TABLES.metropolis[4], ...ARCHETYPE_TABLES.metropolis[5]]);
     for (const id of ["tower-glass", "tower-twin", "tower-spire"] as const) expect(top.has(id)).toBe(true);
-    for (const id of ["tower-glass", "tower-twin", "tower-spire"] as const) expect(ARCHETYPE_STAND_IN[id]).toBeDefined();
+    for (const id of ["tower-glass", "tower-twin", "tower-spire"] as const) expect(ARCHETYPE_STAND_IN[id]).toBeUndefined();
   });
 
   it("has a candidate list for every tier of every settlement, all with models", () => {

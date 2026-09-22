@@ -77,17 +77,12 @@ export const ARCHETYPE_IDS: readonly ArchetypeId[] = [
 ];
 
 /**
- * Placeholder geometry for each settlement archetype that has no model yet:
- * the closest shape the city already has. `models.ts` builds a placeholder
- * from its stand-in, so a tier table can name "tower-glass" today and get a
- * stepped tower. The village and town models have landed (S6); the three
- * metropolis towers are S7's, in `metropolis.ts`.
+ * Placeholder geometry for a settlement archetype that has no model yet: the
+ * closest shape the city already has. Empty now: the village and town models
+ * have landed (S6) and so have the metropolis towers (S7, `metropolis.ts`).
+ * A new archetype can stand in here until its own model exists.
  */
-export const ARCHETYPE_STAND_IN: Partial<Record<SettlementArchetypeId, CityArchetypeId>> = {
-  "tower-glass": "tower-stepped",
-  "tower-twin": "tower-stepped",
-  "tower-spire": "tower-crown",
-};
+export const ARCHETYPE_STAND_IN: Partial<Record<SettlementArchetypeId, CityArchetypeId>> = {};
 
 /**
  * A drawable model: an archetype, or one of its variants. The variants share
