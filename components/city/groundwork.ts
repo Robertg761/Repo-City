@@ -57,9 +57,9 @@ export const JUNCTION_INSET = 4.2;
 
 /**
  * The widest road the city's junction constants were tuned for: the 8.4 unit
- * fork highway. A metropolis avenue (9.5) or ring (10) is wider, and a side
- * street meeting one has to keep its pavement and its zebra that much further
- * back, or both end up on the other road's carriageway.
+ * fork highway. A metropolis avenue (9.5) or ring (10) is wider, and a street
+ * crossing one keeps its zebra and its pavement clear of the wider road's
+ * carriageway instead (`junctionClearance`).
  */
 export const TUNED_WIDTH = 8.4;
 
@@ -258,11 +258,40 @@ function mitre(lay: RoadLay, bend: { other: Arm; angle: number }, lateral: numbe
   return inner ? reach : -reach;
 }
 
-/** Extra set-back at a junction with a road wider than the city ever had. */
-function widerThanTuned(lays: readonly RoadLay[], others: readonly Arm[]): number {
+/**
+ * The widest road crossing this arm at its node. The same road running
+ * straight on past the junction does not cross it, so it does not count.
+ */
+function widestCrossing(
+  lays: readonly RoadLay[],
+  topology: RoadNodes,
+  road: number,
+  atStart: boolean,
+): number {
+  const node = topology.nodes[topology.ends[road][atStart ? 0 : 1]];
+  const self = node.arms.find((arm) => arm.road === road && arm.atStart === atStart)!;
   let widest = 0;
-  for (const arm of others) widest = Math.max(widest, lays[arm.road].width);
-  return Math.max(0, widest - TUNED_WIDTH) / 2;
+  for (const arm of node.arms) {
+    if (arm === self || arm.ux * self.ux + arm.uz * self.uz < -0.95) continue;
+    widest = Math.max(widest, lays[arm.road].width);
+  }
+  return widest;
+}
+
+/**
+ * Where a junction's zebra band is centred and where the pavement stops,
+ * measured back from the node along the arm being crossed.
+ *
+ * Up to the widest road the city has, these are the city's own numbers, so a
+ * city is unchanged. A metropolis avenue or motorway is wider than the city's
+ * junction constants were drawn for: there the band moves out of the
+ * junction box, just clear of the wider road's carriageway, and the pavement
+ * stops the same distance beyond it as the city's does.
+ */
+export function junctionClearance(widest: number): { crossing: number; pavement: number } {
+  if (widest <= TUNED_WIDTH) return { crossing: CROSSWALK_AT, pavement: JUNCTION_INSET };
+  const crossing = widest / 2 + 0.35 + CROSSWALK_ALONG / 2;
+  return { crossing, pavement: crossing + CROSSWALK_ALONG / 2 + 0.95 };
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +324,7 @@ function pavementInset(
     // `mitre` is measured along the outward arm; for the start end that is +s.
     return mitre(lays[road], bend, lateral);
   }
-  return JUNCTION_INSET + widerThanTuned(lays, othersAt(topology, road, atStart));
+  return junctionClearance(widestCrossing(lays, topology, road, atStart)).pavement;
 }
 
 /**
@@ -368,7 +397,7 @@ export function crosswalkLays(
       // past a split, and painting a crossing there stripes the open road.
       const walkable = node.arms.filter((arm) => crossable(lays[arm.road].style)).length;
       if (walkable < 3) continue;
-      const back = CROSSWALK_AT + widerThanTuned(lays, othersAt(topology, road, atStart));
+      const back = junctionClearance(widestCrossing(lays, topology, road, atStart)).crossing;
       const s = atStart ? back : lay.length - back;
       for (let i = 0; i < stripes; i++) {
         out.push({
@@ -399,7 +428,7 @@ export function laneDashLays(lays: readonly RoadLay[], topology = roadNodes(lays
     const clear = (atStart: boolean) =>
       bendAt(lays, topology, road, atStart)
         ? DASH_GAP / 2 + DASH_ALONG / 2
-        : JUNCTION_INSET + DASH_ALONG + widerThanTuned(lays, othersAt(topology, road, atStart));
+        : junctionClearance(widestCrossing(lays, topology, road, atStart)).pavement + DASH_ALONG;
     const first = clear(true);
     const last = lay.length - clear(false);
     for (let s = first; s <= last; s += stride) {
@@ -412,8 +441,8 @@ export function laneDashLays(lays: readonly RoadLay[], topology = roadNodes(lays
 /**
  * A strip that stops for junctions but runs through bends and corners: the
  * avenue median, the motorway barrier and its edge lines. At a junction it
- * stops `inset` short (plus the width of anything wider than the city's
- * roads); at a bend or a corner of the same road it meets the next segment on
+ * stops `setback(widest)` short, `widest` being the widest road crossing it
+ * there; at a bend or a corner of the same road it meets the next segment on
  * the mitre; at an open end it runs out to `openEnd`.
  */
 function runInset(
@@ -422,7 +451,7 @@ function runInset(
   road: number,
   atStart: boolean,
   lateral: number,
-  inset: number,
+  setback: (widest: number) => number,
   openEnd: number,
 ): number {
   const others = othersAt(topology, road, atStart);
@@ -440,8 +469,13 @@ function runInset(
       }
     }
   }
-  return inset + widerThanTuned(lays, others);
+  return setback(widestCrossing(lays, topology, road, atStart));
 }
+
+/** The median's nose stops just past the pavement's end, clear of the zebra. */
+const medianSetback = (widest: number) => junctionClearance(widest).pavement + 0.6;
+/** The barrier and edge lines stop where traffic crosses the motorway. */
+const motorwaySetback = (widest: number) => Math.max(JUNCTION_INSET, widest / 2 + 0.5);
 
 /** The planted median of every avenue, as a strip down its centre line. */
 export function medianLays(lays: readonly RoadLay[], topology = roadNodes(lays)): SidewalkLay[] {
@@ -449,9 +483,8 @@ export function medianLays(lays: readonly RoadLay[], topology = roadNodes(lays))
   lays.forEach((lay, road) => {
     if (lay.style !== "avenue") return;
     // Short of the zebra band, so the crossing runs across open road.
-    const inset = JUNCTION_INSET + 0.8;
-    const start = runInset(lays, topology, road, true, 0, inset, 2);
-    const end = runInset(lays, topology, road, false, 0, inset, 2);
+    const start = runInset(lays, topology, road, true, 0, medianSetback, 2);
+    const end = runInset(lays, topology, road, false, 0, medianSetback, 2);
     const along = lay.length - start - end;
     if (along < 4) return;
     out.push({ road, lateral: 0, start, along });
@@ -486,8 +519,8 @@ export function barrierLays(lays: readonly RoadLay[], topology = roadNodes(lays)
   const out: SidewalkLay[] = [];
   lays.forEach((lay, road) => {
     if (lay.style !== "motorway") return;
-    const start = runInset(lays, topology, road, true, 0, JUNCTION_INSET, 0);
-    const end = runInset(lays, topology, road, false, 0, JUNCTION_INSET, 0);
+    const start = runInset(lays, topology, road, true, 0, motorwaySetback, 0);
+    const end = runInset(lays, topology, road, false, 0, motorwaySetback, 0);
     const along = lay.length - start - end;
     if (along < 2) return;
     out.push({ road, lateral: 0, start, along });
@@ -505,8 +538,8 @@ export function edgeLineLays(lays: readonly RoadLay[], topology = roadNodes(lays
     if (lay.style !== "motorway") return;
     const lateral = lay.width / 2 - EDGE_LINE_IN;
     for (const side of [lateral, -lateral]) {
-      const start = runInset(lays, topology, road, true, side, JUNCTION_INSET, 0);
-      const end = runInset(lays, topology, road, false, side, JUNCTION_INSET, 0);
+      const start = runInset(lays, topology, road, true, side, motorwaySetback, 0);
+      const end = runInset(lays, topology, road, false, side, motorwaySetback, 0);
       const along = lay.length - start - end;
       if (along < 1) continue;
       out.push({ road, s: start + along / 2, lateral: side, along, across: EDGE_LINE_ACROSS });

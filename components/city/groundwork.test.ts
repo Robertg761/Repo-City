@@ -10,6 +10,7 @@ import {
   crosswalkLays,
   edgeLineLays,
   jointLays,
+  junctionClearance,
   laneDashLays,
   medianLays,
   medianTreeSpots,
@@ -537,12 +538,42 @@ describe("metropolis avenues", () => {
     expect(pitch).toBeLessThan((5.5 * 0.78) / 3);
   });
 
-  it("push a side street's crossing and pavement back by the extra width", () => {
-    const extra = (9.5 - TUNED_WIDTH) / 2;
-    const side = crosswalkLays(lays, grid).filter((m) => m.road === 3);
-    expect(Math.min(...side.map((m) => m.s))).toBeCloseTo(2.3 + extra, 9);
+  it("move a side street's zebra out of the junction box, clear of the avenue", () => {
+    const side = crosswalkLays(lays, grid).filter((m) => m.road === 3 && m.s < 20);
+    const band = side[0];
+    // The band starts beyond the avenue's carriageway, not inside it.
+    expect(band.s - band.along / 2).toBeGreaterThan(9.5 / 2);
+    expect(band.s).toBeCloseTo(junctionClearance(9.5).crossing, 9);
+    // And the pavement stops beyond the band, as a city's does.
     const walk = sidewalkLays(lays).find((w) => w.road === 3)!;
-    expect(walk.start).toBeCloseTo(JUNCTION_INSET + extra, 9);
+    expect(walk.start).toBeGreaterThan(band.s + band.along / 2);
+  });
+
+  it("keep their own zebras at a side street where the city would put them", () => {
+    // The avenue running straight on past the junction does not cross it.
+    const own = crosswalkLays(lays, grid).filter((m) => m.road === 1);
+    expect(Math.min(...own.map((m) => m.s))).toBeCloseTo(2.3, 9);
+    expect(junctionClearance(TUNED_WIDTH)).toEqual({ crossing: 2.3, pavement: JUNCTION_INSET });
+  });
+
+  it("clear an avenue's zebra of another avenue's carriageway", () => {
+    const cross = [
+      road("w", [-60, 0, 0], [0, 0, 0], avenue),
+      road("e", [0, 0, 0], [60, 0, 0], avenue),
+      road("n", [0, 0, -60], [0, 0, 0], avenue),
+      road("s", [0, 0, 0], [0, 0, 60], avenue),
+    ];
+    const crossLays = roadLays(cross);
+    for (const mark of crosswalkLays(crossLays, cross)) {
+      const fromNode = Math.min(mark.s, crossLays[mark.road].length - mark.s);
+      expect(fromNode - mark.along / 2).toBeGreaterThan(9.5 / 2);
+    }
+    // Each median's nose at the junction end stays behind the pavement's end.
+    for (const median of medianLays(crossLays)) {
+      const lay = crossLays[median.road];
+      const atNode = lay.x === 0 && lay.z === 0 ? median.start : lay.length - median.start - median.along;
+      expect(atNode).toBeGreaterThan(junctionClearance(9.5).pavement);
+    }
   });
 
   it("plant trees down the median, evenly, on its centre line, never over the cap", () => {
