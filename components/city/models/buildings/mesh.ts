@@ -23,7 +23,21 @@ export interface MeshDraft {
   normals: number[];
   colors: number[];
   indices: number[];
+  /**
+   * Settlement models only (PLAN.md 76.11, S6): one paint channel per vertex.
+   * `PAINT_NONE` keeps the vertex colour as an absolute colour (thatch, tile,
+   * glass), `PAINT_WALL` multiplies it by the instance colour, `PAINT_ACCENT`
+   * by the instance's accent colour (doors, shutters, awnings). Absent on the
+   * city's eight archetypes, whose geometry is therefore unchanged.
+   */
+  paint?: number[];
+  /** The channel `addQuad` writes while `paint` is present. */
+  paintValue?: number;
 }
+
+export const PAINT_NONE = 0;
+export const PAINT_WALL = 1;
+export const PAINT_ACCENT = 2;
 
 export const emptyDraft = (): MeshDraft => ({
   positions: [],
@@ -59,6 +73,10 @@ export function addQuad(draft: MeshDraft, a: P, b: P, c: P, d: P, color: Rgb3): 
     draft.colors.push(color[0], color[1], color[2]);
   }
   draft.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  if (draft.paint) {
+    const channel = draft.paintValue ?? PAINT_WALL;
+    draft.paint.push(channel, channel, channel, channel);
+  }
 }
 
 export interface BoxSpec {
