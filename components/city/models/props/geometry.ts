@@ -30,7 +30,13 @@ export type Triple = [number, number, number];
 
 export interface Part {
   geometry: BufferGeometry;
-  /** Baked into the merged geometry's `color` attribute. */
+  /**
+   * Baked into the merged geometry's `color` attribute. When the source
+   * geometry already carries colours -- a whole vehicle body, say -- this
+   * multiplies them instead of flattening them, so a car can be merged into a
+   * larger assembly and still keep its glass and its tyres while being tinted
+   * rusty or scorched.
+   */
   color: string;
   position?: Triple;
   /** Euler angles in radians, XYZ order. */
@@ -76,11 +82,12 @@ function preparePart(part: Part): BufferGeometry {
   // which is exactly what a `color` attribute has to hold.
   scratchColor.setStyle(part.color);
   const count = geometry.getAttribute("position").count;
+  const existing = geometry.getAttribute("color");
   const colors = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    colors[i * 3] = scratchColor.r;
-    colors[i * 3 + 1] = scratchColor.g;
-    colors[i * 3 + 2] = scratchColor.b;
+    colors[i * 3] = scratchColor.r * (existing ? existing.getX(i) : 1);
+    colors[i * 3 + 1] = scratchColor.g * (existing ? existing.getY(i) : 1);
+    colors[i * 3 + 2] = scratchColor.b * (existing ? existing.getZ(i) : 1);
   }
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 
