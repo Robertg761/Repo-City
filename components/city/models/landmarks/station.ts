@@ -17,12 +17,20 @@
  * stabled on it.
  *
  * The train is built once, centred on the origin, and drawn twice: `Landmark`
- * animates one copy along track A and parks the other on track B.
+ * runs one copy on track A to the timetable below and parks the other on
+ * track B.
+ *
+ * Track A leaves the plot through a tunnel portal at its +x end. The running
+ * train comes out of it, stops at the platform, and goes back in, once per
+ * arrival: `trainsPerMinute` from the generator (PLAN.md section 20) sets how
+ * often, so the inspector's "about N arrivals a minute" is what the platform
+ * actually shows. The renderer clips the train at `PORTAL_X`, which is what
+ * lets it drive into a hillside that is not there.
  */
 
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
-export type StationSlot = "deck" | "wall" | "roof" | "steel" | "glass" | "accent";
+export type StationSlot = "deck" | "wall" | "roof" | "steel" | "glass" | "accent" | "dark";
 export type TrainSlot = "body" | "glass" | "gear";
 
 const DECK = 0.4;
@@ -34,10 +42,17 @@ const TRACK_X = 3.5;
 
 /** The middle of the platform: both trains are positioned from here. */
 export const TRAIN_CENTRE = TRACK_X;
-/** How far the running train slides either side of the platform centre. */
-export const TRAIN_SPAN = 3.4;
 /** Where the parked train stands when the station has two tracks. */
 export const PARKED_X = TRACK_X - 1.9;
+/**
+ * The face of the tunnel portal on track A. The renderer discards any part of
+ * the running train beyond it, so the train is only ever seen on this side.
+ */
+export const PORTAL_X = TRACK_X + TRACK_HALF - 0.6;
+/** Half the length of a train set, cab to cab, with a little to spare. */
+const TRAIN_HALF = 6.3;
+/** Where the running train waits between arrivals: wholly inside the tunnel. */
+const OFFSTAGE_X = PORTAL_X + TRAIN_HALF;
 
 type A = Assembly<StationSlot>;
 
@@ -98,6 +113,31 @@ function concourse(a: A): void {
   a.box("steel", [0.07, 0.34, 0.04], { at: [x, 4.1, 2.84] });
   a.box("steel", [0.26, 0.07, 0.04], { at: [x + 0.11, 3.95, 2.84] });
   a.box("accent", [3.4, 0.62, 0.14], { at: [x, 4.98, 2.5] });
+}
+
+/**
+ * The tunnel mouth track A runs into: a headwall with a dark opening, a
+ * coping and two buttresses. The train is clipped at the opening's face, so
+ * the wall only has to be deep and tall enough to hide the cut.
+ */
+function portal(a: A): void {
+  // The plot ends at x = 13; the opening stands just proud of the wall so the
+  // two never share a plane.
+  const x0 = PORTAL_X + 0.04;
+  const x1 = 13.0;
+  const depth = x1 - x0;
+  const x = (x0 + x1) / 2;
+  a.box("wall", [depth, 4.1, 4.4], { at: [x, 2.05, TRACK_A] });
+  a.box("dark", [0.06, 2.6, 2.3], { at: [PORTAL_X + 0.03, 1.6, TRACK_A] });
+  // A round-headed arch over the opening, then the coping over the wall.
+  a.cylinder("dark", 1.15, 1.15, 0.06, 12, {
+    at: [PORTAL_X + 0.03, 2.9, TRACK_A],
+    rot: [0, 0, Math.PI / 2],
+  });
+  a.box("roof", [depth, 0.3, 4.8], { at: [x, 4.25, TRACK_A] });
+  for (const s of [-1, 1]) {
+    a.box("roof", [depth + 0.3, 3.4, 0.5], { at: [x - 0.15, 1.7, TRACK_A + s * 2.0] });
+  }
 }
 
 function buildStation(level: number): StationLayout {
@@ -185,6 +225,8 @@ function buildStation(level: number): StationLayout {
     a.box("glass", [0.2, 0.2, 0.06], { at: [sx, 2.78, TRACK_A + s * 1.92] });
   }
 
+  portal(a);
+
   return { slots: a.build(), lamps, tracks };
 }
 
@@ -230,6 +272,15 @@ function buildTrain(): Slots<TrainSlot> {
       a.box("gear", [0.14, 1.2, 0.1], { at: [cx + 1.5, railTop + 1.35, s * 0.94] });
     }
   }
+  // The last car is a driving trailer, so the set leads with a cab whichever
+  // way it runs: it comes in trailer first and leaves locomotive first.
+  const tail = -3.7 - 1.7;
+  a.box("body", [0.95, 1.15, 1.86], { at: [tail - 0.2, railTop + 1.25, 0], rot: [0, 0, 0.16] });
+  a.box("glass", [0.12, 0.62, 1.62], { at: [tail + 0.02, railTop + 1.78, 0] });
+  for (const s of [-1, 1]) {
+    a.box("glass", [0.14, 0.2, 0.2], { at: [tail - 0.54, railTop + 0.95, s * 0.52] });
+  }
+
   // Couplers, so the set reads as one train rather than three blocks.
   for (const gx of [1.8, -1.85]) {
     a.box("gear", [0.35, 0.3, 0.4], { at: [gx, railTop + 0.75, 0] });
@@ -245,4 +296,55 @@ export function transitStation(level: number): StationLayout {
 
 export function trainCars(): Slots<TrainSlot> {
   return cached("station:train", buildTrain);
+}
+
+/**
+ * Arrivals a minute when the generator did not say (the development fixture,
+ * or a model from before E5): the same bands `trainsPerMinute` in
+ * `lib/city/entities.ts` uses, at their midpoints.
+ */
+export function fallbackArrivals(level: number): number {
+  if (level >= 3) return 4.5;
+  if (level === 2) return 1.4;
+  return level === 1 ? 0.8 : 0;
+}
+
+export interface TrainPose {
+  /** Centre of the set along the track, in the station's natural frame. */
+  x: number;
+  /** False while the set is wholly inside the tunnel, so it costs nothing. */
+  visible: boolean;
+}
+
+/** Seconds to pull in from the tunnel to the platform, and to pull out. */
+const RUN = 4.2;
+/** Seconds at the platform. */
+const DWELL = 5.5;
+
+const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
+const easeIn = (t: number) => t * t;
+
+/**
+ * Where the running train is `seconds` into the timetable. One arrival every
+ * `60 / perMinute` seconds: out of the tunnel, a stop at the platform, back
+ * into the tunnel, then gone until the next one. At the busiest rate the
+ * cycle is ten seconds and the run and dwell are squeezed to fit it.
+ */
+export function trainPose(seconds: number, perMinute: number): TrainPose {
+  if (!(perMinute > 0)) return { x: OFFSTAGE_X, visible: false };
+  const period = 60 / perMinute;
+  const squeeze = Math.min(1, (period * 0.9) / (RUN * 2 + DWELL));
+  const run = RUN * squeeze;
+  const dwell = DWELL * squeeze;
+  const t = ((seconds % period) + period) % period;
+  const distance = OFFSTAGE_X - TRAIN_CENTRE;
+
+  if (t < run) {
+    return { x: OFFSTAGE_X - distance * easeOut(t / run), visible: true };
+  }
+  if (t < run + dwell) return { x: TRAIN_CENTRE, visible: true };
+  if (t < run * 2 + dwell) {
+    return { x: TRAIN_CENTRE + distance * easeIn((t - run - dwell) / run), visible: true };
+  }
+  return { x: OFFSTAGE_X, visible: false };
 }

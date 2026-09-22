@@ -6,7 +6,14 @@ import { INSPECTION_AZIMUTH, facingTurn } from "./facing";
 import { fireStation } from "./fire";
 import { infoCentre } from "./info";
 import { powerPlant, powerMode } from "./power";
-import { trainCars, transitStation } from "./station";
+import {
+  PORTAL_X,
+  TRAIN_CENTRE,
+  fallbackArrivals,
+  trainCars,
+  trainPose,
+  transitStation,
+} from "./station";
 
 /**
  * The contract every landmark model has to keep (PLAN.md sections 36 and 37):
@@ -184,7 +191,7 @@ describe("transit station", () => {
     for (const level of [1, 2, 3]) {
       const { slots } = transitStation(level);
       fits(slots, "station");
-      expect(slotCount(slots)).toBeLessThanOrEqual(6);
+      expect(slotCount(slots)).toBeLessThanOrEqual(7);
       expect(triangleCount(slots)).toBeLessThan(12000);
     }
   });
@@ -200,8 +207,43 @@ describe("transit station", () => {
     expect(train).toBe(trainCars());
     expect(slotCount(train)).toBe(3);
     const [length, height] = extentOf(train);
-    expect(length).toBeLessThan(12);
+    expect(length).toBeLessThan(12.6);
     expect(height).toBeLessThan(3);
+  });
+
+  it("runs one arrival per 60 / trainsPerMinute seconds", () => {
+    // Sample a long window and count the times the set comes out of the tunnel.
+    const arrivals = (perMinute: number) => {
+      let count = 0;
+      let wasVisible = false;
+      for (let t = 0; t < 600; t += 0.05) {
+        const { visible } = trainPose(t, perMinute);
+        if (visible && !wasVisible) count++;
+        wasVisible = visible;
+      }
+      return count;
+    };
+    expect(arrivals(6)).toBe(60);
+    expect(arrivals(1)).toBe(10);
+    expect(arrivals(0.25)).toBe(3);
+    expect(arrivals(0)).toBe(0);
+  });
+
+  it("stops the train at the platform and hides it in the tunnel", () => {
+    // Mid-cycle at a quiet rate: at the platform.
+    expect(trainPose(6, 1)).toEqual({ x: TRAIN_CENTRE, visible: true });
+    // It comes out of, and goes back into, the tunnel at the portal end.
+    expect(trainPose(0, 1).x).toBeGreaterThan(PORTAL_X);
+    expect(trainPose(30, 1).visible).toBe(false);
+    // At the busiest rate there is still a stop before the next arrival.
+    expect(trainPose(4.9, 6)).toEqual({ x: TRAIN_CENTRE, visible: true });
+    expect(trainPose(9.5, 6).visible).toBe(false);
+  });
+
+  it("falls back to a rate for a station the generator did not time", () => {
+    expect(fallbackArrivals(3)).toBeGreaterThan(fallbackArrivals(2));
+    expect(fallbackArrivals(2)).toBeGreaterThan(fallbackArrivals(1));
+    expect(fallbackArrivals(0)).toBe(0);
   });
 });
 

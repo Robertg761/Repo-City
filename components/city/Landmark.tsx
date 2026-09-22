@@ -7,7 +7,8 @@
  *                         `state` drives beacons, smoke and a cold stack
  *   fire    tests         station with bays and engines; `level` drives the size
  *   info    docs          kiosk, visitor centre or library; `level` drives which
- *   station releases      platforms, canopy, track and a running train
+ *   station releases      platforms, canopy, a tunnel and trains that keep
+ *                         the generator's arrivals-per-minute timetable
  *   civic   the repo      the town hall at the centre of the city
  *
  * Primitive assemblies only: no external models anywhere in this project.
@@ -25,9 +26,9 @@
  * effects below are in that same natural frame, so they scale with it.
  */
 
-import { useCallback, useRef, type Ref } from "react";
+import { useCallback, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { BufferGeometry, Group, MeshStandardMaterial } from "three";
+import { Plane, Vector3, type BufferGeometry, type Group, type MeshStandardMaterial } from "three";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import type { Landmark } from "@/types/city";
 import {
@@ -50,11 +51,12 @@ import { fireStation } from "./models/landmarks/fire";
 import { infoCentre } from "./models/landmarks/info";
 import {
   PARKED_X,
+  PORTAL_X,
   TRACK_A,
   TRACK_B,
-  TRAIN_CENTRE,
-  TRAIN_SPAN,
+  fallbackArrivals,
   trainCars,
+  trainPose,
   transitStation,
 } from "./models/landmarks/station";
 import { townHall } from "./models/landmarks/civic";
@@ -99,6 +101,7 @@ function Part({
   materialRef,
   cast = true,
   receive = true,
+  clip,
 }: {
   geometry: BufferGeometry | undefined;
   color: string;
@@ -109,6 +112,8 @@ function Part({
   materialRef?: Ref<MeshStandardMaterial>;
   cast?: boolean;
   receive?: boolean;
+  /** World-space clipping planes, shadows included. */
+  clip?: Plane[];
 }) {
   if (!geometry) return null;
   return (
@@ -121,6 +126,8 @@ function Part({
         emissive={emissive ?? "#000000"}
         emissiveIntensity={emissiveIntensity}
         toneMapped={emissive === undefined}
+        clippingPlanes={clip ?? null}
+        clipShadows={clip !== undefined}
       />
     </mesh>
   );
@@ -344,48 +351,75 @@ function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
 }
 
 /** One train, drawn from the shared geometry. */
-function Train({ skin }: { skin: Skin }) {
+function Train({ skin, clip }: { skin: Skin; clip?: Plane[] }) {
   const cars = trainCars();
   return (
     <>
-      <Part geometry={cars.body} color={skin.tint(TRANSIT_BLUE)} roughness={0.45} metalness={0.1} />
-      <Part geometry={cars.gear} color={skin.tint(DARK_STEEL)} roughness={0.6} metalness={0.3} />
+      <Part
+        geometry={cars.body}
+        color={skin.tint(TRANSIT_BLUE)}
+        roughness={0.45}
+        metalness={0.1}
+        clip={clip}
+      />
+      <Part
+        geometry={cars.gear}
+        color={skin.tint(DARK_STEEL)}
+        roughness={0.6}
+        metalness={0.3}
+        clip={clip}
+      />
       <Part
         geometry={cars.glass}
         color={WINDOW_COLOR}
         emissive={WINDOW_COLOR}
         emissiveIntensity={0.35 + skin.glow}
         cast={false}
+        clip={clip}
       />
     </>
   );
 }
 
-/** Releases as the city's shipping (PLAN.md section 20). */
+/** The portal face in the station's natural frame: keep x < PORTAL_X. */
+const PORTAL_PLANE = new Plane(new Vector3(-1, 0, 0), PORTAL_X);
+
+/**
+ * Releases as the city's shipping (PLAN.md section 20). The running train
+ * keeps the generator's timetable: `detail.trainsPerMinute` arrivals a minute
+ * out of the tunnel on track A, a stop at the platform, and back in.
+ */
 function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const level = landmark.level;
   const { slots, lamps, tracks } = transitStation(level);
+  const perMinute = landmark.detail?.trainsPerMinute ?? fallbackArrivals(level);
+  const frame = useRef<Group>(null);
   const train = useRef<Group>(null);
-  const speed = level === 0 ? 0 : 1.2 + level * 1.1;
+  const clip = useMemo(() => [new Plane()], []);
 
-  useFrame(({ clock }, delta) => {
+  useFrame(({ clock, gl }) => {
+    // Clipping is off by default in three.js and only costs anything for the
+    // materials that carry planes, which here is the running train alone.
+    if (!gl.localClippingEnabled) gl.localClippingEnabled = true;
     const group = train.current;
-    if (!group || speed === 0) return;
-    const t = clock.elapsedTime * speed * 0.18;
-    group.position.x = TRAIN_CENTRE + Math.sin(t) * TRAIN_SPAN;
-    // The set turns round at each end rather than running backwards, which is
-    // what a terminus does and what stops the locomotive reading as a caboose.
-    const heading = Math.cos(t) >= 0 ? 0 : Math.PI;
-    group.rotation.y += (heading - group.rotation.y) * Math.min(1, delta * 3.5);
+    const station = frame.current;
+    if (!group || !station) return;
+    const pose = trainPose(clock.elapsedTime, perMinute);
+    group.visible = pose.visible;
+    group.position.x = pose.x;
+    // The plane is world space, and the station is scaled, turned and, while
+    // the city reveals itself, growing: carry it along every frame.
+    clip[0].copy(PORTAL_PLANE).applyMatrix4(station.matrixWorld);
   });
 
   return (
-    <group>
+    <group ref={frame}>
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.wall} color={skin.tint(PALE)} roughness={0.78} />
       <Part geometry={slots.roof} color={skin.tint(SLATE)} roughness={0.82} />
       <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
       <Part geometry={slots.accent} color={skin.tint(TRANSIT_BLUE)} roughness={0.6} />
+      <Part geometry={slots.dark} color={skin.tint("#1f2427")} roughness={1} cast={false} />
       <Part
         geometry={slots.glass}
         color={WINDOW_COLOR}
@@ -394,8 +428,8 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
         cast={false}
       />
 
-      <group ref={train} position={[TRAIN_CENTRE, 0, TRACK_A]}>
-        <Train skin={skin} />
+      <group ref={train} position={[PORTAL_X + 7, 0, TRACK_A]} visible={false}>
+        <Train skin={skin} clip={clip} />
       </group>
       {tracks === 2 && (
         <group position={[PARKED_X, 0, TRACK_B]} rotation-y={Math.PI}>
