@@ -24,13 +24,23 @@
  * the assembly uniformly into that plot, which is what guarantees a power
  * station never lands on top of a block of buildings. Anchors used by the
  * effects below are in that same natural frame, so they scale with it.
+ *
+ * A village (PLAN.md 76.1 decision 7) has its own set, modelled at house
+ * scale in `models/landmarks/village.ts`: a chapel on the green instead of
+ * the domed hall, a single-bay fire station, a halt on a single line and a
+ * substation instead of the power station. They fit their plot the same
+ * way, except that they are never enlarged past their natural size: a
+ * chapel blown up to fill a big plot would tower over the cottages. A town
+ * keeps the city's models; its hall is the town hall.
  */
 
 import { useCallback, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Plane, Vector3, type BufferGeometry, type Group, type MeshStandardMaterial } from "three";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
+import type { SettlementTier } from "@/types/analysis";
 import type { Landmark } from "@/types/city";
+import { useCityStore } from "@/store/useCityStore";
 import {
   CIVIC_COLOR,
   CIVIC_ROOF,
@@ -60,6 +70,13 @@ import {
   transitStation,
 } from "./models/landmarks/station";
 import { townHall } from "./models/landmarks/townhall";
+import {
+  VILLAGE_NATURAL_SIZE,
+  chapel,
+  halt,
+  substation,
+  villageFireStation,
+} from "./models/landmarks/village";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 
@@ -477,21 +494,160 @@ function TownHall({ skin }: { skin: Skin }) {
   );
 }
 
+/** Village limewash and stone, warmer than the city's civic white. */
+const LIMESTONE = "#d8cfbd";
+const VILLAGE_SLATE = "#6f7a82";
+const OAK = "#6b4e39";
+const YEW = "#3f5f45";
+const BRICK = "#a8604a";
+
+/** The chapel on the green: the repository itself, in a village (PLAN.md 76.10). */
+function Chapel({ skin }: { skin: Skin }) {
+  const { slots, lamp } = chapel();
+  return (
+    <group>
+      <Part geometry={slots.stone} color={skin.tint(LIMESTONE)} roughness={0.92} />
+      <Part geometry={slots.roof} color={skin.tint(VILLAGE_SLATE)} roughness={0.8} />
+      <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.7} />
+      <Part geometry={slots.wood} color={skin.tint(OAK)} roughness={0.85} />
+      <Part geometry={slots.green} color={skin.tint(YEW)} roughness={0.95} />
+      <Part geometry={slots.metal} color={skin.tint(DARK_STEEL)} roughness={0.5} metalness={0.3} />
+      <Part
+        geometry={slots.glass}
+        color={mix("#8fa6b4", WINDOW_COLOR, 0.3)}
+        emissive={WINDOW_COLOR}
+        emissiveIntensity={0.2 + skin.glow}
+        roughness={0.3}
+        cast={false}
+      />
+      {skin.glow > 0.45 && <Glow position={lamp} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />}
+    </group>
+  );
+}
+
+/** The village's retained fire station (PLAN.md section 15, at village scale). */
+function VillageFireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
+  const { slots, beacons } = villageFireStation(landmark.level);
+  return (
+    <group>
+      <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
+      <Part geometry={slots.wall} color={skin.tint(BRICK)} roughness={0.85} />
+      <Part geometry={slots.roof} color={skin.tint(VILLAGE_SLATE)} roughness={0.8} />
+      <Part geometry={slots.red} color={skin.tint(ENGINE_RED)} roughness={0.55} />
+      <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.6} />
+      <Part geometry={slots.steel} color={skin.tint(DARK_STEEL)} roughness={0.5} metalness={0.25} />
+      <Part
+        geometry={slots.glass}
+        color={WINDOW_COLOR}
+        emissive={WINDOW_COLOR}
+        emissiveIntensity={0.3 + skin.glow}
+        cast={false}
+      />
+      {beacons.slice(1).map((at, i) => (
+        <BlinkLight key={i} position={at} color="#ff5f52" rate={1.8} radius={0.14} />
+      ))}
+    </group>
+  );
+}
+
+/** The halt: releases, at village scale (PLAN.md section 20). */
+function Halt({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
+  const { slots, lamps } = halt(landmark.level);
+  return (
+    <group>
+      <Part geometry={slots.deck} color={skin.tint(mix(CONCRETE_GREY, LIMESTONE, 0.4))} roughness={0.95} />
+      <Part geometry={slots.wall} color={skin.tint(PALE)} roughness={0.8} />
+      <Part geometry={slots.roof} color={skin.tint(VILLAGE_SLATE)} roughness={0.82} />
+      <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
+      <Part geometry={slots.accent} color={skin.tint(mix(TRANSIT_BLUE, "#2f6a52", 0.55))} roughness={0.6} />
+      <Part geometry={slots.dark} color={skin.tint("#5b554e")} roughness={1} />
+      <Part geometry={slots.wood} color={skin.tint(OAK)} roughness={0.9} />
+      <Part
+        geometry={slots.glass}
+        color={WINDOW_COLOR}
+        emissive={WINDOW_COLOR}
+        emissiveIntensity={0.3 + skin.glow}
+        cast={false}
+      />
+      {skin.glow > 0.45 &&
+        lamps.map((at, i) => (
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />
+        ))}
+    </group>
+  );
+}
+
+/**
+ * CI in a village: the substation that feeds it (PLAN.md section 14). The
+ * lamp on the hut says what the CI says; `unknown` and `none` leave it dark,
+ * because nothing to report is not a fault.
+ */
+function Substation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
+  const { slots, anchors } = substation();
+  const state = landmark.state;
+  const failing = state === "failing";
+  const recent = state === "recent-failure";
+  const lamp = failing ? HAZARD_RED : recent ? WARNING_ORANGE : state === "healthy" ? "#5fd08a" : "#7c8489";
+  return (
+    <group>
+      <Part geometry={slots.deck} color={skin.tint(mix(CONCRETE_GREY, "#9a9384", 0.5))} roughness={0.98} />
+      <Part geometry={slots.hull} color={skin.tint(mix(PALE, "#b8c2bf", 0.5))} roughness={0.7} />
+      <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
+      <Part geometry={slots.hazard} color={skin.tint(WARNING_ORANGE)} roughness={0.7} />
+      <Part geometry={slots.dark} color={skin.tint("#4a4e52")} roughness={0.8} />
+      <Part geometry={slots.wood} color={skin.tint(OAK)} roughness={0.9} />
+      <Part geometry={slots.glass} color={skin.tint("#9fb9c4")} roughness={0.3} metalness={0.1} />
+      <mesh position={anchors.lamp}>
+        <sphereGeometry args={[0.16, 8, 6]} />
+        <meshStandardMaterial
+          color={lamp}
+          emissive={lamp}
+          emissiveIntensity={state === "unknown" || state === "none" ? 0 : 1.8}
+          toneMapped={false}
+        />
+      </mesh>
+      {(failing || recent) && (
+        <Sparks
+          position={anchors.yard}
+          color={failing ? "#ffd9a8" : "#cfe8ff"}
+          rate={failing ? 0.7 : 0.35}
+          spread={0.9}
+          count={failing ? 4 : 2}
+        />
+      )}
+      {failing && (
+        <Beacon position={anchors.lamp} color={HAZARD_RED} rate={3.2} height={0.6} glowRadius={0.9} />
+      )}
+    </group>
+  );
+}
+
 export default function LandmarkPiece({
   landmark,
   atmosphere,
+  settlement,
 }: {
   landmark: Landmark;
   atmosphere: SceneAtmosphere;
+  /** The settlement tier; read from the model in the store when not passed. */
+  settlement?: SettlementTier;
 }) {
   const { hovered, selected } = useEntityState(landmark.id);
   const handlers = useEntityHandlers(landmark.id);
   const reveal = useRevealGroup(landmark.appearAt);
+  const storedTier = useCityStore((s) => s.city?.settlement?.tier);
+  const village = (settlement ?? storedTier) === "village";
 
-  const natural = NATURAL_LANDMARK_SIZE[landmark.landmarkType];
-  const fit = landmark.size
+  const natural = village
+    ? VILLAGE_NATURAL_SIZE[landmark.landmarkType as keyof typeof VILLAGE_NATURAL_SIZE] ??
+      NATURAL_LANDMARK_SIZE[landmark.landmarkType]
+    : NATURAL_LANDMARK_SIZE[landmark.landmarkType];
+  const plotFit = landmark.size
     ? Math.min(landmark.size[0] / natural[0], landmark.size[2] / natural[2])
     : 1;
+  // A village building is modelled at house scale: shrink it into a small
+  // plot, never blow it up to fill a big one.
+  const fit = village ? Math.min(plotFit, 1) : plotFit;
 
   const tint = useCallback(
     (hex: string) => stateTint(desaturate(hex, atmosphere.desaturation), hovered, selected),
@@ -514,11 +670,26 @@ export default function LandmarkPiece({
       {...handlers}
     >
       <group scale={fit} rotation-y={facingTurn(landmark.rotationY)}>
-        {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
-        {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
-        {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
-        {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
-        {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
+        {village ? (
+          <>
+            {landmark.landmarkType === "power" && <Substation landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "fire" && <VillageFireStation landmark={landmark} skin={skin} />}
+            {/* The kiosk: a village's documentation is a notice board, not a library. */}
+            {landmark.landmarkType === "info" && (
+              <VisitorCenter landmark={{ ...landmark, level: 1 }} skin={skin} />
+            )}
+            {landmark.landmarkType === "station" && <Halt landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "civic" && <Chapel skin={skin} />}
+          </>
+        ) : (
+          <>
+            {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
+            {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
+          </>
+        )}
       </group>
     </group>
   );

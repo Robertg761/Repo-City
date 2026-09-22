@@ -15,17 +15,25 @@
  * clear it, the label sits on a dark glass pill so it survives a pale facade
  * underneath, and it fades out as the camera comes down into the streets,
  * where it would be a screen-high caption over the thing being inspected.
+ *
+ * A village (PLAN.md 76.11) has no tinted ground: its districts are lanes of
+ * cottages among fields and a plate of colour under each lane would read as
+ * a car park. The ground is still there, invisible, so a click on a lane's
+ * verge still selects its district, and it shows faintly while hovered or
+ * selected. Its label is a little smaller, because a cottage is.
  */
 
 import { useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from "three";
+import type { SettlementTier } from "@/types/analysis";
 import type { District } from "@/types/city";
 import { districtCenter } from "./entities";
 import { desaturate, districtColor, stateTint, type SceneAtmosphere } from "./palette";
 import { useRevealGroup } from "./useReveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
+import { useCityStore } from "@/store/useCityStore";
 
 interface DistrictGroundProps {
   district: District;
@@ -34,6 +42,19 @@ interface DistrictGroundProps {
   labelY: number;
   /** drei's `distanceFactor`, scaled so a big city's labels are not ants. */
   labelScale: number;
+  /** The settlement tier; absent means the city. */
+  settlement?: SettlementTier;
+}
+
+/** A village's district labels, relative to the city's. */
+export const VILLAGE_LABEL_SCALE = 0.85;
+/** How much of the district tint a village shows while hovered or selected. */
+export const VILLAGE_TINT_OPACITY = 0.4;
+
+/** Whether a district draws its tinted ground plate, and how strongly. */
+export function groundOpacity(settlement: SettlementTier | undefined, hovered: boolean, selected: boolean): number {
+  if (settlement !== "village") return 1;
+  return hovered || selected ? VILLAGE_TINT_OPACITY : 0;
 }
 
 /** Camera distances, in world units, between which the label fades in. */
@@ -45,7 +66,11 @@ export default function DistrictGround({
   atmosphere,
   labelY,
   labelScale,
+  settlement,
 }: DistrictGroundProps) {
+  const storedTier = useCityStore((s) => s.city?.settlement?.tier);
+  const tier = settlement ?? storedTier;
+  const village = tier === "village";
   const { hovered, selected } = useEntityState(district.id);
   const handlers = useEntityHandlers(district.id);
   // The generator schedules every reveal, districts included (section 43).
@@ -75,13 +100,29 @@ export default function DistrictGround({
     <group ref={reveal} position={[x, 0, z]}>
       <mesh rotation-x={-Math.PI / 2} position-y={0.01} receiveShadow {...handlers}>
         <planeGeometry args={[district.rect.w, district.rect.d]} />
-        <meshStandardMaterial color={color} roughness={1} metalness={0} />
+        {village ? (
+          <meshStandardMaterial
+            color={color}
+            roughness={1}
+            metalness={0}
+            transparent
+            opacity={groundOpacity(tier, hovered, selected)}
+            depthWrite={false}
+          />
+        ) : (
+          <meshStandardMaterial color={color} roughness={1} metalness={0} />
+        )}
       </mesh>
 
       {/* No entrance animation on the label: a CSS delay is one more thing
           that can be mid-flight when a screenshot is taken, and the tinted
           ground underneath already animates in. */}
-      <Html position={[0, labelY, 0]} center distanceFactor={labelScale} zIndexRange={[20, 0]}>
+      <Html
+        position={[0, labelY, 0]}
+        center
+        distanceFactor={labelScale * (village ? VILLAGE_LABEL_SCALE : 1)}
+        zIndexRange={[20, 0]}
+      >
         <div
           ref={label}
           style={{

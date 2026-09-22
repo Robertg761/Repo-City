@@ -763,3 +763,164 @@ export function fleetLooks(count: number, prng: Prng): VehicleLook[] {
   }
   return looks;
 }
+
+// ---------------------------------------------------------------------------
+// The tractor (PLAN.md 76.5: a village's traffic may include tractors)
+// ---------------------------------------------------------------------------
+
+/**
+ * A farm tractor: big rear wheels under mudguards, small front wheels, a
+ * narrow bonnet with an exhaust stack, and a cab of glass under a flat roof.
+ * It is not one of `VEHICLE_BODIES`, so nothing about the city's fleet
+ * changes; S5 and S7 draw it where a settlement allows tractors
+ * (`SETTLEMENT_PARAMS[tier].vehicles.tractors`).
+ *
+ * Same frame as the fleet: forward is +z, y = 0 is the road, nothing wider
+ * than `MAX_BODY_WIDTH`, so it fits a village lane like any car. The two
+ * axles have different wheels, so `wheels` pairs with `wheelRadii`.
+ */
+export interface TractorSpec extends BodySpec {
+  /** Radius of each wheel in `wheels`, in the same order. */
+  wheelRadii: readonly number[];
+  /** Tyre width of each wheel. */
+  wheelWidths: readonly number[];
+}
+
+const TRACTOR_REAR = 0.5;
+const TRACTOR_FRONT = 0.3;
+
+export const TRACTOR_SPEC: TractorSpec = {
+  length: 2.76,
+  width: 1.18,
+  // The fleet's single radius is the rear's: it is what sets the ride height.
+  wheelRadius: TRACTOR_REAR,
+  wheels: [
+    [0.44, 0.82],
+    [-0.44, 0.82],
+    [0.44, -0.62],
+    [-0.44, -0.62],
+  ],
+  wheelRadii: [TRACTOR_FRONT, TRACTOR_FRONT, TRACTOR_REAR, TRACTOR_REAR],
+  wheelWidths: [0.2, 0.2, 0.3, 0.3],
+  headlights: pair(0.2, 0.86, 1.33),
+  taillights: pair(0.4, 0.95, -1.06),
+  lamp: [0.14, 0.1],
+  weight: 0,
+};
+
+/** Tractor liveries: the farm colours, green, red, blue and orange. */
+export const TRACTOR_COLORS = ["#4f8a3e", "#b8412f", "#3f6fa8", "#d9822e"] as const;
+
+/** A rear mudguard: an arch-shaped side profile over the big wheel. */
+function mudguard(x: number): Part {
+  return {
+    ...prism(
+      [
+        [-1.18, 1.0],
+        [-0.06, 1.0],
+        [-0.12, 1.1],
+        [-0.3, 1.16],
+        [-0.94, 1.16],
+        [-1.12, 1.1],
+      ],
+      0.32,
+      PAINT,
+    ),
+    position: [x, 0, 0],
+  };
+}
+
+/**
+ * The tractor's body without its wheels, for a moving tractor whose wheels
+ * turn (`wheelGeometry` scaled by `wheelRadii`). Paintwork is flagged as
+ * paint, so the instance colour is the livery.
+ */
+export function tractorParts(): Part[] {
+  const w = TRACTOR_SPEC.width;
+  const cabZ = -0.45;
+  const posts: [number, number][] = [
+    [0.28, 0.04],
+    [-0.28, 0.04],
+    [0.28, -0.94],
+    [-0.28, -0.94],
+  ];
+  return [
+    // Chassis and engine block.
+    box([0.5, 0.3, 2.0], [0, 0.55, 0.3], TRIM),
+    // The bonnet, narrow and long, tapering to the grille.
+    prism(
+      [
+        [-0.1, 0.62],
+        [1.3, 0.62],
+        [1.3, 1.02],
+        [1.1, 1.12],
+        [-0.1, 1.14],
+      ],
+      0.56,
+      PAINT,
+    ),
+    box([0.46, 0.34, 0.04], [0, 0.84, 1.31], ARCH),
+    // Front weights and axle.
+    box([0.62, 0.22, 0.2], [0, 0.42, 1.28], TRIM),
+    box([0.92, 0.1, 0.1], [0, TRACTOR_FRONT, 0.82], TRIM),
+    // The exhaust stack, just ahead of the cab.
+    { geometry: new CylinderGeometry(0.04, 0.05, 0.8, 6), color: TRIM, position: [0.2, 1.5, 0.35] },
+    // The cab: a painted floor pan, glass all round, four posts and a roof.
+    box([0.58, 0.2, 1.0], [0, 0.95, cabZ], PAINT),
+    box([0.54, 0.72, 0.92], [0, 1.42, cabZ], GLASS),
+    ...posts.map(([x, z]) => box([0.06, 0.78, 0.06], [x, 1.42, z], PAINT)),
+    box([0.84, 0.08, 1.12], [0, 1.83, cabZ], ROOF),
+    // The seat, just visible through the glass.
+    box([0.36, 0.3, 0.3], [0, 1.2, cabZ - 0.2], TRIM),
+    mudguard(w / 2 - 0.16),
+    mudguard(-(w / 2 - 0.16)),
+    // The hitch behind.
+    box([0.2, 0.12, 0.3], [0, 0.5, -1.2], TRIM),
+  ];
+}
+
+/** The tractor's four tyres with pale hubs, in the body frame. */
+function tractorWheelParts(): Part[] {
+  return TRACTOR_SPEC.wheels.flatMap(([x, z], i) => {
+    const r = TRACTOR_SPEC.wheelRadii[i];
+    const width = TRACTOR_SPEC.wheelWidths[i];
+    const turn: Triple = [0, 0, Math.PI / 2];
+    return [
+      { geometry: new CylinderGeometry(r, r, width, 10), color: TYRE, position: [x, r, z] as Triple, rotation: turn },
+      {
+        geometry: new CylinderGeometry(r * 0.5, r * 0.5, width + 0.02, 6),
+        color: "#d9c24a",
+        position: [x, r, z] as Triple,
+        rotation: turn,
+      },
+    ];
+  });
+}
+
+let tractorCache: BufferGeometry | null = null;
+let tractorParkedCache: BufferGeometry | null = null;
+let tractorLightsCache: BufferGeometry | null = null;
+
+/** The merged tractor body, without wheels. One instanced draw for every tractor. */
+export function tractorGeometry(): BufferGeometry {
+  if (!tractorCache) tractorCache = mergeParts(tractorParts());
+  return tractorCache;
+}
+
+/** A tractor with its wheels baked in: parked in a yard, or queued at the village edge. */
+export function tractorParkedGeometry(): BufferGeometry {
+  if (!tractorParkedCache) tractorParkedCache = mergeParts([...tractorParts(), ...tractorWheelParts()]);
+  return tractorParkedCache;
+}
+
+/** Head and tail lamps and the amber roof beacon, for the fleet's unlit lamp material. */
+export function tractorLightsGeometry(): BufferGeometry {
+  if (tractorLightsCache) return tractorLightsCache;
+  const lamp = new BoxGeometry(TRACTOR_SPEC.lamp[0], TRACTOR_SPEC.lamp[1], 0.05);
+  tractorLightsCache = mergeParts([
+    ...TRACTOR_SPEC.headlights.map((position) => ({ geometry: lamp, color: HEADLIGHT, position: [...position] as Triple })),
+    ...TRACTOR_SPEC.taillights.map((position) => ({ geometry: lamp, color: TAILLIGHT, position: [...position] as Triple })),
+    { geometry: new BoxGeometry(0.14, 0.1, 0.14), color: "#ffb347", position: [0.3, 1.92, -0.45] as Triple },
+  ]);
+  return tractorLightsCache;
+}

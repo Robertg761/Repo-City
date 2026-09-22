@@ -9,6 +9,7 @@ import {
   districtSpecies,
   jitterLeaf,
   planTrees,
+  treeCapFor,
   treeGeometry,
 } from "./trees";
 import { PAINT_ATTRIBUTE, triangleCount } from "./geometry";
@@ -54,6 +55,17 @@ describe("planTrees", () => {
     const planted = planTrees(many, devCity.districts, prngFor("s", "trees"));
     expect(planted).toHaveLength(TREE_CAP);
     expect(TREE_CAP).toBeLessThanOrEqual(100);
+  });
+
+  it("takes a settlement's own cap, and the city's is unchanged (PLAN.md 76.5)", () => {
+    const many: Vec3[] = Array.from({ length: 200 }, (_, i) => [i, 0, -i]);
+    expect(treeCapFor("city")).toBe(TREE_CAP);
+    expect(treeCapFor("village")).toBe(160);
+    expect(planTrees(many, devCity.districts, prngFor("s", "trees"), treeCapFor("village"))).toHaveLength(160);
+    // The first hundred are the same trees whatever the cap.
+    const city = planTrees(many, devCity.districts, prngFor("s", "trees"));
+    const explicit = planTrees(many, devCity.districts, prngFor("s", "trees"), treeCapFor("city"));
+    expect(explicit).toEqual(city);
   });
 
   it("keeps each tree's size in its species' band and its stretch modest", () => {
