@@ -20,10 +20,10 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
 import CameraRig from "@/components/city/CameraRig";
-import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities";
+import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "@/components/city/entities";
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
-import Terrain from "@/components/city/Terrain";
+import Terrain, { StagePlate } from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
@@ -31,15 +31,23 @@ const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
 
 const EMPTY_SIZE = 120;
 
-/** Neutral daylight for the empty stage, before any repository is analysed. */
+/**
+ * A clear afternoon for the empty stage, before any repository is analysed:
+ * the light of a healthy, active city (`ambienceFor` in the generator), so
+ * the lawn is the same fresh green a loaded city sits on and a city arriving
+ * does not change the colour of the ground under it. The stage used to
+ * borrow the light of a struggling repository -- saturation 0.6, and the
+ * overcast fill of fog 0.3 -- which drained the grass to a grey-green and
+ * read as a pale veil over the whole frame.
+ */
 const EMPTY_ATMOSPHERE = atmosphere(
   {
-    warmth: 0.55,
-    saturation: 0.6,
-    fog: 0.3,
+    warmth: 0.72,
+    saturation: 0.9,
+    fog: 0.1,
     trafficDensity: 0,
     pedestrianDensity: 0,
-    litWindowShare: 0,
+    litWindowShare: 0.75,
   },
   false,
 );
@@ -90,7 +98,11 @@ function useViewportAspect(): number {
   return aspect;
 }
 
-function EmptyStage() {
+function EmptyStage({ aspect }: { aspect: number }) {
+  // Pulled back with the camera on a narrow screen, exactly as `City` does:
+  // a phone frames the stage from twice as far, and with the fog left at the
+  // desktop's reach the top half of the screen was fog.
+  const fogReach = EMPTY_SIZE * aspectWiden(aspect);
   return (
     <>
       <color attach="background" args={[EMPTY_ATMOSPHERE.background]} />
@@ -98,12 +110,13 @@ function EmptyStage() {
         attach="fog"
         args={[
           EMPTY_ATMOSPHERE.background,
-          EMPTY_SIZE * EMPTY_ATMOSPHERE.fogNearFactor,
-          EMPTY_SIZE * EMPTY_ATMOSPHERE.fogFarFactor,
+          fogReach * EMPTY_ATMOSPHERE.fogNearFactor,
+          fogReach * EMPTY_ATMOSPHERE.fogFarFactor,
         ]}
       />
       <Lighting atmosphere={EMPTY_ATMOSPHERE} size={EMPTY_SIZE} />
       <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
+      <StagePlate size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
   );
 }
@@ -150,7 +163,11 @@ export default function CityCanvas() {
       {/* Keyed on the seed: a different repository revision is a different
           city, and gets a fresh reveal. The Canvas itself never remounts, so
           the WebGL context survives. */}
-      {city ? <City key={city.seed} city={city} aspect={aspect} /> : <EmptyStage />}
+      {city ? (
+        <City key={city.seed} city={city} aspect={aspect} />
+      ) : (
+        <EmptyStage aspect={aspect} />
+      )}
 
       <Environment city={city} atmosphere={scene} size={city?.bounds.size ?? EMPTY_SIZE} />
 
