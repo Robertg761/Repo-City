@@ -121,12 +121,27 @@ export const HAZARD_RED = "#c8493c";
 export const CONCRETE = "#cfcabd";
 export const RUST = "#9a7b5f";
 
-/** Hover brightens, selection pushes to a warm accent (PLAN.md section 42). */
+/**
+ * How far hover and selection move a colour (PLAN.md section 42). Exported so
+ * a mesh that tints its own vertex colours can use the same amounts.
+ *
+ * Both are deliberately light. Selection used to mix 38% of the orange accent
+ * in, which turned a selected tower sepia and hid the very colours the
+ * inspector was describing. The dashed ground ring in `SelectionRing.tsx` is
+ * what says "selected" now; the tint only has to agree with it, so a
+ * selected entity is lifted a fifth of the way towards a warm white -- a
+ * little brighter, a little warmer, still its own colour. Hover is a fainter
+ * pale-gold glint, so the two never read as the same state.
+ */
+export const HOVER_TINT = 0.14;
+export const SELECT_TINT = 0.2;
+/** What a selection is lifted towards: warm white, not the orange accent. */
+export const SELECT_LIFT = "#fff0da";
+
+/** Hover glints, selection brightens; neither repaints the entity. */
 export function stateTint(base: string, hovered: boolean, selected: boolean): string {
-  // Enough to read at overview distance, not so much that the entity stops
-  // looking like a building: the ground ring carries the rest of the signal.
-  if (selected) return mix(base, SELECT, 0.38);
-  if (hovered) return mix(base, HIGHLIGHT, 0.28);
+  if (selected) return mix(base, SELECT_LIFT, SELECT_TINT);
+  if (hovered) return mix(base, HIGHLIGHT, HOVER_TINT);
   return base;
 }
 

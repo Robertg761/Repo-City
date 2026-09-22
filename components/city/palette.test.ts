@@ -88,17 +88,50 @@ describe("stateTint", () => {
     expect(stateTint(base, false, false)).toBe(base);
   });
 
-  it("moves further from the base when selected than when hovered", () => {
+  it("tells hover and selection apart", () => {
     const hovered = stateTint(base, true, false);
     const selected = stateTint(base, false, true);
     expect(hovered).not.toBe(base);
     expect(selected).not.toBe(hovered);
-    // Selection is the warm accent: markedly more red than blue.
-    expect(blueness(selected)).toBeLessThan(blueness(hovered));
+    // Selection lifts, hover glints: the selected entity is the brighter one.
+    for (const colour of BUILDING_COLORS) {
+      expect(luma(stateTint(colour, false, true))).toBeGreaterThan(
+        luma(stateTint(colour, true, false)),
+      );
+    }
   });
 
   it("prefers selection over hover", () => {
     expect(stateTint(base, true, true)).toBe(stateTint(base, false, true));
+  });
+
+  it("keeps a selected entity its own colour rather than repainting it", () => {
+    // The ring carries the selection; the tint must not turn a sage tower
+    // sepia. No channel moves more than a sixth of the way.
+    for (const colour of [...BUILDING_COLORS, "#3f6fa8", "#7fa46a"]) {
+      for (const [hovered, selected] of [
+        [true, false],
+        [false, true],
+      ] as const) {
+        const before = hexToRgb(colour);
+        const after = hexToRgb(stateTint(colour, hovered, selected));
+        for (let c = 0; c < 3; c++) {
+          expect(Math.abs(after[c] - before[c])).toBeLessThan(1 / 6);
+        }
+      }
+    }
+  });
+
+  it("brightens a selection rather than darkening it", () => {
+    for (const colour of BUILDING_COLORS) {
+      expect(luma(stateTint(colour, false, true))).toBeGreaterThan(luma(colour));
+    }
+  });
+
+  it("still marks a white multiplier, which incidents and sites tint through", () => {
+    expect(stateTint("#ffffff", true, false)).not.toBe("#ffffff");
+    expect(stateTint("#ffffff", false, true)).not.toBe("#ffffff");
+    expect(stateTint("#ffffff", false, true)).not.toBe(stateTint("#ffffff", true, false));
   });
 });
 
