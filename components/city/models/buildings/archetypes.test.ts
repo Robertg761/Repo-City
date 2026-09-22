@@ -3,6 +3,9 @@ import type { BuildingTier, LandmarkFile } from "@/types/analysis";
 import type { Building } from "@/types/city";
 import {
   ARCHETYPE_IDS,
+  ARCHETYPE_STAND_IN,
+  CITY_ARCHETYPE_IDS,
+  SETTLEMENT_ARCHETYPE_IDS,
   archetypeSeed,
   chooseArchetype,
   hash32,
@@ -324,5 +327,41 @@ describe("planBuildings (PLAN.md section 38)", () => {
     expect(plan.instances).toEqual([]);
     expect(plan.windows).toEqual([]);
     expect(plan.props).toEqual([]);
+  });
+});
+
+describe("settlement archetypes (PLAN.md 76.11, S0 placeholders)", () => {
+  it("declares all nine ids and keeps every id unique", () => {
+    expect(SETTLEMENT_ARCHETYPE_IDS).toEqual([
+      "cottage",
+      "farmhouse",
+      "barn",
+      "shopfront",
+      "terrace",
+      "apartment-low",
+      "tower-glass",
+      "tower-twin",
+      "tower-spire",
+    ]);
+    expect(new Set(ARCHETYPE_IDS).size).toBe(ARCHETYPE_IDS.length);
+  });
+
+  it("builds a placeholder from its stand-in, under its own id", () => {
+    for (const id of SETTLEMENT_ARCHETYPE_IDS) {
+      const standIn = ARCHETYPE_STAND_IN[id];
+      if (!standIn) continue; // the real model has landed
+      const model = archetypeModel(id);
+      expect(model.id).toBe(id);
+      expect(model.draft.indices.length).toBe(archetypeModel(standIn).draft.indices.length);
+    }
+  });
+
+  it("is never chosen by today's city", () => {
+    const city = new Set<ArchetypeId>(CITY_ARCHETYPE_IDS);
+    for (let i = 0; i < 500; i++) {
+      const tier = ((i % 5) + 1) as BuildingTier;
+      const chosen = chooseArchetype(building(`b-${i}`, { tier, path: `src/${i}.ts` }));
+      expect(city.has(chosen)).toBe(true);
+    }
   });
 });
