@@ -40,6 +40,7 @@ import {
 } from "../vehicles/emergency";
 import { parkedGeometry } from "../vehicles/shapes";
 import { figureParts } from "./figures";
+import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
 
 /** Just above the dark patch the incident draws on the tarmac. */
@@ -254,13 +255,13 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     parts.push(
       ...figureParts({
         position: [0.9 * flip, 0, 1.1],
-        color: shade("#e6c02f"),
+        color: shade(WORKER_YELLOW),
         rotationY: -2.2,
         helmet: shade("#f0d44a"),
       }),
       ...figureParts({
         position: [-0.9 * flip, 0, 1.9],
-        color: shade("#e6c02f"),
+        color: shade(WORKER_YELLOW),
         rotationY: 1.6,
         helmet: shade("#f0d44a"),
       }),
@@ -372,7 +373,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     parts.push(
       ...figureParts({
         position: [x, 0, z],
-        color: shade("#e6c02f"),
+        color: shade(WORKER_YELLOW),
         rotationY: facing,
         helmet: shade("#f2d43c"),
       }),

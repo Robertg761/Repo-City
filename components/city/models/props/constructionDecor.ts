@@ -27,6 +27,7 @@ import {
 import type { ConstructionState } from "@/types/analysis";
 import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
 import { figureParts } from "./figures";
+import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
 
 /** The site is drawn on an eleven unit square; see `ConstructionSite.tsx`. */
@@ -47,7 +48,6 @@ export const SHELL_HEIGHT: Record<ConstructionState, number> = {
 
 const STEEL = "#9aa0a6";
 const TIMBER = "#b59a6f";
-const WORKER = "#e6c02f";
 
 /** The site hoarding: four runs of boarding with a warning rail on top. */
 function fence(color: string, rail: string): Part[] {
@@ -391,7 +391,7 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
     parts.push(
       ...figureParts({
         position: [x, 0, z],
-        color: shade(WORKER),
+        color: shade(WORKER_YELLOW),
         rotationY: facing,
         helmet: shade("#f0d44a"),
       }),

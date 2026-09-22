@@ -160,7 +160,9 @@ function budgetFor(city: CityModel): Record<keyof StreetProps, number> {
     stops: scaled(6),
     bushes: scaled(46),
     beds: scaled(14),
-    parked: scaled(24),
+    // An archived city keeps its street furniture -- nobody takes the benches
+    // away -- but the kerbs empty out, the way a quiet town's do (section 19).
+    parked: scaled(city.repository.archived ? 8 : 24),
   };
 }
 

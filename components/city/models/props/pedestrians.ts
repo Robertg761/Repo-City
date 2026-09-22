@@ -158,7 +158,9 @@ export function idleGroups(landmarks: readonly Landmark[], prng: Prng): IdleFigu
   for (const landmark of landmarks) {
     if (landmark.landmarkType !== "civic" && landmark.landmarkType !== "info") continue;
     const plot = landmark.size ? Math.min(landmark.size[0], landmark.size[2]) : 12;
-    const radius = Math.max(4, plot * 0.42);
+    // Outside the steps, not on them: a landmark's plot is the building and
+    // its plinth, so the crowd stands clear of the whole reserved square.
+    const radius = Math.max(5, plot * 0.55);
     const people = landmark.landmarkType === "civic" ? 5 : 3;
     const start = prng.range(0, Math.PI * 2);
     for (let i = 0; i < people; i++) {
