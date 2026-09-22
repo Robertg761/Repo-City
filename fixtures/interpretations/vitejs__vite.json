@@ -1,5 +1,5 @@
 {
-  "summary": "Vite is a build tool split into a dev server and a Rollup-based production build. Nearly all of it lives in packages/vite/src/node, with a browser-side HMR client and a module runner beside it. The largest directory is not source at all: playground holds hundreds of small apps used as end-to-end fixtures.",
+  "summary": "Vite is a build tool split into a dev server and a Rolldown-based production build. Nearly all of it lives in packages/vite/src/node, with a browser-side HMR client and a module runner beside it. The largest directory is not source at all: playground holds hundreds of small apps used as end-to-end fixtures.",
   "districts": [
     {
       "sourcePath": "/packages",
@@ -74,68 +74,266 @@
   ],
   "importantModules": [
     {
-      "path": "packages/vite/src/node/index.ts",
-      "role": "The public Node API surface; everything a plugin author or embedder can import.",
-      "evidence": ["packages/vite/src/node/internalIndex.ts", "packages/vite/src/node/plugin.ts"]
-    },
-    {
-      "path": "packages/vite/src/node/config.ts",
-      "role": "Loads, merges and normalises vite.config files into the resolved config every other module reads.",
-      "evidence": ["packages/vite/src/node/env.ts", "packages/vite/src/node/nativeConfigCompat.ts"]
-    },
-    {
-      "path": "packages/vite/src/node/server/index.ts",
-      "role": "The dev server: middleware stack, websocket, file watching and the transform pipeline.",
+      "path": "packages/vite",
+      "role": "The published vite package: the dev server and its plugin container, the Rolldown build, dependency pre-bundling, the HMR client, module runner, CLI and types.",
       "evidence": [
-        "packages/vite/src/node/server/transformRequest.ts",
-        "packages/vite/src/node/server/ws.ts",
-        "packages/vite/src/node/server/warmup.ts"
+        "packages/vite/package.json",
+        "packages/vite/README.md",
+        "packages/vite/src",
+        "packages/vite/bin",
+        "packages/vite/types"
       ]
     },
     {
-      "path": "packages/vite/src/node/server/moduleGraph.ts",
-      "role": "The module graph that HMR walks to decide what to invalidate and what to reload.",
+      "path": "packages/create-vite",
+      "role": "The npm create vite scaffolder and the framework starter templates it copies, one pair per framework in JavaScript and TypeScript.",
       "evidence": [
-        "packages/vite/src/node/server/hmr.ts",
-        "packages/vite/src/node/server/mixedModuleGraph.ts"
+        "packages/create-vite/src",
+        "packages/create-vite/README.md",
+        "packages/create-vite/template-react",
+        "packages/create-vite/template-vue",
+        "packages/create-vite/package.json"
       ]
     },
     {
-      "path": "packages/vite/src/node/server/pluginContainer.ts",
-      "role": "Runs Rollup-style plugin hooks during development so dev and build share one plugin contract.",
-      "evidence": ["packages/vite/src/node/plugin.ts", "packages/vite/src/node/plugins"]
-    },
-    {
-      "path": "packages/vite/src/node/build.ts",
-      "role": "The production build: Rollup configuration, asset handling and the library build mode.",
-      "evidence": ["packages/vite/src/node/external.ts", "packages/vite/src/node/preview.ts"]
-    },
-    {
-      "path": "packages/vite/src/node/optimizer",
-      "role": "Dependency pre-bundling, which converts CommonJS and deep dependency graphs into cacheable ESM.",
-      "evidence": ["packages/vite/src/node/nodeResolve.ts", "packages/vite/src/node/packages.ts"]
-    },
-    {
-      "path": "packages/vite/src/client/client.ts",
-      "role": "The browser-side runtime injected into every page: it applies HMR updates and draws the error overlay.",
+      "path": "playground/css",
+      "role": "The CSS fixture: Sass, Less, Stylus, SugarSS and PostCSS, CSS modules and composes, @import resolution, code splitting, Lightning CSS and minification.",
       "evidence": [
-        "packages/vite/src/client/overlay.ts",
-        "packages/vite/src/client/clientEntry.ts"
+        "playground/css/__tests__",
+        "playground/css/postcss.config.js",
+        "playground/css/sass.scss",
+        "playground/css/composed.module.css",
+        "playground/css/vite.config-lightningcss.js"
       ]
     },
     {
-      "path": "packages/vite/src/module-runner/runner.ts",
-      "role": "Executes modules outside the browser, which is how SSR and framework integrations reuse the dev pipeline.",
+      "path": "playground/optimize-deps",
+      "role": "The dependency pre-bundling fixture, with dozens of local packages covering CommonJS, browser-field and ESM interop shapes.",
       "evidence": [
-        "packages/vite/src/module-runner/index.ts",
-        "packages/vite/src/module-runner/evaluatedModules.ts",
-        "packages/vite/src/shared/ssrTransform.ts"
+        "playground/optimize-deps/__tests__",
+        "playground/optimize-deps/cjs.js",
+        "playground/optimize-deps/dedupe.js"
       ]
     },
     {
-      "path": "packages/vite/src/node/cli.ts",
-      "role": "The vite, vite build and vite preview commands.",
-      "evidence": ["packages/vite/src/node/shortcuts.ts", "packages/vite/src/node/logger.ts"]
+      "path": "docs/guide",
+      "role": "The prose documentation: features, build, SSR, dependency pre-bundling, the plugin and environment APIs, and the migration guide.",
+      "evidence": [
+        "docs/guide/features.md",
+        "docs/guide/api-plugin.md",
+        "docs/guide/ssr.md",
+        "docs/guide/dep-pre-bundling.md",
+        "docs/guide/migration.md"
+      ]
+    },
+    {
+      "path": "packages/plugin-legacy",
+      "role": "Emits a SystemJS chunk and a polyfill chunk alongside every build chunk, so output runs in browsers without native ESM or import.meta.",
+      "evidence": [
+        "packages/plugin-legacy/README.md",
+        "packages/plugin-legacy/src",
+        "packages/plugin-legacy/package.json"
+      ]
+    },
+    {
+      "path": "playground/hmr",
+      "role": "The hot module replacement fixture: accepted exports, circular dependencies, file delete and restore, and nested dependency updates.",
+      "evidence": [
+        "playground/hmr/__tests__",
+        "playground/hmr/hmr.ts",
+        "playground/hmr/accept-exports",
+        "playground/hmr/file-delete-restore"
+      ]
+    },
+    {
+      "path": "playground/worker",
+      "role": "The web worker fixture: classic, module and shared workers, nested and self-referencing workers, and the es and iife worker output formats.",
+      "evidence": [
+        "playground/worker/__tests__",
+        "playground/worker/my-shared-worker.ts",
+        "playground/worker/worker-nested-worker.js",
+        "playground/worker/vite.config-es.js",
+        "playground/worker/vite.config-iife.js"
+      ]
+    },
+    {
+      "path": "playground/resolve",
+      "role": "The module resolution fixture: exports and imports fields, the browser field, custom conditions and main fields, extensions, directories and file URLs.",
+      "evidence": [
+        "playground/resolve/__tests__",
+        "playground/resolve/exports-path",
+        "playground/resolve/browser-field",
+        "playground/resolve/custom-condition",
+        "playground/resolve/file-url.js"
+      ]
+    },
+    {
+      "path": "playground/assets",
+      "role": "The static asset fixture: asset URLs under relative, encoded, URL and runtime bases, import.meta.url references, public files and the build manifest.",
+      "evidence": [
+        "playground/assets/__tests__",
+        "playground/assets/import-meta-url",
+        "playground/assets/static",
+        "playground/assets/manifest.json",
+        "playground/assets/vite.config-relative-base.js"
+      ]
+    },
+    {
+      "path": "playground/hmr-ssr",
+      "role": "The same accept, invalidate, circular-dependency and delete-restore cases as playground/hmr, run through the module runner instead of the browser.",
+      "evidence": [
+        "playground/hmr-ssr/__tests__",
+        "playground/hmr-ssr/hmr.ts",
+        "playground/hmr-ssr/invalidation",
+        "playground/hmr-ssr/soft-invalidation",
+        "playground/hmr"
+      ]
+    },
+    {
+      "path": "package.json",
+      "role": "Root manifest of the @vitejs/vite-monorepo workspace, carrying the lint, typecheck and docs scripts and the unit, serve and build test commands CI runs.",
+      "evidence": [
+        "pnpm-workspace.yaml",
+        "vitest.config.ts",
+        "vitest.config.e2e.ts"
+      ]
+    },
+    {
+      "path": "playground/html",
+      "role": "The HTML fixture: several entry pages, inline and async scripts, link props, env substitution, importmap ordering and malformed markup.",
+      "evidence": [
+        "playground/html/__tests__",
+        "playground/html/index.html",
+        "playground/html/importmapOrder.html",
+        "playground/html/env.html",
+        "playground/html/vite.config.js"
+      ]
+    },
+    {
+      "path": "docs/blog",
+      "role": "The release announcement posts, one per major release from Vite 2 to Vite 8 plus the notable minors, as published on vite.dev.",
+      "evidence": [
+        "docs/blog.md",
+        "docs/blog/announcing-vite2.md",
+        "docs/blog/announcing-vite8.md",
+        "docs/blog/announcing-vite8-1.md"
+      ]
+    },
+    {
+      "path": "playground/ssr-deps",
+      "role": "The server-side rendering fixture for externalised dependencies: CJS interop, nested externals, module conditions and forwarded exports.",
+      "evidence": [
+        "playground/ssr-deps/__tests__",
+        "playground/ssr-deps/nested-external",
+        "playground/ssr-deps/module-condition",
+        "playground/ssr-deps/index.html"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "role": "The contributor guide: pnpm workspace setup, why most dependencies go in devDependencies because Rolldown pre-bundles them, debugging and running the suites.",
+      "evidence": [
+        "package.json",
+        "playground/vitestSetup.ts",
+        "vitest.config.e2e.ts"
+      ]
+    },
+    {
+      "path": "playground/legacy",
+      "role": "The plugin-legacy fixture: SystemJS output, polyfill chunks, modern-target builds, custom filenames and the no-polyfill variants, one vite config each.",
+      "evidence": [
+        "playground/legacy/__tests__",
+        "playground/legacy/vite.config-modern-target.js",
+        "playground/legacy/vite.config-no-polyfills.js",
+        "packages/plugin-legacy"
+      ]
+    },
+    {
+      "path": "playground/js-sourcemap",
+      "role": "The JavaScript sourcemap fixture, covering maps from optimized dependencies, plugin-generated maps, class fields and malicious sourcemap paths.",
+      "evidence": [
+        "playground/js-sourcemap/__tests__",
+        "playground/js-sourcemap/plugin-foo.js",
+        "playground/js-sourcemap/dep-malicious-sourcemap",
+        "playground/js-sourcemap/dep-optimized-malicious"
+      ]
+    },
+    {
+      "path": "playground/fs-serve",
+      "role": "The server.fs fixture: which files inside and outside the project root the dev server will serve, and which the allow and deny lists must refuse.",
+      "evidence": [
+        "playground/fs-serve/__tests__",
+        "playground/fs-serve/root",
+        "playground/fs-serve/unsafe.html",
+        "playground/fs-serve/safe.json"
+      ]
+    },
+    {
+      "path": "docs/config",
+      "role": "The option-by-option config reference, split into shared, server, build, preview, worker, SSR and dependency optimisation pages.",
+      "evidence": [
+        "docs/config/index.md",
+        "docs/config/server-options.md",
+        "docs/config/build-options.md",
+        "docs/config/dep-optimization-options.md"
+      ]
+    },
+    {
+      "path": "playground/glob-import",
+      "role": "The import.meta.glob fixture: eager and lazy globs, glob arrays sharing a common base, and globs that reach outside the project root.",
+      "evidence": [
+        "playground/glob-import/__tests__",
+        "playground/glob-import/root",
+        "playground/glob-import/external"
+      ]
+    },
+    {
+      "path": "playground/dynamic-import",
+      "role": "The dynamic import fixture: variable and aliased paths, nested and self-importing chunks, CSS pulled in by a dynamic chunk, and imports from a local package.",
+      "evidence": [
+        "playground/dynamic-import/__tests__",
+        "playground/dynamic-import/alias",
+        "playground/dynamic-import/nested",
+        "playground/dynamic-import/pkg"
+      ]
+    },
+    {
+      "path": "docs/changes",
+      "role": "One page per behaviour change being rolled out, including per-environment APIs, the hotUpdate hook and SSR through the module runner.",
+      "evidence": [
+        "docs/changes/index.md",
+        "docs/changes/per-environment-apis.md",
+        "docs/changes/ssr-using-modulerunner.md",
+        "docs/changes/hotupdate-hook.md"
+      ]
+    },
+    {
+      "path": "vitest.config.e2e.ts",
+      "role": "Runs the playground applications as end-to-end tests across serve, build and bundled-dev modes, carrying the per-mode exclusion lists.",
+      "evidence": [
+        "vitest.config.ts",
+        "playground/hmr",
+        "package.json"
+      ]
+    },
+    {
+      "path": "scripts/releaseUtils.ts",
+      "role": "Names the three published packages and rewrites the create-vite template manifests to the new vite version during a release.",
+      "evidence": [
+        "scripts/prepare-release.ts",
+        "scripts/publishCI.ts",
+        "scripts/extract-changelog.ts",
+        "packages/create-vite/package.json"
+      ]
+    },
+    {
+      "path": "vitest.config.ts",
+      "role": "The unit test config: every __tests__ spec outside playground, with aliases mapping vite subpath imports back to source.",
+      "evidence": [
+        "vitest.config.e2e.ts",
+        "packages/vite/src",
+        "package.json"
+      ]
     }
   ],
   "strengths": [

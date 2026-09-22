@@ -20,7 +20,7 @@ import type {
   RepoAnalysis,
   RepoMetrics,
 } from "@/types/analysis";
-import type { LandmarkType } from "@/types/city";
+import type { LandmarkDetail, LandmarkType } from "@/types/city";
 import type { RepositoryMeta } from "@/types/repository";
 
 /** The fields every `CityEntity` needs, before geometry is attached. */
@@ -42,8 +42,15 @@ const daysBetween = (fromIso: string, toIso: string): number => {
   return Math.max(0, Math.round((to - from) / DAY));
 };
 
+/**
+ * Counted noun with a thousands separator. Every number the user reads goes
+ * through here or through `count`, so "3,083 days" in the facts list and
+ * "3,083 days" in the sentence below it agree (QA-2026-09-21 bug 6).
+ */
 const plural = (n: number, one: string, many = `${one}s`): string =>
-  `${n} ${n === 1 ? one : many}`;
+  `${count(n)} ${n === 1 ? one : many}`;
+
+const count = (n: number): string => n.toLocaleString("en-US");
 
 const basename = (path: string): string => {
   const trimmed = path.replace(/\/+$/, "");
@@ -57,10 +64,23 @@ const dirname = (path: string): string => {
   return cut === -1 ? "" : trimmed.slice(0, cut);
 };
 
+/**
+ * Link at the exact commit the city was built from, not at the branch tip.
+ * A branch link would drift: click it a week later and GitHub shows a file the
+ * city never surveyed, or a 404 where a rename happened.
+ */
 const blobUrl = (repo: RepositoryMeta, plan: BuildingPlan): string => {
   const path = plan.path.replace(/^\/+/, "");
   const kind = plan.kind === "directory" ? "tree" : "blob";
-  return `${repo.url}/${kind}/${repo.defaultBranch}/${path}`;
+  const ref = repo.headSha || repo.defaultBranch;
+  return `${repo.url}/${kind}/${ref}/${path}`;
+};
+
+/** Same rule for a directory that has no `BuildingPlan` behind it. */
+export const treeUrl = (repo: RepositoryMeta, path: string): string => {
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  const ref = repo.headSha || repo.defaultBranch;
+  return clean ? `${repo.url}/tree/${ref}/${clean}` : repo.url;
 };
 
 // ---------------------------------------------------------------------------
@@ -92,17 +112,23 @@ export function buildingText(
   const kindWord = isDirectory ? "Directory" : "File";
   const districtName = district?.name ?? "Outskirts";
 
-  const description =
-    plan.role ??
-    (isDirectory
-      ? `Directory with ${plural(plan.descendantCount, "file")}.`
-      : `${plan.language ?? "Source"} file in ${dirname(plan.path) || "the repository root"}.`);
+  // A curated role is the best sentence available, and the facts that would
+  // otherwise be the description move into the second line so nothing is lost.
+  const plainDescription = isDirectory
+    ? `Directory with ${plural(plan.descendantCount, "file")}${
+        plan.language ? `, mostly ${plan.language}` : ""
+      }.`
+    : `${plan.language ?? "Source"} file in ${dirname(plan.path) || "the repository root"}.`;
+  const description = plan.role ? `${plan.role} ${plainDescription}` : plainDescription;
 
   const parts = [
     `Its height is ${TIER_WORD[plan.tier]} because this path scores ${plan.score.toFixed(1)} on importance, which puts it in tier ${plan.tier} of 5.`,
   ];
   if (isDirectory) {
     parts.push(`Its footprint follows the ${plural(plan.descendantCount, "file")} it contains.`);
+  }
+  if (plan.role) {
+    parts.push("Its role was written by the curated architecture interpretation for this repository.");
   }
   if (plan.landmark) {
     parts.push(
@@ -133,11 +159,23 @@ const INCIDENT_SUBTITLE: Record<IncidentState, string> = {
 
 export function incidentText(issue: RankedIssue, generatedAt: string): EntityText {
   const age = daysBetween(issue.createdAt, generatedAt);
+  const facts = [
+    `open ${plural(age, "day")}`,
+    plural(issue.comments, "comment"),
+    issue.author ? `reported by ${issue.author}` : null,
+    issue.labels.length > 0 ? `labelled ${issue.labels.slice(0, 3).join(", ")}` : null,
+  ].filter((part): part is string => part !== null);
+
   return {
     title: `Issue #${issue.number}`,
     subtitle: INCIDENT_SUBTITLE[issue.state],
-    description: `${issue.title} — open ${plural(age, "day")}, ${plural(issue.comments, "comment")}.`,
-    reason: issue.reason,
+    description: `${issue.title} — ${facts.join(", ")}.`,
+    // `reason` is the rule that placed the incident, written in
+    // `lib/analysis/metrics.ts` from the matched branch. When the issue named
+    // a path, say where the city put it and why (PLAN.md section 11).
+    reason: issue.relatedPath
+      ? `${issue.reason} It sits beside ${issue.relatedPath} because the issue names that path.`
+      : issue.reason,
     sourceUrl: issue.url,
     visualState: issue.state,
   };
@@ -156,11 +194,25 @@ const CONSTRUCTION_SUBTITLE: Record<ConstructionState, string> = {
 
 export function constructionText(pull: RankedPull, generatedAt: string): EntityText {
   const touched = daysBetween(pull.updatedAt, generatedAt);
+  const opened = daysBetween(pull.createdAt, generatedAt);
   const byline = pull.author ? ` by ${pull.author}` : "";
+  const merged = pull.mergedAt ? daysBetween(pull.mergedAt, generatedAt) : null;
+
+  const facts = [
+    pull.draft ? "still a draft" : null,
+    merged === null
+      ? `opened ${opened === 0 ? "today" : `${plural(opened, "day")} ago`}`
+      : `merged ${merged === 0 ? "today" : `${plural(merged, "day")} ago`}`,
+    merged === null
+      ? `last touched ${touched === 0 ? "today" : `${plural(touched, "day")} ago`}`
+      : null,
+    pull.comments > 0 ? plural(pull.comments, "comment") : null,
+  ].filter((part): part is string => part !== null);
+
   return {
     title: `Pull Request #${pull.number}`,
     subtitle: CONSTRUCTION_SUBTITLE[pull.state],
-    description: `${pull.title}${byline} — last touched ${touched === 0 ? "today" : `${plural(touched, "day")} ago`}.`,
+    description: `${pull.title}${byline} — ${facts.join(", ")}.`,
     reason: pull.reason,
     sourceUrl: pull.url,
     visualState: pull.state,
@@ -175,6 +227,29 @@ export interface LandmarkSpec extends EntityText {
   landmarkType: LandmarkType;
   level: 0 | 1 | 2 | 3;
   state: string;
+  /** Numbers the renderer may animate to; see `LandmarkDetail`. */
+  detail?: LandmarkDetail;
+}
+
+/**
+ * Train arrivals per minute for the transit station (PLAN.md section 20).
+ *
+ * Cadence sets the band and recency moves it inside that band, so an actively
+ * shipping project has freight moving and a project that released once, long
+ * ago, gets a train every few minutes rather than a dead platform. An archived
+ * repository keeps a single quiet arrival: section 19 asks for quiet, not for
+ * a frozen scene.
+ */
+export function trainsPerMinute(
+  releases: RepoMetrics["releases"],
+  archived: boolean,
+): number {
+  if (releases.cadence === "none") return 0;
+  const days = releases.lastDaysAgo ?? 365;
+  const recency = Math.min(1, Math.max(0, 1 - days / 180));
+  const base = releases.cadence === "active" ? 3 + 3 * recency : 0.8 + 1.2 * recency;
+  const scaled = archived ? base * 0.25 : base;
+  return Math.round(Math.min(6, Math.max(0.25, scaled)) * 100) / 100;
 }
 
 const CI_DESCRIPTION: Record<CiState, string> = {
@@ -223,7 +298,7 @@ export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
     const hit = districts.find((d) => match.test(d.sourcePath));
     if (!hit) return null;
     const path = hit.sourcePath.replace(/^\/+/, "");
-    return path ? `${repo.url}/tree/${repo.defaultBranch}/${path}` : null;
+    return path ? treeUrl(repo, path) : null;
   };
 
   // CI -> power grid.
@@ -235,7 +310,11 @@ export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
       state: metrics.ci.state,
       title: "POWER GRID",
       subtitle: metrics.ci.provider === "github-actions" ? "GitHub Actions" : "External CI",
-      description: CI_DESCRIPTION[metrics.ci.state],
+      description: `${CI_DESCRIPTION[metrics.ci.state]}${
+        metrics.ci.workflows
+          ? ` ${plural(metrics.ci.workflows, "workflow")}, ${plural(metrics.ci.recentRuns, "recent run")}, ${Math.round((1 - metrics.ci.failureRate) * 100)}% of them green.`
+          : ""
+      }`,
       reason: `Read from ${plural(metrics.ci.recentRuns, "recent workflow run")} with a ${Math.round(metrics.ci.failureRate * 100)}% failure rate, which maps to CI state "${metrics.ci.state}".`,
       sourceUrl:
         metrics.ci.provider === "github-actions" ? `${repo.url}/actions` : `${repo.url}`,
@@ -264,7 +343,9 @@ export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
       landmarkType: "info",
       level: metrics.docs.strength,
       state: `strength-${metrics.docs.strength}`,
-      title: "INFORMATION CENTER",
+      // British spelling throughout, matching the legend and every comment in
+      // the project (QA-2026-09-21 bug 5).
+      title: "INFORMATION CENTRE",
       subtitle: "Documentation",
       description: DOCS_DESCRIPTION[metrics.docs.strength],
       reason: `Documentation strength ${metrics.docs.strength} of 3, detected from ${signalList(metrics.docs.signals)}, with a README of ${plural(metrics.docs.readmeLength, "character")}.`,
@@ -279,20 +360,30 @@ export function planLandmarks(analysis: RepoAnalysis): LandmarkSpec[] {
     const last =
       metrics.releases.lastDaysAgo === null
         ? "never"
-        : `${plural(metrics.releases.lastDaysAgo, "day")} ago`;
+        : metrics.releases.lastDaysAgo === 0
+          ? "today"
+          : `${plural(metrics.releases.lastDaysAgo, "day")} ago`;
+    const tag = metrics.releases.lastTag;
+    const arrivals = trainsPerMinute(metrics.releases, metrics.archived);
     specs.push({
       landmarkType: "station",
       level,
       state: metrics.releases.cadence,
       title: "TRANSIT STATION",
       subtitle: "Releases",
-      description:
+      description: `${
         metrics.releases.cadence === "active"
           ? "Freight moves constantly: this project ships on a steady cadence."
-          : "Trains run, but not often: releases arrive occasionally.",
-      reason: `${plural(metrics.releases.count, "published release")}, most recently ${last}, which maps to "${metrics.releases.cadence}" cadence.`,
-      sourceUrl: `${repo.url}/releases`,
+          : "Trains run, but not often: releases arrive occasionally."
+      } The last train in was ${tag ? `${tag}, ${last}` : last}.`,
+      reason: `${plural(metrics.releases.count, "published release")}, most recently ${last}, which maps to "${metrics.releases.cadence}" cadence; the platform works that out to about ${arrivals} ${arrivals === 1 ? "arrival" : "arrivals"} a minute.`,
+      sourceUrl: metrics.releases.lastUrl ?? `${repo.url}/releases`,
       visualState: metrics.releases.cadence,
+      detail: {
+        trainsPerMinute: arrivals,
+        releaseTag: tag ?? null,
+        releaseDaysAgo: metrics.releases.lastDaysAgo,
+      },
     });
   }
 
@@ -337,15 +428,24 @@ export interface DistrictText {
   sourceUrl: string;
 }
 
-export function districtText(plan: DistrictPlan, repo: RepositoryMeta): DistrictText {
+export function districtText(
+  plan: DistrictPlan,
+  repo: RepositoryMeta,
+  /** Total mapped files, so the district can state its share of the whole. */
+  totalFiles = 0,
+): DistrictText {
   const path = plan.sourcePath.replace(/^\/+/, "");
   const where = path ? plan.sourcePath : "the repository root";
+  const share =
+    totalFiles > 0 ? Math.max(1, Math.round((plan.fileCount / totalFiles) * 100)) : null;
+  const size = share === null ? plural(plan.fileCount, "file") : `${plural(plan.fileCount, "file")}, ${share}% of the repository`;
+
   return {
     title: plan.name,
     subtitle: plan.sourcePath,
-    description: plan.purpose ?? `${plural(plan.fileCount, "file")} under ${where}.`,
-    reason: `${where} is one of the largest areas of the repository, with ${plural(plan.fileCount, "file")}; its size on the map follows that count.`,
-    sourceUrl: path ? `${repo.url}/tree/${repo.defaultBranch}/${path}` : repo.url,
+    description: plan.purpose ?? `${size} under ${where}.`,
+    reason: `${where} is one of the largest areas of the repository, with ${size}; its size on the map follows that count.`,
+    sourceUrl: treeUrl(repo, path),
   };
 }
 

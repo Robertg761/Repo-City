@@ -113,13 +113,19 @@ function report(city: CityModel): string {
     `bounds            ${city.bounds.size} x ${city.bounds.size} units, centred on the origin`,
     `districts         ${city.districts.length}`,
     `buildings         ${city.buildings.length} / ${LIMITS.buildings}   tiers 1-5: ${tiers.join(", ")}`,
-    `roads             ${city.roads.length} (${city.roads.filter((r) => r.major).length} major)`,
+    `roads             ${city.roads.length} (${city.roads.filter((r) => r.major).length} major, ${city.roads.filter((r) => r.kind === "highway").length} highways out of town)`,
     `landmarks         ${city.landmarks.map((l) => `${l.landmarkType}${l.size ? ` ${l.size[0]}x${l.size[2]}` : ""}`).join(", ") || "none"}`,
     `incidents         ${city.incidents.length} / ${LIMITS.incidents}`,
     `construction      ${city.constructionSites.length} / ${LIMITS.construction}`,
     `trees             ${city.props.trees.length} / ${LIMITS.trees}`,
     `lamps             ${city.props.lamps.length}`,
-    `vehicles          ${city.vehicles.count} / ${LIMITS.vehicles}`,
+    `vehicles          ${city.vehicles.count} / ${LIMITS.vehicles}, visitor share ${city.vehicles.visitorShare ?? "n/a"}`,
+    `landmark detail   ${
+      city.landmarks
+        .filter((l) => l.detail)
+        .map((l) => `${l.landmarkType} ${JSON.stringify(l.detail)}`)
+        .join(", ") || "none"
+    }`,
     `ambience          ${JSON.stringify(city.ambience)}`,
     `reveal ends at    ${Math.max(
       0,
