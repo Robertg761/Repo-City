@@ -2,13 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { planDistricts } from "./districts";
 import {
+  HEALTH_SAMPLE_PULLS,
+  HERO_ISSUES,
+  HERO_OPEN_PULLS,
+  MAX_COMPLETED_CONSTRUCTION,
   MAX_INCIDENTS,
+  MAX_OPEN_CONSTRUCTION,
   classifyIssue,
   classifyPull,
   computeMetrics,
   computeStructure,
+  pullHealthSample,
   relatedPathFor,
 } from "./metrics";
+import { syntheticPulls } from "./__fixtures__/backlog";
 import { pruneTree } from "./tree";
 import { ARCHIVED_NOW, archivedSnapshot } from "./__fixtures__/archived.snapshot";
 import { daysBefore, emptySnapshot, treeFromPaths } from "./__fixtures__/helpers";
@@ -148,9 +155,9 @@ describe("computeMetrics on the mid fixture", () => {
     expect(core.activity.score).toBeGreaterThan(0.8);
   });
 
-  it("ranks at most 12 incidents and explains each from its rule", () => {
+  it("ranks at most 16 hero incidents and explains each from its rule", () => {
     expect(core.issues.open).toBe(30);
-    expect(core.issues.ranked).toHaveLength(MAX_INCIDENTS);
+    expect(core.issues.ranked).toHaveLength(HERO_ISSUES);
     // #262 leads: a severe defect with 13 comments that has been open 264 days
     // beats the fresher #412 on the age term.
     expect(core.issues.ranked[0].number).toBe(262);
@@ -267,5 +274,81 @@ describe("determinism", () => {
     expect(computeMetrics(midSnapshot, districts, { now: NOW })).toEqual(
       computeMetrics(midSnapshot, districts, { now: NOW }),
     );
+  });
+});
+
+describe("pull requests past the health sample (PLAN.md 76.1 decision 6, 76.7)", () => {
+  const districts = planDistricts(pruneTree(midSnapshot.tree.entries));
+  const extra = syntheticPulls(300, {
+    now: NOW,
+    start: 9_000,
+    dirs: ["src/router", "src/cache"],
+    newestDays: 0.25,
+  });
+  const snapshot = { ...midSnapshot, pulls: [...midSnapshot.pulls, ...extra, extra[0]] };
+  const { core } = computeMetrics(snapshot, districts, { now: NOW });
+
+  it("measures the first 50 open pull requests by update time, once each", () => {
+    const sample = pullHealthSample(snapshot);
+    expect(sample).toHaveLength(HEALTH_SAMPLE_PULLS);
+    expect(new Set(sample.map((p) => p.number)).size).toBe(HEALTH_SAMPLE_PULLS);
+    const newest = Date.parse(sample[0].updatedAt);
+    const oldest = Date.parse(sample.at(-1)!.updatedAt);
+    expect(newest).toBeGreaterThanOrEqual(oldest);
+    expect(core.pulls.open).toBe(HEALTH_SAMPLE_PULLS);
+    const stale = sample.filter((p) => Date.parse(p.updatedAt) <= NOW.getTime() - 60 * 86_400_000);
+    expect(core.pulls.staleShare).toBeCloseTo(stale.length / HEALTH_SAMPLE_PULLS, 3);
+  });
+
+  it("ranks 8 open and 2 merged heroes over every open pull request", () => {
+    const open = core.pulls.ranked.filter((r) => r.state !== "completed");
+    expect(open).toHaveLength(HERO_OPEN_PULLS);
+    const scores = open.map((r) => r.score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it("keeps today's 6 open plus 2 merged as the first 8, for a generator that slices 8", () => {
+    const states = core.pulls.ranked.map((r) => (r.state === "completed" ? "merged" : "open"));
+    expect(states).toEqual([
+      ...Array(MAX_OPEN_CONSTRUCTION).fill("open"),
+      ...Array(MAX_COMPLETED_CONSTRUCTION).fill("merged"),
+      ...Array(HERO_OPEN_PULLS - MAX_OPEN_CONSTRUCTION).fill("open"),
+    ]);
+  });
+
+  it("keeps today's 12 issues as the first 12 heroes", () => {
+    const ranked = computeMetrics(midSnapshot, districts, { now: NOW }).core.issues.ranked;
+    expect(ranked).toHaveLength(HERO_ISSUES);
+    const scores = ranked.map((r) => r.score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+    expect(ranked.slice(0, MAX_INCIDENTS).map((r) => r.number)).toEqual(
+      [...midSnapshot.issues]
+        .map((issue) => ({ number: issue.number, score: classifyIssue(issue, NOW).score }))
+        .sort((a, b) => b.score - a.score || a.number - b.number)
+        .slice(0, MAX_INCIDENTS)
+        .map((r) => r.number),
+    );
+  });
+
+  it("carries the enrichment, a crowd form and the touched files' directory on open heroes", () => {
+    for (const hero of core.pulls.ranked) {
+      if (hero.state === "completed") {
+        expect(hero.form).toBe("site");
+        continue;
+      }
+      expect(["van", "hoarding", "trench", "scaffold"]).toContain(hero.form);
+      if (hero.files && hero.files.length > 0) {
+        expect(hero.files.length).toBeLessThanOrEqual(5);
+        expect(hero.relatedPath).toMatch(/^(src\/(router|cache)|\.github\/workflows)/);
+      }
+    }
+  });
+
+  it("leaves a pull request from the old ingestion without enrichment keys", () => {
+    const plain = computeMetrics(midSnapshot, districts, { now: NOW }).core.pulls.ranked[0];
+    expect(plain).not.toHaveProperty("files");
+    expect(plain).not.toHaveProperty("review");
+    expect(plain).not.toHaveProperty("checks");
+    expect(plain.relatedPath).toBeNull();
   });
 });

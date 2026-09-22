@@ -8,10 +8,15 @@ import {
   type StageEvent,
 } from "./analyze";
 import { planDistricts } from "./districts";
-import { selectBuildings } from "./fileSelection";
+import { BUILDING_CAP, selectBuildings } from "./fileSelection";
+import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import { computeMetrics } from "./metrics";
 import { pruneTree } from "./tree";
 import type { AiInterpretation, RepoAnalysis } from "@/types/analysis";
+import type { RepositorySnapshot } from "@/types/repository";
+import { PAYLOAD_CEILING, buildIssueBacklog } from "./backlog";
+import { syntheticIssues, withBacklog } from "./__fixtures__/backlog";
+import { syntheticTree } from "./__fixtures__/syntheticTree";
 import { ARCHIVED_NOW, archivedSnapshot } from "./__fixtures__/archived.snapshot";
 import { MID_NOW, midSnapshot } from "./__fixtures__/mid.snapshot";
 
@@ -31,7 +36,9 @@ function expectValidAnalysis(analysis: RepoAnalysis): void {
   expect(districtIds.size).toBe(analysis.districts.length);
 
   expect(analysis.buildings.length).toBeGreaterThan(0);
-  expect(analysis.buildings.length).toBeLessThanOrEqual(300);
+  // PLAN.md 76.5: the settlement tier's budget, never past the absolute cap.
+  const budget = SETTLEMENT_PARAMS[analysis.settlement?.tier ?? "city"].buildings;
+  expect(analysis.buildings.length).toBeLessThanOrEqual(Math.min(budget.max, BUILDING_CAP));
   for (const building of analysis.buildings) {
     expect(districtIds.has(building.districtId)).toBe(true);
     expect([1, 2, 3, 4, 5]).toContain(building.tier);
@@ -44,8 +51,8 @@ function expectValidAnalysis(analysis: RepoAnalysis): void {
   expect(["Critical", "Struggling", "Mixed", "Healthy", "Thriving"]).toContain(metrics.health.band);
   expect(["low", "medium", "high"]).toContain(metrics.confidence.level);
   expect(metrics.confidence.reasons.length).toBeGreaterThan(0);
-  expect(metrics.issues.ranked.length).toBeLessThanOrEqual(12);
-  expect(metrics.pulls.ranked.length).toBeLessThanOrEqual(8);
+  expect(metrics.issues.ranked.length).toBeLessThanOrEqual(16);
+  expect(metrics.pulls.ranked.length).toBeLessThanOrEqual(10);
   for (const value of Object.values(metrics.health.breakdown)) {
     expect(value).toBeGreaterThanOrEqual(0);
     expect(value).toBeLessThanOrEqual(1);
@@ -69,7 +76,10 @@ describe("analyzeSnapshot without an interpreter", () => {
       "Demo District",
       "Operations District",
     ]);
-    expect(analysis.buildings).toHaveLength(136);
+    // 136 files make a town (footprint 224), whose budget is 30 to 120: the
+    // file level is too many, so the depth-3 folders stand instead.
+    expect(analysis.settlement!.tier).toBe("town");
+    expect(analysis.buildings).toHaveLength(56);
     expect(analysis.warnings).toEqual([]);
   });
 
@@ -210,7 +220,10 @@ describe("analyzeSnapshot with an interpreter", () => {
   });
 
   it("sets role on the buildings the interpretation names", async () => {
-    const analysis = await analyzeSnapshot(midSnapshot, { now: MID_NOW, interpreter: okInterpreter });
+    // A city-sized tree, so every file stands as its own building.
+    const asCity = { ...midSnapshot, tree: { ...midSnapshot.tree, totalFiles: 700, totalDirs: 50 } };
+    const analysis = await analyzeSnapshot(asCity, { now: MID_NOW, interpreter: okInterpreter });
+    expect(analysis.settlement!.tier).toBe("city");
     const dispatch = analysis.buildings.find((b) => b.path === "src/router/dispatch.ts");
     expect(dispatch?.role).toBe("Resolves a request to a handler");
     expect(analysis.buildings.find((b) => b.path === "src/utils/uuid.ts")?.role).toBeNull();
@@ -298,6 +311,200 @@ describe("analyzeSnapshot with an interpreter", () => {
       }),
     });
     expect(interpreted.metrics.health.score).toBe(plain.metrics.health.score);
+  });
+});
+
+/* ---------------------------------------------- settlements (PLAN.md 76) */
+
+const DIRS = ["src/router", "src/cache", "src/http", "docs/guides", "examples/cli"];
+
+/**
+ * What the pre-settlement ingestion saw of `snapshot`: the same health sample
+ * of issues, no bulk pages, and only the 50 most recently updated open pull
+ * requests (the old single `per_page=50` request) beside the merged ones.
+ */
+function todaysView(snapshot: RepositorySnapshot): RepositorySnapshot {
+  const open = snapshot.pulls
+    .filter((p) => p.state === "open" && p.mergedAt === null)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || b.number - a.number)
+    .slice(0, 50);
+  const rest = snapshot.pulls.filter((p) => !(p.state === "open" && p.mergedAt === null));
+  return {
+    ...snapshot,
+    issueBacklog: undefined,
+    openTotals: undefined,
+    coverage: undefined,
+    pulls: [...open, ...rest],
+  };
+}
+
+describe("health invariance (PLAN.md 76.1 decision 6, 76.14)", () => {
+  const cases = [
+    ["mid", midSnapshot, MID_NOW],
+    ["archived", archivedSnapshot, ARCHIVED_NOW],
+  ] as const;
+
+  it.each(cases)(
+    "%s: a 1,000-issue backlog leaves health and confidence exactly as they were",
+    async (_name, snapshot, now) => {
+      const plain = await analyzeSnapshot(snapshot, { now });
+      const giant = withBacklog(snapshot, { now, issues: 1_000, pulls: 0, dirs: DIRS });
+      const withIt = await analyzeSnapshot(giant, { now });
+      expect(withIt.metrics.health).toEqual(plain.metrics.health);
+      expect(withIt.metrics.confidence).toEqual(plain.metrics.confidence);
+      expect(withIt.metrics.issues.open).toBe(plain.metrics.issues.open);
+      expect(withIt.metrics.issues.staleShare).toBe(plain.metrics.issues.staleShare);
+      expect(withIt.metrics.issues.backlog!.length).toBeGreaterThan(900);
+    },
+  );
+
+  it.each(cases)(
+    "%s: 500 open pull requests give the health the first 50 would have given",
+    async (_name, snapshot, now) => {
+      const giant = withBacklog(snapshot, { now, issues: 1_000, pulls: 500, dirs: DIRS });
+      const before = await analyzeSnapshot(todaysView(giant), { now });
+      const after = await analyzeSnapshot(giant, { now });
+      expect(after.metrics.health).toEqual(before.metrics.health);
+      expect(after.metrics.confidence).toEqual(before.metrics.confidence);
+      expect(after.metrics.pulls.open).toBe(50);
+      expect(after.metrics.pulls.staleShare).toBe(before.metrics.pulls.staleShare);
+      expect(after.metrics.pulls.backlog!.length).toBeGreaterThan(before.metrics.pulls.backlog!.length);
+    },
+  );
+
+  it("keeps the settlement independent of the backlog too", async () => {
+    const plain = await analyzeSnapshot(midSnapshot, { now: MID_NOW });
+    const giant = await analyzeSnapshot(
+      withBacklog(midSnapshot, { now: MID_NOW, issues: 1_000, pulls: 500, dirs: DIRS }),
+      { now: MID_NOW },
+    );
+    expect(giant.settlement).toEqual(plain.settlement);
+    expect(giant.buildings).toEqual(plain.buildings);
+  });
+});
+
+describe("analyzeSnapshot with a settlement-era survey (PLAN.md 76.6, 76.7)", () => {
+  const giantSnapshot = withBacklog(midSnapshot, { now: MID_NOW, issues: 1_200, pulls: 600, dirs: DIRS });
+
+  it("carries the real totals, the coverage and whether the totals are exact", async () => {
+    const analysis = await analyzeSnapshot(giantSnapshot, { now: MID_NOW });
+    expect(analysis.metrics.issues.total).toBe(giantSnapshot.openTotals!.issues);
+    expect(analysis.metrics.pulls.total).toBe(giantSnapshot.openTotals!.pulls);
+    expect(analysis.coverage).toEqual(giantSnapshot.coverage);
+    expect(analysis.totalsExact).toBe(true);
+  });
+
+  it("fills 1,000 issues and 500 pull requests, heroes included", async () => {
+    const { metrics } = await analyzeSnapshot(giantSnapshot, { now: MID_NOW });
+    expect(metrics.issues.ranked).toHaveLength(16);
+    expect(metrics.issues.ranked.length + metrics.issues.backlog!.length).toBe(1_000);
+    const openHeroes = metrics.pulls.ranked.filter((r) => r.state !== "completed");
+    expect(openHeroes).toHaveLength(8);
+    expect(metrics.pulls.ranked.filter((r) => r.state === "completed")).toHaveLength(2);
+    expect(openHeroes.length + metrics.pulls.backlog!.length).toBe(500);
+  });
+
+  it("gives heroes a form, a heat and, for pull requests, a relatedPath from the touched files", async () => {
+    const { metrics } = await analyzeSnapshot(giantSnapshot, { now: MID_NOW });
+    for (const hero of metrics.issues.ranked) {
+      expect(hero.form).toBeDefined();
+      expect(hero.heat).toBeGreaterThanOrEqual(0);
+    }
+    const enriched = metrics.pulls.ranked.filter((r) => r.files && r.files.length > 0);
+    expect(enriched.length).toBeGreaterThan(0);
+    for (const hero of enriched) {
+      expect(hero.files!.length).toBeLessThanOrEqual(5);
+      expect(hero.relatedPath).not.toBeNull();
+    }
+    for (const hero of metrics.pulls.ranked) {
+      if (hero.state === "completed") expect(hero.form).toBe("site");
+      else expect(hero.form).not.toBe("site");
+    }
+  });
+
+  it("omits totals and coverage for a snapshot from the old ingestion", async () => {
+    const analysis = await analyzeSnapshot(midSnapshot, { now: MID_NOW });
+    expect(analysis.metrics.issues.total).toBeUndefined();
+    expect(analysis.metrics.pulls.total).toBeUndefined();
+    expect(analysis).not.toHaveProperty("coverage");
+    expect(analysis).not.toHaveProperty("totalsExact");
+    // The sample's non-heroes are still the crowd.
+    expect(analysis.metrics.issues.backlog).toHaveLength(30 - 16);
+  });
+
+  it("marks estimated totals as inexact", async () => {
+    const estimated = {
+      ...giantSnapshot,
+      openTotals: { ...giantSnapshot.openTotals!, exact: false, source: "estimate" as const },
+    };
+    expect((await analyzeSnapshot(estimated, { now: MID_NOW })).totalsExact).toBe(false);
+  });
+
+  it("builds a metropolis past its building floor", async () => {
+    const huge = {
+      ...midSnapshot,
+      tree: {
+        truncated: false,
+        totalEntries: 12_000,
+        entries: syntheticTree(8_000),
+        totalFiles: 8_000,
+        totalDirs: 1_500,
+      },
+    };
+    const analysis = await analyzeSnapshot(huge, { now: MID_NOW });
+    expect(analysis.settlement!.tier).toBe("metropolis");
+    expect(analysis.buildings.length).toBeGreaterThanOrEqual(300);
+    expect(analysis.buildings.length).toBeLessThanOrEqual(450);
+  });
+});
+
+describe("payload ceiling (PLAN.md 76.6)", () => {
+  it("keeps the maximal synthetic analysis under 1 MB", async () => {
+    const now = MID_NOW;
+    const long = withBacklog(
+      {
+        ...midSnapshot,
+        tree: {
+          truncated: true,
+          totalEntries: 100_000,
+          entries: syntheticTree(5_000),
+          totalFiles: 90_000,
+          totalDirs: 10_000,
+          githubTruncated: true,
+        },
+        // A full health sample of long issues, as request A1 returns it.
+        issues: syntheticIssues(100, { now, start: 99_000, dirs: DIRS, long: true }),
+      },
+      { now, issues: 1_500, pulls: 700, dirs: DIRS, long: true },
+    );
+    const analysis = await analyzeSnapshot(long, { now, interpreter: okInterpreter });
+    const bytes = new TextEncoder().encode(JSON.stringify(analysis)).length;
+    expect(analysis.buildings.length).toBe(450);
+    expect(bytes).toBeLessThanOrEqual(PAYLOAD_CEILING);
+
+    // Every string at its limit is more than 1 MB of crowd, so the least
+    // significant tail of each list is trimmed, in proportion, and queues.
+    const { issues, pulls } = analysis.metrics;
+    expect(issues.backlog!.length).toBeGreaterThan(600);
+    expect(pulls.backlog!.length).toBeGreaterThan(250);
+    const full = buildIssueBacklog(long, issues.ranked, analysis.districts, now);
+    expect(issues.backlog).toEqual(full.slice(0, issues.backlog!.length));
+    expect(issues.total).toBe(long.openTotals!.issues);
+  });
+
+  it("trims nothing from a giant with realistic titles, labels and paths", async () => {
+    const giant = withBacklog(
+      {
+        ...midSnapshot,
+        tree: { ...midSnapshot.tree, entries: syntheticTree(5_000), totalFiles: 20_000, totalDirs: 6_000 },
+      },
+      { now: MID_NOW, issues: 2_000, pulls: 800, dirs: DIRS },
+    );
+    const analysis = await analyzeSnapshot(giant, { now: MID_NOW, interpreter: okInterpreter });
+    const { issues, pulls } = analysis.metrics;
+    expect(issues.ranked.length + issues.backlog!.length).toBe(1_000);
+    expect(pulls.ranked.filter((r) => r.state !== "completed").length + pulls.backlog!.length).toBe(500);
+    expect(new TextEncoder().encode(JSON.stringify(analysis)).length).toBeLessThan(700_000);
   });
 });
 
