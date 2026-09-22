@@ -86,15 +86,48 @@ const STALL_MS = 250;
 /**
  * The decision itself, kept pure so the rule is unit tested rather than
  * screenshotted: the mean of the usable samples against the budget.
+ *
+ * A slow enough machine produces nothing but "stalls": a software renderer
+ * drawing a frame every 750 ms fills the whole window with gaps longer than
+ * `STALL_MS`. Filtering those out and then shrugging at the short list that
+ * is left kept exactly the machines that most needed the low tier on the high
+ * one. So the rule is:
+ *
+ *   - enough ordinary frames: judge on their mean, stalls ignored;
+ *   - a full window watched but too few ordinary frames in it: the frame rate
+ *     is under eight a second whatever the gaps are called, step down;
+ *   - more stall time than frame time over three or more stalls: repeated,
+ *     not an interruption, step down;
+ *   - otherwise there is not enough to judge on, keep `fallback`.
+ *
+ * The probe restarts its window when the tab is hidden (`useQualityProbe`),
+ * so a backgrounded tab never reaches this function as one long "frame".
  */
 export function tierForSamples(
   samples: readonly number[],
   fallback: QualityTier = "high",
 ): QualityTier {
-  const usable = samples.filter((ms) => ms > 0 && ms < STALL_MS);
-  if (usable.length < MIN_SAMPLES) return fallback;
-  const mean = usable.reduce((sum, ms) => sum + ms, 0) / usable.length;
-  return mean > STEP_DOWN_MS ? "low" : "high";
+  let elapsed = 0;
+  let stallTime = 0;
+  let stalls = 0;
+  const usable: number[] = [];
+  for (const ms of samples) {
+    if (!(ms > 0)) continue;
+    elapsed += ms;
+    if (ms < STALL_MS) {
+      usable.push(ms);
+    } else {
+      stalls += 1;
+      stallTime += ms;
+    }
+  }
+  if (stalls >= 3 && stallTime > elapsed / 2) return "low";
+  if (usable.length >= MIN_SAMPLES) {
+    const mean = usable.reduce((sum, ms) => sum + ms, 0) / usable.length;
+    return mean > STEP_DOWN_MS ? "low" : "high";
+  }
+  if (elapsed >= PROBE_MS * 0.9) return "low";
+  return fallback;
 }
 
 /** `?quality=low` / `?quality=high`. Anything else is ignored. */
@@ -189,11 +222,21 @@ export function useQualityProbe(afterMs: number | null): void {
 
     done.current = true;
     probed = true;
-    const startAt = performance.now() + afterMs;
 
-    const samples: number[] = [];
+    let startAt = performance.now() + afterMs;
+    let samples: number[] = [];
     let last = 0;
     let frame = 0;
+
+    // rAF stops while the tab is hidden, and the window it was measuring is
+    // then mostly absence. Start the three seconds again once it is back.
+    const restart = () => {
+      if (document.hidden) return;
+      samples = [];
+      last = 0;
+      startAt = Math.max(startAt, performance.now() + 500);
+    };
+    document.addEventListener("visibilitychange", restart);
 
     const tick = (now: number) => {
       if (now < startAt) {
@@ -215,6 +258,9 @@ export function useQualityProbe(afterMs: number | null): void {
     };
 
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("visibilitychange", restart);
+    };
   }, [afterMs]);
 }

@@ -33,6 +33,18 @@ describe("the step-down rule", () => {
     expect(tierForSamples(frames(90, 3), "low")).toBe("low");
   });
 
+  it("steps down a machine too slow to produce an ordinary frame at all", () => {
+    // A software renderer: every frame is longer than the stall threshold,
+    // so none of them is "usable", and that is itself the answer.
+    expect(tierForSamples(frames(750, 4))).toBe("low");
+    expect(tierForSamples(frames(300, 11))).toBe("low");
+  });
+
+  it("steps down under eight frames a second even when no frame is a stall", () => {
+    // 3 s of 140 ms frames is 21 frames: fewer than the minimum, full window.
+    expect(tierForSamples(frames(140, 21))).toBe("low");
+  });
+
   it("judges on the mean, so a few long frames do not condemn a fast machine", () => {
     const samples = [...frames(14, 100), ...frames(60, 8)];
     expect(tierForSamples(samples)).toBe("high");
