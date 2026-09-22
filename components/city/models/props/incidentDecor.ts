@@ -293,7 +293,9 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
 
   if (state === "stale") {
     // The wreck nobody has moved: on its side, rusted through.
-    parts.push(wreck([0, 0.62, 0], 0.7 * flip, Math.PI * 0.46 * flip, faded(RUST)));
+    // Tipped onto its flank rather than flat on its roof: from the overview
+    // a car on its side still reads as a car.
+    parts.push(wreck([0, 0.58, 0], 0.7 * flip, 1.05 * flip, faded(RUST)));
     parts.push(...debris(5, 2.1, faded("#7c766c"), 2.7));
     parts.push(
       ...barricade({ position: [0, 0, 3], rotationY: 0 }, faded(WARNING_ORANGE), faded("#e8e3d6")),
