@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GitHubClient } from "../lib/github/client.ts";
 import { parseRepoUrl } from "../lib/github/parseRepoUrl.ts";
 import { fetchSnapshot } from "../lib/github/snapshot.ts";
 import { errorCodeOf, isGitHubError } from "../lib/github/errors.ts";
@@ -72,29 +73,64 @@ async function main(): Promise<number> {
   );
 
   const started = Date.now();
+  // Own client, so the REST and GraphQL counts can be read back afterwards.
+  const client = new GitHubClient();
   try {
     const snapshot = await fetchSnapshot(ref.owner, ref.repo, {
+      client,
       onStage: (event) => {
         const detail = event.detail ? ` — ${event.detail}` : "";
-        process.stderr.write(`  [${event.status.padEnd(7)}] ${event.id}${detail}\n`);
+        const at = ((Date.now() - started) / 1000).toFixed(1).padStart(5);
+        process.stderr.write(`  ${at}s [${event.status.padEnd(7)}] ${event.id}${detail}\n`);
       },
     });
 
     const elapsed = Date.now() - started;
-    process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`);
+    const json = JSON.stringify(snapshot, null, 2);
+    process.stdout.write(`${json}\n`);
+
+    const { tree, openTotals, coverage } = snapshot;
+    const openPulls = snapshot.pulls.filter((pull) => pull.state === "open");
+    const enriched = openPulls.filter((pull) => pull.review !== undefined && pull.files !== undefined);
+    const compact = Buffer.byteLength(JSON.stringify(snapshot));
 
     process.stderr.write("\n");
     process.stderr.write(`repository:   ${snapshot.repo.fullName}\n`);
     process.stderr.write(`head:         ${snapshot.repo.headSha || "(unknown)"}\n`);
-    process.stderr.write(`requests:     ${snapshot.requestCount}\n`);
-    process.stderr.write(`wall time:    ${(elapsed / 1000).toFixed(2)} s\n`);
     process.stderr.write(
-      `tree:         ${snapshot.tree.entries.length} entries kept of ${snapshot.tree.totalEntries}` +
-        `${snapshot.tree.truncated ? " (truncated)" : ""}\n`,
+      `requests:     ${snapshot.requestCount} (${client.restCount} REST, ${client.graphqlCount} GraphQL)\n`,
+    );
+    process.stderr.write(`wall time:    ${(elapsed / 1000).toFixed(2)} s\n`);
+    process.stderr.write(`payload:      ${(compact / 1024).toFixed(1)} KB snapshot JSON (compact)\n`);
+    process.stderr.write(
+      `tree:         ${tree.entries.length} entries kept of ${tree.totalEntries}` +
+        `${tree.truncated ? " (truncated)" : ""}\n`,
     );
     process.stderr.write(
-      `signals:      ${snapshot.issues.length} issues, ${snapshot.pulls.length} pulls, ` +
-        `${snapshot.commits.length} commits, ${snapshot.contributors.length} contributors, ` +
+      `uncapped:     ${tree.totalFiles ?? "?"} files, ${tree.totalDirs ?? "?"} dirs, ` +
+        `footprint ${tree.totalFiles !== undefined && tree.totalDirs !== undefined ? tree.totalFiles + 2 * tree.totalDirs : "?"}` +
+        `${tree.githubTruncated ? " (GitHub truncated the listing)" : ""}\n`,
+    );
+    process.stderr.write(
+      `open totals:  ${openTotals ? `${openTotals.issues} issues, ${openTotals.pulls} pulls (${openTotals.source}${openTotals.exact ? "" : ", estimate"})` : "(unknown)"}` +
+        ` — open_issues_count ${snapshot.repo.openIssuesCount}\n`,
+    );
+    process.stderr.write(
+      `surveyed:     ${snapshot.issues.length} health-sample issues + ${snapshot.issueBacklog?.length ?? 0} backlog, ` +
+        `${openPulls.length} open pulls (${enriched.length} enriched), ${snapshot.pulls.length - openPulls.length} closed\n`,
+    );
+    if (coverage) {
+      process.stderr.write(
+        `coverage:     issue pages ${coverage.issuePages.received}/${coverage.issuePages.planned}, ` +
+          `pull pages ${coverage.pullPages.received}/${coverage.pullPages.planned}, ` +
+          `enrichment ${coverage.enrichment}, stopped by ${coverage.stoppedBy ?? "nothing"}\n`,
+      );
+    }
+    process.stderr.write(
+      `rate left:    REST ${client.rateLimitRemaining ?? "?"}, GraphQL ${client.graphqlRemaining ?? "?"}\n`,
+    );
+    process.stderr.write(
+      `signals:      ${snapshot.commits.length} commits, ${snapshot.contributors.length} contributors, ` +
         `${snapshot.workflows.length} workflows, ${snapshot.workflowRuns.length} runs, ` +
         `${snapshot.releases.length} releases, ${snapshot.files.length} files\n`,
     );
