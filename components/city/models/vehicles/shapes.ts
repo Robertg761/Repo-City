@@ -69,6 +69,8 @@ const ROOF = "#ffffff";
 const PANEL = "#b4b4b4";
 /** Exported so a livery can recolour the panels apart from the paintwork. */
 export const PANEL_SHADE = PANEL;
+/** Exported so a livery can give a cab a roof of its own colour. */
+export const ROOF_SHADE = ROOF;
 const PAINTWORK = new Set([PAINT, ROOF, PANEL]);
 
 /** Everything else is ABSOLUTE: glass is glass whatever colour the car is. */
@@ -394,6 +396,203 @@ export function bodyParts(kind: VehicleBody): Part[] {
     box([0.03, 0.9, 0.62], [-w / 2 - 0.005, 0.78, 0.8], GLASS),
     box([w * 0.44, 0.1, 0.04], [0, 0.52, h + 0.005], ARCH),
     ...running(spec, 0.24, 0.34, false),
+  ];
+}
+
+/**
+ * Service trucks: the chassis-cab under the fire engine, the tow truck and the
+ * road crew's truck (`./emergency`). They are not part of the fleet -- they
+ * never drive, so they are free of the lane width above -- but they are drawn
+ * the same way, so a fire engine parked next to a bus looks like it came from
+ * the same toy box: a side profile for the lower cab, a band of glass a little
+ * narrower than it under a painted roof, dark arches and bumpers.
+ *
+ *   engine    a cab-over with a crew cab, the front axle under the seats;
+ *   wrecker   a short bonnet and a long chassis behind it;
+ *   dropside  the same short bonnet, a shorter chassis.
+ *
+ * What stands on the chassis -- lockers, a boom, a bed -- is the service's
+ * business, and is built in `./emergency`.
+ */
+export type TruckBody = "engine" | "wrecker" | "dropside";
+
+export const TRUCK_BODIES: readonly TruckBody[] = ["engine", "wrecker", "dropside"];
+
+export interface TruckSpec extends BodySpec {
+  /** Underside of the cab and the chassis above the road. */
+  bottom: number;
+  /** Top of the painted lower cab: the glass band sits on it. */
+  belt: number;
+  /** Underside of the cab roof. */
+  roof: number;
+  /** The cab's back wall; the chassis runs back from here. */
+  cabBack: number;
+  /** The lower cab, `[z, y]`, from its back wall round the nose. */
+  profile: readonly ProfilePoint[];
+  /** The glass band's side profile, from the foot of the windscreen. */
+  glass: readonly ProfilePoint[];
+  /** Height of the front bumper's centre. */
+  bumperY: number;
+  /** Painted pillars through the glass band, `z`: a crew cab has one. */
+  pillars: readonly number[];
+  /**
+   * Whether the chassis behind the cab is open. A closed body (the engine's
+   * lockers) hides the chassis rail and the sill, so they are left out.
+   */
+  openChassis: boolean;
+}
+
+export const TRUCK_SPECS: Record<TruckBody, TruckSpec> = {
+  engine: {
+    length: 4.9,
+    width: 1.3,
+    wheelRadius: 0.34,
+    wheels: wheelSet(0.54, 1.52, 1.4),
+    headlights: pair(0.44, 0.6, 2.455),
+    taillights: pair(0.5, 0.62, -2.455),
+    lamp: [0.2, 0.12],
+    weight: 0,
+    bottom: 0.3,
+    belt: 1.2,
+    roof: 1.8,
+    cabBack: 0.8,
+    profile: [
+      [0.8, 0.3],
+      [2.45, 0.3],
+      [2.45, 1.08],
+      [2.38, 1.2],
+      [0.8, 1.2],
+    ],
+    // Cab-over: the windscreen stands almost upright on the nose.
+    glass: [
+      [2.37, 1.18],
+      [2.2, 1.8],
+      [0.9, 1.8],
+      [0.9, 1.18],
+    ],
+    bumperY: 0.4,
+    // The crew cab: front doors, then a second row behind them.
+    pillars: [1.62],
+    openChassis: false,
+  },
+  wrecker: {
+    length: 3.6,
+    width: 1.2,
+    wheelRadius: 0.3,
+    wheels: wheelSet(0.5, 1.14, 1.0),
+    headlights: pair(0.4, 0.56, 1.805),
+    taillights: pair(0.44, 0.5, -1.805),
+    lamp: [0.18, 0.12],
+    weight: 0,
+    bottom: 0.26,
+    belt: 0.88,
+    roof: 1.42,
+    cabBack: 0.02,
+    profile: [
+      [0.02, 0.26],
+      [1.8, 0.26],
+      [1.8, 0.64],
+      [1.64, 0.8],
+      [0.95, 0.88],
+      [0.02, 0.88],
+    ],
+    glass: [
+      [0.97, 0.86],
+      [0.64, 1.42],
+      [0.1, 1.42],
+      [0.1, 0.86],
+    ],
+    bumperY: 0.36,
+    pillars: [],
+    openChassis: true,
+  },
+  dropside: {
+    length: 3.4,
+    width: 1.2,
+    wheelRadius: 0.28,
+    wheels: wheelSet(0.5, 1.06, 0.95),
+    headlights: pair(0.4, 0.54, 1.705),
+    taillights: pair(0.44, 0.48, -1.705),
+    lamp: [0.18, 0.12],
+    weight: 0,
+    bottom: 0.24,
+    belt: 0.86,
+    roof: 1.38,
+    cabBack: 0.12,
+    profile: [
+      [0.12, 0.24],
+      [1.7, 0.24],
+      [1.7, 0.62],
+      [1.55, 0.78],
+      [0.95, 0.86],
+      [0.12, 0.86],
+    ],
+    glass: [
+      [0.97, 0.84],
+      [0.66, 1.38],
+      [0.2, 1.38],
+      [0.2, 0.84],
+    ],
+    bumperY: 0.34,
+    pillars: [],
+    openChassis: true,
+  },
+};
+
+/**
+ * A truck's chassis-cab, complete: cab, glass, arches, bumpers, a dark
+ * chassis rail behind the cab, and the wheels and lamps baked in, because a
+ * service truck is only ever parked and one geometry is one draw call. The
+ * paintwork is flagged as paint, like the fleet's, so the service can put its
+ * livery on it.
+ */
+export function truckParts(kind: TruckBody): Part[] {
+  const spec = TRUCK_SPECS[kind];
+  const w = spec.width;
+  const h = spec.length / 2;
+  const r = spec.wheelRadius;
+  const roofFront = spec.glass[1][0];
+  const tyre = new CylinderGeometry(r, r, 0.24, 8);
+  const lamp = new BoxGeometry(spec.lamp[0], spec.lamp[1], 0.05);
+  const chassis = spec.cabBack + h;
+  return [
+    prism(spec.profile, w, PAINT),
+    prism(spec.glass, w * 0.92, GLASS),
+    // The roof overhangs the glass a touch at the front, like a peak.
+    box(
+      [w * 0.96, 0.08, roofFront - spec.cabBack + 0.04],
+      [0, spec.roof + 0.04, (roofFront + spec.cabBack + 0.04) / 2],
+      ROOF,
+    ),
+    // The back wall of the cab, painted, closes the glass band off so the cab
+    // reads as a solid in front of whatever the chassis carries.
+    box([w * 0.97, spec.roof - spec.belt, 0.1], [0, (spec.roof + spec.belt) / 2, spec.cabBack + 0.05], PAINT),
+    ...spec.pillars.map((z) =>
+      box([w * 0.95, spec.roof - spec.belt, 0.1], [0, (spec.roof + spec.belt) / 2, z], PAINT),
+    ),
+    box([w * 0.5, 0.2, 0.04], [0, spec.bumperY + 0.2, h + 0.005], ARCH),
+    ...running(spec, spec.bottom, spec.bumperY, spec.openChassis),
+    // The chassis rail from the cab back to the tail, under whatever the
+    // service stands on it.
+    ...(spec.openChassis
+      ? [box([w * 0.8, 0.16, chassis], [0, spec.bottom + 0.08, (spec.cabBack - h) / 2], TRIM)]
+      : []),
+    ...spec.wheels.map(([x, z]) => ({
+      geometry: tyre,
+      color: TYRE,
+      position: [x, r, z] as Triple,
+      rotation: [0, 0, Math.PI / 2] as Triple,
+    })),
+    ...spec.headlights.map((position) => ({
+      geometry: lamp,
+      color: HEADLIGHT,
+      position: [...position] as Triple,
+    })),
+    ...spec.taillights.map((position) => ({
+      geometry: lamp,
+      color: TAILLIGHT,
+      position: [...position] as Triple,
+    })),
   ];
 }
 

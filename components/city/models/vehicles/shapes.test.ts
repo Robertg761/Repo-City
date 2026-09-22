@@ -4,15 +4,19 @@ import {
   CAR_COLORS,
   MAX_BODY_WIDTH,
   TAXI_COLOR,
+  TRUCK_BODIES,
+  TRUCK_SPECS,
   VEHICLE_BODIES,
   bodyGeometry,
   fleetLooks,
   lightsGeometry,
   paintFor,
   parkedGeometry,
+  truckParts,
   wheelGeometry,
+  type TruckBody,
 } from "./shapes";
-import { triangleCount } from "../props/geometry";
+import { PAINT_ATTRIBUTE, mergeParts, triangleCount } from "../props/geometry";
 import { prngFor } from "@/lib/city/seed";
 
 describe("body specs", () => {
@@ -112,6 +116,80 @@ describe("merged geometry", () => {
     const parked = triangleCount(parkedGeometry("sedan"));
     expect(parked).toBeGreaterThan(triangleCount(bodyGeometry("sedan")));
     expect(parkedGeometry("sedan")).toBe(parkedGeometry("sedan"));
+  });
+});
+
+describe("service trucks", () => {
+  const merged = (kind: TruckBody) => mergeParts(truckParts(kind));
+
+  it("stands every truck on its wheels, inside its spec", () => {
+    for (const kind of TRUCK_BODIES) {
+      const spec = TRUCK_SPECS[kind];
+      const geometry = merged(kind);
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox!;
+      // Tyres touch the road (an eight-sided tyre's lowest flat is a touch
+      // above it), nothing is sunk into it.
+      expect(box.min.y).toBeGreaterThanOrEqual(-0.001);
+      expect(box.min.y).toBeLessThan(0.03);
+      // Only the arches and bumpers stand proud of the paintwork.
+      expect(box.max.x - box.min.x).toBeLessThanOrEqual(spec.width + 0.08);
+      expect(box.max.z).toBeLessThan(spec.length / 2 + 0.05);
+      expect(box.min.z).toBeGreaterThan(-spec.length / 2 - 0.05);
+      for (const [x, z] of spec.wheels) {
+        expect(Math.abs(x)).toBeLessThanOrEqual(spec.width / 2);
+        expect(Math.abs(z)).toBeLessThan(spec.length / 2);
+      }
+      // A truck is a truck: taller than any car in the fleet except the bus.
+      expect(box.max.y).toBeGreaterThan(1.4);
+    }
+  });
+
+  it("puts the glass band on the painted cab, under the roof", () => {
+    for (const kind of TRUCK_BODIES) {
+      const spec = TRUCK_SPECS[kind];
+      expect(spec.glass[0][1]).toBeLessThanOrEqual(spec.belt);
+      expect(Math.max(...spec.glass.map(([, y]) => y))).toBeLessThanOrEqual(spec.roof);
+      // The windscreen leans back: its top is behind its foot.
+      expect(spec.glass[1][0]).toBeLessThan(spec.glass[0][0]);
+      for (const [z] of spec.glass) {
+        expect(z).toBeGreaterThanOrEqual(spec.cabBack);
+        expect(z).toBeLessThanOrEqual(spec.length / 2);
+      }
+    }
+  });
+
+  it("marks the paintwork and leaves the glass, tyres and lamps alone", () => {
+    for (const kind of TRUCK_BODIES) {
+      const spec = TRUCK_SPECS[kind];
+      const geometry = merged(kind);
+      const paint = geometry.getAttribute(PAINT_ATTRIBUTE);
+      const color = geometry.getAttribute("color");
+      const position = geometry.getAttribute("position");
+      let painted = 0;
+      for (let i = 0; i < paint.count; i++) {
+        if (paint.getX(i) < 0.5) continue;
+        painted++;
+        // Paintwork is near white, for the livery to multiply; glass, trim
+        // and tyres are all darker than that.
+        expect(Math.min(color.getX(i), color.getY(i), color.getZ(i))).toBeGreaterThan(0.4);
+        // Nothing under the cab's floor is paint: that is tyres and arches.
+        expect(position.getY(i)).toBeGreaterThanOrEqual(spec.bottom - 1e-6);
+      }
+      expect(painted).toBeGreaterThan(0);
+      expect(painted).toBeLessThan(paint.count * 0.6);
+    }
+  });
+
+  it("keeps a chassis-cab lighter than a bus", () => {
+    const bus =
+      triangleCount(bodyGeometry("bus")) +
+      triangleCount(lightsGeometry("bus")) +
+      4 * triangleCount(wheelGeometry());
+    for (const kind of TRUCK_BODIES) {
+      // The service's kit goes on top of this; the cab has to leave room.
+      expect(triangleCount(merged(kind))).toBeLessThan(bus * 0.7);
+    }
   });
 });
 
