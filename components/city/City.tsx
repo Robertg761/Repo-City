@@ -62,8 +62,9 @@ export default function City({
   );
 
   const size = city.bounds.size;
-  // The overview pulls back on a narrow screen, so the haze has to pull back
-  // with it or a phone shows a city behind frosted glass (PLAN.md section 39).
+  // The fog only hides where the landscape ends; it never reaches the city
+  // (`FOG_NEAR` in `palette.ts`). The overview pulls back on a narrow screen,
+  // so the fog pulls back with it, or a phone would see the rim come closer.
   const fogReach = size * aspectWiden(aspect);
 
   /**
