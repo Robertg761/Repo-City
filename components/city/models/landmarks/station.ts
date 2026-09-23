@@ -80,7 +80,8 @@ function catenary(a: A, xs: number[], cz: number, side: number): void {
   const height = 4.3;
   for (const x of xs) {
     a.box("steel", [0.18, height, 0.18], { at: [x, PLATFORM_Y + height / 2 - 0.3, cz + side * 1.9] });
-    a.box("steel", [0.12, 0.12, 2.0], {
+    // The arm ends at the insulator's axis, not a hair inside its skin.
+    a.box("steel", [0.12, 0.12, 1.9], {
       at: [x, PLATFORM_Y + height - 0.42, cz + side * 0.95],
     });
     a.cylinder("deck", 0.06, 0.06, 0.3, 5, { at: [x, PLATFORM_Y + height - 0.62, cz] });
@@ -135,8 +136,9 @@ function portal(a: A): void {
     rot: [0, 0, Math.PI / 2],
   });
   a.box("roof", [depth, 0.3, 4.8], { at: [x, 4.25, TRACK_A] });
+  // The buttresses stop short of the plot edge, where the headwall ends.
   for (const s of [-1, 1]) {
-    a.box("roof", [depth + 0.3, 3.4, 0.5], { at: [x - 0.15, 1.7, TRACK_A + s * 2.0] });
+    a.box("roof", [depth + 0.25, 3.4, 0.5], { at: [x - 0.175, 1.7, TRACK_A + s * 2.0] });
   }
 }
 
@@ -151,8 +153,9 @@ function buildStation(level: number): StationLayout {
 
   // The island platform, its edge strips and its shelter.
   a.box("deck", [18.8, PLATFORM_Y, 3.0], { at: [TRACK_X, PLATFORM_Y / 2, 0] });
+  // The edge strips stop short of the platform's ends and sides.
   for (const s of [-1, 1]) {
-    a.box("accent", [18.8, 0.07, 0.34], { at: [TRACK_X, PLATFORM_Y + 0.02, s * 1.33] });
+    a.box("accent", [18.7, 0.07, 0.34], { at: [TRACK_X, PLATFORM_Y + 0.02, s * 1.27] });
   }
 
   const columns = level >= 2 ? 5 : 3;
@@ -169,7 +172,7 @@ function buildStation(level: number): StationLayout {
   a.box("roof", [canopyLength - 1.6, 0.5, 1.2], { at: [canopyX, PLATFORM_Y + 3.65, 0] });
   a.box("glass", [canopyLength - 1.7, 0.3, 1.25], { at: [canopyX, PLATFORM_Y + 3.6, 0] });
   for (const s of [-1, 1]) {
-    a.box("accent", [canopyLength, 0.32, 0.14], {
+    a.box("accent", [canopyLength - 0.1, 0.32, 0.14], {
       at: [canopyX, PLATFORM_Y + 3.06, s * 1.8],
     });
   }
@@ -179,7 +182,7 @@ function buildStation(level: number): StationLayout {
     a.box("roof", [0.12, 0.42, 0.42], { at: [TRACK_X + 4.4 + s * 0.8, PLATFORM_Y + 0.22, -0.4] });
   }
   a.box("steel", [0.14, 1.3, 0.14], { at: [TRACK_X - 2.0, PLATFORM_Y + 0.65, 0.6] });
-  a.box("accent", [1.9, 0.9, 0.12], { at: [TRACK_X - 2.0, PLATFORM_Y + 1.6, 0.6] });
+  a.box("accent", [1.9, 0.9, 0.2], { at: [TRACK_X - 2.0, PLATFORM_Y + 1.6, 0.6] });
   for (const lx of [TRACK_X - 6.2, TRACK_X + 6.6]) {
     a.cylinder("steel", 0.08, 0.11, 2.6, 6, { at: [lx, PLATFORM_Y + 1.3, 0] });
     a.box("steel", [0.44, 0.14, 0.44], { at: [lx, PLATFORM_Y + 2.68, 0] });
@@ -196,7 +199,7 @@ function buildStation(level: number): StationLayout {
     // The second platform and the line it serves, both behind the island.
     track(a, TRACK_B);
     a.box("deck", [18.8, PLATFORM_Y, 1.6], { at: [TRACK_X, PLATFORM_Y / 2, -5.1] });
-    a.box("accent", [18.8, 0.07, 0.3], { at: [TRACK_X, PLATFORM_Y + 0.02, -4.4] });
+    a.box("accent", [18.7, 0.07, 0.3], { at: [TRACK_X, PLATFORM_Y + 0.02, -4.4] });
     for (let i = 0; i < 2; i++) {
       const sx = TRACK_X - 4.4 + i * 8.8;
       a.box("roof", [3.4, 0.22, 1.6], { at: [sx, PLATFORM_Y + 2.3, -5.1] });
@@ -219,7 +222,8 @@ function buildStation(level: number): StationLayout {
 
   // Signal posts at both ends of the running line.
   for (const s of [-1, 1]) {
-    const sx = TRACK_X + s * 8.6;
+    // Clear of the portal's buttress.
+    const sx = TRACK_X + s * 8.5;
     a.box("steel", [0.14, 2.6, 0.14], { at: [sx, 1.3, TRACK_A + s * 1.8] });
     a.box("steel", [0.36, 0.8, 0.22], { at: [sx, 2.6, TRACK_A + s * 1.8] });
     a.box("glass", [0.2, 0.2, 0.06], { at: [sx, 2.78, TRACK_A + s * 1.92] });
@@ -276,7 +280,8 @@ function buildTrain(): Slots<TrainSlot> {
   // way it runs: it comes in trailer first and leaves locomotive first.
   const tail = -3.7 - 1.7;
   a.box("body", [0.95, 1.15, 1.86], { at: [tail - 0.2, railTop + 1.25, 0], rot: [0, 0, 0.16] });
-  a.box("glass", [0.12, 0.62, 1.62], { at: [tail + 0.02, railTop + 1.78, 0] });
+  // Its top clear below the roof of the car it is set into.
+  a.box("glass", [0.12, 0.58, 1.62], { at: [tail + 0.02, railTop + 1.76, 0] });
   for (const s of [-1, 1]) {
     a.box("glass", [0.14, 0.2, 0.2], { at: [tail - 0.54, railTop + 0.95, s * 0.52] });
   }
