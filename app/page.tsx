@@ -19,6 +19,7 @@ import RepoInput from "@/components/RepoInput";
 import SoundToggle from "@/components/audio/SoundToggle";
 import TimeOfDayControl from "@/components/TimeOfDayControl";
 import Tooltip from "@/components/Tooltip";
+import TourOverlay from "@/components/tour/TourOverlay";
 
 const CityCanvas = dynamic(() => import("@/components/CityCanvas"), {
   ssr: false,
@@ -59,6 +60,7 @@ export default function Page() {
       <TimeOfDayControl />
       <SoundToggle />
       <ErrorBanner />
+      <TourOverlay />
     </main>
   );
 }

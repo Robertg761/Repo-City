@@ -24,6 +24,7 @@ import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
 import { signposted } from "@/lib/city/overflow";
 import type { Overflow, SettlementInfo } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
+import TourButton from "@/components/tour/TourButton";
 
 /** Injected at build time by next.config.ts; see the version badge below. */
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
@@ -433,6 +434,7 @@ export default function CityHUD() {
           </p>
         ) : null}
         {analysis && overflow ? <QueueChip overflow={overflow} /> : null}
+        <TourButton />
       </div>
     </>
   );

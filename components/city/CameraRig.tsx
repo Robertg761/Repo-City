@@ -18,7 +18,9 @@ import { useThree } from "@react-three/fiber";
 import { CameraControlsImpl } from "@react-three/drei";
 import { Box3, Vector3 } from "three";
 import { useCityStore } from "@/store/useCityStore";
+import { isTouring } from "@/lib/client/tourState";
 import type { CityModel, Vec3 } from "@/types/city";
+import { useTourDirector } from "@/components/tour/useTourDirector";
 import {
   cameraBoundary,
   clearInspectionFraming,
@@ -52,6 +54,7 @@ interface RigControls {
   setBoundary(box3?: Box3): void;
   smoothTime: number;
   setFocalOffset(x: number, y: number, z: number, enableTransition?: boolean): Promise<void>;
+  maxPolarAngle: number;
   addEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
   removeEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
 }
@@ -105,6 +108,9 @@ const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
  */
 const ARRIVAL_SMOOTH_TIME = 1.1;
 
+/** The glide back to the overview when a tour is stopped part way. */
+const TOUR_RETURN_SMOOTH_TIME = 0.55;
+
 /**
  * On a phone the inspector is a sheet over the bottom half of the screen and
  * the folded health card sits at the top, so an object framed in the middle
@@ -155,6 +161,10 @@ export default function CameraRig({
   const camera = useThree((state) => state.camera);
   const selectedId = useCityStore((s) => s.selectedId);
   const overviewNonce = useCityStore((s) => s.overviewNonce);
+  // While the tour plays, `useTourDirector` has the camera and this rig
+  // stands aside; the tour's selections are its captions, not fly-tos.
+  const touring = useCityStore((s) => isTouring(s.tour));
+  const wasTouring = useRef(false);
   const lastCity = useRef<CityModel | null>(null);
   const lastAspect = useRef(aspect);
   /** Whether the user has moved the camera since the rig last framed it. */
@@ -199,11 +209,26 @@ export default function CameraRig({
     lastAspect.current = aspect;
     if (!changed || !isRigControls(controls)) return;
     if (touched.current || useCityStore.getState().selectedId) return;
+    if (isTouring(useCityStore.getState().tour)) return;
     fly(controls, overviewFraming(size, aspect), true);
   }, [controls, size, aspect]);
 
   useEffect(() => {
     if (!isRigControls(controls)) return;
+
+    if (touring) {
+      wasTouring.current = true;
+      return;
+    }
+    // The tour has just ended. Taken over by a drag, a click or the wheel,
+    // the camera stays exactly where the viewer grabbed it; otherwise it
+    // glides back to the overview below, unhurried.
+    const tourEnded = wasTouring.current && lastCity.current === city;
+    wasTouring.current = false;
+    if (tourEnded && useCityStore.getState().tour.exit === "here") {
+      touched.current = true;
+      return;
+    }
 
     // A brand new model snaps into frame; everything after that glides.
     const isNewModel = lastCity.current !== city;
@@ -234,6 +259,7 @@ export default function CameraRig({
       setPace(controls, ARRIVAL_SMOOTH_TIME);
     } else {
       fly(controls, framing, !isNewModel);
+      if (tourEnded) setPace(controls, TOUR_RETURN_SMOOTH_TIME);
     }
     const distance = Math.hypot(
       framing.position[0] - framing.target[0],
@@ -245,8 +271,9 @@ export default function CameraRig({
     touched.current = false;
     // `overviewNonce` is a trigger: "Return to overview" flies back even when
     // nothing is selected.
-  }, [controls, camera, city, selectedId, overviewNonce]);
+  }, [controls, camera, city, selectedId, overviewNonce, touring]);
 
+  useTourDirector(isRigControls(controls) ? controls : null, city, aspect);
   useCameraDebugHandle(controls);
   usePinchAsDolly();
 
