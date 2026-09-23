@@ -129,7 +129,7 @@ export default function City({
 
       <Lighting atmosphere={atmosphere} size={size} />
 
-      <Terrain size={size} atmosphere={atmosphere} />
+      <Terrain size={size} atmosphere={atmosphere} aspect={aspect} />
       <Fields city={city} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
