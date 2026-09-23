@@ -417,7 +417,8 @@ async function main(): Promise<void> {
       scenario: scenario.name,
       landingMs: Math.round(landing),
       cityMs: Math.round(cityFrame - started),
-      ttiMs: tti === null ? null : Math.round(tti - started),
+      // Nothing is interactive before it is on screen.
+      ttiMs: tti === null ? null : Math.round(Math.max(tti, cityFrame) - started),
       tbtMs: Math.round(reveal.reduce((sum, [, d]) => sum + Math.max(0, d - 50), 0)),
       maxTaskMs: Math.round(reveal.reduce((max, [, d]) => Math.max(max, d), 0)),
       fps: 1000 / pct(intervals, 50),
@@ -427,6 +428,8 @@ async function main(): Promise<void> {
       dpr: log.cssWidth ? log.bufferWidth / log.cssWidth : null,
       lost: log.lost,
       restored: log.restored,
+      // The tier the app settled on is on the root element in every build.
+      quality: await evaluate<string | null>("document.documentElement.dataset.quality ?? null"),
       ...dev,
       messages: [...new Set(messages)],
     };
