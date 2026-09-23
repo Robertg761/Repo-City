@@ -8,7 +8,10 @@
  *   slow       the same site with one worker left and the crane idle
  *   abandoned  weathered, unfenced, the crane stopped and leaning, weeds
  *              through the hardstanding and a sign nobody took away
- *   completed  a finished building, a swept forecourt and a ribbon
+ *   completed  a finished building, a swept forecourt and a ribbon; in a
+ *              village or a town, the settlement's own house just finished,
+ *              at the plot and height S4 sized it to, with bunting and
+ *              balloons (`FinishedHouse`, PLAN.md 76.5)
  *
  * At most eight of these, so they are plain meshes with their own handlers.
  *
@@ -34,6 +37,7 @@ import {
   type BufferGeometry,
   type Group,
 } from "three";
+import type { SettlementTier } from "@/types/analysis";
 import type { ConstructionSite } from "@/types/city";
 import {
   HIGHLIGHT,
@@ -50,6 +54,13 @@ import {
   craneJibGeometry,
   craneMastGeometry,
 } from "./models/props/constructionDecor";
+import {
+  FINISHED,
+  finishedDressingGeometry,
+  finishedHouseGeometry,
+  finishedTier,
+  type FinishedTier,
+} from "./models/props/finishedHouse";
 import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, type BatchKind } from "./batching";
 import { lampMaterial } from "./effects";
@@ -162,21 +173,96 @@ function Crane({
   );
 }
 
+/**
+ * The finished house's own look: a plain vertex-coloured pool per shape,
+ * flat shaded as the settlement's buildings are (`Buildings.tsx`), which the
+ * archetypes' faces are modelled for.
+ */
+function finishedKind(name: string, geometry: BufferGeometry): BatchKind {
+  return batchKind(`site:${name}:${geometry.uuid}`, () => ({
+    geometry: () => geometry,
+    material: () => new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.84, metalness: 0 }),
+    castShadow: true,
+    receiveShadow: true,
+  }));
+}
+
+/**
+ * A merged pull request in a village or a town: the settlement's own house,
+ * just finished, drawn at the plot and height S4 sized it to (`size`), with
+ * its bunting, board and balloons (`models/props/finishedHouse.ts`).
+ */
+function FinishedHouse({
+  site,
+  tier,
+  atmosphere,
+  hovered,
+  selected,
+}: {
+  site: ConstructionSite;
+  tier: FinishedTier;
+  atmosphere: SceneAtmosphere;
+  hovered: boolean;
+  selected: boolean;
+}) {
+  const spec = FINISHED[tier];
+  // Uniform: a plot squeezed smaller keeps the house's proportions, and its
+  // height is then exactly `size[1]`.
+  const fit = site.size ? Math.min(site.size[0], site.size[2]) / spec.plot : 1;
+  const ground = stateTint(desaturate(spec.ground, atmosphere.desaturation), hovered, selected);
+  const tint = mix("#ffffff", stateTint("#ffffff", hovered, selected), 0.5);
+  return (
+    <group scale={fit}>
+      <BatchPart
+        kind={GROUND}
+        rotation-x={-Math.PI / 2}
+        position-y={0.05}
+        scale={spec.plot / SITE}
+        color={ground}
+      />
+      <BatchPart
+        kind={finishedKind(`house-${tier}`, finishedHouseGeometry(tier, atmosphere.desaturation))}
+        position={[0, 0.04, -spec.setBack]}
+        scale={[spec.footprint[0], spec.height, spec.footprint[1]]}
+        color={tint}
+      />
+      <BatchPart
+        kind={finishedKind(`finish-${tier}`, finishedDressingGeometry(tier, atmosphere.desaturation))}
+        color={tint}
+      />
+    </group>
+  );
+}
+
 export default function ConstructionSitePiece({
   site,
   atmosphere,
+  settlement,
 }: {
   site: ConstructionSite;
   atmosphere: SceneAtmosphere;
+  /** The settlement tier; absent means the city. */
+  settlement?: SettlementTier;
 }) {
   const { hovered, selected } = useEntityState(site.id);
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
 
+  const done = site.state === "completed";
+  const finished = done ? finishedTier(settlement) : null;
+  if (finished) {
+    return (
+      <group ref={reveal} position={site.position} rotation-y={site.rotationY} {...handlers}>
+        <BatchEntity id={site.id}>
+          <FinishedHouse site={site} tier={finished} atmosphere={atmosphere} hovered={hovered} selected={selected} />
+        </BatchEntity>
+      </group>
+    );
+  }
+
   // 11 x 11 is what the meshes below are drawn at; see `SITE`.
   const fit = site.size ? Math.min(site.size[0], site.size[2]) / SITE : 1;
 
-  const done = site.state === "completed";
   const weathered = site.state === "abandoned";
   const shellHeight = SHELL_HEIGHT[site.state];
   const shell = stateTint(

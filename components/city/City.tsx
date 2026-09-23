@@ -161,7 +161,7 @@ export default function City({
       ))}
 
       {city.constructionSites.map((site) => (
-        <ConstructionSitePiece key={site.id} site={site} atmosphere={atmosphere} />
+        <ConstructionSitePiece key={site.id} site={site} atmosphere={atmosphere} settlement={tier} />
       ))}
 
       <Backlog city={city} atmosphere={atmosphere} />
