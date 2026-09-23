@@ -1148,7 +1148,22 @@ function placeTrees(
       .map(([, plot]) => ({ x: plot.x, z: plot.z, radius: Math.min(plot.w, plot.d) * 0.42 })),
   ];
   const groveTrees: Vec3[] = [];
-  for (const grove of groves) {
+  // A metropolis's band corners are a block of grass twenty-odd units across
+  // each, which five scattered trees left reading as vacant lots. They are
+  // planted as small parks instead: a three-by-three grove on a grid.
+  const cornerParks = tier === "metropolis";
+  for (const [index, grove] of groves.entries()) {
+    if (cornerParks && index < 4) {
+      const step = layout.bandDepth * 0.26;
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          const x = round3(grove.x + i * step + prng.range(-0.6, 0.6));
+          const z = round3(grove.z + j * step + prng.range(-0.6, 0.6));
+          if (clear(x, z)) groveTrees.push([x, 0, z]);
+        }
+      }
+      continue;
+    }
     for (let i = 0; i < 5; i++) {
       const angle = (i / 5) * Math.PI * 2 + prng.range(-0.4, 0.4);
       const radius = grove.radius * prng.range(0.25, 1);

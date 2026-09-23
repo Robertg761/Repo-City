@@ -1264,8 +1264,10 @@ export function planLayout(
     plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
     ...(parks.length > 0 ? { parks } : {}),
   };
-  if (tier === "town") {
-    const fields = planAllotments(districtSide, ringRadius, spec, built);
+  if (tier === "town" || tier === "metropolis") {
+    // A metropolis keeps its band corners for the groves the generator
+    // plants there; a town's allotments run on round them.
+    const fields = planAllotments(districtSide, ringRadius, spec, built, tier === "town");
     if (fields.length > 0) layout.fields = fields;
   }
   return layout;
@@ -1279,19 +1281,23 @@ const ALLOTMENT_PATH = 1.4;
 const ALLOTMENT_CROPS: readonly FieldPatch["crop"][] = [2, 1, 2, 0];
 
 /**
- * A town's allotments (PLAN.md 76.5, and the review that found the town's
- * outer ring "empty grass"). The landmark band holds a landmark in the
- * middle of each side, between the two spokes; outside the spokes it was
- * bare grass all the way round to the corners. Each of those eight stretches
- * becomes a row of hedged plots: the long ones on the north and south sides
- * run on round the corner, the short ones on the east and west stop at the
- * corner so the two never meet. A plot that would touch a road is left out.
+ * Allotments for a town and a metropolis (PLAN.md 76.5, and the review that
+ * found their outer rings "empty grass"). The landmark band holds a landmark
+ * in the middle of each side, between the two spokes; outside the spokes it
+ * was bare grass all the way round to the corners. Each of those eight
+ * stretches becomes a row of hedged plots, the allotment gardens that line
+ * a ring road. With `corners`, the north and south rows run on round the
+ * corner (a town); without, every row stops short of it and the corner stays
+ * a grove (a metropolis). The east and west rows always stop at the corner,
+ * so no two rows meet. A plot that would touch a road is left out, and the
+ * plots grow with the settlement's slot pitch.
  */
 function planAllotments(
   districtSide: number,
   ringRadius: number,
   spec: GridSpec,
   roads: readonly RoadSegment[],
+  corners: boolean,
 ): FieldPatch[] {
   const half = districtSide / 2;
   const inner = half + spec.major.width / 2 + KERB;
@@ -1299,12 +1305,13 @@ function planAllotments(
   const depth = outer - inner;
   if (depth < ALLOTMENT_MIN) return [];
   const spoke = round3(districtSide / 3) + spec.major.width / 2 + KERB;
+  const target = ALLOTMENT_TARGET * (spec.pitch / SETTLEMENT_PARAMS.town.slotPitch);
 
   /** Plots along [from, to] of one axis, at `across` (the band's centre line) on the other. */
   const row = (from: number, to: number, alongX: boolean, across: number, turn: number): FieldPatch[] => {
     const length = to - from;
     if (length < ALLOTMENT_MIN) return [];
-    const count = Math.max(1, Math.round((length + ALLOTMENT_PATH) / (ALLOTMENT_TARGET + ALLOTMENT_PATH)));
+    const count = Math.max(1, Math.round((length + ALLOTMENT_PATH) / (target + ALLOTMENT_PATH)));
     const plot = (length - (count - 1) * ALLOTMENT_PATH) / count;
     const out: FieldPatch[] = [];
     for (let i = 0; i < count; i++) {
@@ -1327,8 +1334,8 @@ function planAllotments(
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const flip = <T extends FieldPatch>(f: T): T => ({ ...f, x: round3(sx * f.x), z: round3(sz * f.z) });
-      // North or south side, from the spoke round to the corner.
-      fields.push(...row(spoke, outer, true, band, turn).map(flip));
+      // North or south side, from the spoke round the corner or up to it.
+      fields.push(...row(spoke, corners ? outer : inner - ALLOTMENT_PATH, true, band, turn).map(flip));
       // East or west side, from the spoke to the corner plot's edge.
       fields.push(...row(spoke, inner - ALLOTMENT_PATH, false, band, turn + 1).map(flip));
       turn += 1;

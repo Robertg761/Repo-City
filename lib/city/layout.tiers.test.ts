@@ -256,8 +256,16 @@ describe("the town square", () => {
   });
 
   it("lays allotments along the outer ring, clear of every road, landmark and each other", () => {
-    for (const counts of [[78, 26, 6], [40, 20, 12, 6, 4], split(120, 6), split(30, 2)]) {
-      const layout = layoutOf(counts, "town");
+    const cases: [number[], "town" | "metropolis"][] = [
+      [[78, 26, 6], "town"],
+      [[40, 20, 12, 6, 4], "town"],
+      [split(120, 6), "town"],
+      [split(30, 2), "town"],
+      [split(450, 5), "metropolis"],
+      [split(300, 9), "metropolis"],
+    ];
+    for (const [counts, tier] of cases) {
+      const layout = layoutOf(counts, tier);
       const fields = layout.fields ?? [];
       expect(fields.length, `counts ${counts.join(",")}`).toBeGreaterThanOrEqual(8);
       const plots = Object.values(layout.landmarkPlots).map((p) => {
@@ -287,10 +295,23 @@ describe("the town square", () => {
     }
   });
 
-  it("gives a city and a metropolis no allotments", () => {
-    for (const tier of ["city", "metropolis"] as const) {
-      expect(layoutOf(split(300, 6), tier).fields).toBeUndefined();
+  it("gives a city no allotments, and leaves a metropolis's band corners to its groves", () => {
+    expect(layoutOf(split(300, 6), "city").fields).toBeUndefined();
+    const metro = layoutOf(split(400, 6), "metropolis");
+    // The corner square starts at the band's inner kerb.
+    const inner = metro.districtSide / 2 + SETTLEMENT_PARAMS.metropolis.roads.major.width / 2 + KERB;
+    for (const field of metro.fields ?? []) {
+      // Never in a corner square: one of its coordinates stays within the square's side.
+      const nearAxis = Math.min(Math.abs(field.x) + field.w / 2, Math.abs(field.z) + field.d / 2);
+      expect(nearAxis).toBeLessThanOrEqual(inner);
     }
+    // A town's rows run round its corners.
+    const town = layoutOf([78, 26, 6], "town");
+    expect(
+      (town.fields ?? []).some(
+        (f) => Math.abs(f.x) + f.w / 2 > town.districtSide / 2 && Math.abs(f.z) + f.d / 2 > town.districtSide / 2,
+      ),
+    ).toBe(true);
   });
 
   it("never carves a park in a city or a metropolis", () => {
