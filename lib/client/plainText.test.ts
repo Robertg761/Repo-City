@@ -18,6 +18,10 @@ describe("plainExcerpt", () => {
     );
   });
 
+  it("drops bold the excerpt cut off before it closed", () => {
+    expect(plainExcerpt("Upgrading to 16.11 **Which versions of React")).toBe("Upgrading to 16.11 Which versions of React");
+  });
+
   it("keeps snake_case and a lone asterisk", () => {
     expect(plainExcerpt("files like test_function.js are greyed out, 2 * 3")).toBe(
       "files like test_function.js are greyed out, 2 * 3",

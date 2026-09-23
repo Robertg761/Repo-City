@@ -43,6 +43,7 @@ export function plainExcerpt(markdown: string | null | undefined, max = PLAIN_EX
     .replace(/<\/?[a-zA-Z][^>]*>/g, " ") // HTML tags
     .replace(/`([^`]*)`/g, "$1") // inline code
     .replace(/(\*\*|__)(.+?)\1/g, "$2") // bold
+    .replace(/\*\*/g, "") // bold cut open by the excerpt's end
     .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,!?:;]|$)/g, "$1$2") // italics
     .replace(/~~(.+?)~~/g, "$1")
     .replace(/&nbsp;/g, " ")
