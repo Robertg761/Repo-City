@@ -615,12 +615,15 @@ let wheelCache: BufferGeometry | null = null;
  * One wheel, axle along `x` so a spin is a rotation about the instance's own
  * `x` after its heading has been applied (`Traffic.tsx` uses `YXZ` order).
  * Radius 1, so the instance scale sets the size. The hub is six-sided and
- * pale against an eight-sided tyre, which is what makes the spin visible.
+ * pale against an eight-sided tyre, which is what makes the spin visible. It
+ * stands a twentieth proud of the tyre, two layers on the smallest wheel:
+ * less, and whenever a flat of the hub came round to the top it was a ledge
+ * a hair wide beside the tyre.
  */
 export function wheelGeometry(): BufferGeometry {
   if (wheelCache) return wheelCache;
   const tyre = new CylinderGeometry(1, 1, 0.9, 8);
-  const hub = new CylinderGeometry(0.5, 0.5, 0.94, 6);
+  const hub = new CylinderGeometry(0.5, 0.5, 1.0, 6);
   wheelCache = mergeParts([
     { geometry: tyre, color: TYRE, rotation: [0, 0, Math.PI / 2] },
     { geometry: hub, color: HUB, rotation: [0, 0, Math.PI / 2] },
@@ -796,11 +799,13 @@ export const TRACTOR_SPEC: TractorSpec = {
   width: 1.18,
   // The fleet's single radius is the rear's: it is what sets the ride height.
   wheelRadius: TRACTOR_REAR,
+  // The rear pair a hair in from the front, so their hubs, proud of the
+  // tyres, still keep the tractor inside a lane.
   wheels: [
     [0.44, 0.82],
     [-0.44, 0.82],
-    [0.44, -0.62],
-    [-0.44, -0.62],
+    [0.438, -0.62],
+    [-0.438, -0.62],
   ],
   wheelRadii: [TRACTOR_FRONT, TRACTOR_FRONT, TRACTOR_REAR, TRACTOR_REAR],
   wheelWidths: [0.2, 0.2, 0.3, 0.3],
@@ -889,8 +894,9 @@ function tractorWheelParts(): Part[] {
     const turn: Triple = [0, 0, Math.PI / 2];
     return [
       { geometry: new CylinderGeometry(r, r, width, 10), color: TYRE, position: [x, r, z] as Triple, rotation: turn },
+      // The hub two layers proud of the tyre each side (`wheelGeometry`).
       {
-        geometry: new CylinderGeometry(r * 0.5, r * 0.5, width + 0.02, 6),
+        geometry: new CylinderGeometry(r * 0.5, r * 0.5, width + 0.024, 6),
         color: "#d9c24a",
         position: [x, r, z] as Triple,
         rotation: turn,
