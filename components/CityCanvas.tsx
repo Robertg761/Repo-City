@@ -12,7 +12,7 @@
  * must never run during server rendering.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import { NeutralToneMapping, PCFShadowMap, getConsoleFunction, setConsoleFunction } from "three";
@@ -172,17 +172,22 @@ function EmptyStage({ aspect }: { aspect: number }) {
   );
 }
 
-export default function CityCanvas() {
-  const storeCity = useCityStore((s) => s.city);
-  const actions = useCityStore((s) => s.actions);
-  const devCity = useDevCity(storeCity !== null);
-  const city = storeCity ?? devCity;
-  const aspect = useViewportAspect();
-  // The canvas is created at the tier's pixel ratio, and follows it. R3F
-  // re-applies this prop whenever the canvas re-renders, so it has to be the
-  // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
-  // back on twice the pixels each time a new city arrived.
-  const { maxDpr } = useQuality();
+/**
+ * Everything inside the canvas that follows the model.
+ *
+ * THE CITY ARRIVES DEFERRED. Mounting a metropolis builds thousands of
+ * objects and a few hundred geometries in one React render, and done at once
+ * that was the hitch on arrival: 300 ms on a desktop, over two seconds on a
+ * laptop CPU at a quarter of the speed. `useDeferredValue` hands the new model
+ * to a background render inside the canvas's own (concurrent) React root,
+ * which yields to the browser every few milliseconds, so the old scene keeps
+ * drawing while the new one is built and only the commit and the shader
+ * compile are left for one frame. It has to be here, inside the canvas: the
+ * canvas passes its children on from a layout effect, and anything deferred
+ * outside it would arrive as one synchronous update all the same.
+ */
+function Scene({ city: latest, aspect }: { city: CityModel | null; aspect: number }) {
+  const city = useDeferredValue(latest);
 
   // The sky, the exposure and the quality probe outlive any one model, so
   // they are mounted here rather than inside the keyed `<City>`, and the
@@ -197,28 +202,7 @@ export default function CityCanvas() {
   const archived = city?.repository.archived ?? false;
 
   return (
-    <Canvas
-      // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
-      // it falls back to `PCFShadowMap` and warns on every load. Ask for the
-      // supported filter directly; the softness now comes from the light's own
-      // radius and bias in `Lighting.tsx` (PLAN.md section 39).
-      shadows={{ type: PCFShadowMap }}
-      dpr={[1, maxDpr]}
-      // The near plane is as far out as the closest camera allows (the orbit
-      // stops ten units from its target). At 0.5 the depth buffer had so little
-      // precision left out on the landscape that the ambient occlusion pass
-      // read the flat grass as bumpy and clouded it over in soft grey patches.
-      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
-      // Neutral from the first frame; `Environment` keeps the exposure in step
-      // with the hour, and hands the tone mapping to the composer when the
-      // quality tier runs one (PLAN.md section 39).
-      gl={{ antialias: true, toneMapping: NeutralToneMapping }}
-      // Clicking past every object is the same gesture as clicking bare
-      // ground: it clears the selection (PLAN.md section 6).
-      onPointerMissed={() => actions.select(null)}
-      // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-    >
+    <>
       {/* The live time of day for everything in the scene (`sky.tsx`). */}
       <SkyProvider ambience={ambience} archived={archived}>
         {/* Keyed on the seed: a different repository revision is a different
@@ -254,9 +238,53 @@ export default function CityCanvas() {
         maxPolarAngle={Math.PI * 0.48}
         minPolarAngle={0.15}
       />
+    </>
+  );
+}
+
+function Viewport() {
+  const storeCity = useCityStore((s) => s.city);
+  const actions = useCityStore((s) => s.actions);
+  const devCity = useDevCity(storeCity !== null);
+  const city = storeCity ?? devCity;
+  const aspect = useViewportAspect();
+  // The canvas is created at the tier's pixel ratio, and follows it. R3F
+  // re-applies this prop whenever the canvas re-renders, so it has to be the
+  // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
+  // back on twice the pixels each time a new city arrived.
+  const { maxDpr } = useQuality();
+
+  return (
+    <Canvas
+      // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
+      // it falls back to `PCFShadowMap` and warns on every load. Ask for the
+      // supported filter directly; the softness now comes from the light's own
+      // radius and bias in `Lighting.tsx` (PLAN.md section 39).
+      shadows={{ type: PCFShadowMap }}
+      dpr={[1, maxDpr]}
+      // The near plane is as far out as the closest camera allows (the orbit
+      // stops ten units from its target). At 0.5 the depth buffer had so little
+      // precision left out on the landscape that the ambient occlusion pass
+      // read the flat grass as bumpy and clouded it over in soft grey patches.
+      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
+      // Neutral from the first frame; `Environment` keeps the exposure in step
+      // with the hour, and hands the tone mapping to the composer when the
+      // quality tier runs one (PLAN.md section 39).
+      gl={{ antialias: true, toneMapping: NeutralToneMapping }}
+      // Clicking past every object is the same gesture as clicking bare
+      // ground: it clears the selection (PLAN.md section 6).
+      onPointerMissed={() => actions.select(null)}
+      // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+    >
+      <Scene city={city} aspect={aspect} />
 
       {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
       <PerfOverlay />
     </Canvas>
   );
+}
+
+export default function CityCanvas() {
+  return <Viewport />;
 }
