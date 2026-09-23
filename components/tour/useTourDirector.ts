@@ -114,7 +114,7 @@ export function useTourDirector(
     };
   }, [gl]);
 
-  useFrame((_, delta) => {
+  const direct = (delta: number): void => {
     const tour = useCityStore.getState().tour;
     const current = run.current;
 
@@ -206,6 +206,17 @@ export function useTourDirector(
     if (!leg.advanced && leg.clock >= total) {
       leg.advanced = true;
       useCityStore.getState().actions.tour({ type: "advance", run: tour.run, index: tour.index });
+    }
+  };
+
+  useFrame((_, delta) => {
+    try {
+      direct(delta);
+    } catch (error) {
+      // A tour that cannot plan its next move ends, rather than leaving the
+      // camera frozen with the HUD hidden.
+      console.error("Repo City: the tour stopped", error);
+      useCityStore.getState().actions.tour({ type: "exit", to: "here" });
     }
   });
 }
