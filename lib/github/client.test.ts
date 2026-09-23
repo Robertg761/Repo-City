@@ -79,6 +79,21 @@ describe("GitHubClient request shape", () => {
 
     expect(client.rateLimitRemaining).toBe(4993);
   });
+
+  it("keeps the search budget apart from the core REST budget", async () => {
+    let n = 0;
+    const fetchImpl = (async () =>
+      n++ === 0
+        ? json([], { headers: { "x-ratelimit-remaining": "4993", "x-ratelimit-resource": "core" } })
+        : json({ items: [] }, { headers: { "x-ratelimit-remaining": "28", "x-ratelimit-resource": "search" } })) as typeof fetch;
+    const client = new GitHubClient({ token: "t", fetchImpl });
+
+    await client.getList("/a");
+    await client.get("/search/issues");
+
+    expect(client.rateLimitRemaining).toBe(4993);
+    expect(client.searchRemaining).toBe(28);
+  });
 });
 
 describe("GitHubClient empty answers", () => {

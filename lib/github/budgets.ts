@@ -27,6 +27,34 @@ export const MAX_OPEN_PULLS = 500;
 export const BULK_ISSUE_PAGES = 12;
 /** Wave A': top-up ceiling once the real issue/PR split is known. */
 export const MAX_ISSUE_PAGES = 15;
+/**
+ * Wave A' by search, for repositories where pull requests crowd the issue
+ * pages: `/search/issues?q=repo:o/r is:issue is:open` lists issues only, so
+ * 10 pages reach the 1,000-issue ceiling however many pull requests there
+ * are. Search stops at 1,000 results, which is exactly that ceiling.
+ *
+ * Measured live on 2026-09-23 (vercel/next.js, 1,012 open issues under 2,449
+ * open pull requests, so 70% of the `/issues` listing is pull requests; page 1
+ * of it held 95 pull requests and 5 issues): 15 REST pages reached 407 issues.
+ * A search page of 100 took 1.3 to 1.4 s; pages are independent, so 10 of
+ * them take about two page times. The GraphQL alternative,
+ * `repository.issues(orderBy: UPDATED_AT)`, lists issues only too and costs
+ * 1 point a page, but took 2.5 s a page and can only walk its cursor one page
+ * at a time: 25 s for 1,000 issues, past the page deadline, all of it GraphQL
+ * time that the secondary limit meters on the shared token.
+ *
+ * Search has its own budget of 30 requests a minute with a token, so page 1
+ * goes first and the rest are trimmed to what its `x-ratelimit-remaining`
+ * allows.
+ */
+export const SEARCH_MAX_PAGES = 10;
+/**
+ * Search replaces REST top-up pages when `MAX_ISSUE_PAGES` REST pages would
+ * reach less than this share of the issues wanted. For a repository with
+ * 1,000 open issues or more, that is pull requests at 40% of the listing or
+ * more; issue-heavy repositories such as vscode never get near it.
+ */
+export const SEARCH_SWITCH_REACH = 0.9;
 /** Wave B: open pull pages in total, page 1 included. */
 export const MAX_PULL_PAGES = 5;
 /** Items per page for every bulk list request. */

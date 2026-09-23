@@ -6,8 +6,11 @@ import {
   firstStop,
   pageRange,
   planIssuePages,
+  planIssueSearch,
   planIssueTopUp,
   planPullPages,
+  searchPagesFor,
+  settlePages,
   stopReasonOf,
 } from "./paginate";
 
@@ -50,6 +53,44 @@ describe("planIssueTopUp (wave A')", () => {
     expect(planIssueTopUp(5, { issues: 450, pulls: 0 })).toBe(5);
     expect(planIssueTopUp(0, { issues: 5_000, pulls: 5_000 })).toBe(0);
     expect(planIssueTopUp(12, { issues: 0, pulls: 5_000 })).toBe(12);
+  });
+});
+
+describe("planIssueSearch (wave A' by search)", () => {
+  it("searches when pull requests crowd the pages: next.js as measured", () => {
+    // 15 REST pages of a 29%-issue listing reach 438 of 1,000 wanted.
+    expect(planIssueSearch(12, { issues: 1_012, pulls: 2_449 })).toBe(10);
+    // 400 issues under 1,600 pulls: REST would reach 300; four search pages list all 400.
+    expect(planIssueSearch(12, { issues: 400, pulls: 1_600 })).toBe(4);
+  });
+
+  it("stays on REST for issue-heavy repositories: vscode-shaped", () => {
+    expect(planIssueSearch(12, { issues: 9_000, pulls: 600 })).toBe(0);
+    expect(planIssueSearch(12, { issues: 1_800, pulls: 250 })).toBe(0);
+  });
+
+  it("switches at pull requests taking 40% of a big listing", () => {
+    // 36% pull requests: 15 pages reach 960 of 1,000.
+    expect(planIssueSearch(12, { issues: 10_000, pulls: 5_600 })).toBe(0);
+    // 45%: 15 pages reach 820.
+    expect(planIssueSearch(12, { issues: 10_000, pulls: 8_200 })).toBe(10);
+  });
+
+  it("stays on REST when 15 pages walk the whole listing, whatever the split", () => {
+    expect(planIssueSearch(12, { issues: 1_000, pulls: 400 })).toBe(0);
+    expect(planIssueSearch(12, { issues: 150, pulls: 1_300 })).toBe(0);
+  });
+
+  it("does nothing without bulk pages or without issues", () => {
+    expect(planIssueSearch(0, { issues: 1_012, pulls: 2_449 })).toBe(0);
+    expect(planIssueSearch(12, { issues: 0, pulls: 5_000 })).toBe(0);
+  });
+
+  it("never plans past search's 1,000-result end", () => {
+    expect(searchPagesFor(50_000)).toBe(10);
+    expect(searchPagesFor(1_012)).toBe(10);
+    expect(searchPagesFor(301)).toBe(4);
+    expect(searchPagesFor(0)).toBe(0);
   });
 });
 
@@ -150,5 +191,21 @@ describe("fetchPages", () => {
     setTimeout(() => deadline.abort(), 10);
     const result = await pending;
     expect(result).toMatchObject({ items: ["first"], received: 1, failed: 2, stoppedBy: "deadline" });
+  });
+});
+
+describe("settlePages", () => {
+  it("settles any page fetcher like fetchPages: order kept, losses counted", async () => {
+    const seen: number[] = [];
+    const result = await settlePages(
+      [1, 2, 3],
+      async (page) => {
+        if (page === 2) throw new GitHubError("RATE_LIMITED", "search rate limited");
+        return { items: [page * 10], lastPage: null };
+      },
+      { onPage: (page) => seen.push(page) },
+    );
+    expect(result).toEqual({ items: [10, 30], received: 2, failed: 1, stoppedBy: "rate-limit", lastPage: null });
+    expect(seen.sort()).toEqual([1, 3]);
   });
 });
