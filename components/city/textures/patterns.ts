@@ -278,6 +278,66 @@ export function paverCentre(column: number, row: number, columns = 4, rows = 8):
 }
 
 // ---------------------------------------------------------------------------
+// Setts
+// ---------------------------------------------------------------------------
+
+export interface SettsOptions {
+  /** Stones across one tile (u), per course. */
+  columns?: number;
+  /** Courses along one tile (v). */
+  rows?: number;
+  seed?: string;
+}
+
+/**
+ * The town square's setts (PLAN.md 76.5): small squared stones laid in
+ * courses, every other course set half a stone along, each stone its own
+ * shade and domed -- darker towards its edges than a paving slab, which is
+ * what makes a sett read as a cobble rather than as a tile. The joints are
+ * deeper than the pavements' too, but stay inside the patterns' narrow band.
+ */
+export function settsPattern(
+  size: number,
+  { columns = 6, rows = 10, seed = "setts" }: SettsOptions = {},
+): Pattern {
+  const side = patternSize(size);
+  const prng = prngFromString(`texture:${seed}`);
+  const grain = grainField(side, prng);
+  const worn = noiseField(side, 3, prng);
+  const tones = new Float32Array(columns * rows);
+  for (let i = 0; i < tones.length; i++) tones[i] = prng.range(-0.05, 0.05);
+
+  return pack(side, (i, x, y) => {
+    const cv = (y / side) * rows;
+    const row = Math.floor(cv);
+    const cu = (x / side) * columns + (row % 2 === 1 ? 0.5 : 0);
+    const column = Math.floor(cu) % columns;
+    const fu = cu - Math.floor(cu);
+    const fv = cv - row;
+    const edge = Math.min(fu, 1 - fu, fv, 1 - fv);
+    const joint = 1 - smoothstep(0.03, 0.07, edge);
+    // A dome: full height in the middle of the stone, falling off to its rim.
+    const dome = smoothstep(0, 0.32, edge);
+
+    const stone =
+      0.93 +
+      tones[(row % rows) * columns + column] +
+      (dome - 1) * 0.05 +
+      (grain[i] - 0.5) * 0.05 +
+      (worn[i] - 0.5) * 0.03;
+    const level = stone + (0.76 - stone) * joint;
+    // A breath of warmth in the stone, none in the joint.
+    return [level + (1 - joint) * 0.006, level, level - (1 - joint) * 0.008, 1];
+  });
+}
+
+/** The pattern-space centre of sett `(column, row)`. */
+export function settCentre(column: number, row: number, columns = 6, rows = 10): [number, number] {
+  const shift = row % 2 === 1 ? 0.5 : 0;
+  return [((((column + 0.5 - shift) / columns) % 1) + 1) % 1, (row + 0.5) / rows];
+}
+
+// ---------------------------------------------------------------------------
 // Gravel and ground
 // ---------------------------------------------------------------------------
 

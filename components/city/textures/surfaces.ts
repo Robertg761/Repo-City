@@ -45,6 +45,7 @@ import {
   gravelPattern,
   groundDetailPattern,
   paverPattern,
+  settsPattern,
   type Pattern,
 } from "./patterns";
 
@@ -55,7 +56,8 @@ export type SurfaceKind =
   | "asphalt"
   | "pavers"
   | "gravel"
-  | "ground";
+  | "ground"
+  | "setts";
 
 /** Mowing stripe pairs across one lawn tile. */
 const LAWN_STRIPES = 4;
@@ -74,6 +76,7 @@ const MAKERS: Record<SurfaceKind, (size: number) => Pattern> = {
   pavers: (size) => paverPattern(size, { columns: PAVER_COLUMNS, rows: PAVER_ROWS }),
   gravel: (size) => gravelPattern(size),
   ground: (size) => groundDetailPattern(size),
+  setts: (size) => settsPattern(size),
 };
 
 const cache = new Map<string, DataTexture>();
@@ -125,7 +128,11 @@ export function tiledSurface(
 // The instanced street shader patch
 // ---------------------------------------------------------------------------
 
-export type StreetSurface = "asphalt" | "pavers" | "paint";
+/**
+ * `patch` is asphalt without the oil line down each lane: the joint discs and
+ * corner squares at a bend (`groundwork.ts` `jointLays`), which have no lanes.
+ */
+export type StreetSurface = "asphalt" | "patch" | "pavers" | "paint";
 
 /**
  * World units per pattern tile, across (u) and along (v).
@@ -140,6 +147,7 @@ export type StreetSurface = "asphalt" | "pavers" | "paint";
  */
 const TILE: Record<StreetSurface, [number, number]> = {
   asphalt: [9, 9],
+  patch: [9, 9],
   pavers: [1.2, 3.6],
   paint: [9, 9],
 };
@@ -267,6 +275,7 @@ export function setStreetTexture(material: MeshStandardMaterial, texture: Textur
 
 const STREET_PATTERN: Record<StreetSurface, SurfaceKind> = {
   asphalt: "asphalt",
+  patch: "asphalt",
   pavers: "pavers",
   paint: "asphalt",
 };
@@ -275,18 +284,29 @@ const STREET_PATTERN: Record<StreetSurface, SurfaceKind> = {
  * A street material for one of the instanced meshes in `Roads.tsx`, at the
  * quality tier's texture size. Rebuilt only when its colour or the tier
  * changes; the compiled program is shared across rebuilds by its cache key.
+ *
+ * `behind` pushes the surface back in the depth test by that many polygon
+ * offset units, so where it lies coplanar with another road surface -- a
+ * lane running into the village main street -- the other one wins cleanly
+ * instead of the two fighting.
  */
 export function useStreetMaterial(
   surface: StreetSurface,
   color: string,
   roughness: number,
+  behind = 0,
 ): MeshStandardMaterial {
   const { textureSize, anisotropy } = useQuality();
   const material = useMemo(() => {
     const next = new MeshStandardMaterial({ color, roughness, metalness: 0 });
+    if (behind > 0) {
+      next.polygonOffset = true;
+      next.polygonOffsetFactor = behind;
+      next.polygonOffsetUnits = behind;
+    }
     patchStreetMaterial(next, surface, surfaceTexture(STREET_PATTERN[surface], textureSize, anisotropy));
     return next;
-  }, [surface, color, roughness, textureSize, anisotropy]);
+  }, [surface, color, roughness, behind, textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
   return material;
 }

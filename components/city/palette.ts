@@ -109,6 +109,21 @@ export const CURB_COLOR = "#9d998f";
 export const CROSSWALK_COLOR = "#e7e3d5";
 /** Raked gravel around the civic centre. */
 export const PLAZA_COLOR = "#cfc8b6";
+/** The town square's setts: a warmer, darker stone than the city's gravel. */
+export const SETTS_COLOR = "#bdb3a2";
+/**
+ * A village lane (PLAN.md 76.5): tar and chippings, lighter and warmer than
+ * a city street, and its gravel verge where a street would have a kerb.
+ */
+export const LANE_COLOR = "#a29c90";
+export const VERGE_COLOR = "#bfb49c";
+/** A motorway's hard shoulder and its central barrier. */
+export const SHOULDER_COLOR = "#a7a59f";
+export const BARRIER_COLOR = "#cdcac1";
+/** The grass on an avenue's median, a shade deeper than the lawn around it. */
+export const MEDIAN_GRASS = "#7fa476";
+/** A village green: the richest grass in the settlement. */
+export const GREEN_GRASS = "#8cbf7c";
 export const ROOF_COLOR = "#a7a49b";
 export const WINDOW_COLOR = "#ffdca5";
 export const CIVIC_COLOR = "#eceadf";

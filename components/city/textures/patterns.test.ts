@@ -11,6 +11,8 @@ import {
   paverCentre,
   paverPattern,
   patternSize,
+  settCentre,
+  settsPattern,
   type Pattern,
 } from "./patterns";
 
@@ -23,6 +25,7 @@ const ALL: Record<string, (size: number) => Pattern> = {
   pavers: (size) => paverPattern(size),
   gravel: (size) => gravelPattern(size),
   ground: (size) => groundDetailPattern(size),
+  setts: (size) => settsPattern(size),
 };
 
 /** Mean and extremes of one channel. */
@@ -215,5 +218,41 @@ describe("the pavers", () => {
       shades.add(Math.round(levelAt(pattern, u * size, v * size) * 255));
     }
     expect(shades.size).toBeGreaterThan(3);
+  });
+});
+
+describe("the setts", () => {
+  const columns = 6;
+  const rows = 10;
+  const size = 256;
+  const pattern = settsPattern(size, { columns, rows });
+
+  it("sinks the joints between stones below the stones themselves", () => {
+    let centres = 0;
+    for (let column = 0; column < columns; column++) {
+      for (let row = 0; row < rows; row++) {
+        const [u, v] = settCentre(column, row, columns, rows);
+        centres += levelAt(pattern, u * size, v * size);
+      }
+    }
+    const centre = centres / (columns * rows);
+    // The joint between two courses, halfway across a stone.
+    const joint = levelAt(pattern, (0.5 / columns) * size, size / rows);
+    expect(joint).toBeLessThan(centre - 0.1);
+  });
+
+  it("sets alternate courses half a stone along", () => {
+    // Where course 0 has a vertical joint, course 1 has the middle of a stone.
+    const x = (1 / columns) * size;
+    const inZero = levelAt(pattern, x, (0.5 / rows) * size);
+    const inOne = levelAt(pattern, x, (1.5 / rows) * size);
+    expect(inZero).toBeLessThan(inOne - 0.08);
+  });
+
+  it("domes each stone: darker at its rim than at its crown", () => {
+    const [u, v] = settCentre(2, 4, columns, rows);
+    const crown = levelAt(pattern, u * size, v * size);
+    const rim = levelAt(pattern, u * size + (0.36 / columns) * size, v * size);
+    expect(rim).toBeLessThan(crown);
   });
 });

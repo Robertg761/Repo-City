@@ -2,9 +2,11 @@
 
 /**
  * Everything around the city rather than in it (PLAN.md sections 4 and 39):
- * the sky, the exposure, the gravel under the town hall, the detail layer
- * over the district ground, the soft darkening that seats the buildings on
- * the plate, and the post-processing chain.
+ * the sky, the exposure, the civic ground under the town hall (gravel, setts
+ * or a village green, by settlement), the detail layer over the district
+ * ground, the soft darkening that seats the buildings on the plate, and the
+ * post-processing chain. The sky dome grows with the furthest the camera may
+ * pull back (`scale.ts`), so a phone framing a metropolis stays inside it.
  *
  * It is mounted by `CityCanvas`, outside the keyed `<City>` subtree, because
  * all of it outlives a model: analysing another repository should not throw
@@ -35,13 +37,31 @@ import {
   NoToneMapping,
   RepeatWrapping,
   SRGBColorSpace,
+  Shape,
+  ShapeGeometry,
+  type Texture,
+  Vector2,
 } from "three";
 import type { CityModel } from "@/types/city";
-import { plazaRect } from "./groundwork";
-import { PLAZA_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
+import { REFERENCE_ASPECT, maxCameraDistance } from "./entities";
+import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
+import {
+  GREEN_GRASS,
+  PLAZA_COLOR,
+  SETTS_COLOR,
+  desaturate,
+  mix,
+  type SceneAtmosphere,
+} from "./palette";
 import { useQuality, useQualityProbe, type QualitySettings } from "./quality";
 import { revealEnd } from "./reveal";
-import { surfaceTexture, useTiledSurface } from "./textures/surfaces";
+import { skyRadius } from "./scale";
+import {
+  surfaceTexture,
+  tiledSurface,
+  useTiledSurface,
+  type SurfaceKind,
+} from "./textures/surfaces";
 
 /**
  * The dome sits on its own layer so that drei's `<ContactShadows>`, which
@@ -173,14 +193,96 @@ const GROUND_TILE = 17;
 /** Above the district plates (0.01) and the plaza (0.02), under every kerb. */
 const GROUND_DETAIL_Y = 0.03;
 
+/** World units per tile of the town's setts and of the village green's lawn. */
+const SETTS_TILE = 3.2;
+const GREEN_TILE = 13;
+
+/**
+ * The civic ground, in the settlement's own material (PLAN.md 76.3 and 76.5):
+ * the city's raked gravel ("paved"), a town's setts, a village's green.
+ */
+function Plaza({ city, atmosphere }: { city: CityModel; atmosphere: SceneAtmosphere }) {
+  const rect = useMemo(() => plazaRect(city), [city]);
+  const surface = plazaSurface(city);
+  if (!rect) return null;
+  if (surface === "green") return <VillageGreen rect={rect} atmosphere={atmosphere} />;
+  if (surface === "setts") return <Setts rect={rect} atmosphere={atmosphere} />;
+  return <Gravel rect={rect} atmosphere={atmosphere} />;
+}
+
+/** A surface texture tiled in world units on both axes of a rect. */
+function useRectSurface(kind: SurfaceKind, rect: PlazaRect, tile: number): Texture {
+  const { textureSize, anisotropy } = useQuality();
+  const texture = useMemo(() => {
+    const next = tiledSurface(kind, textureSize, 1, anisotropy);
+    next.repeat.set(Math.max(1, Math.round(rect.w / tile)), Math.max(1, Math.round(rect.d / tile)));
+    return next;
+  }, [kind, rect.w, rect.d, tile, textureSize, anisotropy]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return texture;
+}
+
+/** A town square laid in setts, a little warmer and darker than the city's gravel. */
+function Setts({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosphere }) {
+  const setts = useRectSurface("setts", rect, SETTS_TILE);
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[rect.x, 0.02, rect.z]} receiveShadow raycast={() => null}>
+      <planeGeometry args={[rect.w, rect.d]} />
+      <meshStandardMaterial
+        color={desaturate(SETTS_COLOR, atmosphere.desaturation)}
+        map={setts}
+        roughness={0.95}
+        metalness={0}
+      />
+    </mesh>
+  );
+}
+
+/**
+ * The village green: mown lawn a shade richer than the grass around it, its
+ * corners cut as the village layout draws it.
+ */
+function VillageGreen({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosphere }) {
+  const lawn = useRectSurface("lawn", rect, GREEN_TILE);
+  const geometry = useMemo(() => {
+    // The shape is drawn in x and -z, then laid flat by the mesh's rotation.
+    const outline = chamferedOutline(rect);
+    const shape = new Shape(outline.map(([x, z]) => new Vector2(x - rect.x, -(z - rect.z))));
+    const next = new ShapeGeometry(shape);
+    // Shape UVs are raw coordinates; the lawn wants 0..1 across the rect.
+    const uv = next.getAttribute("uv");
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) / rect.w + 0.5, uv.getY(i) / rect.d + 0.5);
+    }
+    uv.needsUpdate = true;
+    return next;
+  }, [rect]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  return (
+    <mesh
+      geometry={geometry}
+      rotation-x={-Math.PI / 2}
+      position={[rect.x, 0.025, rect.z]}
+      receiveShadow
+      raycast={() => null}
+    >
+      <meshStandardMaterial
+        color={desaturate(mix(atmosphere.terrainColor, GREEN_GRASS, 0.55), atmosphere.desaturation)}
+        map={lawn}
+        roughness={1}
+        metalness={0}
+      />
+    </mesh>
+  );
+}
+
 /**
  * Raked gravel under the civic centre, so the town hall stands on a square
  * rather than on the same lawn as everything else (PLAN.md section 36).
  */
-function Plaza({ city, atmosphere }: { city: CityModel; atmosphere: SceneAtmosphere }) {
-  const rect = useMemo(() => plazaRect(city), [city]);
-  const gravel = useTiledSurface("gravel", rect ? Math.max(rect.w, rect.d) : 1, GRAVEL_TILE);
-  if (!rect) return null;
+function Gravel({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosphere }) {
+  const gravel = useTiledSurface("gravel", Math.max(rect.w, rect.d), GRAVEL_TILE);
 
   return (
     <mesh
@@ -390,10 +492,13 @@ export default function Environment({
   city,
   atmosphere,
   size,
+  aspect = REFERENCE_ASPECT,
 }: {
   city: CityModel | null;
   atmosphere: SceneAtmosphere;
   size: number;
+  /** Canvas width over height: a phone pulls the camera back, towards the sky. */
+  aspect?: number;
 }) {
   const quality = useQuality();
 
@@ -416,7 +521,7 @@ export default function Environment({
   return (
     <>
       <Film atmosphere={atmosphere} maxDpr={quality.maxDpr} composed={quality.postProcessing} />
-      <SkyDome atmosphere={atmosphere} radius={Math.min(Math.max(size * 4, 700), 1400)} />
+      <SkyDome atmosphere={atmosphere} radius={skyRadius(size, maxCameraDistance(size, aspect))} />
 
       {city && <Plaza city={city} atmosphere={atmosphere} />}
       {city && quality.groundDetail && <GroundDetail city={city} />}

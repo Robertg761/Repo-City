@@ -31,7 +31,8 @@ import {
   type Panel,
   type Rgb3,
 } from "./mesh";
-import type { ArchetypeId, ModelKey } from "./archetypes";
+import type { ModelKey } from "./archetypes";
+import { towerGlass, towerSpire, towerTwin } from "./metropolis";
 import { apartmentLow, shopfront, terrace } from "./town";
 import { barn, cottage, farmhouse } from "./village";
 
@@ -430,14 +431,6 @@ function towerCrown(): ArchetypeModel {
   };
 }
 
-/**
- * A settlement archetype that has no model of its own yet borrows its
- * stand-in's (`ARCHETYPE_STAND_IN`), under its own id.
- */
-const standIn =
-  (id: ArchetypeId, build: () => ArchetypeModel) =>
-  (): ArchetypeModel => ({ ...build(), id });
-
 const BUILDERS: Record<ModelKey, () => ArchetypeModel> = {
   house,
   "lowrise-parapet": lowriseParapet,
@@ -457,10 +450,10 @@ const BUILDERS: Record<ModelKey, () => ArchetypeModel> = {
   terrace,
   "apartment-low": () => apartmentLow(false),
   "apartment-low/retail": () => apartmentLow(true),
-  // Placeholders (PLAN.md 76.11, S0) until S7's `metropolis.ts` lands.
-  "tower-glass": standIn("tower-glass", towerStepped),
-  "tower-twin": standIn("tower-twin", towerStepped),
-  "tower-spire": standIn("tower-spire", towerCrown),
+  // The metropolis (PLAN.md 76.11, S7): `metropolis.ts`.
+  "tower-glass": towerGlass,
+  "tower-twin": towerTwin,
+  "tower-spire": towerSpire,
 };
 
 const CACHE = new Map<ModelKey, ArchetypeModel>();
