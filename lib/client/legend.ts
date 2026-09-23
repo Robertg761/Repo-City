@@ -23,25 +23,33 @@ export interface LegendSection {
   note?: string;
 }
 
-/** Issue forms in the order `issueForm` tries its rules (PLAN.md 76.7). */
+/**
+ * Issue forms in the order `issueForm` tries its rules (PLAN.md 76.7): what
+ * the labels say (fire, roadblock, signpost, survey, collision), then what
+ * the title says, then age (wreck), then everything else (pothole).
+ */
 export const ISSUE_FORM_ORDER: readonly IncidentForm[] = [
   "fire",
-  "wreck",
-  "collision",
   "roadblock",
   "signpost",
   "survey",
+  "collision",
+  "wreck",
   "pothole",
 ];
 
+/**
+ * One line per rule in `lib/analysis/forms.ts`, in the words of the
+ * inspector's rule sentences (`ISSUE_FORM_RULE` in `lib/city/entities.ts`).
+ */
 const ISSUE_MEANING: Record<IncidentForm, string> = {
-  fire: "a major, security or hotly argued bug",
-  wreck: "stale, or untouched for a year",
-  collision: "a bug",
-  roadblock: "blocked, or waiting on an answer",
-  signpost: "documentation, website or examples",
-  survey: "a feature request or proposal",
-  pothole: "routine upkeep, good first issues too",
+  fire: "security work, or a severe bug drawing heavy discussion",
+  roadblock: "blocked, on hold, or waiting on an answer",
+  signpost: "documentation, typos, the website or examples",
+  survey: "a feature request, proposal or idea",
+  collision: "a bug, by its label or its title",
+  wreck: "untouched for two years with nothing in its labels or title",
+  pothole: "routine upkeep no other rule claimed, good first issues too",
 };
 
 /** Crowd works forms in the order `pullForm` tries its rules. */
@@ -55,7 +63,7 @@ export const WORKS_FORM_ORDER: readonly Exclude<WorksForm, "site">[] = [
 const WORKS_MEANING: Record<Exclude<WorksForm, "site">, string> = {
   van: "a works van: a bot or a dependency bump",
   hoarding: "a fenced plot: still a draft",
-  trench: "a dug-up road: build, CI or tooling",
+  trench: "a dug-up road: CI, build, tooling or chores",
   scaffold: "code changes, on the building they touch",
 };
 
@@ -74,7 +82,7 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
       // the whole point of PLAN.md sections 21 and 22 is that a popular
       // repository is not thereby a healthy one.
       ["Highway", "forks leaving for the wider ecosystem"],
-      ["Queue", "open issues and PRs the streets had no room for"],
+      ["Queue", "open issues and PRs counted but not drawn"],
     ],
   },
   {
@@ -86,7 +94,7 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
         (form): LegendEntry => [INCIDENT_FORM_LABEL[form], ISSUE_MEANING[form]],
       ),
     ],
-    note: "Every other open issue is one of these. Bigger and brighter means more discussion.",
+    note: "Every other open issue is one of these. Bigger and brighter means more discussion, and old issues of every form show rust.",
   },
   {
     id: "pulls",
@@ -105,6 +113,7 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
         ["Green flag", "approved"],
       ],
     },
+    note: "Rust means nobody is working on it; grey means the work is slow.",
   },
 ];
 

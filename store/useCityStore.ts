@@ -116,11 +116,11 @@ export function devTierOverride(search?: string): SettlementTier | undefined {
  * Stage ids are fixed by PLAN.md section 44; the streaming API emits exactly
  * these. Labels are placeholders until a stage reports a real `detail`.
  */
-const STAGE_TEMPLATE: readonly Omit<Stage, "status">[] = [
+export const STAGE_TEMPLATE: readonly Omit<Stage, "status">[] = [
   { id: "discover", label: "Repository discovered" },
   { id: "tree", label: "Architecture mapped" },
-  { id: "issues", label: "Issues inspected" },
-  { id: "pulls", label: "Pull requests reviewed" },
+  { id: "issues", label: "Open issues surveyed" },
+  { id: "pulls", label: "Open pull requests surveyed" },
   { id: "ci", label: "Infrastructure detected" },
   { id: "activity", label: "Activity measured" },
   { id: "ai", label: "Mapping architecture" },
@@ -283,8 +283,14 @@ async function loadFixture(
   const { issues, pulls, scale } = analysis.metrics;
   const count = (value: number) => value.toLocaleString("en-US");
   markStage("tree", "done", `${count(scale.files)} files mapped`);
-  markStage("issues", "done", `${count(issues.total ?? issues.open)} open issues surveyed`);
-  markStage("pulls", "done", `${count(pulls.total ?? pulls.open)} open pull requests surveyed`);
+  const issueCount = issues.total ?? issues.open;
+  const pullCount = pulls.total ?? pulls.open;
+  markStage("issues", "done", `${count(issueCount)} open ${issueCount === 1 ? "issue" : "issues"} surveyed`);
+  markStage(
+    "pulls",
+    "done",
+    `${count(pullCount)} open ${pullCount === 1 ? "pull request" : "pull requests"} surveyed`,
+  );
   markStage("ci", "done", `CI ${analysis.metrics.ci.state}`);
   markStage(
     "activity",

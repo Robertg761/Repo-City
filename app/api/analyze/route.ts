@@ -186,14 +186,15 @@ function replayStages(emit: Emit, analysis: RepoAnalysis, note: string): void {
 
 /**
  * Replayed issue and pull lines. An analysis that carries real open totals
- * (PLAN.md section 76.6) says those; an older one keeps today's sample line.
+ * (PLAN.md section 76.6) says those; an older one says how many it surveyed,
+ * in the same words a live survey uses ("412 open issues surveyed").
  */
 function issuesReplayDetail(analysis: RepoAnalysis): string {
   const issues = analysis.metrics?.issues;
   if (typeof issues?.total === "number") {
     return `${totalText(issues.total, analysis.totalsExact)} open issues`;
   }
-  return `${(issues?.open ?? 0).toLocaleString("en-US")} issues inspected`;
+  return surveyedText(issues?.open ?? 0, "open issue", "open issues");
 }
 
 function pullsReplayDetail(analysis: RepoAnalysis): string {
@@ -201,7 +202,11 @@ function pullsReplayDetail(analysis: RepoAnalysis): string {
   if (typeof pulls?.total === "number") {
     return `${totalText(pulls.total, analysis.totalsExact)} open pull requests`;
   }
-  return `${(pulls?.open ?? 0).toLocaleString("en-US")} pull requests reviewed`;
+  return surveyedText(pulls?.open ?? 0, "open pull request", "open pull requests");
+}
+
+function surveyedText(n: number, one: string, many: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? one : many} surveyed`;
 }
 
 function totalText(total: number, exact: boolean | undefined): string {

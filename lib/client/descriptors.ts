@@ -167,22 +167,45 @@ export function constructedLine(settlement: SettlementInfo | undefined): string 
   return `${tier.charAt(0).toUpperCase()}${tier.slice(1)} constructed`;
 }
 
+/** One kind in the queue chip: "1,000 of 21,011" and which noun follows it. */
+export interface QueueChipPart {
+  kind: "issues" | "pulls";
+  /** "1,000 of about 21,011". */
+  counts: string;
+  /** True when the total is one, so the noun is singular. */
+  one: boolean;
+}
+
+/**
+ * The kinds the queue chip names: only those with something left over, and
+ * the total says "about" when it is an estimate. Empty when nothing is.
+ */
+export function queueChipParts(overflow: Overflow | null | undefined): QueueChipPart[] {
+  if (!overflow) return [];
+  const about = overflow.exact ? "" : "about ";
+  const part = (kind: QueueChipPart["kind"], c: OverflowCount): QueueChipPart | null =>
+    c.hidden > 0 ? { kind, counts: `${count(c.drawn)} of ${about}${count(c.total)}`, one: c.total === 1 } : null;
+  return [part("issues", overflow.issues), part("pulls", overflow.pulls)].filter(
+    (p): p is QueueChipPart => p !== null,
+  );
+}
+
+/** The noun after a chip part's counts. `short` is the phone's "PRs". */
+export function queueChipNoun(part: QueueChipPart, short = false): string {
+  if (part.kind === "issues") return part.one ? "issue" : "issues";
+  if (short) return part.one ? "PR" : "PRs";
+  return part.one ? "pull request" : "pull requests";
+}
+
 /**
  * The queue chip under the settlement name (PLAN.md 76.10): "1,000 of 21,011
  * issues on the streets". Only kinds with something queued are named, and the
  * total says "about" when it is an estimate. Empty when nothing is queued.
  */
 export function queueChip(overflow: Overflow | null | undefined): string | null {
-  if (!overflow) return null;
-  const about = overflow.exact ? "" : "about ";
-  const part = (c: OverflowCount, one: string, many: string): string | null =>
-    c.hidden > 0 ? `${count(c.drawn)} of ${about}${count(c.total)} ${c.total === 1 ? one : many}` : null;
-  const parts = [
-    part(overflow.issues, "issue", "issues"),
-    part(overflow.pulls, "pull request", "pull requests"),
-  ].filter((text): text is string => text !== null);
+  const parts = queueChipParts(overflow);
   if (parts.length === 0) return null;
-  return `${parts.join(" and ")} on the streets`;
+  return `${parts.map((part) => `${part.counts} ${queueChipNoun(part)}`).join(" and ")} on the streets`;
 }
 
 /**

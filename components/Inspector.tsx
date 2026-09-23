@@ -9,12 +9,70 @@
  * building, district - uses this same layout, which is what makes the visual
  * language learnable.
  *
- * On a phone it becomes a bottom sheet rather than a side panel.
+ * It sits in the right-hand rail under the health card (`app/page.tsx`), so
+ * it always starts below the card's real height and never covers it. On a
+ * phone it becomes a bottom sheet rather than a side panel, and it shrinks
+ * before it would reach the card.
  */
 
 import { useEffect } from "react";
-import { resolveEntity } from "@/lib/client/entities";
+import { resolveEntity, type EntityFact } from "@/lib/client/entities";
 import { useCityStore } from "@/store/useCityStore";
+
+/** Characters of a long file name that always stay: its end and extension. */
+const NAME_END = 14;
+
+/**
+ * A repository path on one line, elided in the middle when it is too long:
+ * "compiler/packages/…HIRBuilder.ts". The directories give way first; a file
+ * name too long for the line then gives up its middle but keeps its end, so
+ * two long names in one list still read apart. The full path is the tooltip,
+ * and it is still the text a screen reader reads or a copy takes.
+ */
+function PathText({ path }: { path: string }) {
+  const cut = path.lastIndexOf("/", path.length - 2);
+  const dirs = path.slice(0, cut + 1);
+  const name = path.slice(cut + 1);
+  const long = name.length > NAME_END + 6;
+  return (
+    <>
+      {/* A huge shrink factor: the directories are spent before the name. */}
+      {dirs ? <span className="min-w-0 shrink-[1000] truncate">{dirs}</span> : null}
+      {long ? <span className="min-w-0 truncate">{name.slice(0, -NAME_END)}</span> : null}
+      <span className="shrink-0">{long ? name.slice(-NAME_END) : name}</span>
+    </>
+  );
+}
+
+/** A value that reads as a repository path: slashes and no spaces. */
+const isPath = (value: string): boolean => value.includes("/") && !/\s/.test(value);
+
+function FactValue({ fact }: { fact: EntityFact }) {
+  const path = isPath(fact.value);
+  const text = path ? <PathText path={fact.value} /> : fact.value;
+  const layout = path ? "flex min-w-0" : "";
+  if (fact.href) {
+    return (
+      <a
+        href={fact.href}
+        target="_blank"
+        rel="noreferrer noopener"
+        title={path ? fact.value : undefined}
+        /* External link to GitHub; the city screen stays put. */
+        className={`${layout} underline decoration-white/25 underline-offset-4 transition hover:decoration-white/70`}
+      >
+        {text}
+      </a>
+    );
+  }
+  return path ? (
+    <span className={layout} title={fact.value}>
+      {text}
+    </span>
+  ) : (
+    text
+  );
+}
 
 export default function Inspector() {
   const selectedId = useCityStore((s) => s.selectedId);
@@ -39,9 +97,11 @@ export default function Inspector() {
   return (
     <aside
       aria-label="Selected object"
-      /* Bottom sheet on a phone; on a wider screen a right-hand panel that
-         starts below the health card and hugs its own content. */
-      className="glass animate-panel-in pointer-events-auto absolute inset-x-2 bottom-2 z-30 max-h-[52vh] overflow-y-auto overscroll-contain p-4 text-sm text-white/80 sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-[18rem] sm:max-h-[calc(100dvh-19.5rem)] sm:w-[21rem]"
+      /* In the rail under the health card. A bottom sheet on a phone (pushed
+         down by `mt-auto`); on a wider screen a panel that hugs its own
+         content. Either way `min-h-0` lets it shrink and scroll rather than
+         run into the card when room is short. */
+      className="glass animate-panel-in pointer-events-auto relative z-10 mt-auto max-h-[52vh] min-h-0 w-full shrink overflow-y-auto overflow-x-hidden overscroll-contain p-4 text-sm text-white/80 sm:mt-0 sm:max-h-none sm:w-[21rem]"
     >
       {entity ? (
         <>
@@ -73,20 +133,8 @@ export default function Inspector() {
                    the label alone is not a unique key. */
                 <div key={`${fact.label}:${fact.value}`} className="flex gap-3 text-[13px]">
                   <dt className="w-24 shrink-0 text-white/45">{fact.label}</dt>
-                  <dd className="min-w-0 break-words text-white/85">
-                    {fact.href ? (
-                      <a
-                        href={fact.href}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        /* External link to GitHub; the city screen stays put. */
-                        className="underline decoration-white/25 underline-offset-4 transition hover:decoration-white/70"
-                      >
-                        {fact.value}
-                      </a>
-                    ) : (
-                      fact.value
-                    )}
+                  <dd className="min-w-0 flex-1 break-words text-white/85">
+                    <FactValue fact={fact} />
                   </dd>
                 </div>
               ))}
@@ -96,7 +144,7 @@ export default function Inspector() {
           {entity.tags.length > 0 ? (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {entity.tags.map((tag) => (
-                <span key={tag} className="chip">
+                <span key={tag} className="chip max-w-full break-words">
                   {tag}
                 </span>
               ))}
