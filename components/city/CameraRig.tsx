@@ -109,8 +109,8 @@ const ARRIVAL_SMOOTH_TIME = 1.1;
  * On a phone the inspector is a sheet over the bottom half of the screen and
  * the folded health card sits at the top, so an object framed in the middle
  * of the screen ended up half under the sheet. While something is inspected
- * there, the view slides down by this share of the screen's height, which
- * puts the object in the open band between the two.
+ * there, the object sits this share of the screen's height above the middle,
+ * in the open band between the two.
  */
 const PHONE_SHEET_LIFT = 0.15;
 /** The width below which the inspector is a bottom sheet (`sm` in the HUD). */
@@ -168,6 +168,8 @@ export default function CameraRig({
     if (!isRigControls(controls)) return;
     const onControl = () => {
       touched.current = true;
+      // A wheel turn only reports `control`, never `controlstart`.
+      setPace(controls, CONTROLS_FEEL.smoothTime);
     };
     const onSettle = () => setPace(controls, CONTROLS_FEEL.smoothTime);
     controls.addEventListener("control", onControl);
