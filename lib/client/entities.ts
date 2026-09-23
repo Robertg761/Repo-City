@@ -23,6 +23,7 @@ import {
 } from "@/lib/analysis/forms";
 import { entityById } from "@/lib/city/entityIndex";
 import { INCIDENT_FORM_LABEL, WORKS_FORM_LABEL } from "@/lib/city/entities";
+import { signposted } from "@/lib/city/overflow";
 import type { BuildingPlan, RankedPull, RepoAnalysis } from "@/types/analysis";
 import type {
   CityModel,
@@ -456,21 +457,32 @@ export function aboutCount(value: number, exact: boolean): string {
   return exact ? count(value) : `about ${count(value)}`;
 }
 
-/** Open, drawn and queued rows for one kind of object in the queue. */
-function queueRows(c: OverflowCount, noun: string, exact: boolean): EntityFact[] {
+/**
+ * Open, drawn and queued rows for one kind of object in the queue. A
+ * remainder too small to queue (`signposted` is false: no sign, no cars) is
+ * "left over" and "not drawn", never "queued", because nothing is.
+ */
+function queueRows(c: OverflowCount, noun: string, exact: boolean, queued: boolean): EntityFact[] {
   if (c.total === 0) return [];
+  const hidden = aboutCount(c.hidden, exact);
   return [
     { label: `${noun} open`, value: aboutCount(c.total, exact) },
     { label: `${noun} drawn`, value: count(c.drawn) },
-    { label: `${noun} queued`, value: c.hidden === 0 ? "none" : aboutCount(c.hidden, exact) },
+    queued
+      ? { label: `${noun} queued`, value: c.hidden === 0 ? "none" : hidden }
+      : {
+          label: `${noun} left over`,
+          value: c.hidden === 0 ? "none" : `${hidden} not drawn (no queue for so few)`,
+        },
   ];
 }
 
 /** Facts for the queue at the settlement limits. Pure, so it is tested alone. */
 export function overflowFacts(overflow: Overflow, repoUrl: string | null): EntityFact[] {
+  const queued = signposted(overflow);
   const facts = [
-    ...queueRows(overflow.issues, "Issues", overflow.exact),
-    ...queueRows(overflow.pulls, "PRs", overflow.exact),
+    ...queueRows(overflow.issues, "Issues", overflow.exact, queued),
+    ...queueRows(overflow.pulls, "PRs", overflow.exact, queued),
   ];
   if (repoUrl) {
     facts.push(
@@ -481,8 +493,37 @@ export function overflowFacts(overflow: Overflow, repoUrl: string | null): Entit
   return facts;
 }
 
+/** "1 open issue", "about 3 open pull requests": what is left over, by kind. */
+function leftOver(overflow: Overflow): string {
+  const part = (hidden: number, noun: string): string | null =>
+    hidden > 0 ? `${aboutCount(hidden, overflow.exact)} open ${noun}${hidden === 1 ? "" : "s"}` : null;
+  return [part(overflow.issues.hidden, "issue"), part(overflow.pulls.hidden, "pull request")]
+    .filter((text): text is string => text !== null)
+    .join(" and ");
+}
+
 function overflowEntity(overflow: Overflow, analysis: RepoAnalysis | null): ResolvedEntity {
   const repoUrl = analysis?.repo.url ?? null;
+  const facts = overflowFacts(overflow, repoUrl);
+  // A remainder too small to queue stands no sign and no cars: it is
+  // counted, not queued, and the header and title say so rather than naming
+  // a queue nobody can find in the street.
+  if (!signposted(overflow)) {
+    const what = leftOver(overflow);
+    return {
+      id: overflow.id,
+      kind: "overflow",
+      label: "COUNTED, NOT DRAWN",
+      title: `${what} not drawn`,
+      subtitle: "",
+      description: "",
+      reason: overflow.reason,
+      sourceUrl: overflow.sourceUrl,
+      facts,
+      tags: [],
+      tooltip: `${what} counted but not drawn`,
+    };
+  }
   // The subtitle is "Queue at the town limits"; the header is the same words
   // in capitals, so it is not repeated under the header.
   const where = overflow.subtitle || "Queue at the city limits";
@@ -505,7 +546,7 @@ function overflowEntity(overflow: Overflow, analysis: RepoAnalysis | null): Reso
     description: "",
     reason: overflow.reason,
     sourceUrl: overflow.sourceUrl,
-    facts: overflowFacts(overflow, repoUrl),
+    facts,
     tags: [],
     tooltip: `${where}${also}`,
   };
