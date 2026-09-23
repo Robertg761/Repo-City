@@ -104,7 +104,7 @@ export default function Legend() {
                   role="tab"
                   aria-selected={entry.id === section.id}
                   onClick={() => setTab(entry.id)}
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] transition focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] transition focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent ${
                     entry.id === section.id
                       ? "bg-white/15 text-white"
                       : "text-white/50 hover:bg-white/10 hover:text-white/80"

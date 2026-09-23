@@ -43,9 +43,12 @@ canvas {
 
   /* One keyboard focus mark for every control on the HUD: the accent
      outline the buttons use, drawn only for keyboard focus. Text-only
-     controls used to switch the outline off and show nothing at all. */
+     controls used to switch the outline off and show nothing at all.
+     `outline-hidden`, not `outline-none`: in Tailwind 4 `outline-none` sets
+     the outline style variable to none, and the focus-visible outline then
+     inherited that and drew nothing either. */
   .focus-ring {
-    @apply rounded-sm focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+    @apply rounded-sm focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
   }
 
   .hud-button {
