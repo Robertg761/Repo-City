@@ -24,8 +24,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, Object3D, type InstancedMesh } from "three";
-import { prngFor } from "@/lib/city/seed";
-import { DEFAULT_SETTLEMENT_TIER, SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import type { CityModel } from "@/types/city";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import {
@@ -35,26 +33,14 @@ import {
   TRACTOR_SPEC,
   VEHICLE_BODIES,
   bodyGeometry,
-  fleetLooks,
   lightsGeometry,
   tractorGeometry,
   tractorLightsGeometry,
   wheelGeometry,
-  type BodySpec,
-  type VehicleBody,
 } from "./models/vehicles/shapes";
 import { tintedMaterial } from "./models/props/material";
-import {
-  MAX_FLEET,
-  TRACTOR_PACE,
-  advanceCar,
-  carCap,
-  carPose,
-  roadGraph,
-  spawnCars,
-  tractorsFor,
-} from "./traffic";
-import { blockedStretches, cityObstacles } from "./blockages";
+import { MAX_FLEET, carPose, stepTraffic, type CarPose } from "./traffic";
+import { cityFleet, specOf, type FleetBody } from "./fleet";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
@@ -62,14 +48,14 @@ const wheelScratch = new Object3D();
 // Heading first, then the wheel's own spin about its axle.
 wheelScratch.rotation.order = "YXZ";
 const scratchColor = new Color();
+const pose: CarPose = { x: 0, z: 0, angle: 0, curvature: 0, reverse: false };
+
+/** Front wheels never steer further than this, radians. */
+const MAX_STEER = 0.6;
 
 /** The road surface sits a touch above the ground plane; tyres go on top. */
 const ROAD_SURFACE = 0.1;
 
-/** A body in the fleet: one of the city's cars, or a village tractor. */
-type FleetBody = VehicleBody | "tractor";
-
-const specOf = (body: FleetBody): BodySpec => (body === "tractor" ? TRACTOR_SPEC : BODY_SPECS[body]);
 /** A tractor's front wheels are smaller than its back ones. */
 const wheelRadiusOf = (body: FleetBody, wheel: number): number =>
   body === "tractor" ? TRACTOR_SPEC.wheelRadii[wheel] : BODY_SPECS[body].wheelRadius;
@@ -87,40 +73,18 @@ export default function Traffic({
 }) {
   const clock = useRevealClock();
 
-  const { graph, blocks, cars, prng, looks, groups } = useMemo(() => {
-    const rng = prngFor(city.seed, "traffic");
-    // The settlement's own cap: a village runs ten cars, a metropolis 64.
-    const wanted = Math.max(0, Math.min(city.vehicles.count, carCap(city.settlement?.tier)));
-    const network = roadGraph(city.roads);
-    // Incidents, any site that reaches a lane, crowd objects standing in a
-    // lane and the queue at the city limits, once per city.
-    const closures = blockedStretches(network, cityObstacles(city));
-    const fleet = spawnCars(city.roads, wanted, rng, closures);
-    // A separate stream, so adding body types cannot change where the cars
-    // spawn or which way they drive (PLAN.md section 35).
-    const shapes = fleetLooks(fleet.length, prngFor(city.seed, "fleet"));
-    // A village's lanes carry a few tractors, trundling along at half pace.
-    // Their own stream again, so a city's fleet is exactly as it was.
-    const tier = city.settlement?.tier ?? DEFAULT_SETTLEMENT_TIER;
-    const tractor = tractorsFor(fleet.length, SETTLEMENT_PARAMS[tier].vehicles.tractors, prngFor(city.seed, "tractors"));
-    fleet.forEach((car, i) => {
-      if (!tractor[i]) return;
-      car.speed *= TRACTOR_PACE;
-      car.v = car.speed;
-    });
+  const { traffic, cars, looks, groups } = useMemo(() => {
+    const fleet = cityFleet(city);
     const byBody = new Map<FleetBody, number[]>();
-    shapes.forEach((look, i) => {
-      const body: FleetBody = tractor[i] ? "tractor" : look.body;
-      const list = byBody.get(body);
+    fleet.looks.forEach((look, i) => {
+      const list = byBody.get(look.body);
       if (list) list.push(i);
-      else byBody.set(body, [i]);
+      else byBody.set(look.body, [i]);
     });
     return {
-      graph: network,
-      blocks: closures,
-      cars: fleet,
-      prng: rng,
-      looks: shapes.map((look, i) => ({ ...look, tractor: tractor[i] })),
+      traffic: fleet.traffic,
+      cars: fleet.traffic.cars,
+      looks: fleet.looks,
       groups: [...VEHICLE_BODIES, "tractor" as const]
         .filter((body) => byBody.has(body))
         .map((body) => ({ body, cars: byBody.get(body) ?? [] })),
@@ -154,6 +118,9 @@ export default function Traffic({
     // Cap the step so a backgrounded tab does not teleport the whole fleet.
     const step = running ? Math.min(delta, 0.1) : 0;
     const visible = running ? 1 : 0;
+    // The whole fleet moves together: each car keeps its distance from the
+    // one in front and waits its turn at the junctions (`traffic.ts`).
+    if (step > 0) stepTraffic(traffic, step);
 
     for (let g = 0; g < groups.length; g++) {
       const group = groups[g];
@@ -165,8 +132,7 @@ export default function Traffic({
       for (let slot = 0; slot < group.cars.length; slot++) {
         const index = group.cars[slot];
         const car = cars[index];
-        if (step > 0) advanceCar(graph, car, step, prng, blocks);
-        const pose = carPose(graph, car);
+        carPose(traffic, car, pose);
 
         scratch.position.set(pose.x, ROAD_SURFACE, pose.z);
         scratch.rotation.set(0, pose.angle, 0);
@@ -178,11 +144,15 @@ export default function Traffic({
         if (!wheels) continue;
         // Wheels turn at the speed the car is doing: the distance covered this
         // frame over the tyre's radius, which is what stops them looking like
-        // stickers when a car slows into a turn.
-        if (step > 0) spins[index] += (car.v * step) / spec.wheelRadius;
+        // stickers when a car slows into a turn. Backwards when it backs up.
+        if (step > 0) spins[index] += ((pose.reverse ? -car.v : car.v) * step) / spec.wheelRadius;
         const angle = spins[index];
         const cos = Math.cos(pose.angle);
         const sin = Math.sin(pose.angle);
+        // The front wheels steer to the curve the car is on: the angle a
+        // bicycle of this wheelbase needs for that curvature.
+        const wheelbase = spec.wheels[0][1] - spec.wheels[2][1];
+        const steer = Math.max(-MAX_STEER, Math.min(MAX_STEER, Math.atan(wheelbase * pose.curvature)));
         for (let w = 0; w < spec.wheels.length; w++) {
           const [lx, lz] = spec.wheels[w];
           const radius = wheelRadiusOf(group.body, w);
@@ -192,7 +162,7 @@ export default function Traffic({
             pose.z - lx * sin + lz * cos,
           );
           // A smaller wheel turns faster for the same ground covered.
-          wheelScratch.rotation.set((angle * spec.wheelRadius) / radius, pose.angle, 0);
+          wheelScratch.rotation.set((angle * spec.wheelRadius) / radius, pose.angle + (lz > 0 ? steer : 0), 0);
           wheelScratch.scale.setScalar(radius * visible);
           wheelScratch.updateMatrix();
           wheels.setMatrixAt(index * 4 + w, wheelScratch.matrix);

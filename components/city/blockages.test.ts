@@ -128,13 +128,13 @@ describe("blockedStretches", () => {
 
   it("closes a junction a scene comes within a car's reach of", () => {
     const graph = roadGraph(CROSS);
-    // A collision on the north arm stopping 1.6 short of the junction: clear
+    // A collision on the north arm stopping 1.8 short of the junction: clear
     // of the side roads' lanes, but a car turning across the junction would
     // put its nose into it.
-    const at = -1.6 - INCIDENT_FOOTPRINT.collision.maxZ;
+    const at = -1.8 - INCIDENT_FOOTPRINT.collision.maxZ;
     const { bySegment } = blockedStretches(graph, [incident("collision", 0, at, 0)]);
     const [n, s, w, e] = bySegment;
-    expect(n[0].end).toBeCloseTo(18.4);
+    expect(n[0].end).toBeCloseTo(18.2);
     // Every other road into the junction is shut across the junction's box,
     // the widest lane band there.
     const box = laneOffset(6) + CAR_HALF_WIDTH;
