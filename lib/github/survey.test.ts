@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GhIssue, GhPull } from "@/types/github";
 import { ENRICH_BATCH_SIZE, ENRICH_CONCURRENCY, ENRICH_MAX_PULLS, ENRICH_SMALL_REPOS } from "./budgets";
 import { GitHubClient } from "./client";
+import { mapIssue } from "./issues";
 import { type StageEvent, fetchSnapshot } from "./snapshot";
 import {
   LIMITED_ENRICHMENT_WARNING,
@@ -23,6 +24,8 @@ interface FakeConfig {
   /** REST `x-ratelimit-remaining`; GitHub's anonymous 60 trips the guard. */
   restRemaining?: number;
   graphqlRemaining?: number;
+  /** Search `x-ratelimit-remaining` before the first search request; GitHub's is 30 a minute. */
+  searchRemaining?: number;
   token?: string;
   /** Checked first; answer `undefined` to fall through to the fake. */
   override?: (url: URL, init: RequestInit) => Response | Promise<Response> | undefined;
@@ -92,6 +95,7 @@ function fakeGitHub(config: FakeConfig): {
   const urls: string[] = [];
   const graphqlBodies: string[] = [];
   const rest = { "x-ratelimit-remaining": String(config.restRemaining ?? 4_000) };
+  let searchLeft = config.searchRemaining ?? 30;
   const graph = { "x-ratelimit-remaining": String(config.graphqlRemaining ?? 4_000) };
 
   const pageOf = <T>(items: T[], page: number, perPage: number): T[] =>
@@ -149,6 +153,20 @@ function fakeGitHub(config: FakeConfig): {
     if (path.startsWith("/git/trees/")) {
       return reply({ sha: "tree", url: "", truncated: false, tree: [{ path: "a.ts", mode: "100644", type: "blob", sha: "x", size: 1 }] }, rest);
     }
+    if (url.pathname === "/search/issues") {
+      // Issues only, most recently updated first, and never past result 1,000.
+      const page = Number(q.get("page") ?? 1);
+      const perPage = Number(q.get("per_page"));
+      searchLeft = Math.max(0, searchLeft - 1);
+      const search = { "x-ratelimit-resource": "search", "x-ratelimit-remaining": String(searchLeft) };
+      if (q.get("q") !== "repo:o/r is:issue is:open" || q.get("sort") !== "updated" || q.get("order") !== "desc") {
+        return reply({ message: "Validation Failed" }, search, 422);
+      }
+      if (page * perPage > 1_000) return reply({ message: "Only the first 1000 search results are available" }, search, 422);
+      const issues = all.filter((n) => !isPull(n));
+      const items = pageOf(issues, page, perPage).map((n) => ghIssue(n, false));
+      return reply({ total_count: issues.length, incomplete_results: false, items }, search);
+    }
     if (path === "/issues") {
       const page = Number(q.get("page") ?? 1);
       const perPage = Number(q.get("per_page"));
@@ -189,6 +207,20 @@ function fakeGitHub(config: FakeConfig): {
 
 const stage = (events: StageEvent[], id: StageEvent["id"]): StageEvent[] =>
   events.filter((event) => event.id === id);
+
+const pageParam = (url: string): number => Number(new URL(`https://x${url}`).searchParams.get("page"));
+/** Bulk REST issue page numbers requested (A2 and REST top-up), sorted. */
+const bulkPages = (urls: string[]): number[] =>
+  urls
+    .filter((url) => url.startsWith("/repos/o/r/issues?") && url.includes("sort=updated"))
+    .map(pageParam)
+    .sort((a, b) => a - b);
+/** Issue search page numbers requested, sorted. */
+const searchPages = (urls: string[]): number[] =>
+  urls
+    .filter((url) => url.startsWith("/search/issues?"))
+    .map(pageParam)
+    .sort((a, b) => a - b);
 
 /** A fetch that never answers until its signal aborts. */
 const hang = (init: RequestInit): Promise<Response> =>
@@ -290,6 +322,8 @@ describe("large repositories (PLAN.md section 76.6)", () => {
     // (this fake has no manifests to fetch).
     const bulk = urls.filter((url) => url.includes("/issues?") && url.includes("sort=updated"));
     expect(bulk).toHaveLength(12);
+    // Issue-heavy: 12 REST pages reach 1,000 issues, so no search at all.
+    expect(urls.some((url) => url.startsWith("/search/"))).toBe(false);
     expect(urls.filter((url) => url.includes("/pulls?state=open") && url.includes("&page="))).toHaveLength(2);
     expect(client.restCount).toBe(11 + 12 + 2);
     // One totals query, then the newest open PRs in aliased batches.
@@ -381,19 +415,112 @@ describe("large repositories (PLAN.md section 76.6)", () => {
     expect(graphqlBodies.every((body) => JSON.parse(body).variables.owner === "o")).toBe(true);
   });
 
-  it("tops up issue pages once totals show a PR-heavy repository", async () => {
-    // next.js-shaped: 400 issues under 1,600 open pull requests.
-    const { client, urls } = fakeGitHub({ issues: 400, pulls: 1_600 });
+  it("tops up REST issue pages when they can still reach the issues wanted", async () => {
+    // 1,000 issues under 400 pull requests: 14 pages list everything.
+    const { client, urls } = fakeGitHub({ issues: 1_000, pulls: 400 });
     const snapshot = await fetchSnapshot("o", "r", { client });
 
-    const pages = urls
-      .filter((url) => url.includes("/issues?") && url.includes("sort=updated"))
-      .map((url) => Number(new URL(`https://x${url}`).searchParams.get("page")))
-      .sort((a, b) => a - b);
-    expect(pages).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
-    expect(snapshot.coverage?.issuePages).toEqual({ planned: 15, received: 15 });
-    // 15 pages of a 20%-issue listing reach 300 issues.
-    expect(snapshot.issues.length + (snapshot.issueBacklog?.length ?? 0)).toBe(300);
+    expect(bulkPages(urls)).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
+    expect(urls.some((url) => url.startsWith("/search/"))).toBe(false);
+    expect(snapshot.coverage?.issuePages).toEqual({ planned: 14, received: 14 });
+    expect(snapshot.issues.length + (snapshot.issueBacklog?.length ?? 0)).toBe(1_000);
+  });
+
+  it("lists issues through search when pull requests crowd the issue pages", async () => {
+    // next.js-shaped, as measured: 1,012 issues under 2,449 open pull requests.
+    const events: StageEvent[] = [];
+    const { client, urls } = fakeGitHub({ issues: 1_012, pulls: 2_449 });
+    const snapshot = await fetchSnapshot("o", "r", { client, onStage: (event) => events.push(event) });
+
+    // A2 as always, no REST top-up, and search pages 1..10.
+    expect(bulkPages(urls)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
+    expect(searchPages(urls)).toEqual(Array.from({ length: 10 }, (_, i) => i + 1));
+    expect(snapshot.coverage).toMatchObject({ issuePages: { planned: 22, received: 22 }, stoppedBy: null });
+
+    // Before: 15 REST pages of a 29%-issue listing reached about 430 issues.
+    // Now the 1,000 most recently updated, plus the health sample.
+    const backlog = snapshot.issueBacklog ?? [];
+    const reached = new Set([...snapshot.issues, ...backlog].map((issue) => issue.number));
+    expect(reached.size).toBe(snapshot.issues.length + backlog.length);
+    // Here A1's issues are all among the 1,000 newest, so together they are those 1,000.
+    expect(reached.size).toBe(1_000);
+    expect(backlog.every((issue) => !issue.url.includes("/pull/"))).toBe(true);
+    // The health sample is still exactly A1, and never repeated.
+    expect(snapshot.issues.every((issue) => issue.number % 7 === 6)).toBe(true);
+    const times = backlog.map((issue) => Date.parse(issue.updatedAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+
+    // A search item maps to exactly what the REST view of the same issue does.
+    const fromSearch = backlog.at(-1)!;
+    expect(fromSearch).toEqual(mapIssue(ghIssue(fromSearch.number, false)));
+
+    expect(stage(events, "issues").at(-1)?.detail).toBe(
+      `${reached.size.toLocaleString("en-US")} of 1,012 open issues surveyed`,
+    );
+  });
+
+  it("trims search pages to the search budget and says so in coverage", async () => {
+    // Page 1 leaves 3 searches this minute: pages 2..4 only.
+    const events: StageEvent[] = [];
+    const { client, urls } = fakeGitHub({ issues: 1_012, pulls: 2_449, searchRemaining: 4 });
+    const snapshot = await fetchSnapshot("o", "r", { client, onStage: (event) => events.push(event) });
+
+    expect(searchPages(urls)).toEqual([1, 2, 3, 4]);
+    expect(snapshot.coverage).toMatchObject({
+      issuePages: { planned: 22, received: 16 },
+      stoppedBy: "rate-limit",
+    });
+    expect(client.searchRemaining).toBe(0);
+    expect(stage(events, "issues").at(-1)?.detail).toMatch(/ of 1,012 open issues surveyed \(rate limit\)$/);
+  });
+
+  it("falls back to REST top-up pages when search refuses its first page", async () => {
+    const { client, urls } = fakeGitHub({
+      issues: 1_012,
+      pulls: 2_449,
+      override: (url) =>
+        url.pathname === "/search/issues"
+          ? reply({ message: "You have exceeded a secondary rate limit." }, { "x-ratelimit-resource": "search" }, 403)
+          : undefined,
+    });
+    const snapshot = await fetchSnapshot("o", "r", { client });
+
+    expect(searchPages(urls)).toEqual([1]);
+    expect(bulkPages(urls)).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
+    expect(snapshot.coverage).toMatchObject({ issuePages: { planned: 15, received: 15 }, stoppedBy: null });
+    expect((snapshot.issueBacklog?.length ?? 0) + snapshot.issues.length).toBeGreaterThan(400);
+  });
+
+  it("keeps what search pages landed by the page deadline", async () => {
+    const events: StageEvent[] = [];
+    const { client } = fakeGitHub({
+      issues: 1_012,
+      pulls: 2_449,
+      override: (url, init) =>
+        url.pathname === "/search/issues" && Number(url.searchParams.get("page")) >= 6 ? hang(init) : undefined,
+    });
+    const snapshot = await fetchSnapshot("o", "r", {
+      client,
+      budgets: { pageDeadlineMs: 50 },
+      onStage: (event) => events.push(event),
+    });
+
+    expect(snapshot.coverage).toMatchObject({
+      issuePages: { planned: 22, received: 17 },
+      stoppedBy: "deadline",
+    });
+    // Search pages 1..5 reach the 500 most recent issues.
+    expect(snapshot.issues.length + snapshot.issueBacklog!.length).toBeGreaterThanOrEqual(500);
+    expect(stage(events, "issues").at(-1)?.status).toBe("done");
+    expect(stage(events, "issues").at(-1)?.detail).toMatch(/ of 1,012 open issues surveyed \(time limit\)$/);
+  });
+
+  it("never searches past the rate guard", async () => {
+    const { client, urls } = fakeGitHub({ issues: 1_012, pulls: 2_449, restRemaining: 350 });
+    const snapshot = await fetchSnapshot("o", "r", { client });
+
+    expect(urls.some((url) => url.startsWith("/search/"))).toBe(false);
+    expect(snapshot.coverage).toMatchObject({ issuePages: { planned: 12, received: 0 }, stoppedBy: "rate-limit" });
   });
 
   it("stops at the page deadline with a partial snapshot and honest coverage", async () => {

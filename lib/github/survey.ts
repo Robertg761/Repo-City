@@ -7,7 +7,9 @@
  *   A3  open pulls page 1, per_page=100                 (today's request 5, wider)
  *   A4  closed pulls                                    (today's request 6)
  *   A5  open totals: GraphQL, else REST `Link`, else an estimate
- *   A'  top-up issue pages once A5 gives the real split (up to 15 in total)
+ *   A'  top-up issue pages once A5 gives the real split (up to 15 in total),
+ *       or, when pull requests crowd the issue pages so that 15 cannot reach
+ *       the issues wanted, up to 10 issue-only search pages instead
  *   B   open pull pages 2..5 once A3 gives the page count
  *   C   GraphQL enrichment of open pulls, in aliased batches (token only)
  *
@@ -43,8 +45,10 @@ import { type PullEnrichment, fetchGraphTotals, fetchPullBatch } from "./graphql
 import {
   BULK_ISSUES_QUERY,
   type IssueSample,
+  type IssueSearchPage,
   type PullItemStats,
   fetchIssueSample,
+  fetchIssueSearchPage,
   issuesPath,
   mapIssue,
   pullItemStats,
@@ -56,8 +60,11 @@ import {
   firstStop,
   pageRange,
   planIssuePages,
+  planIssueSearch,
   planIssueTopUp,
   planPullPages,
+  searchPagesFor,
+  settlePages,
   stopReasonOf,
 } from "./paginate.ts";
 import {
@@ -206,9 +213,18 @@ export async function surveyOpenWork(
     : resolveTotals(client, owner, repo, openIssuesCount, firstPullsTask, pageDeadline);
 
   // ---- wave A': top-up issue pages once the real split is known -------------
-  const topUpTask: Promise<{ pages: number; result: PagesResult<GhIssue> }> = totalsTask.then(
+  const topUpTask: Promise<TopUp> = totalsTask.then(
     async (totals) => {
       if (!bulkAllowed || !totals || planned === 0) return { pages: 0, result: noPages<GhIssue>() };
+      // Pull requests crowd the issue pages: list issues through search.
+      const searchPages = planIssueSearch(planned, totals);
+      if (searchPages > 0 && !pageDeadline?.aborted) {
+        const searched = await searchIssues(client, owner, repo, searchPages, pageDeadline, (items) =>
+          noteIssues(issueNumbers(items)),
+        );
+        if (searched) return searched;
+        // Search refused its first page: REST top-up pages, as before.
+      }
       const wanted = planIssueTopUp(planned, totals);
       if (wanted <= planned || pageDeadline?.aborted) {
         return { pages: 0, result: noPages<GhIssue>() };
@@ -356,6 +372,63 @@ export async function surveyOpenWork(
     warnings,
     issuesOk: issues.sample.ok,
     pullsOk: first.ok,
+  };
+}
+
+/* ------------------------------------------------------------ wave A' search */
+
+interface TopUp {
+  /** Pages planned beyond A2, trimmed or not. */
+  pages: number;
+  result: PagesResult<GhIssue>;
+}
+
+/**
+ * Up to `wanted` pages of `/search/issues`, most recently updated first: page
+ * 1 alone, to learn the real match count and the search budget left, then
+ * the rest in parallel, trimmed to that budget. Trimmed pages count as lost
+ * to the rate limit.
+ *
+ * @returns null when page 1 failed before the deadline, so the caller can
+ * fall back to REST top-up pages.
+ */
+async function searchIssues(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+  wanted: number,
+  deadline: AbortSignal | undefined,
+  onItems: (items: GhIssue[]) => void,
+): Promise<TopUp | null> {
+  let first: IssueSearchPage;
+  try {
+    first = await fetchIssueSearchPage(client, owner, repo, 1, deadline);
+  } catch (error) {
+    if (!deadline?.aborted) return null;
+    return { pages: 1, result: { ...noPages<GhIssue>(), failed: 1, stoppedBy: stopReasonOf(error, deadline) } };
+  }
+  onItems(first.items);
+
+  // Search's own count beats a totals estimate; either way, 10 pages at most.
+  const pages = Math.max(1, first.total === null ? wanted : searchPagesFor(first.total));
+  const budget = client.searchRemaining ?? Number.POSITIVE_INFINITY;
+  const rest = pageRange(2, Math.min(pages, 1 + Math.max(0, budget)));
+  const trimmed = pages - 1 - rest.length;
+
+  const more = await settlePages<GhIssue>(
+    rest,
+    (page) => fetchIssueSearchPage(client, owner, repo, page, deadline),
+    { deadline, onPage: (_page, items) => onItems(items) },
+  );
+  return {
+    pages,
+    result: {
+      items: [...first.items, ...more.items],
+      received: 1 + more.received,
+      failed: more.failed + trimmed,
+      stoppedBy: firstStop(trimmed > 0 ? "rate-limit" : null, more.stoppedBy),
+      lastPage: null,
+    },
   };
 }
 
