@@ -13,6 +13,7 @@
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { LEGEND_CONTROLS, LEGEND_SECTIONS, type LegendEntry } from "@/lib/client/legend";
+import { useCityStore } from "@/store/useCityStore";
 
 const SMALL_SCREEN = "(max-width: 640px)";
 
@@ -53,10 +54,27 @@ export default function Legend() {
   const [tab, setTab] = useState<(typeof LEGEND_SECTIONS)[number]["id"]>("city");
   const open = override ?? !smallScreen;
   const setOpen = (next: (value: boolean) => boolean) => setOverride(next(open));
+
+  // On a phone the inspector is a bottom sheet over the same corner, so
+  // selecting something folds the legend away. Adjusted during render, the
+  // pattern React documents for "state derived from a change".
+  const inspecting = useCityStore((s) => s.selectedId !== null);
+  const [sawInspecting, setSawInspecting] = useState(inspecting);
+  if (sawInspecting !== inspecting) {
+    setSawInspecting(inspecting);
+    if (inspecting && smallScreen) setOverride(false);
+  }
   const section = LEGEND_SECTIONS.find((entry) => entry.id === tab) ?? LEGEND_SECTIONS[0];
 
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[min(18.5rem,calc(100vw-1.5rem))]">
+    /* Open on a phone, the legend is taller than the gap under the health
+       card, so it lifts above the right-hand rail rather than slide under
+       the card. Folded, it stays below the rail's inspector sheet. */
+    <div
+      className={`pointer-events-none absolute bottom-3 left-3 max-w-[min(18.5rem,calc(100vw-1.5rem))] ${
+        open && smallScreen ? "z-[24]" : "z-20"
+      }`}
+    >
       <div className="glass pointer-events-auto p-3 text-[12px] text-white/70">
         <button
           type="button"
