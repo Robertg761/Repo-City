@@ -26,36 +26,39 @@ import { ContactShadows } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
+import type { BloomEffect } from "postprocessing";
 import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
+  Color,
   type Mesh,
   MultiplyBlending,
   NeutralToneMapping,
   NoToneMapping,
-  RepeatWrapping,
-  SRGBColorSpace,
+  ShaderMaterial,
   Shape,
   ShapeGeometry,
   type Texture,
   Vector2,
+  Vector3,
 } from "three";
 import type { CityModel } from "@/types/city";
-import { REFERENCE_ASPECT, maxCameraDistance } from "./entities";
+import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "./entities";
 import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
 import {
   GREEN_GRASS,
   PLAZA_COLOR,
   SETTS_COLOR,
   desaturate,
+  hexToRgb,
   mix,
   type SceneAtmosphere,
 } from "./palette";
 import { useQuality, useQualityProbe, type QualitySettings } from "./quality";
 import { cityRevealEnd } from "./reveal";
 import { skyRadius } from "./scale";
+import { useSky, useSkyFrame } from "./sky";
 import {
   surfaceTexture,
   tiledSurface,
@@ -71,96 +74,167 @@ import {
  */
 const SKY_LAYER = 1;
 
+/**
+ * The painted sky's proportions. It used to be painted into a 768 by 384
+ * canvas and wrapped round the dome; the shader below keeps that canvas's
+ * geometry exactly (its gradient stops, and a halo measured in its pixels),
+ * so the day sky is the one the city has always had, and the hour can now
+ * move it every frame without repainting anything.
+ */
 const SKY_W = 768;
 const SKY_H = 384;
 
+const SKY_VERTEX = /* glsl */ `
+varying vec3 vSkyDir;
+void main() {
+  vSkyDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}
+`;
+
 /**
- * Paints the sky into a canvas: a vertical grade through zenith, horizon and
- * ground haze, plus the sun's halo at the bearing `Lighting` puts the
- * directional light on. Procedural, as section 4 requires -- no download, and
- * the whole thing is three gradients.
+ * Everything is worked out in sRGB, as the canvas did (gradients and a
+ * "lighter" composite on sRGB values), then converted to linear for the
+ * renderer. Night adds stars and the moon's disc, both procedural (section
+ * 4: no downloads).
  */
-function paintSky(atmosphere: SceneAtmosphere): CanvasTexture | null {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = SKY_W;
-  canvas.height = SKY_H;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
+const SKY_FRAGMENT = /* glsl */ `
+uniform vec3 uZenith;
+uniform vec3 uHorizon;
+uniform vec3 uGround;
+uniform vec3 uGlow;
+uniform float uGlowStrength;
+uniform vec3 uSun;
+uniform float uStars;
+uniform float uMoon;
+varying vec3 vSkyDir;
 
-  const zenith = atmosphere.skyZenithColor;
-  const horizon = atmosphere.skyHorizonColor;
-  const ground = atmosphere.skyGroundColor;
+#define SKY_PI 3.141592653589793
 
-  const grade = context.createLinearGradient(0, 0, 0, SKY_H);
-  grade.addColorStop(0, zenith);
-  grade.addColorStop(0.3, mix(zenith, horizon, 0.4));
-  grade.addColorStop(0.44, mix(zenith, horizon, 0.82));
-  // The horizon is a band rather than a single stop, which reads as a drawn
-  // line; below it the dome is the pale backdrop the landscape fades into.
-  grade.addColorStop(0.5, horizon);
-  grade.addColorStop(0.53, ground);
-  grade.addColorStop(1, ground);
-  context.fillStyle = grade;
-  context.fillRect(0, 0, SKY_W, SKY_H);
+float skyHash( vec3 p ) {
+  p = fract( p * vec3( 0.1031, 0.1030, 0.0973 ) );
+  p += dot( p, p.yxz + 33.33 );
+  return fract( ( p.x + p.y ) * p.z );
+}
 
-  // Sphere UVs: u runs around from atan2(z, -x), v from the polar angle.
-  const [sx, sy, sz] = atmosphere.sunDirection;
-  const u = (Math.atan2(sz, -sx) / (Math.PI * 2) + 1) % 1;
-  const v = 1 - Math.acos(Math.max(-1, Math.min(1, sy))) / Math.PI;
-  const cx = u * SKY_W;
-  const cy = (1 - v) * SKY_H;
+vec3 skyLinear( vec3 c ) {
+  return mix( c / 12.92, pow( ( c + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, c ) );
+}
 
-  context.globalCompositeOperation = "lighter";
-  for (const [spread, strength] of [
-    [SKY_H * 0.55, atmosphere.sunGlowStrength * 0.42],
-    [SKY_H * 0.12, atmosphere.sunGlowStrength * 0.75],
-  ] as const) {
-    // Drawn three times so the halo wraps around the seam behind the camera.
-    for (const offset of [-SKY_W, 0, SKY_W]) {
-      const halo = context.createRadialGradient(cx + offset, cy, 0, cx + offset, cy, spread);
-      halo.addColorStop(0, tint(atmosphere.sunGlowColor, Math.max(strength, 0)));
-      halo.addColorStop(1, tint(atmosphere.sunGlowColor, 0));
-      context.fillStyle = halo;
-      context.fillRect(0, 0, SKY_W, SKY_H);
+// u round the dome and y down it, as the old canvas's pixels were laid out.
+vec2 skyUv( vec3 d ) {
+  float u = fract( atan( d.z, -d.x ) / ( 2.0 * SKY_PI ) + 1.0 );
+  float y = acos( clamp( d.y, -1.0, 1.0 ) ) / SKY_PI;
+  return vec2( u, y );
+}
+
+void main() {
+  vec3 dir = normalize( vSkyDir );
+  vec2 uv = skyUv( dir );
+  float y = uv.y;
+
+  // The vertical grade: zenith, two blends, the horizon band, the backdrop.
+  vec3 a = mix( uZenith, uHorizon, 0.4 );
+  vec3 b = mix( uZenith, uHorizon, 0.82 );
+  vec3 color;
+  if ( y < 0.3 ) color = mix( uZenith, a, y / 0.3 );
+  else if ( y < 0.44 ) color = mix( a, b, ( y - 0.3 ) / 0.14 );
+  else if ( y < 0.5 ) color = mix( b, uHorizon, ( y - 0.44 ) / 0.06 );
+  else if ( y < 0.53 ) color = mix( uHorizon, uGround, ( y - 0.5 ) / 0.03 );
+  else color = uGround;
+
+  // Stars, only above the horizon and thinning towards it.
+  if ( uStars > 0.0 && dir.y > 0.0 ) {
+    vec3 p = dir * 150.0;
+    vec3 cell = floor( p );
+    float h = skyHash( cell );
+    if ( h > 0.955 ) {
+      vec3 at = cell + 0.5 + ( vec3( skyHash( cell + 7.1 ), skyHash( cell + 3.7 ), skyHash( cell + 1.3 ) ) - 0.5 ) * 0.5;
+      float r = length( p - at );
+      float size = mix( 0.1, 0.22, fract( h * 37.0 ) );
+      float star = smoothstep( size, size * 0.3, r );
+      float lift = smoothstep( 0.03, 0.3, dir.y );
+      vec3 tint = mix( vec3( 0.85, 0.9, 1.0 ), vec3( 1.0, 0.93, 0.8 ), fract( h * 91.0 ) );
+      color += tint * star * lift * uStars * mix( 0.45, 1.0, fract( h * 13.0 ) );
     }
   }
-  context.globalCompositeOperation = "source-over";
 
-  // A smooth eight-bit grade across half a screen bands visibly. One least
-  // significant bit of noise costs nothing and removes it.
-  const image = context.getImageData(0, 0, SKY_W, SKY_H);
-  const { data } = image;
-  for (let i = 0; i < data.length; i += 4) {
-    const jitter = Math.random() * 2 - 1;
-    data[i] += jitter;
-    data[i + 1] += jitter;
-    data[i + 2] += jitter;
+  // The sun's (or at night the moon's) halo, in the canvas's pixels.
+  vec2 sun = skyUv( uSun );
+  float du = ( fract( uv.x - sun.x + 0.5 ) - 0.5 ) * ${SKY_W.toFixed(1)};
+  float dy = ( uv.y - sun.y ) * ${SKY_H.toFixed(1)};
+  float d = length( vec2( du, dy ) );
+  float glow = max( 0.0, 1.0 - d / ${(SKY_H * 0.55).toFixed(2)} ) * uGlowStrength * 0.42
+    + max( 0.0, 1.0 - d / ${(SKY_H * 0.12).toFixed(2)} ) * uGlowStrength * 0.75;
+  color += uGlow * max( glow, 0.0 );
+
+  // The moon: a small bright disc with a soft rim, a little larger than life.
+  if ( uMoon > 0.0 ) {
+    float angle = acos( clamp( dot( dir, normalize( uSun ) ), -1.0, 1.0 ) );
+    float disc = smoothstep( 0.03, 0.026, angle );
+    float shade = 0.88 + 0.12 * smoothstep( 0.03, 0.0, angle );
+    color = mix( color, vec3( 0.98, 0.96, 0.9 ) * shade, disc * uMoon );
   }
-  context.putImageData(image, 0, 0);
 
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  texture.wrapS = RepeatWrapping;
-  return texture;
+  // One least significant bit of noise: a smooth eight-bit grade bands.
+  color += ( skyHash( vec3( gl_FragCoord.xy, 1.0 ) ) - 0.5 ) * ( 2.0 / 255.0 );
+
+  gl_FragColor = vec4( skyLinear( clamp( color, 0.0, 1.0 ) ), 1.0 );
+  #include <colorspace_fragment>
+}
+`;
+
+function skyUniforms() {
+  return {
+    uZenith: { value: new Vector3() },
+    uHorizon: { value: new Vector3() },
+    uGround: { value: new Vector3() },
+    uGlow: { value: new Vector3() },
+    uGlowStrength: { value: 0 },
+    uSun: { value: new Vector3(0, 1, 0) },
+    uStars: { value: 0 },
+    uMoon: { value: 0 },
+  };
 }
 
-/** `#rrggbb` plus an alpha, in the form a canvas gradient stop wants. */
-function tint(hex: string, alpha: number): string {
-  const raw = hex.replace("#", "");
-  const n = Number.parseInt(raw.length === 3 ? raw.replace(/./g, "$&$&") : raw, 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha.toFixed(3)})`;
+type SkyUniforms = ReturnType<typeof skyUniforms>;
+
+/** The sky's uniforms for an hour: sRGB colours, as the canvas painted them. */
+function writeSky(uniforms: SkyUniforms, atmosphere: SceneAtmosphere): void {
+  uniforms.uZenith.value.fromArray(hexToRgb(atmosphere.skyZenithColor));
+  uniforms.uHorizon.value.fromArray(hexToRgb(atmosphere.skyHorizonColor));
+  uniforms.uGround.value.fromArray(hexToRgb(atmosphere.skyGroundColor));
+  uniforms.uGlow.value.fromArray(hexToRgb(atmosphere.sunGlowColor));
+  uniforms.uGlowStrength.value = Math.max(atmosphere.sunGlowStrength, 0);
+  uniforms.uSun.value.fromArray(atmosphere.sunDirection);
+  uniforms.uStars.value = atmosphere.starStrength;
+  uniforms.uMoon.value = atmosphere.moonStrength;
 }
 
-function SkyDome({ atmosphere, radius }: { atmosphere: SceneAtmosphere; radius: number }) {
+function SkyDome({ radius }: { radius: number }) {
   const mesh = useRef<Mesh>(null);
-  const texture = useMemo(() => paintSky(atmosphere), [atmosphere]);
-
-  useEffect(() => () => texture?.dispose(), [texture]);
+  const material = useMemo(
+    () =>
+      new ShaderMaterial({
+        uniforms: skyUniforms(),
+        vertexShader: SKY_VERTEX,
+        fragmentShader: SKY_FRAGMENT,
+        side: BackSide,
+        depthWrite: false,
+        fog: false,
+        // Painted in final colours: in the low tier the fog it meets at the
+        // horizon is not tone mapped either, so the two stay the same value.
+        toneMapped: false,
+      }),
+    [],
+  );
+  useEffect(() => () => material.dispose(), [material]);
 
   useEffect(() => {
     mesh.current?.layers.set(SKY_LAYER);
   }, []);
+
+  useSkyFrame((atmosphere) => writeSky(material.uniforms as SkyUniforms, atmosphere), material);
 
   // The sky is infinitely far away, so it travels with the viewer: panning
   // across a large city must not walk the camera towards the edge of the dome.
@@ -169,21 +243,34 @@ function SkyDome({ atmosphere, radius }: { atmosphere: SceneAtmosphere; radius: 
     if (node) node.position.set(camera.position.x, 0, camera.position.z);
   });
 
-  if (!texture) return null;
-
   return (
-    <mesh ref={mesh} renderOrder={-1000} frustumCulled={false} raycast={() => null}>
+    <mesh ref={mesh} renderOrder={-1000} frustumCulled={false} raycast={() => null} material={material}>
       <sphereGeometry args={[radius, 48, 24]} />
-      <meshBasicMaterial
-        map={texture}
-        side={BackSide}
-        depthWrite={false}
-        fog={false}
-        // Painted in final colours: in the low tier the fog it meets at the
-        // horizon is not tone mapped either, so the two stay the same value.
-        toneMapped={false}
-      />
     </mesh>
+  );
+}
+
+/**
+ * The frame's backdrop and the fog that meets it, both in the hour's horizon
+ * colour. The fog only hides where the landscape ends; it never reaches the
+ * city (`FOG_NEAR` in `palette.ts`).
+ */
+function Backdrop({ atmosphere, reach }: { atmosphere: SceneAtmosphere; reach: number }) {
+  const sky = useSky();
+  const scene = useThree((state) => state.scene);
+  const initial = sky.atmosphere.background;
+  useSkyFrame((live) => {
+    if (scene.background instanceof Color) scene.background.set(live.background);
+    scene.fog?.color.set(live.background);
+  }, reach);
+  return (
+    <>
+      <color attach="background" args={[initial]} />
+      <fog
+        attach="fog"
+        args={[initial, reach * atmosphere.fogNearFactor, reach * atmosphere.fogFarFactor]}
+      />
+    </>
   );
 }
 
@@ -389,23 +476,23 @@ function GroundDetail({ city }: { city: CityModel }) {
  * operator instead, and both tiers read the exposure from the renderer.
  */
 function Film({
-  atmosphere,
   maxDpr,
   composed,
 }: {
-  atmosphere: SceneAtmosphere;
   maxDpr: number;
   /** The composer is running and tone maps at the end of its chain. */
   composed: boolean;
 }) {
   const camera = useThree((state) => state.camera);
   const setDpr = useThree((state) => state.setDpr);
-  const exposure = atmosphere.exposure;
+  const sky = useSky();
   const toneMapping = composed ? NoToneMapping : NeutralToneMapping;
 
   // Written from the frame loop rather than an effect: the renderer belongs
   // to R3F, and the comparison costs a great deal less than a re-render.
+  // The exposure follows the live hour (`sky.tsx`).
   useFrame(({ gl }) => {
+    const exposure = sky.atmosphere.exposure;
     if (gl.toneMappingExposure !== exposure) gl.toneMappingExposure = exposure;
     if (gl.toneMapping !== toneMapping) gl.toneMapping = toneMapping;
   });
@@ -440,6 +527,11 @@ function Film({
  * The chain ends in the tone mapping (see `Film`), after the bloom so the
  * glow is rolled off with everything else rather than clipping.
  */
+/** Bloom strength for an hour. Auto's is exactly what it always was. */
+function bloomIntensity(atmosphere: SceneAtmosphere): number {
+  return 0.26 + Math.max(atmosphere.evening * 0.22, atmosphere.nightness * 0.34);
+}
+
 function Post({
   atmosphere,
   quality,
@@ -447,6 +539,14 @@ function Post({
   atmosphere: SceneAtmosphere;
   quality: QualitySettings;
 }) {
+  // The glow follows the live hour: a little more at the golden hour, and
+  // most at night, when the lights are what the city is made of.
+  const sky = useSky();
+  const bloom = useRef<BloomEffect>(null);
+  useSkyFrame((live) => {
+    if (bloom.current) bloom.current.intensity = bloomIntensity(live);
+  });
+
   // Built as an array rather than with inline conditionals: the composer
   // rebuilds its chain from its children, and a `false` among them is not an
   // effect it can skip.
@@ -476,10 +576,11 @@ function Post({
     effects.push(
       <Bloom
         key="bloom"
+        ref={bloom}
         mipmapBlur
         luminanceThreshold={1.1}
         luminanceSmoothing={0.25}
-        intensity={0.26 + atmosphere.evening * 0.22}
+        intensity={bloomIntensity(sky.atmosphere)}
         radius={0.55}
       />,
     );
@@ -516,8 +617,9 @@ export default function Environment({
 
   return (
     <>
-      <Film atmosphere={atmosphere} maxDpr={quality.maxDpr} composed={quality.postProcessing} />
-      <SkyDome atmosphere={atmosphere} radius={skyRadius(size, maxCameraDistance(size, aspect))} />
+      <Film maxDpr={quality.maxDpr} composed={quality.postProcessing} />
+      <Backdrop atmosphere={atmosphere} reach={size * aspectWiden(aspect)} />
+      <SkyDome radius={skyRadius(size, maxCameraDistance(size, aspect))} />
 
       {city && <Plaza city={city} atmosphere={atmosphere} />}
       {city && quality.groundDetail && <GroundDetail city={city} />}

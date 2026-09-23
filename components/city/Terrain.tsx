@@ -20,7 +20,7 @@
  * the selection (PLAN.md section 6).
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { BufferAttribute, Color } from "three";
 import { useCityStore } from "@/store/useCityStore";
@@ -34,6 +34,7 @@ import {
   mix,
   type SceneAtmosphere,
 } from "./palette";
+import { useSkyFrame } from "./sky";
 import { useTiledSurface } from "./textures/surfaces";
 
 interface TerrainProps {
@@ -77,11 +78,11 @@ const RIM_FAR = 1;
  * ground simply stops, in a hard diagonal line against the sky, and the
  * diorama turns back into a flat plane in a viewport.
  */
-function rimColors(segments: number, near: string, far: string): BufferAttribute {
+function rimColors(segments: number, near: string, far: string, into?: BufferAttribute): BufferAttribute {
   const near3 = new Color(near);
   const far3 = new Color(far);
   const side = segments + 1;
-  const colors = new Float32Array(side * side * 3);
+  const colors = (into?.array as Float32Array | undefined) ?? new Float32Array(side * side * 3);
   for (let y = 0; y < side; y++) {
     for (let x = 0; x < side; x++) {
       // Plane coordinates run -0.5..0.5 before scaling; the fade is radial so
@@ -97,6 +98,10 @@ function rimColors(segments: number, near: string, far: string): BufferAttribute
       colors[i + 2] = near3.b + (far3.b - near3.b) * smooth;
     }
   }
+  if (into) {
+    into.needsUpdate = true;
+    return into;
+  }
   return new BufferAttribute(colors, 3);
 }
 
@@ -111,6 +116,14 @@ export default function Terrain({ size, atmosphere, aspect = REFERENCE_ASPECT }:
     () => rimColors(RIM_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
     [atmosphere.terrainColor, atmosphere.skyGroundColor],
   );
+  // The rim fades into the hour's backdrop: pale by day, deep blue at night.
+  // Rewritten in place from the frame loop, before the first frame draws.
+  const painted = useRef<{ rim: BufferAttribute | null; to: string }>({ rim: null, to: "" });
+  useSkyFrame((live) => {
+    if (painted.current.rim === rim && painted.current.to === live.skyGroundColor) return;
+    painted.current = { rim, to: live.skyGroundColor };
+    rimColors(RIM_SEGMENTS, atmosphere.terrainColor, live.skyGroundColor, rim);
+  }, rim);
 
   const clearSelection = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
