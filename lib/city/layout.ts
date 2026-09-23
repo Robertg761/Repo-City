@@ -1264,7 +1264,96 @@ export function planLayout(
     plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
     ...(parks.length > 0 ? { parks } : {}),
   };
+  if (tier === "town") {
+    const fields = planAllotments(districtSide, ringRadius, spec, built);
+    if (fields.length > 0) layout.fields = fields;
+  }
   return layout;
+}
+
+/** Shortest and longest allotment plot, and the path left between two. */
+const ALLOTMENT_MIN = 6;
+const ALLOTMENT_TARGET = 11;
+const ALLOTMENT_PATH = 1.4;
+/** Vegetables, turned earth, vegetables, a strip of wheat: an allotment's crops. */
+const ALLOTMENT_CROPS: readonly FieldPatch["crop"][] = [2, 1, 2, 0];
+
+/**
+ * A town's allotments (PLAN.md 76.5, and the review that found the town's
+ * outer ring "empty grass"). The landmark band holds a landmark in the
+ * middle of each side, between the two spokes; outside the spokes it was
+ * bare grass all the way round to the corners. Each of those eight stretches
+ * becomes a row of hedged plots: the long ones on the north and south sides
+ * run on round the corner, the short ones on the east and west stop at the
+ * corner so the two never meet. A plot that would touch a road is left out.
+ */
+function planAllotments(
+  districtSide: number,
+  ringRadius: number,
+  spec: GridSpec,
+  roads: readonly RoadSegment[],
+): FieldPatch[] {
+  const half = districtSide / 2;
+  const inner = half + spec.major.width / 2 + KERB;
+  const outer = ringRadius - spec.ring.width / 2 - KERB;
+  const depth = outer - inner;
+  if (depth < ALLOTMENT_MIN) return [];
+  const spoke = round3(districtSide / 3) + spec.major.width / 2 + KERB;
+
+  /** Plots along [from, to] of one axis, at `across` (the band's centre line) on the other. */
+  const row = (from: number, to: number, alongX: boolean, across: number, turn: number): FieldPatch[] => {
+    const length = to - from;
+    if (length < ALLOTMENT_MIN) return [];
+    const count = Math.max(1, Math.round((length + ALLOTMENT_PATH) / (ALLOTMENT_TARGET + ALLOTMENT_PATH)));
+    const plot = (length - (count - 1) * ALLOTMENT_PATH) / count;
+    const out: FieldPatch[] = [];
+    for (let i = 0; i < count; i++) {
+      const centre = from + i * (plot + ALLOTMENT_PATH) + plot / 2;
+      out.push({
+        x: round3(alongX ? centre : across),
+        z: round3(alongX ? across : centre),
+        w: round3(alongX ? plot : depth),
+        d: round3(alongX ? depth : plot),
+        rotationY: 0,
+        crop: ALLOTMENT_CROPS[(i + turn) % ALLOTMENT_CROPS.length],
+      });
+    }
+    return out;
+  };
+
+  const band = (inner + outer) / 2;
+  const fields: FieldPatch[] = [];
+  let turn = 0;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const flip = <T extends FieldPatch>(f: T): T => ({ ...f, x: round3(sx * f.x), z: round3(sz * f.z) });
+      // North or south side, from the spoke round to the corner.
+      fields.push(...row(spoke, outer, true, band, turn).map(flip));
+      // East or west side, from the spoke to the corner plot's edge.
+      fields.push(...row(spoke, inner - ALLOTMENT_PATH, false, band, turn + 1).map(flip));
+      turn += 1;
+    }
+  }
+  return fields.filter((field) => clearOfRoads(field, roads, KERB));
+}
+
+/** Whether an unturned field keeps `margin` clear of every road surface. */
+function clearOfRoads(field: FieldPatch, roads: readonly RoadSegment[], margin: number): boolean {
+  return roads.every((road) => {
+    const half = road.width / 2 + margin;
+    const minX = Math.min(road.from[0], road.to[0]) - half;
+    const maxX = Math.max(road.from[0], road.to[0]) + half;
+    const minZ = Math.min(road.from[2], road.to[2]) - half;
+    const maxZ = Math.max(road.from[2], road.to[2]) + half;
+    // A millimetre of slack: the plots are rounded to it, and the band's
+    // plots are cut to end exactly at the kerb margin.
+    return (
+      field.x + field.w / 2 <= minX + 1e-3 ||
+      field.x - field.w / 2 >= maxX - 1e-3 ||
+      field.z + field.d / 2 <= minZ + 1e-3 ||
+      field.z - field.d / 2 >= maxZ - 1e-3
+    );
+  });
 }
 
 /**

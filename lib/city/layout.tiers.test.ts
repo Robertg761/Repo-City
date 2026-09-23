@@ -255,6 +255,44 @@ describe("the town square", () => {
     }
   });
 
+  it("lays allotments along the outer ring, clear of every road, landmark and each other", () => {
+    for (const counts of [[78, 26, 6], [40, 20, 12, 6, 4], split(120, 6), split(30, 2)]) {
+      const layout = layoutOf(counts, "town");
+      const fields = layout.fields ?? [];
+      expect(fields.length, `counts ${counts.join(",")}`).toBeGreaterThanOrEqual(8);
+      const plots = Object.values(layout.landmarkPlots).map((p) => {
+        const quarter = Math.abs(Math.sin(p.rotationY)) > 0.5;
+        return { x: p.x, z: p.z, w: quarter ? p.d : p.w, d: quarter ? p.w : p.d };
+      });
+      for (const [i, field] of fields.entries()) {
+        expect(field.rotationY).toBe(0);
+        expect(Math.min(field.w, field.d)).toBeGreaterThanOrEqual(6);
+        // In the band: outside the district square, inside the ring road.
+        const reach = Math.max(Math.abs(field.x) + field.w / 2, Math.abs(field.z) + field.d / 2);
+        expect(reach).toBeLessThanOrEqual(layout.ringRadius);
+        expect(Math.max(Math.abs(field.x), Math.abs(field.z))).toBeGreaterThan(layout.districtSide / 2);
+        for (const road of layout.roads) {
+          const half = road.width / 2 + KERB - 1e-3;
+          const box = {
+            x: (road.from[0] + road.to[0]) / 2,
+            z: (road.from[2] + road.to[2]) / 2,
+            w: Math.abs(road.to[0] - road.from[0]) + 2 * half,
+            d: Math.abs(road.to[2] - road.from[2]) + 2 * half,
+          };
+          expect(overlaps(field, box), `field ${i} on ${road.id}`).toBe(false);
+        }
+        for (const plot of plots) expect(overlaps(field, plot)).toBe(false);
+        for (const other of fields.slice(i + 1)) expect(overlaps(field, other)).toBe(false);
+      }
+    }
+  });
+
+  it("gives a city and a metropolis no allotments", () => {
+    for (const tier of ["city", "metropolis"] as const) {
+      expect(layoutOf(split(300, 6), tier).fields).toBeUndefined();
+    }
+  });
+
   it("never carves a park in a city or a metropolis", () => {
     for (const tier of ["city", "metropolis"] as const) {
       for (let count = 1; count <= 6; count++) {
