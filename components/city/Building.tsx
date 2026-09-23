@@ -44,6 +44,7 @@ import {
 } from "./palette";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
+import { useSkyValue } from "./sky";
 
 interface CivicBuildingProps {
   building: Building;
@@ -101,6 +102,8 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
   const { hovered, selected } = useEntityState(building.id);
   const handlers = useEntityHandlers(building.id);
   const reveal = useRevealGroup(building.appearAt);
+  // The windows follow the live hour, brightest at night (`sky.tsx`).
+  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
   const [width, height, depth] = building.size;
   const kind: LandmarkFile | null = building.plan.landmark;
 
@@ -150,7 +153,7 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
           <meshStandardMaterial
             color={WINDOW_COLOR}
             emissive={WINDOW_COLOR}
-            emissiveIntensity={0.18 + atmosphere.windowGlow}
+            emissiveIntensity={0.18 + glow}
             roughness={0.42}
             metalness={0}
             toneMapped={false}

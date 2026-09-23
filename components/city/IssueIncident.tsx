@@ -49,6 +49,7 @@ import { FIRE_AT, glowTexture, incidentDecor, variantFor } from "./models/props/
 import { useQuality } from "./quality";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
+import { useSkyValue } from "./sky";
 
 /**
  * The ground signal. A thin ring on the tarmac, wide enough to read from the
@@ -294,6 +295,8 @@ export default function IssueIncident({
   const handlers = useEntityHandlers(incident.id);
   const reveal = useRevealGroup(incident.appearAt);
   const quality = useQuality();
+  // The fire burns brighter as the light goes, and brightest at night.
+  const fireGlow = useSkyValue((a) => a.lampGlow + a.nightness * 0.5);
   // Read once: the setting is the viewer's, and it does not change mid-visit.
   const [still] = useState(prefersStill);
 
@@ -363,7 +366,7 @@ export default function IssueIncident({
             <HazardRing radius={3.4} color={HAZARD_RED} opacity={0.5} rate={still ? 0 : 2.2} />
             <Fire
               position={[FIRE_AT[0], 0.2, FIRE_AT[1]]}
-              strength={0.3 + atmosphere.lampGlow * 0.4}
+              strength={0.3 + fireGlow * 0.4}
               halo={quality.tier === "high"}
               still={still}
             />
