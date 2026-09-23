@@ -8,7 +8,15 @@
  * can send has one agreed, plain sentence.
  */
 
+import { canonicalErrorCode } from "@/lib/client/errorCopy";
 import { useCityStore } from "@/store/useCityStore";
+
+/**
+ * Failures a second attempt cannot fix: the input itself is wrong, or the
+ * repository is not there to survey. Offering "Try again" on those only
+ * repeats the same answer.
+ */
+const FINAL = new Set(["INVALID_URL", "NOT_FOUND"]);
 
 export default function ErrorBanner() {
   const error = useCityStore((s) => s.error);
@@ -20,8 +28,7 @@ export default function ErrorBanner() {
   if (!error) return null;
 
   const busy = phase === "analyzing" || phase === "building";
-  // Retrying an input we already rejected locally would just fail again.
-  const canRetry = Boolean(lastInput) && error.code !== "INVALID_URL";
+  const canRetry = Boolean(lastInput) && !FINAL.has(canonicalErrorCode(error.code));
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
