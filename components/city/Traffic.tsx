@@ -26,7 +26,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type InstancedMesh } from "three";
+import { Color, MeshBasicMaterial, Object3D, type InstancedMesh, type ShaderMaterial } from "three";
 import type { CityModel } from "@/types/city";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import {
@@ -44,7 +44,13 @@ import {
 import { tintedMaterial } from "./models/props/material";
 import { MAX_FLEET, carPose, stepTraffic, type CarPose } from "./traffic";
 import { cityFleet, specOf, type FleetBody } from "./fleet";
+import { LOW_TIER_GLOW, beamGeometry, beamMaterial } from "./glow";
+import { useQuality } from "./quality";
+import { useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
+
+/** The lamps' colour for an hour: pale lenses by day, lit with the windows. */
+const lampTint = (atmosphere: SceneAtmosphere) => mix("#9c9a94", "#ffffff", atmosphere.windowGlow);
 
 const scratch = new Object3D();
 const wheelScratch = new Object3D();
@@ -99,8 +105,34 @@ export default function Traffic({
   const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }), []);
   useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
 
+  // Lamps brighten with the city's lit windows: at dusk a street of tail
+  // lights, at noon pale lenses and dull red glass (PLAN.md section 39). The
+  // floor is high enough that a lamp never reads as a hole in the car, and an
+  // archived city, whose windows are mostly dark, drives with its lights low.
+  // At night they burn past white, into the bloom, and throw their light on
+  // the road ahead (`glow.tsx`). Both follow the live hour (`sky.tsx`).
+  // Softer without the composer's tone mapping (`glow.tsx`).
+  const beamScale = useQuality().postProcessing ? 1 : LOW_TIER_GLOW;
+  const lampMaterial = useMemo(
+    () => new MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    [],
+  );
+  const beams = useMemo(() => beamMaterial(), []);
+  const beamGeometries = useMemo(
+    () => new Map(groups.map((group) => [group.body, beamGeometry(specOf(group.body))])),
+    [groups],
+  );
+  useEffect(
+    () => () => {
+      lampMaterial.dispose();
+      beams.dispose();
+    },
+    [lampMaterial, beams],
+  );
+  useEffect(() => () => beamGeometries.forEach((geometry) => geometry.dispose()), [beamGeometries]);
   const bodyRefs = useRef<(InstancedMesh | null)[]>([]);
   const lampRefs = useRef<(InstancedMesh | null)[]>([]);
+  const beamRefs = useRef<(InstancedMesh | null)[]>([]);
   const wheelRef = useRef<InstancedMesh>(null);
   /**
    * Wheel angle per car, in radians. One fixed-size buffer for the whole run:
@@ -129,6 +161,9 @@ export default function Traffic({
       const group = groups[g];
       const body = bodyRefs.current[g];
       const lamps = lampRefs.current[g];
+      // The beams ride on the car's own matrix; written by day too, so they
+      // are already in place the frame the lights come on.
+      const beam = beamRefs.current[g];
       if (!body) continue;
       const spec = specOf(group.body);
 
@@ -143,6 +178,7 @@ export default function Traffic({
         scratch.updateMatrix();
         body.setMatrixAt(slot, scratch.matrix);
         if (lamps) lamps.setMatrixAt(slot, scratch.matrix);
+        if (beam) beam.setMatrixAt(slot, scratch.matrix);
 
         if (!wheels) continue;
         // Wheels turn at the speed the car is doing: the distance covered this
@@ -174,10 +210,28 @@ export default function Traffic({
 
       body.instanceMatrix.needsUpdate = true;
       if (lamps) lamps.instanceMatrix.needsUpdate = true;
+      if (beam) beam.instanceMatrix.needsUpdate = true;
     }
 
     if (wheels) wheels.instanceMatrix.needsUpdate = true;
   });
+
+  // Every body type shares these two materials, so the first mesh that
+  // carries each is the handle to write the hour through.
+  useSkyFrame((atmosphere) => {
+    const lamp = lampRefs.current.find(Boolean)?.material as MeshBasicMaterial | undefined;
+    if (lamp) {
+      lamp.color.set(lampTint(atmosphere));
+      lamp.color.multiplyScalar(1 + atmosphere.nightness * 1.6);
+    }
+    const strength = atmosphere.headlights * 0.5 * beamScale;
+    const beam = beamRefs.current.find(Boolean)?.material as ShaderMaterial | undefined;
+    if (beam) {
+      beam.uniforms.uStrength.value = strength;
+      // Hidden, not drawn at zero: the day pays no draw calls for them.
+      beam.visible = strength > 0.002;
+    }
+  }, beamScale);
 
   const colors = useMemo(
     () =>
@@ -206,12 +260,6 @@ export default function Traffic({
 
   if (cars.length === 0) return null;
 
-  // Lamps brighten with the city's lit windows: at dusk a street of tail
-  // lights, at noon pale lenses and dull red glass (PLAN.md section 39). The
-  // floor is high enough that a lamp never reads as a hole in the car, and an
-  // archived city, whose windows are mostly dark, drives with its lights low.
-  const lampTint = mix("#9c9a94", "#ffffff", atmosphere.windowGlow);
-
   return (
     <group>
       {groups.map((group, g) => (
@@ -230,11 +278,18 @@ export default function Traffic({
             ref={(mesh) => {
               lampRefs.current[g] = mesh;
             }}
-            args={[lampsOf(group.body), undefined, group.cars.length]}
+            args={[lampsOf(group.body), lampMaterial, group.cars.length]}
             frustumCulled={false}
-          >
-            <meshBasicMaterial vertexColors color={lampTint} toneMapped={false} />
-          </instancedMesh>
+          />
+          <instancedMesh
+            ref={(mesh) => {
+              beamRefs.current[g] = mesh;
+            }}
+            args={[beamGeometries.get(group.body), beams, group.cars.length]}
+            frustumCulled={false}
+            raycast={() => null}
+            renderOrder={2}
+          />
         </group>
       ))}
 

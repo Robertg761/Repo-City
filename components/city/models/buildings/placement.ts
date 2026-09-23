@@ -91,6 +91,15 @@ export interface WindowInstance {
   uh: number;
   /** True when the wall runs along the model's x axis (a +z or -z facade). */
   alongX: boolean;
+  /**
+   * The building's place in the order its lights come on, 0..1: a window is
+   * lit when this is below the hour's lit-window share. The whole list is
+   * sorted by it, so the lit windows at any share are a prefix
+   * (`litWindowCount`) and the hour can change without a new plan.
+   */
+  rank: number;
+  /** 0..1, steady per window: which warm or cool light it shows at night. */
+  tone: number;
 }
 
 /** The lit pane sits inside the dark one, so its frame still reads. */
@@ -382,7 +391,7 @@ export function planBuildings(
     groups.push({ archetype, model, offset, count: list.length, ids: list.map((b) => b.id) });
   }
 
-  const windows: WindowInstance[] = [];
+  const candidates: WindowInstance[] = [];
   const props: PropInstance[] = [];
 
   for (let i = 0; i < instances.length; i++) {
@@ -391,14 +400,16 @@ export function planBuildings(
     const seed = archetypeSeed(instance.building);
     const tier = instance.building.tier ?? 1;
 
-    if (instance.lit && windows.length < windowCap) {
-      for (let w = 0; w < model.windows.length && windows.length < windowCap; w++) {
+    if (instance.lit) {
+      const rank = unit(seed, 11);
+      for (let w = 0; w < model.windows.length; w++) {
         // Roughly three windows in five are on in a lit building, always the
         // same three for a given building.
-        if (hash32(`${seed}/w${w}`) % 100 >= 58) continue;
+        const roll = hash32(`${seed}/w${w}`);
+        if (roll % 100 >= 58) continue;
         const panel = model.windows[w];
         const centre = panelCentre(panel, LIT_LIFT);
-        windows.push({
+        candidates.push({
           buildingIndex: i,
           ox: centre[0],
           oy: centre[1],
@@ -407,6 +418,8 @@ export function planBuildings(
           uw: panel.w * LIT_INSET,
           uh: panel.h * LIT_INSET,
           alongX: panel.facing === "+z" || panel.facing === "-z",
+          rank,
+          tone: (Math.floor(roll / 100) % 1000) / 1000,
         });
       }
     }
@@ -435,5 +448,31 @@ export function planBuildings(
     }
   }
 
+  // The first buildings to light up come first, and the cap keeps those: a
+  // metropolis that has more lit panes than the budget allows keeps its
+  // lights spread across the whole city rather than in the first districts
+  // of the list. The sort is stable, so ties keep the building order.
+  const windows = candidates
+    .map((window, order) => ({ window, order }))
+    .sort((a, b) => a.window.rank - b.window.rank || a.order - b.order)
+    .slice(0, windowCap)
+    .map(({ window }) => window);
+
   return { instances, groups, windows, props };
+}
+
+/**
+ * How many of a plan's windows are lit at a lit-window share: the windows
+ * are sorted by `rank`, so the answer is the length of a prefix, found by
+ * bisection. The renderer draws that many instances.
+ */
+export function litWindowCount(windows: readonly WindowInstance[], share: number): number {
+  let lo = 0;
+  let hi = windows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (windows[mid].rank < share) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }

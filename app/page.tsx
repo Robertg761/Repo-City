@@ -16,6 +16,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import Inspector from "@/components/Inspector";
 import Legend from "@/components/Legend";
 import RepoInput from "@/components/RepoInput";
+import TimeOfDayControl from "@/components/TimeOfDayControl";
 import Tooltip from "@/components/Tooltip";
 
 const CityCanvas = dynamic(() => import("@/components/CityCanvas"), {
@@ -54,6 +55,7 @@ export default function Page() {
 
       <Tooltip />
       <Legend />
+      <TimeOfDayControl />
       <ErrorBanner />
     </main>
   );

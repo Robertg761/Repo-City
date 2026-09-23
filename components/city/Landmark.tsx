@@ -80,6 +80,7 @@ import {
 } from "./models/landmarks/village";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
+import { useSkyValue } from "./sky";
 
 interface Skin {
   wall: string;
@@ -655,11 +656,14 @@ export default function LandmarkPiece({
     [atmosphere.desaturation, hovered, selected],
   );
 
+  // Lit with the city's windows, and more at night: the power plant, the
+  // fire station and the station are landmarks after dark too (`sky.tsx`).
+  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.45);
   const skin: Skin = {
     wall: tint(CIVIC_COLOR),
     roof: tint(CIVIC_ROOF),
     accent: tint("#7fa9bd"),
-    glow: atmosphere.windowGlow,
+    glow,
     tint,
   };
 

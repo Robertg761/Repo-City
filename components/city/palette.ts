@@ -186,10 +186,11 @@ export function stateTint(base: string, hovered: boolean, selected: boolean): st
  * top of the ramp is a golden hour and the windows and lamps glow against a
  * sky that is still bright.
  *
- * E5: to put this on a HUD control later, override the `evening` field on the
- * `SceneAtmosphere` this module returns (and `sunDirection`, `exposure`,
- * `lampGlow`, `skyZenithColor` and `sunGlowColor`, which are all derived from
- * it by `atmosphere` below). Nothing else in the renderer reads the hour.
+ * This is the "Auto" setting of the time-of-day control. The viewer can also
+ * pick morning, afternoon, evening or night in the HUD; `timeOfDay.ts` turns
+ * that choice into a point on a four-part day, and the afternoon-to-evening
+ * stretch of that day is exactly this ramp, so Auto lands where it always
+ * did.
  */
 export function eveningFactor(litWindowShare: number, archived = false): number {
   const t = clamp01((clamp01(litWindowShare) - 0.55) / 0.45);
@@ -266,10 +267,28 @@ export interface SceneAtmosphere {
   lampGlow: number;
   /** 0..1 opacity for the contact shadows under the buildings. */
   contactShadowOpacity: number;
+
+  // --- Night (`timeOfDay.ts`). All zero by day, so Auto draws as it always did. ---
+
+  /**
+   * 0 by day, 1 at full night. At night the key light is the moon, not the
+   * sun: `sunDirection`, `sunColor` and `sunIntensity` then describe
+   * moonlight, and the halo `Environment` paints at that bearing is the
+   * moon's.
+   */
+  nightness: number;
+  /** 0..1 how clearly the stars show in the dome. */
+  starStrength: number;
+  /** 0..1 the moon's disc in the dome, drawn at `sunDirection`. */
+  moonStrength: number;
+  /** 0..1 the soft pools of lamplight on the ground under the street lamps. */
+  lampPool: number;
+  /** 0..1 the beams headlights throw on the road ahead of each car. */
+  headlights: number;
 }
 
-const COOL_SUN = "#e6eeff";
-const WARM_SUN = "#fff3de";
+export const COOL_SUN = "#e6eeff";
+export const WARM_SUN = "#fff3de";
 /** The backdrop: a clean pale blue, never a grey, never an olive. */
 const COOL_SKY = "#c9dcec";
 const WARM_SKY = "#dcebf4";
@@ -282,11 +301,11 @@ const COOL_TERRAIN = "#93b497";
 const WARM_TERRAIN = "#97bf8c";
 
 /** Zenith colours: flat overcast, clear afternoon, and the golden hour. */
-const ZENITH_COOL = "#8fb0cf";
-const ZENITH_WARM = "#6fa3d8";
-const ZENITH_EVENING = "#5a86b8";
+export const ZENITH_COOL = "#8fb0cf";
+export const ZENITH_WARM = "#6fa3d8";
+export const ZENITH_EVENING = "#5a86b8";
 /** The colour the low sun turns its own halo. */
-const EVENING_GLOW = "#ffca8a";
+export const EVENING_GLOW = "#ffca8a";
 
 /**
  * Fog planes, as multiples of the overview's reach (`bounds.size` widened for
@@ -310,14 +329,46 @@ const FOG_FAR = 4.4;
  * disappearing into murk (section 19).
  */
 export function atmosphere(ambience: CityModel["ambience"], archived: boolean): SceneAtmosphere {
+  return dayAtmosphere(ambience, archived, eveningFactor(ambience.litWindowShare, archived));
+}
+
+/**
+ * The colour character a city keeps at every hour: how warm its light is,
+ * how saturated its paint, how much overcast softens its shadows. Health and
+ * archived status reach the light only through these (section 39).
+ */
+export interface CityTone {
+  warmth: number;
+  saturation: number;
+  overcast: number;
+  desaturation: number;
+  /** The day's backdrop: the pale sky the landscape runs out into. */
+  background: string;
+}
+
+export function cityTone(ambience: CityModel["ambience"], archived: boolean): CityTone {
   const warmth = clamp01(archived ? ambience.warmth * 0.5 - 0.1 : ambience.warmth);
   const saturation = clamp01(archived ? ambience.saturation * 0.55 : ambience.saturation);
   // Clamped hard: whatever the generator says, this can only soften shadows.
   const overcast = clamp01(ambience.fog) * 0.3 + (archived ? 0.35 : 0);
-
   const desaturation = (1 - saturation) * 0.55;
   const background = desaturate(mix(COOL_SKY, WARM_SKY, warmth), desaturation * 0.6);
-  const evening = eveningFactor(ambience.litWindowShare, archived);
+  return { warmth, saturation, overcast, desaturation, background };
+}
+
+/**
+ * The day between midday (`evening` 0) and the golden hour (`evening` 1), for
+ * any point on that ramp rather than only the one the repository's activity
+ * picks. `atmosphere` above is this at the inferred hour; the time-of-day
+ * control reaches the rest of it.
+ */
+export function dayAtmosphere(
+  ambience: CityModel["ambience"],
+  archived: boolean,
+  eveningValue: number,
+): SceneAtmosphere {
+  const { warmth, overcast, desaturation, background } = cityTone(ambience, archived);
+  const evening = clamp01(eveningValue);
   // A low sun is a warm sun, and it is also a weaker one across a horizontal
   // surface: the exposure below buys most of that back, so a golden-hour city
   // is golden rather than merely dim (PLAN.md section 39).
@@ -374,5 +425,10 @@ export function atmosphere(ambience: CityModel["ambience"], archived: boolean): 
     litWindowShare: archived
       ? 0.3 + clamp01(ambience.litWindowShare) * 0.2
       : 0.62 + clamp01(ambience.litWindowShare) * 0.38,
+    nightness: 0,
+    starStrength: 0,
+    moonStrength: 0,
+    lampPool: 0,
+    headlights: 0,
   };
 }

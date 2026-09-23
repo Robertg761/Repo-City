@@ -20,12 +20,13 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
 import CameraRig, { CONTROLS_FEEL } from "@/components/city/CameraRig";
-import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "@/components/city/entities";
+import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities";
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
+import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
@@ -42,17 +43,7 @@ const EMPTY_SIZE = 120;
  * overcast fill of fog 0.3 -- which drained the grass to a grey-green and
  * read as a pale veil over the whole frame.
  */
-const EMPTY_ATMOSPHERE = atmosphere(
-  {
-    warmth: 0.72,
-    saturation: 0.9,
-    fog: 0.1,
-    trafficDensity: 0,
-    pedestrianDensity: 0,
-    litWindowShare: 0.75,
-  },
-  false,
-);
+const EMPTY_ATMOSPHERE = atmosphere(STAGE_AMBIENCE, false);
 
 /** The dev scenes: the fixture city, and one settlement at each end of the scale. */
 type DevScene = "city" | "metropolis" | "village" | "town";
@@ -145,23 +136,16 @@ function useViewportAspect(): number {
   return aspect;
 }
 
+/**
+ * The empty stage. The time of day reaches it as it reaches a city: the sky,
+ * the light and the backdrop follow the viewer's setting (`sky.tsx`), so the
+ * control works before anything has been surveyed. The backdrop and the fog,
+ * pulled back with the camera on a narrow screen, are `Environment`'s.
+ */
 function EmptyStage({ aspect }: { aspect: number }) {
-  // Pulled back with the camera on a narrow screen, exactly as `City` does:
-  // a phone frames the stage from twice as far, and with the fog left at the
-  // desktop's reach the top half of the screen was fog.
-  const fogReach = EMPTY_SIZE * aspectWiden(aspect);
   return (
     <>
-      <color attach="background" args={[EMPTY_ATMOSPHERE.background]} />
-      <fog
-        attach="fog"
-        args={[
-          EMPTY_ATMOSPHERE.background,
-          fogReach * EMPTY_ATMOSPHERE.fogNearFactor,
-          fogReach * EMPTY_ATMOSPHERE.fogFarFactor,
-        ]}
-      />
-      <Lighting atmosphere={EMPTY_ATMOSPHERE} size={EMPTY_SIZE} />
+      <Lighting size={EMPTY_SIZE} />
       <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} aspect={aspect} />
       <StagePlate size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
@@ -183,6 +167,9 @@ export default function CityCanvas() {
     () => (city ? atmosphere(city.ambience, city.repository.archived) : EMPTY_ATMOSPHERE),
     [city],
   );
+
+  const ambience = city?.ambience ?? STAGE_AMBIENCE;
+  const archived = city?.repository.archived ?? false;
 
   return (
     <Canvas
@@ -207,21 +194,24 @@ export default function CityCanvas() {
       // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
     >
-      {/* Keyed on the seed: a different repository revision is a different
-          city, and gets a fresh reveal. The Canvas itself never remounts, so
-          the WebGL context survives. */}
-      {city ? (
-        <City key={city.seed} city={city} aspect={aspect} />
-      ) : (
-        <EmptyStage aspect={aspect} />
-      )}
+      {/* The live time of day for everything in the scene (`sky.tsx`). */}
+      <SkyProvider ambience={ambience} archived={archived}>
+        {/* Keyed on the seed: a different repository revision is a different
+            city, and gets a fresh reveal. The Canvas itself never remounts, so
+            the WebGL context survives. */}
+        {city ? (
+          <City key={city.seed} city={city} aspect={aspect} />
+        ) : (
+          <EmptyStage aspect={aspect} />
+        )}
 
-      <Environment
-        city={city}
-        atmosphere={scene}
-        size={city?.bounds.size ?? EMPTY_SIZE}
-        aspect={aspect}
-      />
+        <Environment
+          city={city}
+          atmosphere={scene}
+          size={city?.bounds.size ?? EMPTY_SIZE}
+          aspect={aspect}
+        />
+      </SkyProvider>
       <FarPlane size={city?.bounds.size ?? EMPTY_SIZE} aspect={aspect} />
       <ControlsDebugHandle />
 

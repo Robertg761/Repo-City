@@ -30,7 +30,13 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, InstancedBufferAttribute, Object3D, type InstancedMesh } from "three";
+import {
+  Color,
+  InstancedBufferAttribute,
+  MeshStandardMaterial,
+  Object3D,
+  type InstancedMesh,
+} from "three";
 import type { SettlementTier } from "@/types/analysis";
 import type { Building, RoadSegment } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
@@ -43,6 +49,7 @@ import {
 } from "./models/buildings/geometry";
 import { ACCENT_ATTRIBUTE, settlementMaterial } from "./models/buildings/material";
 import {
+  litWindowCount,
   planBuildings,
   type ArchetypeGroup,
   type CityBuildingPlan,
@@ -57,6 +64,7 @@ import {
   type SceneAtmosphere,
 } from "./palette";
 import { revealSettle } from "./reveal";
+import { useSky, useSkyFrame } from "./sky";
 import { useInstanceHandlers } from "./useEntity";
 import { useRevealClock } from "./useReveal";
 
@@ -207,27 +215,92 @@ function ArchetypeInstances({
 }
 
 /**
- * The lit windows, as one mesh of quads sitting just proud of the dark panes
- * baked into every archetype. `litWindowShare` decides which buildings are
- * awake; the dark panes keep the facades readable in daylight either way
- * (PLAN.md section 19).
+ * The colours a lit window shows at night, relative to `WINDOW_COLOR`: most
+ * are warm lamplight, some a paler white, a few the cool blue of a screen.
+ * By day every window is the plain pale gold it has always been.
  */
-function LitWindows({
-  plan,
-  atmosphere,
-}: {
-  plan: CityBuildingPlan;
-  atmosphere: SceneAtmosphere;
-}) {
+const NIGHT_TONES: readonly { share: number; tint: [number, number, number] }[] = [
+  { share: 0.58, tint: [1, 0.9, 0.72] },
+  { share: 0.84, tint: [1, 1.08, 1.32] },
+  { share: 1, tint: [0.72, 1.12, 2.1] },
+];
+
+function nightTone(tone: number): [number, number, number] {
+  return (NIGHT_TONES.find((entry) => tone < entry.share) ?? NIGHT_TONES[NIGHT_TONES.length - 1]).tint;
+}
+
+/** The windows' emissive strength for an hour. Auto's is what it always was. */
+export function windowEmissive(atmosphere: SceneAtmosphere): number {
+  return 0.15 + atmosphere.windowGlow * 1.1 + atmosphere.nightness * 0.45;
+}
+
+/**
+ * A window material whose glow takes each instance's colour too, so one
+ * mesh can light some panes amber and others screen-blue. `MeshStandard`
+ * multiplies only the surface colour by the instance colour; the emissive
+ * term is multiplied here as well.
+ */
+function windowMaterial(): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({
+    color: WINDOW_COLOR,
+    emissive: WINDOW_COLOR,
+    roughness: 0.4,
+    metalness: 0,
+    toneMapped: false,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      "#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor.rgb;\n#endif",
+    );
+  };
+  material.customProgramCacheKey = () => "lit-window";
+  return material;
+}
+
+/**
+ * The lit windows, as one mesh of quads sitting just proud of the dark panes
+ * baked into every archetype. The hour's `litWindowShare` decides which
+ * buildings are awake; the dark panes keep the facades readable in daylight
+ * either way (PLAN.md section 19).
+ *
+ * The plan holds every window that could be lit, sorted by the order the
+ * buildings light up in, so the hour only changes how many instances draw
+ * (`litWindowCount`), their glow, and at night their colour. None of that
+ * re-plans the city or touches a matrix.
+ */
+function LitWindows({ plan }: { plan: CityBuildingPlan }) {
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
   const geometry = useMemo(() => windowPanelGeometry(), []);
+  const material = useMemo(() => windowMaterial(), []);
+  useEffect(() => () => material.dispose(), [material]);
   const windows = plan.windows;
+  const sky = useSky();
+  const tinted = useRef(-1);
 
   useEffect(() => {
     settled.current = false;
+    tinted.current = -1;
   }, [clock, plan]);
+
+  useSkyFrame((atmosphere) => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    mesh.count = litWindowCount(windows, atmosphere.litWindowShare);
+    (mesh.material as MeshStandardMaterial).emissiveIntensity = windowEmissive(atmosphere);
+    // Colour only moves with the night, and only in steps worth a write.
+    const night = Math.round(atmosphere.nightness * 40) / 40;
+    if (night === tinted.current) return;
+    tinted.current = night;
+    for (let i = 0; i < windows.length; i++) {
+      const [r, g, b] = nightTone(windows[i].tone);
+      scratchColor.setRGB(1 + (r - 1) * night, 1 + (g - 1) * night, 1 + (b - 1) * night);
+      mesh.setColorAt(i, scratchColor);
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, plan);
 
   useFrame(() => {
     const mesh = meshRef.current;
@@ -269,18 +342,10 @@ function LitWindows({
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, undefined, windows.length]}
+      args={[geometry, material, windows.length]}
+      count={litWindowCount(windows, sky.atmosphere.litWindowShare)}
       frustumCulled={false}
-    >
-      <meshStandardMaterial
-        color={WINDOW_COLOR}
-        emissive={WINDOW_COLOR}
-        emissiveIntensity={0.15 + atmosphere.windowGlow * 1.1}
-        roughness={0.4}
-        metalness={0}
-        toneMapped={false}
-      />
-    </instancedMesh>
+    />
   );
 }
 
@@ -398,14 +463,16 @@ export default function Buildings({
   const storedRoads = useCityStore((s) => s.city?.roads);
   const tier = settlement ?? storedTier ?? "city";
   const network = roads ?? storedRoads;
+  // Every window that could ever be lit, in the order the city lights up:
+  // the hour picks how many of them draw (`LitWindows`).
   const plan = useMemo(
     () =>
       planBuildings(buildings, {
-        litShare: atmosphere.litWindowShare,
+        litShare: 1,
         settlement: tier,
         roads: network,
       }),
-    [buildings, atmosphere.litWindowShare, tier, network],
+    [buildings, tier, network],
   );
   const blockProps = useMemo(
     () => plan.props.filter((prop) => PROP_MESH[prop.kind] === "block"),
@@ -426,7 +493,7 @@ export default function Buildings({
           atmosphere={atmosphere}
         />
       ))}
-      <LitWindows plan={plan} atmosphere={atmosphere} />
+      <LitWindows plan={plan} />
       <RoofProps
         plan={plan}
         props={blockProps}

@@ -30,7 +30,7 @@ import Roads from "./Roads";
 import SelectionRing from "./SelectionRing";
 import Terrain from "./Terrain";
 import Traffic from "./Traffic";
-import { REFERENCE_ASPECT, aspectWiden } from "./entities";
+import { REFERENCE_ASPECT } from "./entities";
 import { splitBuildings } from "./instances";
 import { atmosphere as buildAtmosphere } from "./palette";
 import { cityRevealEnd } from "./reveal";
@@ -87,10 +87,6 @@ export default function City({
   const trafficStart = useMemo(() => cityRevealEnd(city), [city]);
 
   const size = city.bounds.size;
-  // The fog only hides where the landscape ends; it never reaches the city
-  // (`FOG_NEAR` in `palette.ts`). The overview pulls back on a narrow screen,
-  // so the fog pulls back with it, or a phone would see the rim come closer.
-  const fogReach = size * aspectWiden(aspect);
 
   /**
    * Where each district's label hangs. A district full of eighteen unit
@@ -117,17 +113,9 @@ export default function City({
   return (
     <RevealContext.Provider value={clock}>
       <BatchProvider>
-      <color attach="background" args={[atmosphere.background]} />
-      <fog
-        attach="fog"
-        args={[
-          atmosphere.background,
-          fogReach * atmosphere.fogNearFactor,
-          fogReach * atmosphere.fogFarFactor,
-        ]}
-      />
-
-      <Lighting atmosphere={atmosphere} size={size} />
+      {/* The backdrop and the fog belong to `Environment`, which keeps them
+          in the live hour's colours (`sky.tsx`). */}
+      <Lighting size={size} />
 
       <Terrain size={size} atmosphere={atmosphere} aspect={aspect} />
       <Fields city={city} atmosphere={atmosphere} />

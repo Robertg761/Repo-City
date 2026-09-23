@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type InstancedMesh } from "three";
+import { Color, Object3D, type InstancedMesh, type MeshStandardMaterial } from "three";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
@@ -47,6 +47,8 @@ import {
 import { medianLays, medianTreeSpots, roadLays } from "./groundwork";
 import { revealScale } from "./reveal";
 import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf } from "./scale";
+import { GlowField } from "./glow";
+import { useSky, useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
@@ -60,6 +62,22 @@ const scratchColor = new Color();
  * standing over the blocks (PLAN.md section 4).
  */
 const LAMP_HEIGHT = 2.7;
+
+/**
+ * A lamp head's glow for an hour: Auto's is what it always was, and the
+ * night lifts it until it blooms.
+ */
+function lampHeadGlow(atmosphere: SceneAtmosphere): number {
+  return 0.1 + atmosphere.windowGlow * 1.1 + atmosphere.nightness * 1.2;
+}
+
+/** Warm sodium-white lamplight. */
+const LAMP_LIGHT = "#ffcf8f";
+/** Across the pool of light on the ground, and the halo round the head. */
+const LAMP_POOL = 9;
+const LAMP_HALO = 1.5;
+/** Over the pavement slab and the road markings, under any car or kerb-side prop. */
+const LAMP_POOL_Y = 0.24;
 
 /** The kinds of furniture, in the order their meshes are declared. */
 const FURNITURE: readonly FurnitureKind[] = ["bench", "bin", "stop", "bush", "bed"];
@@ -154,6 +172,22 @@ export default function Props({
   // Per tier: a village's handful, a metropolis's avenues. Thinned evenly, so
   // a cap never leaves one end of the settlement dark.
   const lamps = useMemo(() => thinEvenly(city.props.lamps, lampCap(tierOf(city))), [city]);
+  const poolSpots = useMemo(
+    () => lamps.map((p) => [p[0], LAMP_POOL_Y, p[2]] as const),
+    [lamps],
+  );
+  const haloSpots = useMemo(
+    () => lamps.map((p) => [p[0], LAMP_HEIGHT + 0.09, p[2]] as const),
+    [lamps],
+  );
+  // The last lamp has finished growing (the reveal below staggers them).
+  const lampsLitAt = 760 + lamps.length * 8 + 300;
+
+  const sky = useSky();
+  const headMaterial = useRef<MeshStandardMaterial>(null);
+  useSkyFrame((a) => {
+    if (headMaterial.current) headMaterial.current.emissiveIntensity = lampHeadGlow(a);
+  });
 
   const { furniture, parked } = useMemo(() => {
     const placed = placeStreetProps(city, prngFor(city.seed, "street-props"));
@@ -325,15 +359,37 @@ export default function Props({
           <instancedMesh ref={headRef} args={[undefined, undefined, lamps.length]} frustumCulled={false}>
             <boxGeometry args={[0.32, 0.16, 0.32]} />
             <meshStandardMaterial
+              ref={headMaterial}
               color={mix(WINDOW_COLOR, "#ffffff", 0.3)}
               // Daylight: the lamps are lit fixtures, not beacons. The glow
               // rises with the city's lit-window share, so a quiet city's
-              // lamps go dim with its windows.
-              emissiveIntensity={0.1 + atmosphere.windowGlow * 1.1}
+              // lamps go dim with its windows, and burns brightest at night
+              // (`lampHeadGlow`, following the live hour).
+              emissiveIntensity={lampHeadGlow(sky.atmosphere)}
               emissive={WINDOW_COLOR}
               toneMapped={false}
             />
           </instancedMesh>
+          {/* After dark: the pool of light on the pavement under each lamp,
+              and the soft halo round its head (`glow.tsx`). Two draw calls
+              for every lamp in the city, hidden by day. */}
+          <GlowField
+            positions={poolSpots}
+            size={LAMP_POOL}
+            color={LAMP_LIGHT}
+            ground
+            falloff={1.3}
+            strength={(a) => a.lampPool * 0.24}
+            appearAt={lampsLitAt}
+          />
+          <GlowField
+            positions={haloSpots}
+            size={LAMP_HALO}
+            color={LAMP_LIGHT}
+            falloff={2.4}
+            strength={(a) => a.lampPool * 0.42}
+            appearAt={lampsLitAt}
+          />
         </>
       )}
 

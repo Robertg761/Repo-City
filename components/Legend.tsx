@@ -72,7 +72,10 @@ export default function Legend() {
        card, so it lifts above the right-hand rail rather than slide under
        the card. Folded, it stays below the rail's inspector sheet. */
     <div
-      className={`pointer-events-none absolute bottom-3 left-3 max-w-[min(18.5rem,calc(100vw-1.5rem))] ${
+      // `peer` and `data-open`: on a phone the open legend spans the bottom
+      // edge, and the time-of-day control beside it steps aside.
+      data-open={open ? "true" : "false"}
+      className={`peer pointer-events-none absolute bottom-3 left-3 max-w-[min(18.5rem,calc(100vw-1.5rem))] ${
         open && smallScreen ? "z-[24]" : "z-20"
       }`}
     >
@@ -101,7 +104,7 @@ export default function Legend() {
                   role="tab"
                   aria-selected={entry.id === section.id}
                   onClick={() => setTab(entry.id)}
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] transition focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] transition focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent ${
                     entry.id === section.id
                       ? "bg-white/15 text-white"
                       : "text-white/50 hover:bg-white/10 hover:text-white/80"

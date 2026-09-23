@@ -67,6 +67,7 @@ import { lampMaterial } from "./effects";
 import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
+import { useSkyValue } from "./sky";
 
 /** One pool per merged shape; `receive` as the mesh it replaces had it. */
 function mergedKind(
@@ -247,6 +248,8 @@ export default function ConstructionSitePiece({
   const { hovered, selected } = useEntityState(site.id);
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
+  // The finished band's windows follow the live hour (`sky.tsx`).
+  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
 
   const done = site.state === "completed";
   const finished = done ? finishedTier(settlement) : null;
@@ -309,7 +312,7 @@ export default function ConstructionSitePiece({
                 position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}
                 scale={[5.46, 0.34, 5.46]}
                 color={WINDOW_COLOR}
-                glow={0.3 + atmosphere.windowGlow}
+                glow={0.3 + glow}
               />
               <BatchPart kind={RIBBON} rotation-x={-Math.PI / 2} position-y={0.08} color={HIGHLIGHT} />
             </>

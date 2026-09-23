@@ -39,12 +39,15 @@ import {
   PlaneGeometry,
   type InstancedMesh,
   type Intersection,
+  type Mesh,
   type Raycaster,
+  type ShaderMaterial,
 } from "three";
 import type { CityModel } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
 import { HIGHLIGHT, SELECT_LIFT, desaturate, mix, type SceneAtmosphere } from "../palette";
 import { useQuality, type QualitySettings } from "../quality";
+import { useSkyFrame } from "../sky";
 import { useInstanceHandlers } from "../useEntity";
 import { useRevealClock } from "../useReveal";
 import { formGeometry } from "./forms";
@@ -227,9 +230,19 @@ function Halos({ halos }: { halos: readonly HaloSpec[] }) {
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useMemo(() => haloMaterial(), []);
   useEffect(() => () => material.dispose(), [material]);
+  // Brighter as the light goes: at night the crowd's beacons and fires are
+  // what the eye finds first (`sky.tsx`).
+  const mesh = useRef<Mesh>(null);
+  useSkyFrame((atmosphere) => {
+    const node = mesh.current;
+    if (node) (node.material as ShaderMaterial).uniforms.uStrength.value = HALO_STRENGTH + atmosphere.nightness * 0.4;
+  }, material);
 
-  return <mesh geometry={geometry} material={material} frustumCulled={false} renderOrder={3} />;
+  return <mesh ref={mesh} geometry={geometry} material={material} frustumCulled={false} renderOrder={3} />;
 }
+
+/** The halos' daytime strength (`haloMaterial`'s default). */
+const HALO_STRENGTH = 0.55;
 
 /** Smoke over the fires: every puff in the city in one instanced mesh. */
 function Smoke({ puffs }: { puffs: readonly PuffSpec[] }) {
