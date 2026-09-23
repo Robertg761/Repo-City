@@ -33,6 +33,12 @@ export interface FocusTarget {
   span?: number;
   /** The building a scaffold stands against: the one tower it cannot clear. */
   host?: string;
+  /**
+   * How far the thing reaches across the ground, when `radius` is set by
+   * something else: a tower's radius follows its height, so the camera backs
+   * off far enough to hold it, but the selection ring belongs round its plot.
+   */
+  footprint?: number;
 }
 
 /**
@@ -102,6 +108,7 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
           position: entity.position,
           lookAt: [x, y + h * 0.55, z],
           radius: Math.max(w, d, h) * 0.7,
+          footprint: Math.hypot(w, d) * 0.5,
         };
       }
       case "landmark": {
@@ -492,7 +499,13 @@ export function clearInspectionFraming(
   );
   const facade = focus.facing !== undefined && Number.isFinite(focus.facing);
   const crowd = facade || (focus.radius < 3 && focus.kind !== "building" && focus.kind !== "landmark");
-  const local = near(obstacles, target[0], target[2], distance * 1.6 + 4);
+  // The thing being inspected is not in its own way. A building or a
+  // landmark is aimed at from inside its own plot, so its own box sat across
+  // every sight line, every framing read as blocked, and every building was
+  // inspected from straight overhead.
+  const local = near(obstacles, target[0], target[2], distance * 1.6 + 4).filter(
+    (o) => o.id !== focus.id,
+  );
 
   // How high the camera should be to be out of the canyon: over the nearby
   // roofs, the scaffold's own tower aside, if that is within reach.
