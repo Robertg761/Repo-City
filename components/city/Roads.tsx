@@ -41,7 +41,10 @@ import type { RoadSegment } from "@/types/city";
 import {
   MEDIAN_WIDTH,
   SIDEWALK_HEIGHT,
-  SIDEWALK_WIDTH,
+  MEDIAN_BED_INSET,
+  MEDIAN_BED_LIFT,
+  pavementCut,
+  CURB_WIDTH,
   VERGE_WIDTH,
   barrierLays,
   crosswalkLays,
@@ -82,12 +85,8 @@ const scratchColor = new Color();
 /** Surface heights, in world units above the ground plate. */
 const ROAD_Y = 0.04;
 const MARK_Y = 0.09;
-/** Width of the darker lip between the carriageway and the pavement. */
-const CURB_WIDTH = 0.3;
 /** A lane's verge sits just under the road surface, flush with the grass. */
 const VERGE_HEIGHT = 0.06;
-/** The avenue median: a kerb as tall as a pavement, the grass a hair above. */
-const MEDIAN_GRASS_INSET = 0.16;
 /** The motorway's central barrier. */
 const BARRIER_WIDTH = 0.4;
 const BARRIER_HEIGHT = 0.55;
@@ -142,12 +141,16 @@ function layStrips(
   fronts: Float32Array,
   y: number,
   width: number,
+  /** Stop this far short of each end: a bed inside its kerb, not flush with it. */
+  inset = 0,
 ): void {
   if (!mesh) return;
   strips.forEach((strip, i) => {
     const lay = lays[strip.road];
-    const along = Math.min(Math.max(reach(fronts, lays, strip.road) - strip.start, 0), strip.along);
-    place(lay, strip.start + along / 2, strip.lateral, y);
+    const start = strip.start + inset;
+    const length = Math.max(strip.along - inset * 2, 0);
+    const along = Math.min(Math.max(reach(fronts, lays, strip.road) - start, 0), length);
+    place(lay, start + along / 2, strip.lateral, y);
     scratch.scale.set(along > 0.01 ? width : 0, 1, Math.max(along, 0.0001));
     scratch.updateMatrix();
     mesh.setMatrixAt(i, scratch.matrix);
@@ -260,15 +263,16 @@ export default function Roads({
         // The slab is laid behind the front, never ahead of it.
         const along = Math.min(Math.max(reach(fronts, lays, walk.road) - walk.start, 0), walk.along);
         const centre = walk.start + along / 2;
-        const side = Math.sign(walk.lateral);
+        // Kerb stone and paving side by side and flush (`pavementCut`).
+        const cut = pavementCut(lay.width, Math.sign(walk.lateral));
 
-        place(lay, centre, walk.lateral, SIDEWALK_HEIGHT / 2);
-        scratch.scale.set(along > 0.01 ? SIDEWALK_WIDTH : 0, 1, Math.max(along, 0.0001));
+        place(lay, centre, cut.slabLateral, SIDEWALK_HEIGHT / 2);
+        scratch.scale.set(along > 0.01 ? cut.slabWidth : 0, 1, Math.max(along, 0.0001));
         scratch.updateMatrix();
         walkMesh.setMatrixAt(i, scratch.matrix);
 
         if (!curbMesh) return;
-        place(lay, centre, (lay.width / 2 + CURB_WIDTH / 2) * side, SIDEWALK_HEIGHT / 2 + 0.005);
+        place(lay, centre, cut.kerbLateral, SIDEWALK_HEIGHT / 2);
         scratch.scale.set(along > 0.01 ? CURB_WIDTH : 0, 1, Math.max(along, 0.0001));
         scratch.updateMatrix();
         curbMesh.setMatrixAt(i, scratch.matrix);
@@ -298,8 +302,9 @@ export default function Roads({
       medians,
       lays,
       fronts,
-      SIDEWALK_HEIGHT / 2 + 0.006,
-      MEDIAN_WIDTH - MEDIAN_GRASS_INSET * 2,
+      SIDEWALK_HEIGHT / 2 + MEDIAN_BED_LIFT,
+      MEDIAN_WIDTH - MEDIAN_BED_INSET * 2,
+      MEDIAN_BED_INSET,
     );
     layStrips(barrierRef.current, barriers, lays, fronts, BARRIER_HEIGHT / 2, BARRIER_WIDTH);
     layJoints(discRef.current, joints.street, fronts);

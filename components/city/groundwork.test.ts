@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { coplanarOverlaps } from "./models/coplanar";
 import type { CityModel, District, Landmark, RoadKind, RoadSegment, Vec3 } from "@/types/city";
 import {
+  CURB_WIDTH,
   JUNCTION_INSET,
+  MEDIAN_BED_INSET,
+  MEDIAN_BED_LIFT,
+  SIDEWALK_HEIGHT,
+  pavementCut,
   MEDIAN_WIDTH,
   SIDEWALK_WIDTH,
   TUNED_WIDTH,
@@ -692,5 +698,55 @@ describe("plaza surfaces", () => {
     });
     expect(Math.abs(area) / 2).toBeLessThan(rect.w * rect.d);
     expect(Math.abs(area) / 2).toBeGreaterThan(rect.w * rect.d * 0.9);
+  });
+});
+
+describe("pavement layers (the dashed kerb at the overview)", () => {
+  /** A box as a triangle soup, outward-facing: centre, then size. */
+  function box(soup: number[], [cx, cy, cz]: Vec3, [sx, sy, sz]: Vec3): void {
+    const x = [cx - sx / 2, cx + sx / 2];
+    const y = [cy - sy / 2, cy + sy / 2];
+    const z = [cz - sz / 2, cz + sz / 2];
+    const v = (i: number, j: number, k: number): Vec3 => [x[i], y[j], z[k]];
+    const quad = (a: Vec3, b: Vec3, c: Vec3, d: Vec3) => soup.push(...a, ...b, ...c, ...a, ...c, ...d);
+    quad(v(0, 0, 1), v(1, 0, 1), v(1, 1, 1), v(0, 1, 1)); // +z
+    quad(v(1, 0, 0), v(0, 0, 0), v(0, 1, 0), v(1, 1, 0)); // -z
+    quad(v(1, 0, 1), v(1, 0, 0), v(1, 1, 0), v(1, 1, 1)); // +x
+    quad(v(0, 0, 0), v(0, 0, 1), v(0, 1, 1), v(0, 1, 0)); // -x
+    quad(v(0, 1, 1), v(1, 1, 1), v(1, 1, 0), v(0, 1, 0)); // +y
+    quad(v(0, 0, 0), v(1, 0, 0), v(1, 0, 1), v(0, 0, 1)); // -y
+  }
+
+  it("lays the kerb and the paving side by side, and the median bed a clear step up", () => {
+    const soup: number[] = [];
+    const width = 7;
+    const length = 20;
+    // Carriageway, as `Roads.tsx` draws it: 0.08 deep, top at 0.08.
+    box(soup, [0, 0.04, 0], [width, 0.08, length]);
+    for (const side of [1, -1]) {
+      const cut = pavementCut(width, side);
+      box(soup, [cut.kerbLateral, SIDEWALK_HEIGHT / 2, 0], [CURB_WIDTH, SIDEWALK_HEIGHT, length]);
+      box(soup, [cut.slabLateral, SIDEWALK_HEIGHT / 2, 0], [cut.slabWidth, SIDEWALK_HEIGHT, length]);
+    }
+    // An avenue's median and its planted bed, which stop short of the
+    // junctions as `medianLays` has them.
+    const median = length - 2 * JUNCTION_INSET;
+    box(soup, [0, SIDEWALK_HEIGHT / 2, 0], [MEDIAN_WIDTH, SIDEWALK_HEIGHT, median]);
+    box(
+      soup,
+      [0, SIDEWALK_HEIGHT / 2 + MEDIAN_BED_LIFT, 0],
+      [MEDIAN_WIDTH - MEDIAN_BED_INSET * 2, SIDEWALK_HEIGHT, median - MEDIAN_BED_INSET * 2],
+    );
+    // Faces within two hundredths of each other, facing the same way, that
+    // overlap and are not buried inside another box, z-fight at distance.
+    // Undersides lie on the ground plate and are never seen.
+    const pairs = coplanarOverlaps(soup, null, { within: 0.02, minOverlap: 1e-4, buriedWithin: 0.01 }).filter(
+      (pair) => pair.normal[1] > -0.5,
+    );
+    expect(pairs).toEqual([]);
+    // Together they still cover the pavement's full width.
+    const cut = pavementCut(width, 1);
+    expect(cut.slabLateral + cut.slabWidth / 2).toBeCloseTo(width / 2 + SIDEWALK_WIDTH, 10);
+    expect(cut.kerbLateral - CURB_WIDTH / 2).toBeCloseTo(width / 2, 10);
   });
 });
