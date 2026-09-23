@@ -10,15 +10,17 @@
  * "Archived repository", never "bad repository" (section 19).
  */
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   attentionChips,
   cityPopulation,
   describeRepository,
   explainPopulation,
+  queueChip,
   scoreLines,
 } from "@/lib/client/descriptors";
 import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
+import type { SettlementInfo } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
 
 /** Injected at build time by next.config.ts; see the version badge below. */
@@ -34,6 +36,75 @@ const BAND_TONES: Record<RepoMetrics["health"]["band"], string> = {
 };
 
 const CONFIDENCE_LABELS = { low: "Low", medium: "Medium", high: "High" } as const;
+
+const SHADOW = "drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]";
+
+/**
+ * A line of HUD text that explains itself. A mouse reads the note on hover,
+ * a keyboard on focus, and a finger taps to open it and taps again (or
+ * anywhere else) to close it: phones have no hover, and a hover-only note
+ * would be out of reach there.
+ */
+function Explained({
+  children,
+  note,
+  className,
+  align = "left",
+}: {
+  children: ReactNode;
+  note: ReactNode;
+  className: string;
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const noteId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={root}
+      className={`group pointer-events-auto relative flex ${align === "right" ? "justify-end" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-describedby={noteId}
+        className={`cursor-help text-left underline decoration-dotted underline-offset-4 focus:outline-none ${className}`}
+      >
+        {children}
+      </button>
+      {/* Tailwind's hover variant only applies on devices that can hover, so
+          a tap never leaves the note stuck open behind a sticky hover, and
+          keyboard focus shows it without a mouse click doing the same. */}
+      <div
+        id={noteId}
+        role="tooltip"
+        className={`glass pointer-events-none absolute top-full z-30 mt-1.5 w-64 max-w-[calc(100vw-2rem)] p-3 text-left text-[11px] normal-case leading-relaxed tracking-normal text-white/75 ${
+          align === "right" ? "right-0" : "left-0"
+        } ${open ? "block" : "hidden group-hover:block group-has-[:focus-visible]:block"}`}
+      >
+        {note}
+      </div>
+    </div>
+  );
+}
 
 function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -113,6 +184,31 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         </p>
       ) : null}
 
+      {/* What the survey could not do: a budget ran low, a page failed, the
+          tree was capped. Facts about this survey, not about the repository. */}
+      {analysis.warnings.length > 0 ? (
+        <div className="mt-2">
+          <Explained
+            align="right"
+            className="text-[11px] text-white/60 hover:text-white/90 focus-visible:text-white/90"
+            note={
+              <>
+                <p className="eyebrow mb-1.5">Survey notes</p>
+                <ul className="space-y-1">
+                  {analysis.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </>
+            }
+          >
+            {analysis.warnings.length === 1
+              ? "1 survey note"
+              : `${analysis.warnings.length.toLocaleString("en-US")} survey notes`}
+          </Explained>
+        </div>
+      ) : null}
+
       <button
         type="button"
         onClick={() => setShowBreakdown((open) => !open)}
@@ -156,15 +252,55 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
   );
 }
 
+/**
+ * "Town of zustand" under the repository link (PLAN.md 76.10), with the rule
+ * that sized it one hover or one tap away.
+ */
+function SettlementLine({ settlement }: { settlement: SettlementInfo }) {
+  return (
+    <div className="mt-1">
+      <Explained
+        note={settlement.reason}
+        className={`text-[10px] uppercase tracking-[0.2em] text-white/90 decoration-white/40 hover:text-white focus-visible:text-white ${SHADOW}`}
+      >
+        {settlement.name}
+      </Explained>
+    </div>
+  );
+}
+
+/**
+ * "1,000 of 21,011 issues on the streets", shown only when some open issues
+ * or pull requests wait in the queue. Tapping it opens the queue in the
+ * inspector, which is where the counts are explained.
+ */
+function QueueChip({ label }: { label: string }) {
+  const select = useCityStore((s) => s.actions.select);
+  return (
+    <button
+      type="button"
+      onClick={() => select("overflow")}
+      title="Show the queue at the limits"
+      className="pointer-events-auto mt-2 block rounded-2xl bg-[#080c12]/60 px-2.5 py-1 text-left text-[11px] leading-snug text-white/85 ring-1 ring-white/12 backdrop-blur-sm transition hover:bg-[#080c12]/75 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function CityHUD() {
   const analysis = useCityStore((s) => s.analysis);
   const phase = useCityStore((s) => s.phase);
+  const settlement = useCityStore((s) => s.city?.settlement);
+  const queue = useCityStore((s) => queueChip(s.city?.overflow));
 
   return (
     <>
       {/* On a phone the identity block and the health card sit below the repo
-          control rather than beside it; there is no room for three columns. */}
-      <div className="pointer-events-none absolute left-4 top-[7rem] z-20 max-w-[min(18rem,42vw)] select-none sm:top-4">
+          control rather than beside it; there is no room for three columns.
+          One step above the health card, so the settlement note can open
+          over it on a narrow screen instead of sliding underneath. */}
+      <div className="pointer-events-none absolute left-4 top-[7rem] z-[21] max-w-[min(18rem,calc(48vw-2.5rem))] select-none sm:top-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           Repo City
           <span
@@ -191,11 +327,13 @@ export default function CityHUD() {
             {phase === "analyzing" ? "surveying repository" : "no repository surveyed"}
           </p>
         )}
+        {analysis && settlement ? <SettlementLine settlement={settlement} /> : null}
         {analysis?.repo.archived ? (
           <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-accent drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
             Archived repository
           </p>
         ) : null}
+        {analysis && queue ? <QueueChip label={queue} /> : null}
       </div>
 
       <div className="pointer-events-none absolute right-4 top-[7rem] z-20 flex justify-end sm:top-4">
