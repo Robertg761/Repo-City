@@ -488,6 +488,21 @@ export function framingBlocked(target: Vec3, position: Vec3, obstacles: readonly
   return false;
 }
 
+/**
+ * Whether a camera at `position` stands inside a building or landmark plot,
+ * or closer to one than `pad`. The line of sight is not tested: this is the
+ * check for a camera in flight, which may pass behind a tower for a moment
+ * but must never pass through one (the tour, `components/tour/path.ts`).
+ */
+export function cameraInside(
+  position: Vec3,
+  obstacles: readonly Obstacle[],
+  pad = CAMERA_CLEARANCE,
+): boolean {
+  for (const o of obstacles) if (segmentHits(o, position, position, pad)) return true;
+  return false;
+}
+
 /** The obstacles within `reach` of a point on the ground, by their far corner. */
 function near(obstacles: readonly Obstacle[], x: number, z: number, reach: number): Obstacle[] {
   return obstacles.filter((o) => Math.hypot(o.x - x, o.z - z) - Math.hypot(o.hw, o.hd) <= reach);
