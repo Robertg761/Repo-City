@@ -213,7 +213,17 @@ export function DistrictLabels({
         // No entrance animation on the label: a CSS delay is one more thing
         // that can be mid-flight when a screenshot is taken, and the tinted
         // ground underneath already animates in.
-        <Html key={slot.district.id} position={slot.anchor} center zIndexRange={[20, 0]}>
+        // `style` reaches drei's own centring wrapper round the label, which
+        // otherwise takes the pointer: a label hangs over its district's
+        // tallest towers, so clicks and taps on exactly the buildings most
+        // worth inspecting landed on an invisible box and did nothing.
+        <Html
+          key={slot.district.id}
+          position={slot.anchor}
+          center
+          zIndexRange={[20, 0]}
+          style={{ pointerEvents: "none" }}
+        >
           <div
             ref={(node) => {
               slot.node = node;
