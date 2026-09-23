@@ -80,6 +80,11 @@ interface Run {
   leg: Leg | null;
 }
 
+/** How far past the horizon the controls let the camera look. */
+function setMaxPolar(controls: DirectedControls, angle: number): void {
+  controls.maxPolarAngle = angle;
+}
+
 const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
 const clampAim = (target: Vec3, box: [Vec3, Vec3]): Vec3 =>
   [0, 1, 2].map((k) => Math.min(box[1][k], Math.max(box[0][k], target[k]))) as Vec3;
@@ -116,7 +121,7 @@ export function useTourDirector(
     if (!controls || !city || !isTouring(tour)) {
       if (current && controls) {
         // Hand the camera back as the tour left it.
-        controls.maxPolarAngle = current.savedMaxPolar;
+        setMaxPolar(controls, current.savedMaxPolar);
         void controls.setFocalOffset(0, 0, 0, true);
       }
       run.current = null;
@@ -142,7 +147,7 @@ export function useTourDirector(
     }
     // Every frame, not once: a re-render of `<CameraControls>` puts its own
     // limit back, and the track looks up past it.
-    controls.maxPolarAngle = TOUR_LOOK_UP_POLAR;
+    setMaxPolar(controls, TOUR_LOOK_UP_POLAR);
 
     const shot = active.shots[tour.index];
     const stop = tour.stops[tour.index];
