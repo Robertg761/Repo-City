@@ -112,7 +112,8 @@ function buildInfo(level: number): InfoLayout {
     }
     a.box("sign", [10.4, 0.62, 0.22], { at: [-1.8, DECK + 3.42, 2.12] });
     a.box("roof", [1.6, 0.2, 0.08], { at: [-1.8, DECK + 3.42, 2.25] });
-    a.box("roof", [4.2, 0.24, 2.4], { at: [-1.8, DECK + 3.62, 3.4] });
+    // The canopy starts clear of the sign band, whose top it would share.
+    a.box("roof", [4.2, 0.24, 2.4], { at: [-1.8, DECK + 3.62, 3.45] });
     for (const s of [-1, 1]) {
       a.box("roof", [0.16, 3.5, 0.16], { at: [-1.8 + s * 1.9, DECK + 1.75, 4.4] });
       a.box("deck", [1.3, 0.55, 1.3], { at: [-1.8 + s * 3.2, DECK + 0.28, 3.6] });
@@ -124,7 +125,7 @@ function buildInfo(level: number): InfoLayout {
     a.box("roof", [0.44, 1.15, 0.07], { at: [6.2, DECK + 3.4, 1.52] });
     a.box("roof", [0.44, 0.38, 0.07], { at: [6.2, DECK + 4.28, 1.52] });
     mapBoard(a, 2.8, 4.6, 2.2, 1.5);
-    bench(a, -6.2, 4.2, 0);
+    bench(a, -6.4, 4.2, 0);
   } else {
     // A library: a raised hall behind a colonnade, with a reading garden.
     a.box("deck", [11.4, 0.4, 7.4], { at: [-2.6, DECK + 0.2, -0.2] });

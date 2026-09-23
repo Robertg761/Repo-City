@@ -88,6 +88,13 @@ export default function Lighting({
         shadow-camera-bottom={-reach}
         shadow-bias={-0.0003}
         shadow-normalBias={normalBias}
+        // three's PCF spreads five samples over `radius` texels and turns
+        // them per pixel with a noise pattern. At the default radius of one
+        // the noise showed as a stipple over every penumbra, smeared across
+        // whole walls by a low sun and crawling as the camera moved. Half a
+        // texel keeps the edges soft, with the hardware filter doing most of
+        // the smoothing, and the stipple all but gone.
+        shadow-radius={0.5}
       />
     </>
   );

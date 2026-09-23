@@ -19,6 +19,7 @@
 
 import {
   FACINGS,
+  LAYER,
   addBox,
   addCylinder,
   addGable,
@@ -90,6 +91,11 @@ function addEntrance(
     canopy?: boolean;
     /** A taller glazed band at street level, for anything above a house. */
     lobby?: { w: number; h: number };
+    /**
+     * The top of the plinth. The door and its surround stop there rather than
+     * running on down behind the plinth's face, a hair behind it.
+     */
+    floor?: number;
   },
 ): void {
   if (spec.lobby) {
@@ -108,8 +114,18 @@ function addEntrance(
       );
     }
   }
-  addPanel(draft, { facing: "+z", u: 0, v: spec.v, w: spec.w * 1.3, h: spec.h * 1.15, plane: spec.plane }, WALL_SOFT);
-  addPanel(draft, { facing: "+z", u: 0, v: spec.v, w: spec.w, h: spec.h, plane: spec.plane }, DOOR);
+  // The lobby glazing is on the windows' layer, the surround two layers out
+  // and the door one more: the layer between is the lit pane of any window
+  // the entrance stands over. Four faces over one patch of wall, none of them
+  // in the same plane.
+  const floor = spec.floor ?? 0;
+  const standing = (h: number) => {
+    const bottom = Math.max(spec.v - h / 2, floor);
+    const top = spec.v + h / 2;
+    return { v: (bottom + top) / 2, h: top - bottom };
+  };
+  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h * 1.15), w: spec.w * 1.3, plane: spec.plane + LAYER * 2 }, WALL_SOFT);
+  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h), w: spec.w, plane: spec.plane + LAYER * 3 }, DOOR);
   if (spec.canopy !== false) {
     addBox(draft, {
       y: spec.v + spec.h * 0.6,
@@ -122,7 +138,12 @@ function addEntrance(
   }
 }
 
-/** Thin walls around a flat roof, so the top is not a bare lid. */
+/**
+ * Thin walls around a flat roof, so the top is not a bare lid. Every caller
+ * makes it exactly as wide as the cornice it stands on: set back by a hair,
+ * the strip of cornice left showing is thinner than a pixel from the overview
+ * and breaks up into a dashed white line along every roof.
+ */
 function addParapet(
   draft: MeshDraft,
   spec: { y: number; h: number; w: number; d: number; t?: number; color?: Rgb3 },
@@ -212,7 +233,7 @@ function house(): ArchetypeModel {
     ...windowGrid({ facing: "-x", plane: 0.46, span: 0.4, columns: 1, rows: 1, from: 0.34, to: 0.34, w: 0.2, h: 0.16 }),
   ];
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.46, v: 0.16, w: 0.16, h: 0.24 });
+  addEntrance(draft, { plane: 0.46, v: 0.16, w: 0.16, h: 0.24, floor: 0.04 });
 
   return { id: "house", draft, windows, roofPads: [], maxProps: 0 };
 }
@@ -223,15 +244,17 @@ function lowriseParapet(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: 0.05, d: 1, color: PLINTH });
   addBox(draft, { y: 0.05, w: 0.96, h: 0.82, d: 0.96, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.85, w: 1.02, h: 0.035, d: 1.02, color: TRIM, skipBottom: true });
-  addBox(draft, { y: 0.885, w: 0.94, h: 0.015, d: 0.94, color: ROOF, skipBottom: true });
-  addParapet(draft, { y: 0.885, h: 0.055, w: 0.99, d: 0.99 });
+  // The roof deck stops short of the parapet: run into it, its edge lay a
+  // hair behind the parapet's ends.
+  addBox(draft, { y: 0.885, w: 0.92, h: 0.015, d: 0.92, color: ROOF, skipBottom: true });
+  addParapet(draft, { y: 0.885, h: 0.055, w: 1.02, d: 1.02 });
 
   const windows = windowRing({ plane: 0.48, span: 0.66, columns: 3, rows: 2, from: 0.45, to: 0.7, w: 0.17, h: 0.12 });
   bake(draft, windows);
   // A deeper glazed band at street level: this is a building people go into.
   addPanel(draft, { facing: "+z", u: 0, v: 0.2, w: 0.72, h: 0.16, plane: 0.48 }, WINDOW);
   addPanel(draft, { facing: "-z", u: 0, v: 0.2, w: 0.72, h: 0.16, plane: 0.48 }, WINDOW);
-  addEntrance(draft, { plane: 0.482, v: 0.17, w: 0.18, h: 0.26 });
+  addEntrance(draft, { plane: 0.48, v: 0.17, w: 0.18, h: 0.26, floor: 0.05 });
 
   return {
     id: "lowrise-parapet",
@@ -264,7 +287,7 @@ function lowrisePitched(): ArchetypeModel {
 
   const windows = windowRing({ plane: 0.48, span: 0.68, columns: 3, rows: 3, from: 0.22, to: 0.62, w: 0.15, h: 0.1 });
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.482, v: 0.15, w: 0.17, h: 0.24 });
+  addEntrance(draft, { plane: 0.48, v: 0.15, w: 0.17, h: 0.24, floor: 0.04 });
 
   return { id: "lowrise-pitched", draft, windows, roofPads: [], maxProps: 0 };
 }
@@ -303,9 +326,9 @@ function warehouseSawtooth(): ArchetypeModel {
   ];
   bake(draft, windows);
   // The roll-up door, wide enough for the lorry the city implies.
-  addPanel(draft, { facing: "+z", u: 0, v: 0.26, w: 0.42, h: 0.34, plane: 0.481 }, WALL_SOFT);
-  addPanel(draft, { facing: "+z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.483 }, DOOR);
-  addPanel(draft, { facing: "-z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.483 }, DOOR);
+  addPanel(draft, { facing: "+z", u: 0, v: 0.26, w: 0.42, h: 0.34, plane: 0.48 }, WALL_SOFT);
+  addPanel(draft, { facing: "+z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.48 + LAYER }, DOOR);
+  addPanel(draft, { facing: "-z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.48 }, DOOR);
 
   return { id: "warehouse-sawtooth", draft, windows, roofPads: [], maxProps: 0 };
 }
@@ -316,17 +339,17 @@ function midriseSetback(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: 0.03, d: 1, color: PLINTH });
   addBox(draft, { y: 0.03, w: 1.0, h: 0.41, d: 1.0, color: WALL, topColor: ROOF, skipBottom: true });
   addBox(draft, { y: 0.44, w: 1.04, h: 0.022, d: 1.04, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.462, h: 0.03, w: 1.03, d: 1.03, t: 0.03 });
+  addParapet(draft, { y: 0.462, h: 0.03, w: 1.04, d: 1.04, t: 0.03 });
   addBox(draft, { y: 0.462, w: 0.76, h: 0.45, d: 0.76, color: WALL, topColor: ROOF, skipBottom: true });
   addBox(draft, { y: 0.912, w: 0.82, h: 0.028, d: 0.82, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.94, h: 0.04, w: 0.8, d: 0.8, t: 0.035 });
+  addParapet(draft, { y: 0.94, h: 0.04, w: 0.82, d: 0.82, t: 0.035 });
 
   const windows = [
     ...windowRing({ plane: 0.5, span: 0.72, columns: 3, rows: 4, from: 0.1, to: 0.38, w: 0.15, h: 0.055 }),
     ...windowRing({ plane: 0.38, span: 0.66, columns: 2, rows: 4, from: 0.53, to: 0.86, w: 0.16, h: 0.06 }),
   ];
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.502, v: 0.12, w: 0.2, h: 0.18, lobby: { w: 0.66, h: 0.075 } });
+  addEntrance(draft, { plane: 0.5, v: 0.12, w: 0.2, h: 0.18, lobby: { w: 0.66, h: 0.075 }, floor: 0.03 });
 
   return {
     id: "midrise-setback",
@@ -347,13 +370,13 @@ function midriseMech(): ArchetypeModel {
   addBox(draft, { y: 0.025, w: 0.96, h: 0.875, d: 0.96, color: WALL, topColor: ROOF, skipBottom: true });
   addMullions(draft, { y: 0.025, h: 0.875, plane: 0.48, offsets: [0.22] });
   addBox(draft, { y: 0.9, w: 1.0, h: 0.025, d: 1.0, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.925, h: 0.032, w: 0.98, d: 0.98 });
+  addParapet(draft, { y: 0.925, h: 0.032, w: 1.0, d: 1.0 });
   addBox(draft, { x: -0.12, y: 0.925, z: 0.08, w: 0.38, h: 0.06, d: 0.32, color: MECH, skipBottom: true });
   addBox(draft, { x: 0.22, y: 0.925, z: -0.18, w: 0.14, h: 0.035, d: 0.14, color: MECH, skipBottom: true });
 
   const windows = windowRing({ plane: 0.48, span: 0.72, columns: 3, rows: 7, from: 0.12, to: 0.84, w: 0.16, h: 0.05 });
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.482, v: 0.075, w: 0.2, h: 0.12, lobby: { w: 0.66, h: 0.05 } });
+  addEntrance(draft, { plane: 0.48, v: 0.075, w: 0.2, h: 0.12, lobby: { w: 0.66, h: 0.05 }, floor: 0.025 });
 
   return {
     id: "midrise-mech",
@@ -370,16 +393,16 @@ function towerStepped(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: 0.02, d: 1, color: PLINTH });
   addBox(draft, { y: 0.02, w: 1.0, h: 0.42, d: 1.0, color: WALL, topColor: ROOF, skipBottom: true });
   addBox(draft, { y: 0.44, w: 1.04, h: 0.018, d: 1.04, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.458, h: 0.026, w: 1.03, d: 1.03, t: 0.028 });
+  addParapet(draft, { y: 0.458, h: 0.026, w: 1.04, d: 1.04, t: 0.028 });
 
   addBox(draft, { y: 0.458, w: 0.78, h: 0.31, d: 0.78, color: WALL, topColor: ROOF, skipBottom: true });
   addBox(draft, { y: 0.768, w: 0.82, h: 0.016, d: 0.82, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.784, h: 0.022, w: 0.81, d: 0.81, t: 0.026 });
+  addParapet(draft, { y: 0.784, h: 0.022, w: 0.82, d: 0.82, t: 0.026 });
 
   addBox(draft, { y: 0.784, w: 0.56, h: 0.18, d: 0.56, color: WALL, topColor: ROOF, skipBottom: true });
   addMullions(draft, { y: 0.784, h: 0.18, plane: 0.28, offsets: [0.14], t: 0.03, depth: 0.018 });
   addBox(draft, { y: 0.964, w: 0.6, h: 0.02, d: 0.6, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.984, h: 0.016, w: 0.58, d: 0.58, t: 0.026 });
+  addParapet(draft, { y: 0.984, h: 0.016, w: 0.6, d: 0.6, t: 0.026 });
   addCylinder(draft, { y: 0.984, radius: 0.016, h: 0.09, segments: 6, color: MECH });
 
   const windows = [
@@ -388,7 +411,7 @@ function towerStepped(): ArchetypeModel {
     ...windowRing({ plane: 0.28, span: 0.56, columns: 2, rows: 2, from: 0.82, to: 0.93, w: 0.12, h: 0.045 }),
   ];
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.502, v: 0.06, w: 0.22, h: 0.1, lobby: { w: 0.68, h: 0.042 } });
+  addEntrance(draft, { plane: 0.5, v: 0.06, w: 0.22, h: 0.1, lobby: { w: 0.68, h: 0.042 }, floor: 0.02 });
 
   return {
     id: "tower-stepped",
@@ -409,7 +432,7 @@ function towerCrown(): ArchetypeModel {
   addBox(draft, { y: 0.018, w: 0.92, h: 0.842, d: 0.92, color: WALL, topColor: ROOF, skipBottom: true });
   addMullions(draft, { y: 0.018, h: 0.842, plane: 0.46, offsets: [0.44, 0.2], t: 0.03, depth: 0.02 });
   addBox(draft, { y: 0.86, w: 0.98, h: 0.024, d: 0.98, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: 0.884, h: 0.022, w: 0.96, d: 0.96, t: 0.03 });
+  addParapet(draft, { y: 0.884, h: 0.022, w: 0.98, d: 0.98, t: 0.03 });
   addBox(draft, { y: 0.884, w: 0.62, h: 0.072, d: 0.62, color: WALL, topColor: ROOF, skipBottom: true });
   addBox(draft, { y: 0.956, w: 0.66, h: 0.018, d: 0.66, color: TRIM, skipBottom: true });
   addBox(draft, { y: 0.974, w: 0.3, h: 0.016, d: 0.3, color: MECH, skipBottom: true });
@@ -420,7 +443,7 @@ function towerCrown(): ArchetypeModel {
     ...windowRing({ plane: 0.31, span: 0.5, columns: 2, rows: 1, from: 0.918, to: 0.918, w: 0.12, h: 0.035 }),
   ];
   bake(draft, windows);
-  addEntrance(draft, { plane: 0.462, v: 0.055, w: 0.22, h: 0.09, lobby: { w: 0.62, h: 0.038 } });
+  addEntrance(draft, { plane: 0.46, v: 0.055, w: 0.22, h: 0.09, lobby: { w: 0.62, h: 0.038 }, floor: 0.018 });
 
   return {
     id: "tower-crown",

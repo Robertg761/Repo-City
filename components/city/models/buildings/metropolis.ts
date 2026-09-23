@@ -38,6 +38,7 @@
 
 import {
   FACINGS,
+  LAYER,
   addBox,
   addCylinder,
   addPanel,
@@ -268,13 +269,26 @@ function addParapet(
  * a canopy on the front. The door faces +z; `placement.ts` turns it to the
  * street as it does for every other archetype.
  */
+const PLINTH_H = 0.012;
+
 function addLobby(draft: MeshDraft, spec: { plane: number; h: number }): void {
-  addBox(draft, { y: 0, w: 1, h: 0.012, d: 1, color: PLINTH });
+  // The plinth stands proud of the lobby glass even where the wall fills the
+  // plot; flush, the two were one plane in two colours.
+  const plinth = Math.max(1, spec.plane * 2 + LAYER * 4);
+  addBox(draft, { y: 0, w: plinth, h: PLINTH_H, d: plinth, color: PLINTH });
   for (const facing of FACINGS) {
     addPanel(draft, { facing, u: 0, v: spec.h * 0.55, w: spec.plane * 1.6, h: spec.h * 0.62, plane: spec.plane }, LOBBY);
   }
-  addPanel(draft, { facing: "+z", u: 0, v: spec.h * 0.45, w: 0.2, h: spec.h * 0.72, plane: spec.plane + 0.002 }, DOOR);
-  addBox(draft, { y: spec.h * 0.86, z: spec.plane + 0.04, w: 0.36, h: 0.008, d: 0.09, color: TRIM });
+  // The door stands on the plinth rather than running down behind its face.
+  const doorFoot = Math.max(spec.h * 0.09, PLINTH_H);
+  const doorHead = spec.h * 0.81;
+  addPanel(
+    draft,
+    { facing: "+z", u: 0, v: (doorFoot + doorHead) / 2, w: 0.2, h: doorHead - doorFoot, plane: spec.plane + LAYER },
+    DOOR,
+  );
+  // The canopy starts at the wall, so its top never lies over the lobby's roof.
+  addBox(draft, { y: spec.h * 0.86, z: spec.plane + 0.045, w: 0.36, h: 0.008, d: 0.09, color: TRIM });
 }
 
 /**

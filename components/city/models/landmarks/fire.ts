@@ -75,8 +75,9 @@ function hoseTower(a: A, x: number): void {
   a.box("red", [3.05, 0.3, 3.05], { at: [x, DECK + height - 0.1, -1.4] });
   a.box("trim", [3.0, 0.35, 3.0], { at: [x, DECK + height + 0.22, -1.4] });
   a.box("glass", [0.7, 4.2, 0.1], { at: [x, DECK + 3.6, -0.06] });
+  // The rungs stand proud of the window strip they cross.
   for (let i = 0; i < 4; i++) {
-    a.box("steel", [1.6, 0.14, 0.1], { at: [x, DECK + 5.3 + i * 0.42, -0.06] });
+    a.box("steel", [1.6, 0.14, 0.16], { at: [x, DECK + 5.3 + i * 0.42, -0.06] });
   }
   for (const s of [-0.45, 0.45]) {
     a.strut("steel", [x + 1.33, DECK, -1.4 + s], [x + 1.33, DECK + height, -1.4 + s], 0.05, 4);
@@ -128,9 +129,11 @@ function buildFire(level: number): FireLayout {
       a.box("trim", [0.22, 3.6, 0.13], { at: [bx + s * 1.61, DECK + 1.8, HALL_Z1 + 0.08] });
     }
     a.box("trim", [3.44, 0.22, 0.13], { at: [bx, DECK + 3.31, HALL_Z1 + 0.08] });
-    // Door ribs, so a bay door is not one flat red rectangle up close.
+    // Door ribs, so a bay door is not one flat red rectangle up close. They
+    // stop short of the door's edges: as wide as the door, their ends lay in
+    // the plane of its sides.
     for (let i = 0; i < 4; i++) {
-      a.box("trim", [2.9, 0.06, 0.04], { at: [bx, DECK + 0.6 + i * 0.7, HALL_Z1 + 0.16] });
+      a.box("trim", [2.84, 0.06, 0.04], { at: [bx, DECK + 0.6 + i * 0.7, HALL_Z1 + 0.16] });
     }
   }
 

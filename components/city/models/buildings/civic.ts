@@ -61,6 +61,15 @@ export interface CivicPlot {
 /** Height of the plinth every civic building stands on. */
 const PLINTH_H = 0.5;
 
+/**
+ * The step between two details stacked on a civic wall, in world units. The
+ * archetypes' `PANEL_LIFT` is sized for a unit model stretched over a
+ * footprint; a civic building is modelled in world units, where the same
+ * 0.006 is a few steps of the depth buffer at best and its windows flickered
+ * against the stone from the overview.
+ */
+const CIVIC_LAYER = 0.03;
+
 /** A window: a dark pane in the wall, and warm glass just in front of it. */
 function addWindow(
   drafts: CivicDrafts,
@@ -81,11 +90,11 @@ function addWindow(
     lit?: boolean;
   },
 ): void {
-  addPanel(drafts.body, { ...spec, plane: spec.plane }, palette.window);
+  addPanel(drafts.body, { ...spec, plane: spec.plane + CIVIC_LAYER }, palette.window);
   if (spec.lit !== false) {
     addPanel(
       drafts.glow,
-      { ...spec, plane: spec.plane + 0.02, w: spec.w * 0.82, h: spec.h * 0.82 },
+      { ...spec, plane: spec.plane + CIVIC_LAYER * 2, w: spec.w * 0.82, h: spec.h * 0.82 },
       [1, 1, 1],
     );
   }
@@ -186,10 +195,10 @@ function addClock(
 ): void {
   const r = spec.radius;
   const at = { facing: spec.facing, cx: spec.cx, cz: spec.cz };
-  addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane, radius: r * 1.12 }, palette.trim);
-  addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + 0.02, radius: r }, palette.stone);
-  addPanel(draft, { ...at, u: 0, v: spec.v + r * 0.35, w: r * 0.16, h: r * 0.9, plane: spec.plane + 0.04 }, palette.door);
-  addPanel(draft, { ...at, u: r * 0.3, v: spec.v, w: r * 0.7, h: r * 0.14, plane: spec.plane + 0.04 }, palette.door);
+  addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER, radius: r * 1.12 }, palette.trim);
+  addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER * 2, radius: r }, palette.stone);
+  addPanel(draft, { ...at, u: 0, v: spec.v + r * 0.35, w: r * 0.16, h: r * 0.9, plane: spec.plane + CIVIC_LAYER * 3 }, palette.door);
+  addPanel(draft, { ...at, u: r * 0.3, v: spec.v, w: r * 0.7, h: r * 0.14, plane: spec.plane + CIVIC_LAYER * 3 }, palette.door);
 }
 
 /** A flag on a pole, with the halyard cleat that sells the scale. */
@@ -664,12 +673,14 @@ function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   for (const x of [-w * 0.3, 0, w * 0.3]) {
     addBox(body, { x, y: dockH, z: shedD / 2, w: w * 0.26, h: shedH * 0.6, d: 0.18, color: p.trim });
     addBox(body, { x, y: dockH, z: shedD / 2 + 0.06, w: w * 0.22, h: shedH * 0.55, d: 0.14, color: p.door });
+    // The slats stop short of the door's edges; the same width, their ends
+    // and the door's sides were one plane.
     for (let i = 1; i <= 3; i++) {
       addBox(body, {
         x,
         y: dockH + (shedH * 0.55 * i) / 4,
         z: shedD / 2 + 0.14,
-        w: w * 0.22,
+        w: w * 0.22 - CIVIC_LAYER * 2,
         h: 0.06,
         d: 0.08,
         color: p.metal,
@@ -830,7 +841,8 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   const boardX = -w * 0.5;
   const boardZ = d / 2 + porchD * 1.1;
   addBox(body, { x: boardX, y: 0, z: boardZ, w: 0.12, h: base + h * 0.3, d: 0.12, color: p.metal });
-  addBox(body, { x: boardX, y: base + h * 0.18, z: boardZ, w: w * 0.22, h: h * 0.16, d: 0.1, color: p.trim });
+  // The board stands clear in front of its post.
+  addBox(body, { x: boardX, y: base + h * 0.18, z: boardZ, w: w * 0.22, h: h * 0.16, d: 0.12 + CIVIC_LAYER * 2, color: p.trim });
 
   addFlag(body, p, { x: w * 0.44, z: d * 0.42, y: base, h: h * 0.95 + 3.2, size: 1.1 });
 

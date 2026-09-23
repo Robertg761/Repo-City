@@ -24,7 +24,7 @@ import {
   type ModelKey,
 } from "./archetypes";
 import { archetypeModel, type RoofPad } from "./models";
-import { facingYaw, panelCentre } from "./mesh";
+import { LAYER, facingYaw, panelCentre } from "./mesh";
 import { settlementPaint } from "./palettes";
 
 /** A building, with everything the renderer needs that is not in the model. */
@@ -94,9 +94,9 @@ export interface WindowInstance {
 }
 
 /** The lit pane sits inside the dark one, so its frame still reads. */
-const LIT_INSET = 0.86;
-/** ... and a touch proud of it, so it never z-fights the pane behind it. */
-const LIT_LIFT = 0.004;
+export const LIT_INSET = 0.86;
+/** ... and a layer proud of it, so it never z-fights the pane behind it. */
+export const LIT_LIFT = LAYER;
 
 export type PropKind = "ac" | "vent" | "skylight" | "antenna" | "tank";
 

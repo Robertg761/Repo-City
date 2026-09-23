@@ -47,7 +47,8 @@ function colonnade(a: A): void {
 function fountain(a: A): void {
   const z = 5.95;
   a.cylinder("stone", 0.92, 1.0, 0.5, 14, { at: [0, 0.4, z] });
-  a.cylinder("glass", 0.78, 0.78, 0.12, 14, { at: [0, 0.6, z] });
+  // The water stands clear of the basin's top rather than a hair above it.
+  a.cylinder("glass", 0.78, 0.78, 0.12, 14, { at: [0, 0.62, z] });
   a.cylinder("stone", 0.26, 0.34, 0.75, 8, { at: [0, 0.82, z] });
   a.cylinder("glass", 0.1, 0.22, 0.85, 8, { at: [0, 1.6, z] });
   a.sphere("glass", 0.16, { at: [0, 2.06, z] }, 8, 6);

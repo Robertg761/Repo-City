@@ -242,7 +242,9 @@ function towParts(shade: (hex: string) => string): Part[] {
     // side standing on it with the boom mount between them. The lockers stand
     // taller than a pickup's bed sides and carry dark shutters, which is what
     // stops the whole thing reading as a pickup with a pole in it.
-    box([w, 0.34, length], [0, 0.45, mid], yellow),
+    // The skirt stops short of the tail, so its end and the bumper's are not
+    // one plane.
+    box([w, 0.34, length - 0.04], [0, 0.45, mid + 0.02], yellow),
     box([0.3, 0.5, length], [w / 2 - 0.15, 0.87, mid], yellow),
     box([0.3, 0.5, length], [-w / 2 + 0.15, 0.87, mid], yellow),
     box([0.02, 0.36, length - 0.24], [w / 2 + 0.005, 0.87, mid], dark),
@@ -326,7 +328,8 @@ function partsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
     const spec = BODY_SPECS.sedan;
     return [
       ...repaint(bodyParts("sedan"), shade("#f0f2f4"), shade("#f0f2f4"), shade),
-      box([spec.width + 0.03, 0.14, 1.9], [0, 0.46, 0.05], shade("#2f4f80")),
+      // Proud of the paint but not as far as the wheel arches it crosses.
+      box([spec.width + 0.012, 0.14, 1.9], [0, 0.46, 0.05], shade("#2f4f80")),
       box([0.94, 0.08, 0.28], [0, 1.1, -0.23], shade(DARK)),
       ...wheels(spec.wheelRadius, spec.wheels[0][0], spec.wheels[0][1], -spec.wheels[2][1]),
     ];

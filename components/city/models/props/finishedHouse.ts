@@ -133,7 +133,7 @@ function bunting(a: Triple, b: Triple, count: number, sag: number, shade: (hex: 
 function balloons(x: number, z: number, top: number, shade: (hex: string) => string): Part[] {
   const spots: Triple[] = [
     [x - 0.2, top, z],
-    [x + 0.18, top + 0.18, z + 0.08],
+    [x + 0.18, top + 0.18, z + 0.06],
     [x + 0.02, top + 0.34, z - 0.14],
   ];
   return spots.flatMap((p, i) => [
@@ -208,11 +208,12 @@ function townDressing(shade: (hex: string) => string): Part[] {
     box([2.4, 0.16, 0.04], [0, 1.02, front + 1.2], shade("#d23b33")),
     box([0.34, 0.34, 0.05], [-0.25, 1.02, front + 1.21], shade("#e0574c"), [0, 0, 0.78]),
     // Two planters with a young tree in each.
-    box([0.8, 0.5, 0.8], [-footprint[0] / 2 + 0.2, 0.25, edge - 0.6], shade("#8f8b80")),
-    box([0.8, 0.5, 0.8], [footprint[0] / 2 - 0.2, 0.25, edge - 0.6], shade("#8f8b80")),
+    // Set in from the paving's edge, whose side they would otherwise share.
+    box([0.8, 0.5, 0.8], [-footprint[0] / 2 + 0.25, 0.25, edge - 0.6], shade("#8f8b80")),
+    box([0.8, 0.5, 0.8], [footprint[0] / 2 - 0.25, 0.25, edge - 0.6], shade("#8f8b80")),
   ];
-  parts.push(...sapling(-footprint[0] / 2 + 0.2, edge - 0.6, shade).map((p) => lift(p, 0.45)));
-  parts.push(...sapling(footprint[0] / 2 - 0.2, edge - 0.6, shade).map((p) => lift(p, 0.45)));
+  parts.push(...sapling(-footprint[0] / 2 + 0.25, edge - 0.6, shade).map((p) => lift(p, 0.45)));
+  parts.push(...sapling(footprint[0] / 2 - 0.25, edge - 0.6, shade).map((p) => lift(p, 0.45)));
   // Bunting over the forecourt, from the first-floor corners out to two poles.
   const poleH = 3.4;
   for (const s of [-1, 1]) {

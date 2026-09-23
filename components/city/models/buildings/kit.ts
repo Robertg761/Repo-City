@@ -26,6 +26,7 @@ import {
   PAINT_ACCENT,
   PAINT_NONE,
   PAINT_WALL,
+  LAYER,
   addBox,
   addCylinder,
   addPanel,
@@ -239,8 +240,8 @@ export function gableRoof(draft: MeshDraft, spec: RoofSpec): void {
     box(
       draft,
       alongX
-        ? { x: cx, y: apex - t * 0.4, z: cz, w: outA * 2 + 0.01, h: t * 1.2, d: t * 1.6 }
-        : { x: cx, y: apex - t * 0.4, z: cz, w: t * 1.6, h: t * 1.2, d: outA * 2 + 0.01 },
+        ? { x: cx, y: apex - t * 0.4, z: cz, w: outA * 2 + LAYER * 2, h: t * 1.2, d: t * 1.6 }
+        : { x: cx, y: apex - t * 0.4, z: cz, w: t * 1.6, h: t * 1.2, d: outA * 2 + LAYER * 2 },
       spec.ridgeCap,
     );
   }
@@ -404,26 +405,35 @@ export interface WindowSpec {
   sill?: boolean;
 }
 
-/** Proud of the frame, so the lit pane never fights it. */
-const GLASS_LIFT = 0.003;
-
 /**
  * A framed window: a white frame, the glass inside it, a stone sill, and
  * optionally shutters and a window box. Returns the glass rectangle, which the
  * lit-window pass reuses exactly (PLAN.md section 19).
+ *
+ * The glass stands one `LAYER` proud of the frame and the lit pane one more
+ * in front of the glass. The glazing bars are not drawn over the glass: the
+ * glass is cut into panes and the bars are the frame showing between them,
+ * so nothing sits a hair in front of anything else to flicker.
  */
 export function framedWindow(draft: MeshDraft, spec: WindowSpec): Panel {
   const base = { facing: spec.facing, u: spec.u, cx: spec.cx, cz: spec.cz };
   const frame = spec.frame ?? 0.016;
   panel(draft, { ...base, v: spec.v, w: spec.w + frame * 2, h: spec.h + frame * 2, plane: spec.plane }, M.frame);
-  const glass: Panel = { ...base, v: spec.v, w: spec.w, h: spec.h, plane: spec.plane + GLASS_LIFT };
-  panel(draft, glass, spec.glass ?? M.glass);
-
+  const glass: Panel = { ...base, v: spec.v, w: spec.w, h: spec.h, plane: spec.plane + LAYER };
+  const bar = 0.012;
   const bars = spec.bars ?? "cross";
-  if (bars !== "none") {
-    panel(draft, { ...base, v: spec.v, w: spec.w, h: 0.012, plane: spec.plane + GLASS_LIFT * 2 }, M.frame);
-    if (bars === "cross") {
-      panel(draft, { ...base, v: spec.v, w: 0.012, h: spec.h, plane: spec.plane + GLASS_LIFT * 2 }, M.frame);
+  // Pane edges across and up the glass: the bars are the gaps between them.
+  const across = bars === "cross" ? [-spec.w / 2, -bar / 2, bar / 2, spec.w / 2] : [-spec.w / 2, spec.w / 2];
+  const up = bars === "none" ? [-spec.h / 2, spec.h / 2] : [-spec.h / 2, -bar / 2, bar / 2, spec.h / 2];
+  for (let i = 0; i < across.length; i += 2) {
+    for (let j = 0; j < up.length; j += 2) {
+      const w = across[i + 1] - across[i];
+      const h = up[j + 1] - up[j];
+      panel(
+        draft,
+        { ...glass, u: spec.u + (across[i] + across[i + 1]) / 2, v: spec.v + (up[j] + up[j + 1]) / 2, w, h },
+        spec.glass ?? M.glass,
+      );
     }
   }
 
@@ -484,12 +494,14 @@ export function door(
   const fan = spec.fanlight ? spec.h * 0.2 : 0;
   const total = spec.h + fan;
   panel(draft, { ...base, v: spec.v + (total + 0.025) / 2, w: spec.w + 0.05, h: total + 0.025, plane: spec.plane }, surround);
-  panel(draft, { ...base, v: spec.v + spec.h / 2, w: spec.w, h: spec.h, plane: spec.plane + GLASS_LIFT }, spec.mat ?? M.accent);
+  panel(draft, { ...base, v: spec.v + spec.h / 2, w: spec.w, h: spec.h, plane: spec.plane + LAYER }, spec.mat ?? M.accent);
   if (fan > 0) {
-    panel(draft, { ...base, v: spec.v + spec.h + fan / 2 + 0.004, w: spec.w * 0.9, h: fan - 0.008, plane: spec.plane + GLASS_LIFT }, M.glass);
+    panel(draft, { ...base, v: spec.v + spec.h + fan / 2 + 0.004, w: spec.w * 0.9, h: fan - 0.008, plane: spec.plane + LAYER }, M.glass);
   }
   if (spec.step !== false) {
-    wallBox(draft, { ...base, plane: spec.plane, v: 0, w: spec.w + 0.08, h: Math.max(0.02, spec.v), depth: 0.06 }, M.stone);
+    // A layer above the threshold, so its tread never lies in the plane of
+    // the plinth it stands on.
+    wallBox(draft, { ...base, plane: spec.plane, v: 0, w: spec.w + 0.08, h: Math.max(0.02, spec.v + LAYER), depth: 0.06 }, M.stone);
   }
 }
 
@@ -503,7 +515,8 @@ export function chimney(
   const mat = spec.mat ?? M.stone;
   const capH = 0.022;
   box(draft, { x: spec.x, y: spec.y0, z: spec.z, w, h: spec.top - spec.y0 - capH, d, skipBottom: true }, mat);
-  box(draft, { x: spec.x, y: spec.top - capH, z: spec.z, w: w + 0.024, h: capH, d: d + 0.024, skipBottom: true }, M.stoneDark);
+  // The cap overhangs the stack, so its underside is seen from a low camera.
+  box(draft, { x: spec.x, y: spec.top - capH, z: spec.z, w: w + 0.024, h: capH, d: d + 0.024 }, M.stoneDark);
   const pots = spec.pots ?? 1;
   for (let i = 0; i < pots; i++) {
     const offset = pots === 1 ? 0 : (i - (pots - 1) / 2) * (w * 0.5);
