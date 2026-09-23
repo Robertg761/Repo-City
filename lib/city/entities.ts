@@ -24,7 +24,7 @@ import type {
   WorksForm,
 } from "@/types/analysis";
 import type { LandmarkDetail, LandmarkType, OverflowCount } from "@/types/city";
-import { WRECK_IDLE_DAYS, pullModifiers, wantsVolunteer } from "../analysis/forms.ts";
+import { WRECK_IDLE_DAYS, issueForm, pullModifiers, titleForm, wantsVolunteer } from "../analysis/forms.ts";
 import type { RepositoryMeta } from "@/types/repository";
 
 /** The fields every `CityEntity` needs, before geometry is attached. */
@@ -297,11 +297,14 @@ export const WORKS_FORM_LABEL: Record<WorksForm, string> = {
 
 /**
  * Why an issue has this shape: one sentence per form, naming the rule in
- * `lib/analysis/forms.ts` that chose it (PLAN.md 76.7).
+ * `lib/analysis/forms.ts` that chose it (PLAN.md 76.7). These are the label
+ * branches; `issueFormSentence` words the title branch, the wreck and the
+ * pothole that was kept from being one.
  */
 const ISSUE_FORM_RULE: Record<IncidentForm, string> = {
   fire: "A fire, because the issue is marked major or security-related, or it is a severe bug drawing heavy discussion.",
-  wreck: "An abandoned wreck, because the issue has gone stale or nobody has touched it for a year.",
+  wreck:
+    "An abandoned wreck: neither its labels nor its title say what it is, and nobody has touched it for two years or more.",
   collision: "A fender-bender, because the issue is an unresolved bug.",
   roadblock:
     "A roadblock, because the issue is blocked, on hold or waiting on an answer: the road stays closed until someone replies.",
@@ -309,6 +312,14 @@ const ISSUE_FORM_RULE: Record<IncidentForm, string> = {
   survey:
     "Survey pegs, because the issue proposes a feature: the ground is marked out and nothing is built yet.",
   pothole: "A pothole: routine upkeep that no other rule claimed.",
+};
+
+/** The same forms, when the labels said nothing and the title decided (76.7 rule 6). */
+const ISSUE_TITLE_RULE: Partial<Record<IncidentForm, string>> = {
+  collision: "A fender-bender: nobody has labelled it a bug, but its title reports something broken.",
+  roadblock: "A roadblock, because its title asks a question: the road stays closed until someone answers.",
+  signpost: "A signpost, because its title is about the documentation.",
+  survey: "Survey pegs, because its title proposes a change: the ground is marked out and nothing is built yet.",
 };
 
 /** The severity rule behind the state, as `classifyIssue` applies it. */
@@ -334,43 +345,77 @@ export function agesOf(item: { createdAt: string; updatedAt: string }, generated
 
 /**
  * The form sentence for this issue in particular: the branch of the rule that
- * matched, not the whole rule. Only the fire and the wreck have more than one
- * branch; a wreck says how long the issue has actually stood idle.
+ * matched, not the whole rule. A fire says which of its reasons it has; a
+ * form the title decided says so, since its labels said nothing; a wreck and
+ * a pothole kept from being one say how long the issue has stood untouched.
+ * `quiet` is true when the sentence already says the labels were silent, so
+ * the state's "It carries no bug label" would only repeat it.
  */
-function issueFormSentence(form: IncidentForm, state: IncidentState, labels: string[], ages?: Ages): string {
+function issueFormSentence(
+  form: IncidentForm,
+  state: IncidentState,
+  labels: string[],
+  title: string | undefined,
+  ages: Ages | undefined,
+): { text: string; quiet: boolean } {
+  // Whether the labels (or the state they set) decided anything: with the
+  // title and the age taken away, everything they leave is a pothole.
+  const labelsSpoke = issueForm({ state, labels, comments: 0, reactions: 0, idleDays: 0 }) !== "pothole";
+  const titleSaid = !labelsSpoke && title !== undefined ? titleForm(title) : null;
+
   if (form === "fire") {
-    if (/security|vulnerab|cve/i.test(labels.join(" "))) return "A fire, because the issue is about security.";
-    return "A fire, because the issue is a severe bug drawing heavy discussion.";
+    return {
+      text: /security|vulnerab|cve/i.test(labels.join(" "))
+        ? "A fire, because the issue is about security."
+        : "A fire, because the issue is a severe bug drawing heavy discussion.",
+      quiet: false,
+    };
   }
-  if (form === "wreck" && ages) {
-    if (state !== "stale" && ages.idle >= WRECK_IDLE_DAYS) {
-      return `An abandoned wreck: nobody has touched the issue for ${plural(ages.idle, "day")}.`;
-    }
-    return "An abandoned wreck, because the bug has gone stale.";
+  if (titleSaid === form && ISSUE_TITLE_RULE[form]) {
+    return { text: ISSUE_TITLE_RULE[form]!, quiet: form === "collision" };
   }
-  return ISSUE_FORM_RULE[form];
+  if (form === "wreck") {
+    return {
+      text: ages
+        ? `An abandoned wreck: neither its labels nor its title say what it is, and nobody has touched it for ${plural(ages.idle, "day")}.`
+        : ISSUE_FORM_RULE.wreck,
+      quiet: true,
+    };
+  }
+  if (form === "pothole" && ages && ages.idle >= WRECK_IDLE_DAYS && !labelsSpoke && titleSaid === null) {
+    // `capWrecks` kept it a pothole: the street already has its quarter of wrecks.
+    return {
+      text: `A pothole. Nobody has touched it for ${plural(ages.idle, "day")}, which would make it a wreck, but no more than a quarter of the street may be wrecks.`,
+      quiet: true,
+    };
+  }
+  return { text: ISSUE_FORM_RULE[form], quiet: false };
 }
 
 /**
  * The generated "why" of a crowd issue: its form rule, its state rule and,
  * for a "good first issue" or "help wanted", the volunteer flag. With `ages`
  * the sentences say how old this issue actually is rather than quoting the
- * rule's threshold.
+ * rule's threshold, and with `title` a form the title decided says so.
  */
 export function crowdIssueReason(
   form: IncidentForm,
   state: IncidentState,
   labels: string[],
   ages?: Ages,
+  title?: string,
 ): string {
   const volunteer = wantsVolunteer(labels)
     ? " It is marked for volunteers, so anyone can fill it in."
     : "";
+  const sentence = issueFormSentence(form, state, labels, title, ages);
   const stateRule =
-    state === "stale" && ages
-      ? `It is a bug that has stayed open for ${plural(ages.open, "day")}.`
-      : ISSUE_STATE_RULE[state];
-  return `${issueFormSentence(form, state, labels, ages)} ${stateRule}${volunteer}`;
+    state === "minor" && sentence.quiet
+      ? ""
+      : state === "stale" && ages
+        ? ` It is a bug that has stayed open for ${plural(ages.open, "day")}.`
+        : ` ${ISSUE_STATE_RULE[state]}`;
+  return `${sentence.text}${stateRule}${volunteer}`;
 }
 
 const PULL_FORM_RULE: Record<WorksForm, string> = {
@@ -383,7 +428,10 @@ const PULL_FORM_RULE: Record<WorksForm, string> = {
   hoarding: "A hoarding round an empty plot, because the pull request is still a draft.",
 };
 
-/** The recency rule behind the state, as `classifyPull` applies it. */
+/**
+ * The recency rule behind the state, as `classifyPull` applies it: what the
+ * copy falls back to when the pull request's age is not known.
+ */
 const PULL_STATE_RULE: Record<ConstructionState, string> = {
   active: "It was updated in the last 14 days, so work is going on.",
   slow: "It was last updated 15 to 59 days ago, so the work is slow.",

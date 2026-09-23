@@ -278,11 +278,31 @@ describe("crowd copy (PLAN.md 76.7 and 76.10)", () => {
   });
 
   it("says how old the issue actually is, and which branch of the rule matched", () => {
-    expect(crowdIssueReason("wreck", "stale", ["bug"], { open: 412, idle: 20 })).toBe(
-      "An abandoned wreck, because the bug has gone stale. It is a bug that has stayed open for 412 days.",
+    // A stale bug is a fender-bender that says how long it has been open.
+    expect(crowdIssueReason("collision", "stale", ["bug"], { open: 412, idle: 20 })).toBe(
+      "A fender-bender, because the issue is an unresolved bug. It is a bug that has stayed open for 412 days.",
     );
-    expect(crowdIssueReason("wreck", "minor", [], { open: 900, idle: 1_203 })).toBe(
-      "An abandoned wreck: nobody has touched the issue for 1,203 days. It carries no bug label.",
+    // A wreck is two years of silence with nothing else to go on.
+    expect(crowdIssueReason("wreck", "minor", [], { open: 900, idle: 1_203 }, "Tidy up")).toBe(
+      "An abandoned wreck: neither its labels nor its title say what it is, and nobody has touched it for 1,203 days.",
+    );
+    // The same issue kept a pothole by the wreck cap says so.
+    expect(crowdIssueReason("pothole", "minor", [], { open: 900, idle: 1_203 }, "Tidy up")).toBe(
+      "A pothole. Nobody has touched it for 1,203 days, which would make it a wreck, but no more than a quarter of the street may be wrecks.",
+    );
+    // An ordinary pothole is still routine upkeep.
+    expect(crowdIssueReason("pothole", "minor", [], { open: 30, idle: 10 }, "Tidy up")).toBe(
+      "A pothole: routine upkeep that no other rule claimed. It carries no bug label.",
+    );
+    // A form the title decided says so, and never contradicts its labels.
+    expect(crowdIssueReason("collision", "minor", [], { open: 5, idle: 1 }, "Crash when the list is empty")).toBe(
+      "A fender-bender: nobody has labelled it a bug, but its title reports something broken.",
+    );
+    expect(crowdIssueReason("roadblock", "minor", [], { open: 5, idle: 1 }, "How do I cancel a queue?")).toMatch(
+      /^A roadblock, because its title asks a question: .* It carries no bug label\.$/,
+    );
+    expect(crowdIssueReason("survey", "minor", ["enhancement"], { open: 5, idle: 1 }, "Add a timeout")).toMatch(
+      /^Survey pegs, because the issue proposes a feature/,
     );
     expect(crowdIssueReason("fire", "minor", ["security"], { open: 3, idle: 1 })).toMatch(
       /^A fire, because the issue is about security\./,

@@ -130,7 +130,8 @@ export function heatScale(heat: number): number {
 const FORM_FOR_STATE: Record<IncidentState, IncidentForm> = {
   major: "fire",
   collision: "collision",
-  stale: "wreck",
+  // A stale bug is still a bug (76.7 rule 5); the renderer rusts it by state.
+  stale: "collision",
   minor: "pothole",
 };
 
@@ -315,7 +316,7 @@ function issueItem(issue: BacklogIssue, repoUrl: string, now: string): IssueItem
     reactions: issue.reactions,
     score: issue.score,
     state: issue.state,
-    reason: crowdIssueReason(issue.form, issue.state, issue.labels, agesOf(issue, now)),
+    reason: crowdIssueReason(issue.form, issue.state, issue.labels, agesOf(issue, now), issue.title),
     relatedPath: issue.relatedPath,
     form: issue.form,
     heat: issue.heat,
@@ -344,7 +345,7 @@ function demotedIssueItem(issue: RankedIssue, now: string): IssueItem {
       ...issue,
       form,
       heat,
-      reason: crowdIssueReason(form, issue.state, issue.labels, agesOf(issue, now)),
+      reason: crowdIssueReason(form, issue.state, issue.labels, agesOf(issue, now), issue.title),
     },
   };
 }
