@@ -1,5 +1,7 @@
 /**
- * Writes `settlement` (PLAN.md 76.4) into every committed analysis fixture.
+ * Brings every committed analysis fixture up to the current rules: writes
+ * `settlement` (PLAN.md 76.4) and recomputes the crowd forms and heat
+ * (76.7) from the fields each fixture stores.
  *
  *   node scripts/migrate-fixtures.ts           # rewrite fixtures/*.analysis.json
  *   node scripts/migrate-fixtures.ts --check   # exit 1 if any fixture is stale
@@ -13,6 +15,16 @@
  * and "N paths deeper than 6 levels" lines). For microsoft/vscode that floor
  * is well past 10,000, which is what makes it a metropolis.
  *
+ * Forms: an issue's form is re-derived from its stored state, labels, title,
+ * counts and `updatedAt` against the fixture's own `generatedAt`, then the
+ * backlog's wrecks are capped exactly as `buildIssueBacklog` caps them. Pull
+ * request forms are kept (see `migratePull`). Heat is re-derived from the
+ * counts. Items without a `form` (the hand-written
+ * sample predates forms) are left alone. The stored labels and title are the
+ * compacted ones (4 labels of 32 characters, 140-character titles), so on the
+ * rare item whose fifth label or 141st character would have decided it, a live
+ * recapture can differ; the migration is the reference for committed fixtures.
+ *
  * Nothing reads the clock, so re-running is a no-op. Each file keeps its own
  * JSON layout: the hand-written sample is pretty-printed, the captured ones
  * are single-line with `", "` separators, and the script refuses to touch a
@@ -22,8 +34,19 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { capWrecks, heatOf, issueForm } from "../lib/analysis/forms.ts";
 import { classifySettlement, type SettlementInput } from "../lib/analysis/settlement.ts";
-import type { RepoAnalysis, SettlementPlan } from "../types/analysis.ts";
+import { daysBetween } from "../lib/analysis/tree.ts";
+import type {
+  BacklogIssue,
+  BacklogPull,
+  IncidentForm,
+  IncidentState,
+  RankedIssue,
+  RankedPull,
+  RepoAnalysis,
+  SettlementPlan,
+} from "../types/analysis.ts";
 
 const FIXTURES = fileURLToPath(new URL("../fixtures/", import.meta.url));
 
@@ -82,6 +105,86 @@ export function fixtureSettlementInput(analysis: RepoAnalysis): SettlementInput 
 
 export function fixtureSettlement(analysis: RepoAnalysis): SettlementPlan {
   return classifySettlement(fixtureSettlementInput(analysis));
+}
+
+// ---------------------------------------------------------------------------
+// Forms and heat (PLAN.md 76.7)
+// ---------------------------------------------------------------------------
+
+interface IssueFields {
+  state: IncidentState;
+  labels: string[];
+  title: string;
+  comments: number;
+  reactions?: number;
+  updatedAt: string;
+}
+
+function formOfIssue(issue: IssueFields, now: Date): IncidentForm {
+  return issueForm({
+    state: issue.state,
+    labels: issue.labels,
+    title: issue.title,
+    comments: issue.comments,
+    reactions: issue.reactions ?? 0,
+    idleDays: daysBetween(issue.updatedAt, now),
+  });
+}
+
+/** Replaces `form` and `heat` in place of the old values, keeping key order. */
+function reshape<T extends { form?: unknown; heat?: unknown }>(
+  item: T,
+  form: T["form"],
+  heat: number,
+): T {
+  const next = { ...item };
+  if ("form" in item) next.form = form;
+  if ("heat" in item) next.heat = heat;
+  return next;
+}
+
+function migrateHeroIssue(issue: RankedIssue, now: Date): RankedIssue {
+  if (issue.form === undefined) return issue;
+  return reshape(issue, formOfIssue(issue, now), heatOf(issue.comments, issue.reactions ?? 0));
+}
+
+/**
+ * Pull request forms keep their stored value: their rules have not changed,
+ * and the stored `files` are cut to 5, which can tip the "more than half are
+ * infrastructure" test the full list decided. Heat is re-derived.
+ */
+function migratePull<T extends BacklogPull | RankedPull>(pull: T): T {
+  if (pull.heat === undefined) return pull;
+  return reshape(pull, pull.form, heatOf(pull.comments, pull.reactions ?? 0));
+}
+
+/**
+ * The analysis with every stored form and heat recomputed under the current
+ * rules. Everything else, key order included, is kept.
+ */
+export function fixtureForms(analysis: RepoAnalysis): RepoAnalysis {
+  const now = new Date(analysis.generatedAt);
+  const { issues, pulls } = analysis.metrics;
+  const backlogIssues = issues.backlog?.map(
+    (issue): BacklogIssue =>
+      reshape(issue, formOfIssue(issue, now), heatOf(issue.comments, issue.reactions)),
+  );
+  return {
+    ...analysis,
+    metrics: {
+      ...analysis.metrics,
+      issues: {
+        ...issues,
+        ranked: issues.ranked.map((issue) => migrateHeroIssue(issue, now)),
+        ...(backlogIssues ? { backlog: capWrecks(backlogIssues) } : {}),
+      },
+      pulls: {
+        ...pulls,
+        ranked: pulls.ranked.map(migratePull),
+        ...(pulls.backlog ? { backlog: pulls.backlog.map(migratePull) } : {}),
+      },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +258,7 @@ function main(): void {
 
     const analysis = JSON.parse(raw) as RepoAnalysis;
     const settlement = fixtureSettlement(analysis);
-    const next = layout({ ...analysis, settlement } as unknown as Json);
+    const next = layout(fixtureForms({ ...analysis, settlement }) as unknown as Json);
     const line = `${name}: ${settlement.tier} (footprint ${settlement.footprint}${settlement.lowerBound ? ", lower bound" : ""})`;
 
     if (next === raw) {

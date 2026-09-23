@@ -203,6 +203,24 @@ describe("buildIssueBacklog (PLAN.md 76.7)", () => {
     }
   });
 
+  it("holds an abandoned repository's wrecks to a quarter of the crowd, the most significant kept", () => {
+    // 400 unlabelled issues nobody has touched for three years.
+    const ancient = syntheticIssues(400, { now: NOW, start: 9000, dirs: DIRS, newestDays: 1100 }).map(
+      (issue) => ({ ...issue, labels: [], title: `Table of contents ${issue.number}` }),
+    );
+    const snapshot = { ...midSnapshot, issues: [], issueBacklog: ancient };
+    const crowd = buildIssueBacklog(snapshot, [], districts, NOW);
+    expect(crowd).toHaveLength(400);
+    const wrecks = crowd.filter((item) => item.form === "wreck");
+    expect(wrecks).toHaveLength(100);
+    expect(crowd.filter((item) => item.form === "pothole")).toHaveLength(300);
+    // Significance order: every kept wreck ranks above every demoted one.
+    const lastWreck = crowd.lastIndexOf(wrecks.at(-1)!);
+    expect(crowd.slice(0, lastWreck + 1).every((item) => item.form === "wreck")).toBe(true);
+    // Age still reaches the renderer: the state and dates are untouched.
+    expect(crowd.every((item) => Date.parse(item.updatedAt) < NOW.getTime() - 1000 * 86_400_000)).toBe(true);
+  });
+
   it("is empty for a repository whose heroes are all its issues", () => {
     const small = heroesOf(midSnapshot);
     const tiny = { ...midSnapshot, issues: midSnapshot.issues.slice(0, 5) };

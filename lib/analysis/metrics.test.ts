@@ -205,6 +205,24 @@ describe("computeMetrics on the mid fixture", () => {
     expect(core.scale.surveyedFiles).toBeGreaterThanOrEqual(core.scale.files);
   });
 
+  it("carries no uncapped totals when ingestion did not count them", () => {
+    expect(core.scale).not.toHaveProperty("totalFiles");
+    expect(core.scale).not.toHaveProperty("totalDirs");
+    expect(core.scale).not.toHaveProperty("lowerBound");
+  });
+
+  it("passes the snapshot's uncapped totals through (PLAN.md 76.3)", () => {
+    const counted = { ...midSnapshot, tree: { ...midSnapshot.tree, totalFiles: 9_000, totalDirs: 1_200 } };
+    const scale = computeMetrics(counted, districts, { now: NOW }).core.scale;
+    expect(scale).toMatchObject({ totalFiles: 9_000, totalDirs: 1_200, lowerBound: false });
+    // The capped, pruned counts keep their meaning.
+    expect(scale.files).toBe(core.scale.files);
+    expect(scale.surveyedFiles).toBe(core.scale.surveyedFiles);
+
+    const truncated = { ...counted, tree: { ...counted.tree, githubTruncated: true } };
+    expect(computeMetrics(truncated, districts, { now: NOW }).core.scale.lowerBound).toBe(true);
+  });
+
   it("reports the contributor count for the population line", () => {
     expect(core.activity.contributors).toBe(midSnapshot.contributors.length);
   });

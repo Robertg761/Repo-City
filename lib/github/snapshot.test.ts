@@ -160,7 +160,7 @@ describe("fetchSnapshot", () => {
     const treeDone = events.find((event) => event.id === "tree" && event.status === "done");
     expect(treeDone?.detail).toBe("2 files mapped");
     const issuesDone = events.find((event) => event.id === "issues" && event.status === "done");
-    expect(issuesDone?.detail).toBe("1 issue inspected");
+    expect(issuesDone?.detail).toBe("1 open issue surveyed");
   });
 
   it("uses the canonical name from a redirected repository, and says so", async () => {

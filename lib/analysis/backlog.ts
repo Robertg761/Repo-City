@@ -23,7 +23,14 @@ import type {
   RankedPull,
 } from "@/types/analysis";
 import type { IssueSummary, PullSummary, RepositorySnapshot } from "@/types/repository";
-import { heatOf, issueFormFor, pullForm, pullRelatedPath, relatedPathFor } from "./forms";
+import {
+  capWrecks,
+  heatOf,
+  issueFormFor,
+  pullForm,
+  pullRelatedPath,
+  relatedPathFor,
+} from "./forms";
 import {
   RANKED_FILES_MAX,
   byRecency,
@@ -96,8 +103,8 @@ export function toBacklogIssue(
     labels: compactLabels(issue.labels),
     author: issue.author,
     state,
-    // Form and relatedPath read the full labels and the body, before either
-    // is cut or dropped.
+    // Form and relatedPath read the full labels, title and body, before any
+    // of them is cut or dropped.
     form: issueFormFor(issue, state, now),
     score,
     relatedPath: relatedPathFor(issue, districts),
@@ -108,6 +115,8 @@ export function toBacklogIssue(
 /**
  * The crowd of issues: every surveyed open issue except the heroes, the
  * `ISSUE_CEILING - heroes` most recently updated, in significance order.
+ * Wrecks are then held to a quarter of the crowd: the most significant keep
+ * the shape and the rest become potholes (`capWrecks`, 76.7).
  */
 export function buildIssueBacklog(
   snapshot: RepositorySnapshot,
@@ -117,12 +126,13 @@ export function buildIssueBacklog(
 ): BacklogIssue[] {
   const heroNumbers = new Set(heroes.map((hero) => hero.number));
   const room = Math.max(0, ISSUE_CEILING - heroNumbers.size);
-  return surveyedIssues(snapshot)
+  const crowd = surveyedIssues(snapshot)
     .filter((issue) => !heroNumbers.has(issue.number))
     .sort(byRecency)
     .slice(0, room)
     .map((issue) => toBacklogIssue(issue, districts, now))
     .sort(bySignificance);
+  return capWrecks(crowd);
 }
 
 /* ------------------------------------------------------------------ pulls */

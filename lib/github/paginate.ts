@@ -8,7 +8,7 @@
  */
 
 import type { SurveyCoverage } from "@/types/repository";
-import { GitHubClient, type RequestOptions } from "./client.ts";
+import { GitHubClient, type MemoOptions, type RequestOptions } from "./client.ts";
 import { errorCodeOf } from "./errors.ts";
 import {
   BULK_ISSUE_PAGES,
@@ -39,6 +39,8 @@ export interface FetchPagesOptions<T> {
   deadline?: AbortSignal;
   /** Called as each page lands, in arrival order; for rising progress counts. */
   onPage?: (page: number, items: T[]) => void;
+  /** Passed to `getPage`: keep oversized pages in the response memo (`memo.ts`). */
+  slim?: MemoOptions<T>["slim"];
 }
 
 /**
@@ -59,6 +61,7 @@ export async function fetchPages<T>(
         resource: `${options.resource ?? path} page ${page}`,
         query: { ...query, page },
         signal: options.deadline,
+        ...(options.slim ? { slim: options.slim } : {}),
       });
       try {
         options.onPage?.(page, result.items);

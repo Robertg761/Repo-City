@@ -8,7 +8,8 @@
  * - auth: `Authorization: Bearer $GITHUB_TOKEN` when the server has a token,
  *   and a working unauthenticated path (60 requests/hour) when it does not
  * - caching: `next: { revalidate: 600 }` on every request so repeated repos
- *   dedupe across serverless instances (section 30)
+ *   dedupe across serverless instances (section 30), and, for answers too
+ *   large for the data cache, a slimmed copy in the per-process `memo.ts`
  * - budget: request counters, surfaced as `RepositorySnapshot.requestCount`,
  *   and the REST and GraphQL `x-ratelimit-remaining` read separately
  * - failure: raw statuses mapped onto the `GitHubError` codes the stream knows
@@ -26,6 +27,7 @@
  */
 
 import { GitHubError } from "./errors.ts";
+import { ResponseMemo, bodyBytesOver, sharedResponseMemo } from "./memo.ts";
 
 export const GITHUB_API_BASE = "https://api.github.com";
 /** PLAN.md section 30: platform-level dedupe window, in seconds. */
@@ -42,6 +44,12 @@ export interface GitHubClientOptions {
   fetchImpl?: typeof fetch;
   baseUrl?: string;
   timeoutMs?: number;
+  /**
+   * Where answers too large for the data cache are kept (`memo.ts`). Defaults
+   * to the process-wide memo, except with an injected `fetchImpl`, where it
+   * defaults to none so one test's fake answers never reach another's.
+   */
+  memo?: ResponseMemo | null;
 }
 
 export interface RequestOptions {
@@ -54,6 +62,15 @@ export interface RequestOptions {
    * touching the client-wide signal, so the rest of the survey carries on.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * Opt-in for `memo.ts`: when the answer is too large for the data cache, keep
+ * `slim(body)` (for a page, `slim(item)` per item) and answer the same URL from
+ * it until it expires. `slim` must keep every field the caller reads.
+ */
+export interface MemoOptions<T> {
+  slim?: (value: T) => T;
 }
 
 /** One page of a list resource plus what its `Link` header says about the rest. */
@@ -84,8 +101,13 @@ interface SendInit {
 }
 
 export class GitHubClient {
-  /** Requests actually issued, cache hits included (PLAN.md section 30). REST and GraphQL. */
+  /**
+   * Requests actually issued, data-cache hits included (PLAN.md section 30).
+   * REST and GraphQL. An answer served from the memo issues no request.
+   */
   requestCount = 0;
+  /** Answers served from the memo without a request. */
+  memoHits = 0;
   /** GraphQL queries among `requestCount` (PLAN.md section 76.6). */
   graphqlCount = 0;
   /** Last seen REST `x-ratelimit-remaining`, or null when GitHub did not say. */
@@ -98,6 +120,7 @@ export class GitHubClient {
   private readonly timeoutMs: number;
   private readonly signal?: AbortSignal;
   private readonly fetchImpl: typeof fetch;
+  private readonly memo: ResponseMemo | null;
 
   constructor(options: GitHubClientOptions = {}) {
     this.token = options.token ?? process.env.GITHUB_TOKEN ?? "";
@@ -105,6 +128,8 @@ export class GitHubClient {
     this.timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
     this.signal = options.signal;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    this.memo =
+      options.memo !== undefined ? options.memo : options.fetchImpl ? null : sharedResponseMemo;
   }
 
   get authenticated(): boolean {
@@ -122,10 +147,21 @@ export class GitHubClient {
    * @returns the parsed body, or `null` for the empty 202/204 answers GitHub
    * gives for statistics-backed endpoints on new or very large repositories.
    */
-  async get<T>(path: string, options: RequestOptions = {}): Promise<T | null> {
+  async get<T>(path: string, options: RequestOptions & MemoOptions<T> = {}): Promise<T | null> {
+    const { slim } = options;
+    const key = slim ? this.memoKey(path, options.query) : null;
+    const hit = key ? this.recall(key) : null;
+    if (hit) return hit.body as T | null;
+
     const resource = options.resource ?? path;
     const response = await this.fetchRaw(path, options);
-    return this.readJson<T>(response, resource);
+    const { body, oversized } = await this.readJsonSized<T>(response, resource);
+    if (key && slim && oversized && body !== null) {
+      const slimmed = slim(body);
+      this.memo?.set(key, slimmed, null);
+      return slimmed;
+    }
+    return body;
   }
 
   /**
@@ -142,18 +178,25 @@ export class GitHubClient {
    * plan the remaining pages and fetch them in parallel by page number
    * (PLAN.md section 76.6).
    */
-  async getPage<T>(path: string, options: RequestOptions = {}): Promise<Page<T>> {
-    const resource = options.resource ?? path;
-    const response = await this.fetchRaw(path, options);
-    const body = await this.readJson<T[]>(response, resource);
-    const items = Array.isArray(body) ? body : [];
-
-    const links = parseLinkHeader(response.headers?.get?.("link"));
-    const hasNext = links.next !== undefined;
-    const last = links.last !== undefined ? pageNumberOf(links.last) : null;
+  async getPage<T>(path: string, options: RequestOptions & MemoOptions<T> = {}): Promise<Page<T>> {
+    const { slim } = options;
     const requested = Number(options.query?.page ?? 1);
     const current = Number.isFinite(requested) && requested >= 1 ? requested : 1;
-    return { items, hasNext, lastPage: last ?? (hasNext ? null : current) };
+    const key = slim ? this.memoKey(path, options.query) : null;
+    const hit = key ? this.recall(key) : null;
+    // A copy of the list, so no caller can change what the next one is given.
+    if (hit) return pageOf([...(hit.body as T[])], hit.link, current);
+
+    const resource = options.resource ?? path;
+    const response = await this.fetchRaw(path, options);
+    const { body, oversized } = await this.readJsonSized<T[]>(response, resource);
+    let items = Array.isArray(body) ? body : [];
+    const link = response.headers?.get?.("link") ?? null;
+    if (key && slim && oversized) {
+      items = items.map(slim);
+      this.memo?.set(key, items, link);
+    }
+    return pageOf(items, link, current);
   }
 
   /**
@@ -256,6 +299,14 @@ export class GitHubClient {
 
   /** Status check, then the parsed body; `null` for 202, 204 and blank bodies. */
   private async readJson<T>(response: Response, resource: string): Promise<T | null> {
+    return (await this.readJsonSized<T>(response, resource)).body;
+  }
+
+  /** `readJson`, plus whether the body is too large for the data cache. */
+  private async readJsonSized<T>(
+    response: Response,
+    resource: string,
+  ): Promise<{ body: T | null; oversized: boolean }> {
     if (!response.ok) {
       throw await this.mapError(response, resource);
     }
@@ -263,14 +314,14 @@ export class GitHubClient {
     // 202 (computing) and 204 (no content) carry no body: PLAN.md section 29
     // says treat them as empty rather than as failures.
     if (response.status === 202 || response.status === 204) {
-      return null;
+      return { body: null, oversized: false };
     }
 
     const text = await response.text();
-    if (text.trim() === "") return null;
+    if (text.trim() === "") return { body: null, oversized: false };
 
     try {
-      return JSON.parse(text) as T;
+      return { body: JSON.parse(text) as T, oversized: bodyBytesOver(text) };
     } catch (cause) {
       throw new GitHubError("UPSTREAM", `Malformed JSON from ${resource}`, {
         status: response.status,
@@ -278,6 +329,18 @@ export class GitHubClient {
         cause,
       });
     }
+  }
+
+  /** Memo key: the full URL, and whether a token asked, since the answers may differ. */
+  private memoKey(path: string, query: RequestOptions["query"]): string | null {
+    if (!this.memo) return null;
+    return `${this.authenticated ? "token" : "anonymous"} ${this.buildUrl(path, query)}`;
+  }
+
+  private recall(key: string): { body: unknown; link: string | null } | null {
+    const hit = this.memo?.get(key) ?? null;
+    if (hit) this.memoHits += 1;
+    return hit;
   }
 
   private headers(): Record<string, string> {
@@ -347,6 +410,14 @@ export class GitHubClient {
 
     return new GitHubError("UPSTREAM", `${resource} failed with ${status}`, { status, resource });
   }
+}
+
+/** A page from its items and `Link` header; see `Page.lastPage`. */
+function pageOf<T>(items: T[], link: string | null, current: number): Page<T> {
+  const links = parseLinkHeader(link);
+  const hasNext = links.next !== undefined;
+  const last = links.last !== undefined ? pageNumberOf(links.last) : null;
+  return { items, hasNext, lastPage: last ?? (hasNext ? null : current) };
 }
 
 /** Error bodies are for classification and server logs only, never for the UI. */
