@@ -3,7 +3,10 @@
  * 76.5, and the orchestrator's ruling after S0).
  *
  * The hashes below were taken from `main` at 63e8779, before the settlement
- * layouts existed. For every committed fixture the city-tier layout, and the
+ * layouts existed. When the reference fixtures were recaptured (integration
+ * step I), 63e8779's generator was run on the new files to re-take them, and
+ * today's generator matched it on every one. For every committed fixture the
+ * city-tier layout, and the
  * city-tier model the generator builds from it, must hash the same. Only the
  * fields that existed then are hashed: the additive settlement fields
  * (`plaza`, `fields`, `tier` and so on) are new by definition.
@@ -87,15 +90,15 @@ const legacyModel = (city: CityModel): unknown => {
 };
 
 const GOLDEN: Record<string, { layout: string; model: string }> = {
-  "atom__atom.analysis.json": { layout: "bf43d8eaffa545ce", model: "395f897808110726" },
+  "atom__atom.analysis.json": { layout: "bf43d8eaffa545ce", model: "0e3e1653bc32ffb1" },
   "backlog.analysis.json": { layout: "69894b5fbfeabc0c", model: "dd2c46ee622870c5" },
-  "facebook__react.analysis.json": { layout: "69894b5fbfeabc0c", model: "dd2c46ee622870c5" },
-  "honojs__hono.analysis.json": { layout: "5f1bc463a7fd686a", model: "aebde119a1a6ccf8" },
-  "microsoft__vscode.analysis.json": { layout: "cc587154bdd7f692", model: "c5e5c141c095106f" },
-  "react__react.analysis.json": { layout: "69894b5fbfeabc0c", model: "dd2c46ee622870c5" },
+  "facebook__react.analysis.json": { layout: "01f2a6730816a201", model: "c7956b2ec5efe785" },
+  "honojs__hono.analysis.json": { layout: "5f1bc463a7fd686a", model: "43e51dc19f0c99ce" },
+  "microsoft__vscode.analysis.json": { layout: "94efcb4b364a1739", model: "772a7406c062d203" },
+  "react__react.analysis.json": { layout: "01f2a6730816a201", model: "c7956b2ec5efe785" },
   "sample.analysis.json": { layout: "2d9a1983ea58b1ee", model: "3045f4a3be7539b1" },
-  "sindresorhus__p-limit.analysis.json": { layout: "6c72e7efdcd78400", model: "63bda767c66a4699" },
-  "vercel__turborepo.analysis.json": { layout: "b8733f651e58671b", model: "e45d48574afec451" },
+  "sindresorhus__p-limit.analysis.json": { layout: "6c72e7efdcd78400", model: "672200631690a07d" },
+  "vercel__turborepo.analysis.json": { layout: "b8733f651e58671b", model: "3d78fae3c66a6c62" },
 };
 
 const files = readdirSync(DIR)

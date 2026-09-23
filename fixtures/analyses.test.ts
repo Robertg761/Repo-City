@@ -52,10 +52,24 @@ describe("committed analysis fixtures", () => {
     const raw = readFileSync(path.join(DIR, name), "utf8");
     const synthetic = SYNTHETIC.has(name);
     // Section 34: the response stays compact. Section 76.6 amends it to "300 KB
-    // plus the backlog, hard ceiling 1 MB", which the synthetic backlog tests.
-    expect(raw.length).toBeLessThan(synthetic ? 1_000_000 : 300_000);
+    // plus the backlog, hard ceiling 1 MB". The captured giants (react, vscode)
+    // carry a real backlog now, so every file answers to the ceiling, and a
+    // captured one still keeps everything but its backlog under 300 KB.
+    expect(raw.length).toBeLessThan(1_000_000);
 
     const analysis = JSON.parse(raw) as RepoAnalysis;
+    if (!synthetic) {
+      const { issues, pulls } = analysis.metrics;
+      const withoutBacklog = {
+        ...analysis,
+        metrics: {
+          ...analysis.metrics,
+          issues: { ...issues, backlog: undefined },
+          pulls: { ...pulls, backlog: undefined },
+        },
+      };
+      expect(JSON.stringify(withoutBacklog).length).toBeLessThan(300_000);
+    }
     expect(analysis.repo.fullName).toContain("/");
     expect(analysis.districts.length).toBeGreaterThan(0);
     expect(analysis.buildings.length).toBeGreaterThan(0);

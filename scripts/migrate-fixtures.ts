@@ -37,6 +37,26 @@ export function fixtureSettlementInput(analysis: RepoAnalysis): SettlementInput 
   const { scale, activity } = analysis.metrics;
   const warnings = analysis.warnings.join("\n");
 
+  // A fixture captured through the settlement-era server (it carries
+  // `coverage`) was classified on the uncapped tree counts, which only the
+  // settlement records; `metrics.scale` holds the capped, pruned ones. Re-read
+  // those counts rather than reconstructing them, so a recapture passes
+  // `--check` and a threshold change still re-tiers it.
+  if (analysis.coverage && analysis.settlement) {
+    const { files, dirs, lowerBound } = analysis.settlement;
+    return {
+      files,
+      dirs,
+      lowerBound,
+      footprintFloor: undefined,
+      githubTruncated: lowerBound && /GitHub truncated the file tree/.test(warnings),
+      archived: analysis.metrics.archived,
+      commitsLast90d: activity.commitsLast90d,
+      activeContributors90d: activity.activeContributors90d,
+      lastPushDaysAgo: activity.lastPushDaysAgo,
+    };
+  }
+
   const cappedAway = /([\d,]+) lower-value files were left out/.exec(warnings);
   const tooDeep = /([\d,]+) paths deeper than \d+ levels were collapsed/.exec(warnings);
   const githubTruncated = /GitHub truncated the file tree/.test(warnings);
@@ -89,6 +109,11 @@ function quote(text: string, asciiOnly: boolean): string {
   const json = JSON.stringify(text);
   if (!asciiOnly) return json;
   return json.replace(/[\u007f-￿]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/** The layout the captured fixtures are written in (`scripts/capture-fixtures.ts`). */
+export function compactAsciiJson(value: unknown): string {
+  return compact(JSON.parse(JSON.stringify(value)) as Json, true);
 }
 
 type Layout = (value: Json) => string;
