@@ -21,9 +21,10 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel, Vec3 } from "@/types/city";
 import {
   cameraBoundary,
+  clearInspectionFraming,
+  framingObstacles,
   tallestPoint,
   focusTargetFor,
-  inspectionFraming,
   overviewFraming,
   viewAngles,
   type Framing,
@@ -159,7 +160,7 @@ export default function CameraRig({
 
     const focus = city && selectedId ? focusTargetFor(city, selectedId) : null;
     let framing: Framing;
-    if (focus) {
+    if (focus && city) {
       // Aim along the view the camera is heading for, not where it happens to
       // be mid-flight: two quick clicks in a row keep the same bearing.
       const from = isNewModel
@@ -168,7 +169,8 @@ export default function CameraRig({
             toVec3(controls.getPosition(new Vector3(), true)),
             toVec3(controls.getTarget(new Vector3(), true)),
           );
-      framing = inspectionFraming(focus, from);
+      // Never into a tower, never looking through one (PLAN.md section 6).
+      framing = clearInspectionFraming(focus, from, framingObstacles(city));
     } else {
       framing = overviewFraming(city?.bounds.size ?? 120, lastAspect.current);
     }
