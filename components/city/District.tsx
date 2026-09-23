@@ -12,9 +12,16 @@
  * The label is DOM, so it is always drawn in front of the city: left at a
  * fixed height it lands in the middle of whatever tower happens to be behind
  * it. `City.tsx` measures each district's own skyline and sends the height to
- * clear it, the label sits on a dark glass pill so it survives a pale facade
- * underneath, and it fades out as the camera comes down into the streets,
- * where it would be a screen-high caption over the thing being inspected.
+ * clear it, and the label sits on a dark glass pill so it survives a pale
+ * facade underneath.
+ *
+ * All the labels are laid out together, once a frame (`DistrictLabels`,
+ * `labels.ts`). Each scales with distance like a thing in the world, as at
+ * the overview it always has, but only up to a cap: coming down into the
+ * streets it stops growing and fades out rather than becoming a screen-high
+ * caption over the thing being inspected. And where two would overlap, the
+ * less important one (fewer buildings, not hovered, not selected) fades out
+ * until the view gives it room.
  *
  * A village (PLAN.md 76.11) has no tinted ground: its districts are lanes of
  * cottages among fields and a plate of colour under each lane would read as
@@ -26,22 +33,27 @@
 import { useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { Vector3 } from "three";
+import { PerspectiveCamera, Vector3 } from "three";
 import type { SettlementTier } from "@/types/analysis";
 import type { District } from "@/types/city";
 import { districtCenter } from "./entities";
+import {
+  LABEL_FOV,
+  closeFade,
+  drawnScale,
+  labelPriority,
+  naturalScale,
+  placeLabels,
+  type LabelBox,
+} from "./labels";
 import { desaturate, districtColor, stateTint, type SceneAtmosphere } from "./palette";
-import { useRevealGroup } from "./useReveal";
+import { useRevealClock, useRevealGroup } from "./useReveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useCityStore } from "@/store/useCityStore";
 
 interface DistrictGroundProps {
   district: District;
   atmosphere: SceneAtmosphere;
-  /** Height of the label anchor, measured by `City.tsx` from the skyline. */
-  labelY: number;
-  /** drei's `distanceFactor`, scaled so a big city's labels are not ants. */
-  labelScale: number;
   /** The settlement tier; absent means the city. */
   settlement?: SettlementTier;
 }
@@ -57,17 +69,7 @@ export function groundOpacity(settlement: SettlementTier | undefined, hovered: b
   return hovered || selected ? VILLAGE_TINT_OPACITY : 0;
 }
 
-/** Camera distances, in world units, between which the label fades in. */
-const FADE_NEAR = 58;
-const FADE_FAR = 108;
-
-export default function DistrictGround({
-  district,
-  atmosphere,
-  labelY,
-  labelScale,
-  settlement,
-}: DistrictGroundProps) {
+export default function DistrictGround({ district, atmosphere, settlement }: DistrictGroundProps) {
   const storedTier = useCityStore((s) => s.city?.settlement?.tier);
   const tier = settlement ?? storedTier;
   const village = tier === "village";
@@ -76,25 +78,12 @@ export default function DistrictGround({
   // The generator schedules every reveal, districts included (section 43).
   const reveal = useRevealGroup(district.appearAt);
   const [x, , z] = districtCenter(district.rect);
-  const label = useRef<HTMLDivElement>(null);
-  const anchor = useMemo(() => new Vector3(x, labelY, z), [x, labelY, z]);
 
   const color = stateTint(
     desaturate(districtColor(district.colorIndex), atmosphere.desaturation),
     hovered,
     selected,
   );
-
-  // Opacity is written straight to the node: fading a label must not re-render
-  // the district, and it must not wait on React (PLAN.md section 43).
-  useFrame(({ camera }) => {
-    const node = label.current;
-    if (!node) return;
-    const distance = camera.position.distanceTo(anchor);
-    const ramp = (distance - FADE_NEAR) / (FADE_FAR - FADE_NEAR);
-    const visible = ramp < 0 ? 0 : ramp > 1 ? 1 : ramp;
-    node.style.opacity = (visible * (selected || hovered ? 1 : 0.88)).toFixed(3);
-  });
 
   return (
     <group ref={reveal} position={[x, 0, z]}>
@@ -113,43 +102,148 @@ export default function DistrictGround({
           <meshStandardMaterial color={color} roughness={1} metalness={0} />
         )}
       </mesh>
-
-      {/* No entrance animation on the label: a CSS delay is one more thing
-          that can be mid-flight when a screenshot is taken, and the tinted
-          ground underneath already animates in. */}
-      <Html
-        position={[0, labelY, 0]}
-        center
-        distanceFactor={labelScale * (village ? VILLAGE_LABEL_SCALE : 1)}
-        zIndexRange={[20, 0]}
-      >
-        <div
-          ref={label}
-          style={{
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
-            textAlign: "center",
-            fontFamily: "var(--font-geist-sans, system-ui, sans-serif)",
-            color: "#eef2f3",
-            padding: "4px 11px 5px",
-            borderRadius: 12,
-            background: "rgba(10,15,21,0.46)",
-            border: "1px solid rgba(255,255,255,0.14)",
-            boxShadow: "0 10px 24px -16px rgba(0,0,0,0.9)",
-            backdropFilter: "blur(3px)",
-            textShadow: "0 1px 3px rgba(0,0,0,0.55)",
-            opacity: 0,
-          }}
-        >
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "0.01em" }}>
-            {district.name}
-          </div>
-          {/* PLAN.md section 8: a renamed district still shows its source. */}
-          <div style={{ fontSize: 12.5, opacity: 0.72 }}>
-            {district.sourcePath.startsWith("/") ? district.sourcePath : `/${district.sourcePath}`}
-          </div>
-        </div>
-      </Html>
     </group>
+  );
+}
+
+/** How quickly a label's opacity follows its target, per second. */
+const FADE_RATE = 7;
+/** A label at rest, and one being pointed at or inspected. */
+const REST_OPACITY = 0.88;
+
+interface LabelSlot {
+  district: District;
+  anchor: Vector3;
+  priority: number;
+  node: HTMLDivElement | null;
+  /** Its own size before scaling, measured once it is in the page. */
+  size: [number, number] | null;
+  opacity: number;
+}
+
+const projected = new Vector3();
+
+/**
+ * Every district's label, laid out together once a frame: sized, faded when
+ * the camera is close, and thinned where two would overlap (`labels.ts`).
+ * Everything is written straight to the nodes: moving the camera must not
+ * re-render a district, and must not wait on React (PLAN.md section 43).
+ */
+export function DistrictLabels({
+  districts,
+  labelHeights,
+  labelScale,
+  labelFloor,
+  settlement,
+}: {
+  districts: readonly District[];
+  /** Height of each label's anchor, measured by `City.tsx` from the skyline. */
+  labelHeights: ReadonlyMap<string, number>;
+  /** drei's `distanceFactor` for a city label, scaled so a big city's are not ants. */
+  labelScale: number;
+  labelFloor: number;
+  settlement?: SettlementTier;
+}) {
+  const clock = useRevealClock();
+  const factor = labelScale * (settlement === "village" ? VILLAGE_LABEL_SCALE : 1);
+  const slots = useMemo<LabelSlot[]>(
+    () =>
+      districts.map((district) => {
+        const [x, , z] = districtCenter(district.rect);
+        return {
+          district,
+          anchor: new Vector3(x, labelHeights.get(district.id) ?? labelFloor, z),
+          priority: district.buildingIds.length,
+          node: null,
+          size: null,
+          opacity: 0,
+        };
+      }),
+    [districts, labelHeights, labelFloor],
+  );
+  const scales = useRef<number[]>([]);
+
+  useFrame(({ camera, size }, delta) => {
+    const { hoveredId, selectedId } = useCityStore.getState();
+    const fov = camera instanceof PerspectiveCamera ? camera.fov : LABEL_FOV;
+    const since = performance.now() - clock.current;
+    const boxes: LabelBox[] = [];
+    const fades: number[] = [];
+    slots.forEach((slot, i) => {
+      const node = slot.node;
+      if (node && !slot.size && node.offsetWidth > 0) slot.size = [node.offsetWidth, node.offsetHeight];
+      const natural = naturalScale(factor, camera.position.distanceTo(slot.anchor), fov);
+      const scale = drawnScale(natural);
+      scales.current[i] = scale;
+      const fade = closeFade(natural);
+      fades[i] = fade;
+      projected.copy(slot.anchor).project(camera);
+      const hovered = hoveredId === slot.district.id;
+      const selected = selectedId === slot.district.id;
+      boxes.push({
+        id: slot.district.id,
+        x: ((projected.x + 1) / 2) * size.width,
+        y: ((1 - projected.y) / 2) * size.height,
+        w: (slot.size?.[0] ?? 0) * scale,
+        h: (slot.size?.[1] ?? 0) * scale,
+        priority: labelPriority(slot.priority, hovered, selected),
+        visible: slot.size !== null && fade > 0.02 && projected.z < 1 && since >= slot.district.appearAt,
+      });
+    });
+    const shown = placeLabels(boxes);
+    const step = Math.min(1, delta * FADE_RATE);
+    slots.forEach((slot, i) => {
+      const node = slot.node;
+      if (!node) return;
+      const id = slot.district.id;
+      const lit = hoveredId === id || selectedId === id;
+      const target = shown.has(id) ? fades[i] * (lit ? 1 : REST_OPACITY) : 0;
+      const next = slot.opacity + (target - slot.opacity) * step;
+      if (Math.abs(next - slot.opacity) > 0.002 || (next === 0) !== (slot.opacity === 0)) {
+        node.style.opacity = next.toFixed(3);
+        slot.opacity = next;
+      }
+      node.style.transform = `scale(${scales.current[i].toFixed(4)})`;
+    });
+  });
+
+  return (
+    <>
+      {slots.map((slot) => (
+        // No entrance animation on the label: a CSS delay is one more thing
+        // that can be mid-flight when a screenshot is taken, and the tinted
+        // ground underneath already animates in.
+        <Html key={slot.district.id} position={slot.anchor} center zIndexRange={[20, 0]}>
+          <div
+            ref={(node) => {
+              slot.node = node;
+              if (!node) slot.size = null;
+            }}
+            style={{
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+              textAlign: "center",
+              fontFamily: "var(--font-geist-sans, system-ui, sans-serif)",
+              color: "#eef2f3",
+              padding: "4px 11px 5px",
+              borderRadius: 12,
+              background: "rgba(10,15,21,0.46)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              boxShadow: "0 10px 24px -16px rgba(0,0,0,0.9)",
+              backdropFilter: "blur(3px)",
+              textShadow: "0 1px 3px rgba(0,0,0,0.55)",
+              opacity: 0,
+              transformOrigin: "50% 50%",
+            }}
+          >
+            <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "0.01em" }}>{slot.district.name}</div>
+            {/* PLAN.md section 8: a renamed district still shows its source. */}
+            <div style={{ fontSize: 12.5, opacity: 0.72 }}>
+              {slot.district.sourcePath.startsWith("/") ? slot.district.sourcePath : `/${slot.district.sourcePath}`}
+            </div>
+          </div>
+        </Html>
+      ))}
+    </>
   );
 }
