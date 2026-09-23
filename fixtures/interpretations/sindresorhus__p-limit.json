@@ -3,7 +3,7 @@
   "districts": [
     {
       "sourcePath": "/",
-      "name": "The Whole Town",
+      "name": "The Whole Village",
       "purpose": "The library is the repository root: implementation, types, tests, benchmark, readme and recipes sit side by side.",
       "evidence": [
         "index.js",

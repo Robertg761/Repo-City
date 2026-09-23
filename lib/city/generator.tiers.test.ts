@@ -136,6 +136,27 @@ describe("a town's parks", () => {
   });
 });
 
+describe("district names in the settlement's own words", () => {
+  it("renames a curated town district in a village and a village one in a town, but not in a city", () => {
+    const named = structuredClone(fixture);
+    named.districts[0] = { ...named.districts[0], name: "The Whole Town", purpose: "Everything the town runs on." };
+    named.districts[1] = { ...named.districts[1], name: "Village Green" };
+    const village = generateCity(named, { tier: "village" });
+    expect(village.districts[0].name).toBe("The Whole Village");
+    expect(village.districts[0].description).toBe("Everything the village runs on.");
+    expect(village.districts[1].name).toBe("Village Green");
+    const town = generateCity(named, { tier: "town" });
+    expect(town.districts[0].name).toBe("The Whole Town");
+    expect(town.districts[1].name).toBe("Town Green");
+    // A building's subtitle carries its district's name.
+    const building = town.buildings.find((b) => b.districtId === named.districts[1].id)!;
+    expect(building.subtitle.startsWith("Town Green")).toBe(true);
+    const city = generateCity(named, { tier: "city" });
+    expect(city.districts[0].name).toBe("The Whole Town");
+    expect(generateCity(named, { tier: "metropolis" }).districts[0].name).toBe("The Whole City");
+  });
+});
+
 describe("plaza", () => {
   it("derives the civic ground from the layout, surfaced by tier", () => {
     const city = generateCity(fixture);

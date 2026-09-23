@@ -74,6 +74,7 @@ import { prngFor, seedFor } from "./seed.ts";
 import {
   DEFAULT_SETTLEMENT_TIER,
   SETTLEMENT_PARAMS,
+  inSettlementWords,
   settlementName,
   type SettlementParams,
 } from "./settlement.ts";
@@ -253,7 +254,18 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   const params = SETTLEMENT_PARAMS[settlement.tier];
 
   // -- Stage 1: districts -------------------------------------------------
-  const districtPlans = analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT];
+  // Names and purposes in the settlement's own words: "The Whole Town" is
+  // "The Whole Village" in a village. A city's are left as written.
+  const districtPlans = (analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT]).map(
+    (plan) =>
+      settlement.tier === "city"
+        ? plan
+        : {
+            ...plan,
+            name: inSettlementWords(plan.name, settlement.tier),
+            purpose: plan.purpose === null ? null : inSettlementWords(plan.purpose, settlement.tier),
+          },
+  );
   const districtById = new Map<string, DistrictPlan>(districtPlans.map((d) => [d.id, d]));
   const fallbackDistrictId = districtPlans[0]?.id ?? "d-outskirts";
 

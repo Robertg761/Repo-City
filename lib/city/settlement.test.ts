@@ -19,7 +19,7 @@ import {
   planHighways,
   planLayout,
 } from "./layout";
-import { SETTLEMENT_PARAMS, settlementName } from "./settlement";
+import { SETTLEMENT_PARAMS, inSettlementWords, settlementName } from "./settlement";
 
 const city = SETTLEMENT_PARAMS.city;
 
@@ -135,5 +135,28 @@ describe("settlementName", () => {
     expect(settlementName("town", "zustand")).toBe("Town of zustand");
     expect(settlementName("city", "hono")).toBe("City of hono");
     expect(settlementName("metropolis", "react")).toBe("Greater react");
+  });
+});
+
+describe("inSettlementWords", () => {
+  it("says the settlement's own word, keeping the case of the one it replaces", () => {
+    expect(inSettlementWords("The Whole Town", "village")).toBe("The Whole Village");
+    expect(inSettlementWords("Town Hall", "village")).toBe("Village Hall");
+    expect(inSettlementWords("The Old Village", "town")).toBe("The Old Town");
+    expect(inSettlementWords("The Layered City", "metropolis")).toBe("The Layered City");
+    expect(inSettlementWords("Metropolis Works", "town")).toBe("Town Works");
+    expect(inSettlementWords("everything the town needs, in TOWN HALL", "village")).toBe(
+      "everything the village needs, in VILLAGE HALL",
+    );
+  });
+
+  it("changes whole words only", () => {
+    for (const text of ["Downtown", "Townsend Street", "Capacity planning", "Velocity", "Cityscape"]) {
+      expect(inSettlementWords(text, "village")).toBe(text);
+    }
+  });
+
+  it("leaves a city's names exactly as written", () => {
+    expect(inSettlementWords("The Whole Town", "city")).toBe("The Whole Town");
   });
 });

@@ -147,6 +147,39 @@ export const SETTLEMENT_PARAMS: Record<SettlementTier, SettlementParams> = {
 /** The tier a model without a settlement renders as: today's city. */
 export const DEFAULT_SETTLEMENT_TIER: SettlementTier = "city";
 
+/** The noun a settlement calls itself by in a name. A metropolis is still a city. */
+const SETTLEMENT_NOUN: Record<SettlementTier, string> = {
+  village: "village",
+  town: "town",
+  city: "city",
+  metropolis: "city",
+};
+
+const SETTLEMENT_WORDS = /\b(village|town|city|metropolis)\b/gi;
+
+/**
+ * District names and purposes are written before anyone knows the tier: a
+ * curated interpretation calls p-limit's root "The Whole Town", and a model
+ * may write "Old Town" or "City Hall". In the settlement they end up in, the
+ * word is that settlement's own, so p-limit's village has "The Whole
+ * Village" and a village's "Town Hall" is its "Village Hall". Whole words
+ * only ("Downtown" and "capacity" stay as they are), and the case of each
+ * word is kept.
+ *
+ * A city is left verbatim: its model is pinned byte-identical to the city
+ * before settlements (`layout.golden.test.ts`), and a curated name meant for
+ * a city already says so.
+ */
+export function inSettlementWords(text: string, tier: SettlementTier): string {
+  if (tier === "city") return text;
+  const noun = SETTLEMENT_NOUN[tier];
+  return text.replace(SETTLEMENT_WORDS, (word) => {
+    if (word === word.toUpperCase()) return noun.toUpperCase();
+    if (word[0] === word[0].toUpperCase()) return noun[0].toUpperCase() + noun.slice(1);
+    return noun;
+  });
+}
+
 /**
  * The HUD name (PLAN.md 76.1 decision 9). It uses the repository name, never
  * the owner: "Village of p-limit", "Town of zustand", "City of hono",
