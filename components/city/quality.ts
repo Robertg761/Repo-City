@@ -13,7 +13,8 @@
  * What a step down removes follows section 63's order exactly: expensive
  * post-processing first, then the realtime shadow budget. The surface
  * textures shrink and the ground detail pass goes with the post-processing,
- * since both are fill rate spent on decoration. Nothing that carries
+ * since both are fill rate spent on decoration, and so do the crowd's smoke
+ * and beacon halos (section 76.9). Nothing that carries
  * meaning -- buildings, incidents, selection, camera, inspector -- is ever
  * touched by this file.
  *
@@ -58,6 +59,13 @@ export interface QualitySettings {
    * of the city, so it goes with the post-processing on a slow machine.
    */
   groundDetail: boolean;
+  /**
+   * The crowd's decoration (PLAN.md 76.9): smoke over crowd fires and the
+   * soft halos round crowd beacons. Both are transparent, overdrawn and
+   * animated, so the low tier drops them. It never drops a crowd object: every
+   * open issue and pull request stays on the street, whatever the machine.
+   */
+  crowdEffects: boolean;
 }
 
 export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
@@ -73,6 +81,7 @@ export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
     textureSize: 256,
     anisotropy: 4,
     groundDetail: true,
+    crowdEffects: true,
   },
   low: {
     tier: "low",
@@ -86,6 +95,7 @@ export const QUALITY_SETTINGS: Record<QualityTier, QualitySettings> = {
     textureSize: 128,
     anisotropy: 1,
     groundDetail: false,
+    crowdEffects: false,
   },
 };
 

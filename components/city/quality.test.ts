@@ -87,6 +87,15 @@ describe("the tiers themselves", () => {
     expect(QUALITY_SETTINGS.low.groundDetail).toBe(false);
   });
 
+  it("drops the crowd's smoke and halos on the low tier, and nothing else of the crowd (76.9)", () => {
+    expect(QUALITY_SETTINGS.high.crowdEffects).toBe(true);
+    expect(QUALITY_SETTINGS.low.crowdEffects).toBe(false);
+    // The flag is decoration only: no setting may hide an issue or a pull request.
+    for (const settings of Object.values(QUALITY_SETTINGS)) {
+      expect(Object.keys(settings).filter((key) => /crowd/i.test(key))).toEqual(["crowdEffects"]);
+    }
+  });
+
   it("names itself, so the chosen tier can be reported", () => {
     expect(QUALITY_SETTINGS.high.tier).toBe("high");
     expect(QUALITY_SETTINGS.low.tier).toBe("low");
