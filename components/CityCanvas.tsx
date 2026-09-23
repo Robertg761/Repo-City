@@ -12,10 +12,19 @@
  * must never run during server rendering.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { NeutralToneMapping, PCFShadowMap } from "three";
+import { NeutralToneMapping, PCFShadowMap, getConsoleFunction, setConsoleFunction } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
@@ -28,6 +37,7 @@ import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
+import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -44,6 +54,25 @@ const EMPTY_SIZE = 120;
  * read as a pale veil over the whole frame.
  */
 const EMPTY_ATMOSPHERE = atmosphere(STAGE_AMBIENCE, false);
+
+/**
+ * R3F 9 still builds its frame clock from `THREE.Clock`, which three r183
+ * deprecated, so every visit opened with a deprecation warning in the
+ * console that nothing in this app can act on. three routes its own logging
+ * through one replaceable function; this passes everything through except
+ * that one line.
+ */
+const CLOCK_DEPRECATION = "THREE.Clock: This module has been deprecated";
+if (typeof window !== "undefined") {
+  const previous = getConsoleFunction();
+  setConsoleFunction((type: "log" | "warn" | "error", message: string, ...params: unknown[]) => {
+    if (type === "warn" && message.startsWith(CLOCK_DEPRECATION)) {
+      return;
+    }
+    if (previous) previous(type, message, ...params);
+    else console[type](message, ...params);
+  });
+}
 
 /** The dev scenes: the fixture city, and one settlement at each end of the scale. */
 type DevScene = "city" | "metropolis" | "village" | "town";
@@ -152,12 +181,22 @@ function EmptyStage({ aspect }: { aspect: number }) {
   );
 }
 
-export default function CityCanvas() {
-  const storeCity = useCityStore((s) => s.city);
-  const actions = useCityStore((s) => s.actions);
-  const devCity = useDevCity(storeCity !== null);
-  const city = storeCity ?? devCity;
-  const aspect = useViewportAspect();
+/**
+ * Everything inside the canvas that follows the model.
+ *
+ * THE CITY ARRIVES DEFERRED. Mounting a metropolis builds thousands of
+ * objects and a few hundred geometries in one React render, and done at once
+ * that was the hitch on arrival: 300 ms on a desktop, over two seconds on a
+ * laptop CPU at a quarter of the speed. `useDeferredValue` hands the new model
+ * to a background render inside the canvas's own (concurrent) React root,
+ * which yields to the browser every few milliseconds, so the old scene keeps
+ * drawing while the new one is built and only the commit and the shader
+ * compile are left for one frame. It has to be here, inside the canvas: the
+ * canvas passes its children on from a layout effect, and anything deferred
+ * outside it would arrive as one synchronous update all the same.
+ */
+function Scene({ city: latest, aspect }: { city: CityModel | null; aspect: number }) {
+  const city = useDeferredValue(latest);
 
   // The sky, the exposure and the quality probe outlive any one model, so
   // they are mounted here rather than inside the keyed `<City>`, and the
@@ -172,28 +211,7 @@ export default function CityCanvas() {
   const archived = city?.repository.archived ?? false;
 
   return (
-    <Canvas
-      // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
-      // it falls back to `PCFShadowMap` and warns on every load. Ask for the
-      // supported filter directly; the softness now comes from the light's own
-      // radius and bias in `Lighting.tsx` (PLAN.md section 39).
-      shadows={{ type: PCFShadowMap }}
-      dpr={[1, 2]}
-      // The near plane is as far out as the closest camera allows (the orbit
-      // stops ten units from its target). At 0.5 the depth buffer had so little
-      // precision left out on the landscape that the ambient occlusion pass
-      // read the flat grass as bumpy and clouded it over in soft grey patches.
-      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
-      // Neutral from the first frame; `Environment` keeps the exposure in step
-      // with the hour, and hands the tone mapping to the composer when the
-      // quality tier runs one (PLAN.md section 39).
-      gl={{ antialias: true, toneMapping: NeutralToneMapping }}
-      // Clicking past every object is the same gesture as clicking bare
-      // ground: it clears the selection (PLAN.md section 6).
-      onPointerMissed={() => actions.select(null)}
-      // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-    >
+    <>
       {/* The live time of day for everything in the scene (`sky.tsx`). */}
       <SkyProvider ambience={ambience} archived={archived}>
         {/* Keyed on the seed: a different repository revision is a different
@@ -229,9 +247,247 @@ export default function CityCanvas() {
         maxPolarAngle={Math.PI * 0.48}
         minPolarAngle={0.15}
       />
+    </>
+  );
+}
+
+function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
+  const storeCity = useCityStore((s) => s.city);
+  const actions = useCityStore((s) => s.actions);
+  const devCity = useDevCity(storeCity !== null);
+  const city = storeCity ?? devCity;
+  const aspect = useViewportAspect();
+  // The canvas is created at the tier's pixel ratio, and follows it. R3F
+  // re-applies this prop whenever the canvas re-renders, so it has to be the
+  // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
+  // back on twice the pixels each time a new city arrived.
+  const { maxDpr } = useQuality();
+
+  return (
+    <Canvas
+      // `shadows="soft"` asks for `PCFSoftShadowMap`, which three r186 removed:
+      // it falls back to `PCFShadowMap` and warns on every load. Ask for the
+      // supported filter directly; the softness now comes from the light's own
+      // radius and bias in `Lighting.tsx` (PLAN.md section 39).
+      shadows={{ type: PCFShadowMap }}
+      dpr={[1, maxDpr]}
+      // The near plane is as far out as the closest camera allows (the orbit
+      // stops ten units from its target). At 0.5 the depth buffer had so little
+      // precision left out on the landscape that the ambient occlusion pass
+      // read the flat grass as bumpy and clouded it over in soft grey patches.
+      camera={{ position: DEFAULT_CAMERA_POSITION, fov: 35, near: 2, far: 2000 }}
+      // Neutral from the first frame; `Environment` keeps the exposure in step
+      // with the hour, and hands the tone mapping to the composer when the
+      // quality tier runs one (PLAN.md section 39).
+      gl={{ antialias: true, toneMapping: NeutralToneMapping }}
+      // Clicking past every object is the same gesture as clicking bare
+      // ground: it clears the selection (PLAN.md section 6).
+      onPointerMissed={() => actions.select(null)}
+      // The wrapper in `app/page.tsx` owns the sizing; R3F fills it exactly.
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+    >
+      <Scene city={city} aspect={aspect} />
+      <ContextWatch onLost={onLost} />
 
       {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
       <PerfOverlay />
     </Canvas>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// When the graphics are not there
+// ---------------------------------------------------------------------------
+
+type GraphicsState = "ok" | "lost" | "stuck" | "unavailable" | "failed";
+
+/** How long a lost context may take to come back before the page offers a reload. */
+const RESTORE_WAIT_MS = 8000;
+
+/**
+ * three draws with WebGL 2 and nothing else. Asked once, with a throwaway
+ * canvas whose context is released straight away: browsers cap how many a
+ * page may hold.
+ */
+function webglAvailable(): boolean {
+  try {
+    const probe = document.createElement("canvas");
+    const gl = probe.getContext("webgl2");
+    if (!gl) return false;
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A lost WebGL context -- the GPU reset, or a low-memory device reclaiming it
+ * -- stops the canvas mid-visit. `ContextWatch` reports it with the canvas
+ * that lost it; `CityCanvas` takes it from there.
+ *
+ * The canvas is let go at once rather than restored in place. three can
+ * restore its own state on the same canvas, but every object made before the
+ * loss keeps a disposer bound to the dead context, so the next city, or the
+ * next tier, released them against the live one and filled the console with
+ * WebGL errors. Unmounted while the context is gone, everything is released
+ * as a no-op, and the city comes back on a fresh canvas.
+ */
+function ContextWatch({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
+  const gl = useThree((state) => state.gl);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const lost = () => {
+      // R3F ends an unmount by forcing the context lost through its
+      // extension, and on a context that is already gone three can only warn
+      // that the extension is missing. There is nothing left to lose.
+      gl.forceContextLoss = () => {};
+      onLost(canvas);
+    };
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, [gl, onLost]);
+
+  return null;
+}
+
+const NOTICE_COPY: Record<
+  Exclude<GraphicsState, "ok">,
+  { title: string; body: string; reload: boolean }
+> = {
+  lost: {
+    title: "Graphics reset",
+    body: "The browser paused the 3D view to free graphics memory. Bringing the city back…",
+    reload: false,
+  },
+  stuck: {
+    title: "Graphics reset",
+    body: "The 3D view did not come back on its own. Reloading the page will restore it.",
+    reload: true,
+  },
+  unavailable: {
+    title: "This browser can’t draw the city",
+    body: "Repo City needs WebGL 2, which is switched off or not supported here. Turning on hardware acceleration, or opening the page in a current Chrome, Edge, Firefox or Safari, will bring it up.",
+    reload: false,
+  },
+  failed: {
+    title: "The 3D view couldn’t start",
+    body: "Something stopped the graphics from starting. Reloading the page usually fixes it.",
+    reload: true,
+  },
+};
+
+function GraphicsNotice({ state }: { state: Exclude<GraphicsState, "ok"> }) {
+  const copy = NOTICE_COPY[state];
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-4">
+      <div
+        role="alert"
+        className="glass animate-fade-in pointer-events-auto w-full max-w-[24rem] p-4 text-center"
+      >
+        <p className="text-sm font-medium text-white/90">{copy.title}</p>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{copy.body}</p>
+        {copy.reload ? (
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="hud-button mt-3"
+          >
+            Reload
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Catches the canvas failing to start (no context could be created) and any
+ * error thrown from inside the scene, and shows a notice instead of the blank
+ * page an uncaught render error leaves behind. The HUD is outside this
+ * boundary and stays up.
+ */
+class CanvasBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("Repo City: the 3D view stopped", error);
+  }
+
+  render() {
+    return this.state.failed ? <GraphicsNotice state="failed" /> : this.props.children;
+  }
+}
+
+/** A context lost this many times in one visit is not coming back by itself. */
+const MAX_LOSSES = 3;
+
+/**
+ * Recovering from a lost context: the canvas is unmounted while the context is
+ * gone (`ContextWatch`), and once the browser hands the old canvas its context
+ * back -- the signal that the GPU is usable again -- a fresh canvas is mounted
+ * a quality tier lower, which asks the GPU for less memory. The store still
+ * holds the city, so it simply grows again. If the context has not come back
+ * after a few seconds, or keeps being lost, the notice offers a reload.
+ */
+function useContextRecovery() {
+  const [graphics, setGraphics] = useState<GraphicsState>("ok");
+  const [generation, setGeneration] = useState(0);
+  const losses = useRef(0);
+  const pending = useRef<() => void>(() => {});
+
+  useEffect(() => () => pending.current(), []);
+
+  const onLost = useCallback((canvas: HTMLCanvasElement) => {
+    pending.current();
+    losses.current += 1;
+    if (losses.current >= MAX_LOSSES) {
+      setGraphics("stuck");
+      return;
+    }
+    setGraphics("lost");
+    const restored = () => {
+      pending.current();
+      // Let the old context go now that it is back: it holds nothing.
+      canvas.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext();
+      stepDownAfterContextLoss();
+      setGeneration((n) => n + 1);
+      setGraphics("ok");
+    };
+    const timer = window.setTimeout(() => {
+      pending.current();
+      setGraphics("stuck");
+    }, RESTORE_WAIT_MS);
+    canvas.addEventListener("webglcontextrestored", restored);
+    pending.current = () => {
+      window.clearTimeout(timer);
+      canvas.removeEventListener("webglcontextrestored", restored);
+      pending.current = () => {};
+    };
+  }, []);
+
+  return { graphics, generation, onLost };
+}
+
+export default function CityCanvas() {
+  // Client only (`next/dynamic` with `ssr: false`), so this runs in a browser.
+  const [webgl] = useState(webglAvailable);
+  const { graphics, generation, onLost } = useContextRecovery();
+
+  if (!webgl) return <GraphicsNotice state="unavailable" />;
+  return (
+    <>
+      {graphics === "ok" && (
+        <CanvasBoundary key={generation}>
+          <Viewport onLost={onLost} />
+        </CanvasBoundary>
+      )}
+      {graphics !== "ok" && <GraphicsNotice state={graphics} />}
+    </>
   );
 }

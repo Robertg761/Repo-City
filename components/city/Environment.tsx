@@ -21,12 +21,9 @@
  * city itself is always drawn at full clarity (`palette.ts`).
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { ContactShadows } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
-import { ToneMappingMode } from "postprocessing";
-import type { BloomEffect } from "postprocessing";
 import {
   BackSide,
   BufferAttribute,
@@ -43,6 +40,7 @@ import {
   Vector2,
   Vector3,
 } from "three";
+import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "./entities";
 import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
@@ -55,7 +53,7 @@ import {
   mix,
   type SceneAtmosphere,
 } from "./palette";
-import { useQuality, useQualityProbe, type QualitySettings } from "./quality";
+import { useQuality, useQualityProbe } from "./quality";
 import { cityRevealEnd } from "./reveal";
 import { skyRadius } from "./scale";
 import { useSky, useSkyFrame } from "./sky";
@@ -73,6 +71,9 @@ import {
  * pixel of the plate. The scene camera is opted back in by `Environment`.
  */
 const SKY_LAYER = 1;
+
+/** The composer, loaded apart from the first frame (`Post.tsx`). */
+const Post = lazy(() => import("./Post"));
 
 /**
  * The painted sky's proportions. It used to be painted into a 768 by 384
@@ -479,17 +480,18 @@ function GroundDetail({ city }: { city: CityModel }) {
  * `NoToneMapping` besides -- so the high tier used to reach the screen with
  * no tone mapping and no exposure at all. `Post` ends its chain with the same
  * operator instead, and both tiers read the exposure from the renderer.
+ *
+ * The pixel ratio is the tier's too, but it is the canvas's prop
+ * (`CityCanvas.tsx`): R3F re-applies that prop on every render of the canvas,
+ * and a ratio set here was overwritten by it.
  */
 function Film({
-  maxDpr,
   composed,
 }: {
-  maxDpr: number;
   /** The composer is running and tone maps at the end of its chain. */
   composed: boolean;
 }) {
   const camera = useThree((state) => state.camera);
-  const setDpr = useThree((state) => state.setDpr);
   const sky = useSky();
   const toneMapping = composed ? NoToneMapping : NeutralToneMapping;
 
@@ -506,98 +508,7 @@ function Film({
     camera.layers.enable(SKY_LAYER);
   }, [camera]);
 
-  useEffect(() => {
-    setDpr([1, maxDpr]);
-  }, [setDpr, maxDpr]);
-
   return null;
-}
-
-/**
- * The composer (PLAN.md section 63: the first thing that goes when frames get
- * long, which is why it is behind the quality tier).
- *
- * N8AO puts a contact darkening in every corner the directional light cannot
- * reach -- between a tower and its neighbour, under an eave, along a kerb --
- * which is most of what makes a lit model read as three dimensional.
- *
- * Bloom is deliberately threshold-limited to values above 1.1 in the scene's
- * own linear light, before the tone mapping: the palest roof under the
- * strongest midday sun lands just under 1 there, and the emissive windows,
- * beacons, sparks and lamps well above it.
- * So the lights glow and the facades do not, and the glow is kept small: a
- * wide soft bloom over a whole frame is exactly the veil this scene is not
- * meant to have.
- *
- * The chain ends in the tone mapping (see `Film`), after the bloom so the
- * glow is rolled off with everything else rather than clipping.
- */
-/** Bloom strength for an hour. Auto's is exactly what it always was. */
-function bloomIntensity(atmosphere: SceneAtmosphere): number {
-  return 0.26 + Math.max(atmosphere.evening * 0.22, atmosphere.nightness * 0.34);
-}
-
-function Post({
-  atmosphere,
-  quality,
-}: {
-  atmosphere: SceneAtmosphere;
-  quality: QualitySettings;
-}) {
-  // The glow follows the live hour: a little more at the golden hour, and
-  // most at night, when the lights are what the city is made of.
-  const sky = useSky();
-  const bloom = useRef<BloomEffect>(null);
-  useSkyFrame((live) => {
-    if (bloom.current) bloom.current.intensity = bloomIntensity(live);
-  });
-
-  // Built as an array rather than with inline conditionals: the composer
-  // rebuilds its chain from its children, and a `false` among them is not an
-  // effect it can skip.
-  const effects = [];
-  if (quality.ambientOcclusion) {
-    effects.push(
-      <N8AO
-        key="ao"
-        // Full resolution, with twice the denoise samples of the "low" preset
-        // over a tighter radius. At half resolution the occlusion is sampled
-        // on a grid coarser than a tower's mullions, and the upsample drew
-        // faint diagonal hatching down the side of every thin fin; the high
-        // tier this runs on has the headroom (PLAN.md 76.13).
-        aoSamples={16}
-        denoiseSamples={8}
-        denoiseRadius={8}
-        aoRadius={2.6}
-        distanceFalloff={1.1}
-        intensity={1.05}
-        // Neutral, with a breath of the ground bounce in it: an occlusion
-        // tinted with the bounce colour turns the whole frame that colour.
-        color={mix("#0a0c10", atmosphere.groundBounceColor, 0.2)}
-      />,
-    );
-  }
-  if (quality.bloom) {
-    effects.push(
-      <Bloom
-        key="bloom"
-        ref={bloom}
-        mipmapBlur
-        luminanceThreshold={1.1}
-        luminanceSmoothing={0.25}
-        intensity={bloomIntensity(sky.atmosphere)}
-        radius={0.55}
-      />,
-    );
-  }
-  effects.push(<ToneMapping key="tone" mode={ToneMappingMode.NEUTRAL} />);
-  if (quality.smaa) effects.push(<SMAA key="smaa" />);
-
-  return (
-    <EffectComposer enableNormalPass={false} multisampling={0} stencilBuffer={false}>
-      {effects}
-    </EffectComposer>
-  );
 }
 
 export default function Environment({
@@ -618,11 +529,16 @@ export default function Environment({
   // three hundred buildings growing out of the ground (PLAN.md section 43),
   // and now the backlog's ripple and the queue behind them (76.8).
   const settleMs = useMemo(() => (city ? cityRevealEnd(city) + 250 : null), [city]);
-  useQualityProbe(settleMs);
+  const surveying = useCityStore((s) => s.phase === "analyzing" || s.phase === "building");
+  useQualityProbe(settleMs, surveying);
+
+  // Whether the composer is mounted, not merely wanted: until its module has
+  // loaded the renderer keeps the tone mapping.
+  const [composing, setComposing] = useState(false);
 
   return (
     <>
-      <Film maxDpr={quality.maxDpr} composed={quality.postProcessing} />
+      <Film composed={quality.postProcessing && composing} />
       <Backdrop atmosphere={atmosphere} reach={size * aspectWiden(aspect)} />
       <SkyDome radius={skyRadius(size, maxCameraDistance(size, aspect))} />
 
@@ -644,7 +560,11 @@ export default function Environment({
         />
       )}
 
-      {quality.postProcessing && <Post atmosphere={atmosphere} quality={quality} />}
+      {quality.postProcessing && (
+        <Suspense fallback={null}>
+          <Post atmosphere={atmosphere} quality={quality} onLive={setComposing} />
+        </Suspense>
+      )}
     </>
   );
 }
