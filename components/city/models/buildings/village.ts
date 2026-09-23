@@ -37,8 +37,10 @@ function climbingRose(
   draft: ReturnType<typeof settlementDraft>,
   spec: { plane: number; u: number; h: number },
 ): void {
-  wallBox(draft, { facing: "+z", plane: spec.plane, u: spec.u, v: 0.02, w: 0.07, h: spec.h, depth: 0.03 }, M.leaf);
-  wallBox(draft, { facing: "+z", plane: spec.plane, u: spec.u + 0.005, v: spec.h * 0.72, w: 0.085, h: spec.h * 0.3, depth: 0.028 }, M.leaf);
+  // The two patches share their left edge: a hair apart, the lower one's
+  // top showed as a thread of leaf beside the upper.
+  wallBox(draft, { facing: "+z", plane: spec.plane, u: spec.u, v: 0.02, w: 0.06, h: spec.h, depth: 0.03 }, M.leaf);
+  wallBox(draft, { facing: "+z", plane: spec.plane, u: spec.u + 0.0125, v: spec.h * 0.72, w: 0.085, h: spec.h * 0.3, depth: 0.028 }, M.leaf);
   const blooms: [number, number][] = [
     [-0.012, 0.3],
     [0.02, 0.55],
@@ -102,8 +104,9 @@ export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
     });
     // The chimney stands on the gable end, the way a cottage hearth does.
     // Its breast starts at the wall face rather than inside the wall, so its
-    // top does not share a plane with the wall's.
-    box(draft, { x: halfW + 0.035, y: 0, z: -0.08, w: 0.07, h: 0.52, d: 0.14 }, M.stone);
+    // top does not share a plane with the wall's, and is as deep as the
+    // stack: a hundredth deeper, a thread of its top showed either side.
+    box(draft, { x: halfW + 0.035, y: 0, z: -0.08, w: 0.07, h: 0.52, d: 0.12 }, M.stone);
     chimney(draft, { x: halfW - 0.02, z: -0.08, y0: 0.5, top: 1.0, w: 0.1, d: 0.12, pots: 2 });
     // A porch hood on brackets over the door.
     gableRoof(draft, {
@@ -119,15 +122,19 @@ export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
       roof: M.tileDark,
       gable: M.frame,
     });
-    // Brackets clear of the climbing rose beside the door.
+    // Brackets clear of the climbing rose beside the door, and back against
+    // the wall: a hundredth off it, a thread of the rose showed behind them.
     for (const s of [-1, 1]) {
-      box(draft, { x: 0.1 + s * 0.085, y: 0.33, z: halfD + 0.05, w: 0.02, h: 0.055, d: 0.08 }, M.timber);
+      box(draft, { x: 0.1 + s * 0.085, y: 0.33, z: halfD + 0.045, w: 0.02, h: 0.055, d: 0.09 }, M.timber);
     }
   }
 
   const front = halfD;
   door(draft, { facing: "+z", plane: front, u: 0.1, v: 0.045, w: 0.13, h: 0.28 });
-  climbingRose(draft, { plane: front, u: 0.22, h: 0.36 });
+  // Its left edge against the porch bracket's side on the tiled cottage, its
+  // top under the porch's eave rather than a hair through it, and clear of
+  // the window box's end.
+  climbingRose(draft, { plane: front, u: 0.225, h: 0.34 });
 
   const windows: Panel[] = [
     framedWindow(draft, {
@@ -163,7 +170,9 @@ export function farmhouse(): ArchetypeModel {
   const halfD = 0.34;
   const wallTop = 0.62;
 
-  box(draft, { x: cx, y: 0, w: halfW * 2 + 0.04, h: 0.04, d: halfD * 2 + 0.04 }, M.stoneDark);
+  // The plinth stands far enough out that the front door, two layers in
+  // front of the wall, still leaves two layers of it showing.
+  box(draft, { x: cx, y: 0, w: halfW * 2 + 0.052, h: 0.04, d: halfD * 2 + 0.052 }, M.stoneDark);
   box(draft, { x: cx, y: 0.04, w: halfW * 2, h: wallTop - 0.04, d: halfD * 2, skipBottom: true }, M.wall);
   // A string course between the storeys, two layers proud: the door's
   // surround reaches up behind it.
@@ -301,7 +310,9 @@ export function barn(): ArchetypeModel {
   const slopeLow = (knee.y - eave.y) / (eave.x - knee.x);
   const atWall = eave.y + (eave.x - halfW) * slopeLow;
 
-  box(draft, { x: cx, y: 0, w: halfW * 2 + 0.03, h: 0.035, d: halfD * 2 + 0.03 }, M.stoneDark);
+  // Out far enough that the braces on the doors, three layers off the wall,
+  // leave two layers of plinth in front of them.
+  box(draft, { x: cx, y: 0, w: halfW * 2 + 0.05, h: 0.035, d: halfD * 2 + 0.05 }, M.stoneDark);
   box(draft, { x: cx, y: 0.035, w: halfW * 2, h: atWall - 0.035, d: halfD * 2, skipBottom: true }, M.wall);
 
   const roofZ = halfD + 0.03;
@@ -419,8 +430,9 @@ export function barn(): ArchetypeModel {
   const sz = -0.2;
   const radius = 0.115;
   cylinder(draft, { x: sx, y: 0, z: sz, radius, h: 0.9, segments: 10 }, M.concrete);
+  // The hoops stand two layers proud: one, and their tops were a hairline.
   for (const hy of [0.22, 0.46, 0.7]) {
-    cylinder(draft, { x: sx, y: hy, z: sz, radius: radius + 0.006, h: 0.02, segments: 10 }, M.concreteDark);
+    cylinder(draft, { x: sx, y: hy, z: sz, radius: radius + 0.013, h: 0.02, segments: 10 }, M.concreteDark);
   }
   for (let i = 0; i < 10; i++) {
     const a0 = (i / 10) * Math.PI * 2;
@@ -436,8 +448,9 @@ export function barn(): ArchetypeModel {
       M.metal,
     );
   }
-  // A chute from the silo into the barn.
-  box(draft, { x: (sx - radius + cx + halfW) / 2, y: 0.4, z: sz, w: sx - radius - (cx + halfW) + 0.01, h: 0.05, d: 0.05 }, M.metal);
+  // A chute from the silo into the barn, under the eave: at 0.4 it came up
+  // through the roof's edge.
+  box(draft, { x: (sx - radius + cx + halfW) / 2, y: 0.37, z: sz, w: sx - radius - (cx + halfW) + 0.01, h: 0.05, d: 0.05 }, M.metal);
 
   // The long walls' windows sit a layer out, over the battens.
   const onBattens = halfW + LAYER;

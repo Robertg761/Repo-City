@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { narrowLedges } from "../ledges";
-import { CITY_ARCHETYPE_IDS } from "./archetypes";
+import { MODEL_KEYS } from "./archetypes";
 import { addBox, emptyDraft, LAYER, type MeshDraft } from "./mesh";
-import { METROPOLIS_ARCHETYPE_IDS } from "./metropolis";
 import { archetypeModel } from "./models";
 
 /**
@@ -18,9 +17,10 @@ import { archetypeModel } from "./models";
  * shows on purpose (the plinth proud of a tower's lobby); one would be a
  * sliver again from the overview.
  *
- * The city's eight shapes and the metropolis towers are held to it. The
- * village and town shapes still carry a few, at sills, steps and fences, which
- * are short enough to read as specks rather than lines.
+ * Every model is held to it: the city's eight shapes, the metropolis towers,
+ * and the village's and the town's, variants included. The landmarks, props
+ * and fields of the village and the town are held to it in `../ledges.test.ts`
+ * and `farmland.test.ts`.
  */
 
 /** A little under two layers, so a ledge exactly two layers deep passes. */
@@ -29,9 +29,11 @@ const NARROWEST = LAYER * 1.9;
 /**
  * A lip lower than a layer: a wall that comes up through a surface and stops
  * a hair above it. Heights stretch four times as far as widths on a tower, so
- * one layer is already a clear step there.
+ * one layer is already a clear step there. A little under one, so a step
+ * exactly a layer high (a door's step on its plinth) passes whatever the
+ * rounding.
  */
-const LOWEST = LAYER;
+const LOWEST = LAYER * 0.95;
 
 function slivers(draft: MeshDraft): string[] {
   return narrowLedges(draft.positions, draft.indices, { narrowerThan: NARROWEST, lowerThan: LOWEST }).map(
@@ -43,7 +45,7 @@ function slivers(draft: MeshDraft): string[] {
 }
 
 describe("no building leaves a sliver of ledge showing", () => {
-  for (const id of [...CITY_ARCHETYPE_IDS, ...METROPOLIS_ARCHETYPE_IDS]) {
+  for (const id of MODEL_KEYS) {
     it(`${id}`, () => {
       expect(slivers(archetypeModel(id).draft)).toEqual([]);
     });

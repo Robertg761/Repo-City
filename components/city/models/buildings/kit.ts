@@ -461,9 +461,14 @@ export function framedWindow(draft: MeshDraft, spec: WindowSpec): Panel {
     }
   }
   if (spec.flowers) {
+    // The flowers stand back against the wall and two layers in from the
+    // box's front and ends, so the rim of the box they grow in is a rim and
+    // not a hairline. A hair off the wall, as they were, a sliver of sill
+    // showed behind them and another of the box in front.
     const y = spec.v - spec.h / 2 - frame - 0.05;
-    wallBox(draft, { ...base, plane: spec.plane, v: y, w: spec.w + frame * 2, h: 0.036, depth: 0.045 }, M.timber);
-    wallBox(draft, { ...base, plane: spec.plane + 0.006, v: y + 0.036, w: spec.w + frame, h: 0.022, depth: 0.036 }, spec.flowers);
+    const rim = LAYER * 2;
+    wallBox(draft, { ...base, plane: spec.plane, v: y, w: spec.w + frame * 2, h: 0.036, depth: 0.036 + rim }, M.timber);
+    wallBox(draft, { ...base, plane: spec.plane, v: y + 0.036, w: spec.w + frame * 2 - rim * 2, h: 0.022, depth: 0.036 }, spec.flowers);
   }
   return glass;
 }
@@ -517,9 +522,18 @@ export function chimney(
   box(draft, { x: spec.x, y: spec.y0, z: spec.z, w, h: spec.top - spec.y0 - capH, d, skipBottom: true }, mat);
   // The cap overhangs the stack, so its underside is seen from a low camera.
   box(draft, { x: spec.x, y: spec.top - capH, z: spec.z, w: w + 0.024, h: capH, d: d + 0.024 }, M.stoneDark);
+  // Pots in a row along the stack's long side, half its length apart: across
+  // a narrow stack two pots overlapped, and left a notch of cap between them
+  // too thin to draw.
   const pots = spec.pots ?? 1;
+  const alongZ = d > w;
+  const pitch = (alongZ ? d : w) * 0.5;
   for (let i = 0; i < pots; i++) {
-    const offset = pots === 1 ? 0 : (i - (pots - 1) / 2) * (w * 0.5);
-    cylinder(draft, { x: spec.x + offset, y: spec.top, z: spec.z, radius: 0.018, h: 0.04, segments: 5 }, M.tileDark);
+    const offset = pots === 1 ? 0 : (i - (pots - 1) / 2) * pitch;
+    cylinder(
+      draft,
+      { x: spec.x + (alongZ ? 0 : offset), y: spec.top, z: spec.z + (alongZ ? offset : 0), radius: 0.018, h: 0.04, segments: 5 },
+      M.tileDark,
+    );
   }
 }

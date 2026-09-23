@@ -31,7 +31,10 @@ import {
   ConeGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
+  Euler,
   IcosahedronGeometry,
+  Quaternion,
+  Vector3,
   type BufferGeometry,
 } from "three";
 import { TREE_LEAF, desaturate } from "../../palette";
@@ -94,8 +97,25 @@ function box(size: Triple, position: Triple, color: string, rotation?: Triple): 
 }
 
 /**
+ * Turned to `heading` about y and then tipped `tilt` about its own x, as the
+ * XYZ Euler angles a `Part` takes. Written straight into XYZ order, a cord
+ * that runs anywhere but along z was tipped about the world's x instead, and
+ * missed the knots it was meant to join.
+ */
+function headingThenTilt(heading: number, tilt: number): Triple {
+  const q = new Quaternion().setFromEuler(new Euler(tilt, heading, 0, "YXZ"));
+  const e = new Euler().setFromQuaternion(q, "XYZ");
+  return [e.x, e.y, e.z];
+}
+
+/**
  * A string of pennants from `a` to `b`, sagging `sag` in the middle: a thin
  * cord in short straight runs and a small downward triangle at each knot.
+ *
+ * Each pennant is tipped to the cord's slope at its knot and threaded on the
+ * cord, its top a little above the cord's: with a flat top a hair under the
+ * cord, the cord came up through it and stopped a hair above, and the two
+ * dashed at any distance.
  */
 function bunting(a: Triple, b: Triple, count: number, sag: number, shade: (hex: string) => string): Part[] {
   const at = (t: number): Triple => [
@@ -105,35 +125,50 @@ function bunting(a: Triple, b: Triple, count: number, sag: number, shade: (hex: 
   ];
   const parts: Part[] = [];
   const heading = Math.atan2(b[0] - a[0], b[2] - a[2]);
+  const run = Math.hypot(b[0] - a[0], b[2] - a[2]);
+  const cord = 0.025;
   for (let i = 0; i < count; i++) {
-    const p = at(i / (count - 1));
+    const t = i / (count - 1);
+    const p = at(t);
     if (i > 0) {
       const q = at((i - 1) / (count - 1));
       const length = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
       const pitch = Math.asin((p[1] - q[1]) / length);
       parts.push({
-        geometry: new BoxGeometry(0.025, 0.025, length),
+        geometry: new BoxGeometry(cord, cord, length),
         color: shade("#e9e4d6"),
         position: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2],
-        rotation: [-pitch, heading, 0],
+        rotation: headingThenTilt(heading, -pitch),
       });
     }
     if (i === 0 || i === count - 1) continue;
+    // The slope of the curve at the knot, and "up" across the cord there.
+    const slope = Math.atan2(b[1] - a[1] - sag * 4 * (1 - 2 * t), run);
+    const rotation = headingThenTilt(heading, Math.PI - slope);
+    const up = new Vector3(0, -1, 0).applyEuler(new Euler(...rotation));
+    // The cone is 0.3 tall about its centre; its top stands 0.03 above the
+    // knot, clear of the cord's top.
+    const down = 0.15 - 0.03;
     parts.push({
       geometry: new ConeGeometry(0.13, 0.3, 3),
       color: shade(BUNTING[i % BUNTING.length]),
-      position: [p[0], p[1] - 0.16, p[2]],
-      rotation: [Math.PI, heading, 0],
+      position: [p[0] - up.x * down, p[1] - up.y * down, p[2] - up.z * down],
+      rotation,
     });
   }
   return parts;
 }
 
-/** A bunch of three balloons on strings, tied at `x, z`, `top` high. */
+/**
+ * A bunch of three balloons on strings, tied at `x, z`, `top` high. The
+ * strings stand clear of the fence, the ribbon and the path's edge: through
+ * a picket or a ribbon, or a hair inside the path, they left a thread of its
+ * top showing beside them.
+ */
 function balloons(x: number, z: number, top: number, shade: (hex: string) => string): Part[] {
   const spots: Triple[] = [
-    [x - 0.2, top, z],
-    [x + 0.18, top + 0.18, z + 0.06],
+    [x - 0.24, top, z - 0.08],
+    [x + 0.28, top + 0.18, z + 0.065],
     [x + 0.02, top + 0.34, z - 0.14],
   ];
   return spots.flatMap((p, i) => [
@@ -201,12 +236,15 @@ function townDressing(shade: (hex: string) => string): Part[] {
     box([footprint[0] + 0.4, 0.05, edge - front + 0.2], [0, 0.03, (edge + front) / 2], shade("#e6e0d2")),
     // A banner down the front: new, and open.
     box([0.7, 2.4, 0.06], [footprint[0] / 2 - 0.7, height * 0.62, front + 0.06], shade("#d23b33")),
-    box([0.72, 0.2, 0.07], [footprint[0] / 2 - 0.7, height * 0.62 + 0.5, front + 0.07], shade(WHITE)),
+    // Its white band two layers proud of it all round, not a hair.
+    box([0.724, 0.2, 0.084], [footprint[0] / 2 - 0.7, height * 0.62 + 0.5, front + 0.06], shade(WHITE)),
     // The ribbon across the doors on two posts, with its bow.
     box([0.08, 1.2, 0.08], [-1.2, 0.6, front + 1.2], shade("#9aa0a6")),
     box([0.08, 1.2, 0.08], [1.2, 0.6, front + 1.2], shade("#9aa0a6")),
     box([2.4, 0.16, 0.04], [0, 1.02, front + 1.2], shade("#d23b33")),
-    box([0.34, 0.34, 0.05], [-0.25, 1.02, front + 1.21], shade("#e0574c"), [0, 0, 0.78]),
+    // The bow is deeper than the ribbon and straddles it, so neither shows a
+    // hair of the other's top.
+    box([0.34, 0.34, 0.07], [-0.25, 1.02, front + 1.2], shade("#e0574c"), [0, 0, 0.78]),
     // Two planters with a young tree in each.
     // Set in from the paving's edge, whose side they would otherwise share.
     box([0.8, 0.5, 0.8], [-footprint[0] / 2 + 0.25, 0.25, edge - 0.6], shade("#8f8b80")),

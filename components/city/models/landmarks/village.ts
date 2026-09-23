@@ -81,7 +81,9 @@ function buildChapel(): ChapelLayout {
       // Lancet windows: a tall light under a pointed head.
       a.box("trim", [0.12, 1.9, 0.78], { at: [s * (NAVE_W / 2 + 0.02), 1.95, z] });
       a.box("glass", [0.1, 1.6, 0.52], { at: [s * (NAVE_W / 2 + 0.06), 1.9, z] });
-      a.box("glass", [0.1, 0.36, 0.36], { at: [s * (NAVE_W / 2 + 0.06), 2.75, z], rot: [Math.PI / 4, 0, 0] });
+      // The pointed head reaches back to the wall: stopped a hundredth short
+      // of it, a thread of the frame's top showed behind the point.
+      a.box("glass", [0.11, 0.36, 0.36], { at: [s * (NAVE_W / 2 + 0.055), 2.75, z], rot: [Math.PI / 4, 0, 0] });
     }
     for (const z of [-3.85, -1.85, 0.25, 2.25]) {
       a.box("stone", [0.45, 2.4, 0.4], { at: [s * (NAVE_W / 2 + 0.2), 1.2, z] });
@@ -119,7 +121,9 @@ function buildChapel(): ChapelLayout {
   }
   // The spire: four faces, a slender one, and a weathercock.
   a.cone("roof", TOWER * 0.62, 4.6, 4, { at: [0, TOWER_H + 0.3 + 2.3, TOWER_Z], rot: [0, Math.PI / 4, 0] });
-  a.cylinder("metal", 0.04, 0.04, 0.9, 5, { at: [0, TOWER_H + 0.3 + 4.6 + 0.35, TOWER_Z] });
+  // A square mast as deep as the arm it carries: round, its facets cut the
+  // arm's top into threads either side.
+  a.box("metal", [0.05, 0.9, 0.05], { at: [0, TOWER_H + 0.3 + 4.6 + 0.35, TOWER_Z] });
   a.box("metal", [0.5, 0.05, 0.05], { at: [0, TOWER_H + 0.3 + 4.6 + 0.5, TOWER_Z] });
   a.box("metal", [0.05, 0.28, 0.4], { at: [0.05, TOWER_H + 0.3 + 4.6 + 0.72, TOWER_Z] });
 
@@ -276,7 +280,9 @@ function buildHalt(level: number): HaltLayout {
 
   // The platform, with a pale edge.
   a.box("deck", [12, 0.75, 3.2], { at: [0, 0.375, platformZ] });
-  a.box("wall", [12, 0.06, 0.35], { at: [0, 0.78, platformZ - 1.42] });
+  // Flush with the platform's face: set a hair back, a thread of the deck
+  // showed along the edge.
+  a.box("wall", [12, 0.06, 0.35], { at: [0, 0.78, platformZ - 1.425] });
   // A ramp down at each end.
   for (const s of [-1, 1]) {
     a.box("deck", [1.6, 0.4, 3.2], { at: [s * 6.6, 0.2, platformZ], rot: [0, 0, s * -0.22] });
@@ -418,13 +424,16 @@ function buildSubstation(): SubstationLayout {
     a.box("wood", [1.4, 0.12, 0.12], { at: [x, 5.1, z] });
     for (const dx of [-0.55, 0, 0.55]) a.cylinder("glass", 0.06, 0.06, 0.18, 5, { at: [x + dx, 5.25, z] });
   }
+  // The wires end inside the insulators, below their tops: at the height of
+  // the tops, they came up through them a hair.
+  const wireY = 5.3;
   for (const dx of [-0.55, 0, 0.55]) {
     for (let i = 0; i < poles.length - 1; i++) {
       const p = poles[i];
       const q = poles[i + 1];
-      a.wire("steel", [p[0] + dx, 5.33, p[2]], [q[0] + dx, 5.33, q[2]], 0.02, 0.3, 3);
+      a.wire("steel", [p[0] + dx, wireY, p[2]], [q[0] + dx, wireY, q[2]], 0.02, 0.3, 3);
     }
-    a.wire("steel", [poles[0][0] + dx, 5.33, poles[0][2]], [tx - 0.6 + (dx + 0.55), 2.7, tz + 0.3], 0.02, 0.25, 3);
+    a.wire("steel", [poles[0][0] + dx, wireY, poles[0][2]], [tx - 0.6 + (dx + 0.55), 2.7, tz + 0.3], 0.02, 0.25, 3);
   }
 
   return { slots: a.build(), anchors: { lamp, yard: [tx, 2.6, tz] } };
