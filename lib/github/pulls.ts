@@ -11,7 +11,7 @@
  * - B, open pages 2..5: fetched in parallel by `lib/github/survey.ts`.
  */
 
-import type { GhPull } from "@/types/github";
+import type { GhLabel, GhPull, GhUser } from "@/types/github";
 import type { PullSummary } from "@/types/repository";
 import { GitHubClient, type Page } from "./client.ts";
 import { mapLabels } from "./issues.ts";
@@ -41,7 +41,52 @@ export async function fetchOpenPullsPage(
   return client.getPage<GhPull>(pullsPath(owner, repo), {
     resource: "pulls (open)",
     query: { ...OPEN_PULLS_QUERY },
+    slim: slimPull,
   });
+}
+
+const slimUser = (user: GhUser): GhUser => ({
+  login: user.login,
+  id: user.id,
+  avatar_url: user.avatar_url,
+  html_url: user.html_url,
+  type: user.type,
+});
+
+const slimLabel = (label: GhLabel | string): GhLabel | string =>
+  typeof label === "string" || !label
+    ? label
+    : { id: label.id, name: label.name, color: label.color, description: label.description };
+
+/**
+ * A pull request list item cut to the fields `types/github.ts` declares, for
+ * the response memo (`memo.ts`). A `per_page=100` page is 2 to 3 MB because
+ * every item embeds the head and base repositories in full; this keeps about
+ * 2 KB of it, and every field `mapPull` and the survey read.
+ */
+export function slimPull(raw: GhPull): GhPull {
+  if (!raw || typeof raw !== "object") return raw;
+  const slim: GhPull = {
+    number: raw.number,
+    title: raw.title,
+    html_url: raw.html_url,
+    state: raw.state,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+    closed_at: raw.closed_at,
+    merged_at: raw.merged_at,
+    draft: raw.draft,
+    labels: Array.isArray(raw.labels) ? raw.labels.map(slimLabel) : raw.labels,
+    user: raw.user ? slimUser(raw.user) : raw.user,
+    head: raw.head ? { ref: raw.head.ref, sha: raw.head.sha } : raw.head,
+    base: raw.base ? { ref: raw.base.ref, sha: raw.base.sha } : raw.base,
+  };
+  if (raw.comments !== undefined) slim.comments = raw.comments;
+  if (raw.review_comments !== undefined) slim.review_comments = raw.review_comments;
+  if (Array.isArray(raw.requested_reviewers)) {
+    slim.requested_reviewers = raw.requested_reviewers.map(slimUser);
+  }
+  return slim;
 }
 
 /** A4: recently closed pull requests, unchanged from request 6. */

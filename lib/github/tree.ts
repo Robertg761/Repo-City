@@ -19,7 +19,7 @@
  * confidence must fall (PLAN.md sections 25 and 60).
  */
 
-import type { GhTreeItem, GhTreeResponse } from "@/types/github";
+import type { GhTreeItem } from "@/types/github";
 import type { RepositorySnapshot, TreeEntry } from "@/types/repository";
 import { GitHubClient } from "./client.ts";
 import { GitHubError } from "./errors.ts";
@@ -133,6 +133,35 @@ export interface PrunedTree {
   stats: { rawEntries: number; kept: number; files: number; directories: number };
 }
 
+/** What `fetchTree` reads of a recursive tree answer. */
+export interface TreeListing {
+  sha?: string;
+  truncated?: boolean;
+  tree: TreeListingItem[];
+}
+
+export type TreeListingItem = Pick<GhTreeItem, "path" | "type" | "size">;
+
+/**
+ * A recursive tree cut to what `pruneTree` reads, for the response memo
+ * (`memo.ts`): a giant's tree (vscode's is 8.4 MB) is past what the data
+ * cache stores. Each entry keeps its path, type and size; the per-entry
+ * `sha`, `mode` and `url` go.
+ */
+export function slimTree(raw: TreeListing): TreeListing {
+  if (!raw || !Array.isArray(raw.tree)) return raw;
+  return {
+    sha: raw.sha,
+    truncated: raw.truncated,
+    tree: raw.tree.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const slim: TreeListingItem = { path: item.path, type: item.type };
+      if (item.size !== undefined) slim.size = item.size;
+      return slim;
+    }),
+  };
+}
+
 export async function fetchTree(
   client: GitHubClient,
   owner: string,
@@ -142,9 +171,9 @@ export async function fetchTree(
   // Branch names may contain slashes; those are path separators to GitHub, so
   // each segment is encoded on its own rather than the whole ref.
   const encodedRef = ref.split("/").map(encodeURIComponent).join("/");
-  const raw = await client.get<GhTreeResponse>(
+  const raw = await client.get<TreeListing>(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodedRef}`,
-    { resource: "tree", query: { recursive: "1" } },
+    { resource: "tree", query: { recursive: "1" }, slim: slimTree },
   );
 
   if (!raw || !Array.isArray(raw.tree)) {
@@ -162,7 +191,10 @@ export async function fetchTree(
  * @param githubTruncated GitHub's own `truncated` flag (it stops at 100,000
  * entries or 7 MB).
  */
-export function pruneTree(items: GhTreeItem[], githubTruncated = false): Omit<PrunedTree, "sha"> {
+export function pruneTree(
+  items: readonly TreeListingItem[],
+  githubTruncated = false,
+): Omit<PrunedTree, "sha"> {
   const warnings: string[] = [];
   const kept: TreeEntry[] = [];
   let tooDeep = 0;

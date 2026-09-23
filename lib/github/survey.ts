@@ -64,6 +64,7 @@ import {
   OPEN_PULLS_QUERY,
   fetchClosedPulls,
   fetchOpenPullsPage,
+  slimPull,
   mapPulls,
   pullsPath,
 } from "./pulls.ts";
@@ -237,6 +238,7 @@ export async function surveyOpenWork(
       const result = await fetchPages<GhPull>(client, pullsPath(owner, repo), { ...OPEN_PULLS_QUERY }, pages, {
         resource: "pulls (open)",
         deadline: pageDeadline,
+        slim: slimPull,
         onPage: (_page, items) => notePulls(items),
       });
       return { pages, result };
