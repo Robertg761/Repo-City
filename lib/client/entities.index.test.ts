@@ -13,6 +13,7 @@ import { generateCity } from "@/lib/city/generator";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
 import { resolveEntity } from "./entities";
+import { plainExcerpt } from "./plainText";
 import { resolveEntity as legacyResolveEntity } from "./testing/legacyEntities";
 
 const DIR = path.join(process.cwd(), "fixtures");
@@ -25,6 +26,15 @@ const fixtures = readdirSync(DIR)
     name,
     analysis: JSON.parse(readFileSync(path.join(DIR, name), "utf8")) as RepoAnalysis,
   }));
+
+/**
+ * The legacy answer with the one deliberate change since: a hero incident's
+ * description is its issue body as plain text, not raw markdown.
+ */
+function legacyResolve(...args: Parameters<typeof legacyResolveEntity>) {
+  const before = legacyResolveEntity(...args);
+  return before?.kind === "incident" ? { ...before, description: plainExcerpt(before.description) } : before;
+}
 
 function existingIds(city: CityModel): string[] {
   return [
@@ -43,9 +53,7 @@ describe("resolveEntity through the entity index", () => {
     expect(city).not.toBeNull();
     if (!city) return;
     for (const id of [...existingIds(city), "nope-1"]) {
-      expect(resolveEntity(id, city, analysis, NOW)).toEqual(
-        legacyResolveEntity(id, city, analysis, NOW),
-      );
+      expect(resolveEntity(id, city, analysis, NOW)).toEqual(legacyResolve(id, city, analysis, NOW));
     }
   });
 
@@ -59,7 +67,7 @@ describe("resolveEntity through the entity index", () => {
     if (!city) throw new Error("no city");
     for (const id of existingIds(city)) {
       const now = resolveEntity(id, city, analysis, NOW);
-      const before = legacyResolveEntity(id, city, analysis, NOW);
+      const before = legacyResolve(id, city, analysis, NOW);
       const landmark = city.landmarks.find((l) => l.id === id);
       if (landmark?.landmarkType === "civic") {
         expect(now).toEqual({
