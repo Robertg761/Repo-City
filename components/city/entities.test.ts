@@ -404,6 +404,11 @@ describe("crowd focus (PLAN.md 76.9)", () => {
     expect(distance(framing.position, framing.target)).toBeLessThan(MAX_DISTANCE);
   });
 
+  it("has nothing to fly to when the remainder is too small to signpost", () => {
+    const trivial = { ...city, overflow: { ...city.overflow!, size: [0, 0, 0] as Vec3, queue: [] } };
+    expect(focusTargetFor(trivial, "overflow")).toBeNull();
+  });
+
   it("keeps every crowd focus inside the camera boundary", () => {
     const [min, max] = cameraBoundary(city.bounds.size, tallestPoint(city));
     const inside = (p: Vec3) => p.every((v, i) => v >= min[i] && v <= max[i]);

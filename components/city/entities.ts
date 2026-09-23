@@ -7,6 +7,7 @@
  */
 
 import { indexEntities } from "@/lib/city/entityIndex";
+import { signposted } from "@/lib/city/overflow";
 import { SCAFFOLD_REACH } from "./backlog/constants";
 import type { CityModel, EntityKind, Vec3 } from "@/types/city";
 
@@ -150,6 +151,9 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
         };
       }
       case "overflow": {
+        // A trivial remainder stands no sign (`signposted`): there is nothing
+        // at the city limits to fly to or ring, so the view stays on the city.
+        if (entity.size && !signposted(entity)) return null;
         const [w, h] = entity.size ?? OVERFLOW_SIGN;
         return {
           id,

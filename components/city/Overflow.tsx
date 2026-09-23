@@ -31,6 +31,7 @@ import {
   type InstancedMesh,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { signposted } from "@/lib/city/overflow";
 import type { CityModel, Overflow as OverflowEntity } from "@/types/city";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import { mergeParts, type Part } from "./models/props/geometry";
@@ -49,8 +50,11 @@ const ROAD_SURFACE = 0.1;
 /** Each car in the queue lands a beat after the one ahead of it. */
 const QUEUE_STAGGER = 18;
 
-/** The signboard, in its plot's frame: `size` is `[6, 5, 1]`. */
-const BOARD = { width: 5.8, height: 2.7, depth: 0.22, y: 3.55 } as const;
+/**
+ * The signboard, in its plot's frame: `size` is `[6, 5, 1]`. The board is a
+ * little narrower than the plot so the posts at its ends stay on it.
+ */
+export const BOARD = { width: 5.3, height: 2.7, depth: 0.22, y: 3.55 } as const;
 
 /** The sign's copy (PLAN.md 76.10): exact totals, or "about" when estimated. */
 export function signLines(overflow: Pick<OverflowEntity, "issues" | "pulls" | "exact">): string[] {
@@ -68,15 +72,21 @@ export function signLines(overflow: Pick<OverflowEntity, "issues" | "pulls" | "e
   return lines;
 }
 
+/**
+ * Where the posts stand: just outside the board's frame, one at each end, so
+ * they carry it by its edges and never cross the lettering on either face.
+ */
+export const POST_X = BOARD.width / 2 + 0.12 + 0.13;
+
 function frameGeometry(): BufferGeometry {
   const post = (x: number): Part => ({
-    geometry: new BoxGeometry(0.26, BOARD.y + BOARD.height / 2, 0.26),
+    geometry: new BoxGeometry(0.26, BOARD.y + BOARD.height / 2 + 0.1, 0.26),
     color: "#6f7270",
-    position: [x, (BOARD.y + BOARD.height / 2) / 2, 0],
+    position: [x, (BOARD.y + BOARD.height / 2 + 0.1) / 2, 0],
   });
   return mergeParts([
-    post(-BOARD.width * 0.36),
-    post(BOARD.width * 0.36),
+    post(-POST_X),
+    post(POST_X),
     {
       geometry: new BoxGeometry(BOARD.width + 0.24, BOARD.height + 0.24, BOARD.depth),
       color: "#e9e5d8",
@@ -88,8 +98,8 @@ function frameGeometry(): BufferGeometry {
       color: "#e8853c",
       position: [0, BOARD.y - BOARD.height / 2 - 0.2, 0],
     },
-    { geometry: new BoxGeometry(1.2, 0.3, 1.2), color: "#8f8b80", position: [-BOARD.width * 0.36, 0.15, 0] },
-    { geometry: new BoxGeometry(1.2, 0.3, 1.2), color: "#8f8b80", position: [BOARD.width * 0.36, 0.15, 0] },
+    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", position: [-POST_X, 0.15, 0] },
+    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", position: [POST_X, 0.15, 0] },
   ]);
 }
 
@@ -275,7 +285,10 @@ export default function Overflow({
     [overflow, atmosphere.desaturation],
   );
 
-  if (!overflow) return null;
+  // A trivial remainder ("+1 more open issue" of 962) keeps its counts for the
+  // HUD and the inspector but stands no sign and queues no cars (S4's
+  // `signposted`).
+  if (!overflow || !signposted(overflow)) return null;
 
   return (
     <group>
