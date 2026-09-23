@@ -374,12 +374,16 @@ describe("heroes per tier (76.5)", () => {
 });
 
 describe("city-tier fixtures keep today's heroes", () => {
-  /** cyrb53 of `{ incidents, constructionSites }` generated before settlements existed. */
+  /**
+   * cyrb53 of `{ incidents, constructionSites }` generated before settlements
+   * existed. The captured fixtures' values were re-taken with 63e8779's
+   * generator when they were recaptured (integration step I).
+   */
   const PINNED: Record<string, number> = {
     "sample.analysis.json": 3812625636034141,
-    "honojs__hono.analysis.json": 6618202315786514,
-    "atom__atom.analysis.json": 185046097558164,
-    "vercel__turborepo.analysis.json": 1964801461835604,
+    "honojs__hono.analysis.json": 3997120279312397,
+    "atom__atom.analysis.json": 6867072686178569,
+    "vercel__turborepo.analysis.json": 6239463684083296,
   };
 
   it.each(Object.keys(PINNED))("%s: heroes unchanged, with and without a backlog", (name) => {
