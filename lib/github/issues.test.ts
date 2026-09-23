@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { GhIssue } from "@/types/github";
-import { BODY_EXCERPT_LENGTH, excerpt, mapIssue, mapIssues, mapLabels, pullItemStats } from "./issues";
+import { GitHubClient } from "./client";
+import {
+  BODY_EXCERPT_LENGTH,
+  excerpt,
+  fetchIssueSearchPage,
+  mapIssue,
+  mapIssues,
+  mapLabels,
+  pullItemStats,
+} from "./issues";
 
 const issue = (overrides: Partial<GhIssue> = {}): GhIssue => ({
   number: 7,
@@ -131,5 +140,41 @@ describe("excerpt", () => {
   it("answers an empty string for a missing body", () => {
     expect(excerpt(null)).toBe("");
     expect(excerpt(undefined)).toBe("");
+  });
+});
+
+describe("fetchIssueSearchPage", () => {
+  it("asks search for open issues only, most recently updated first", async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ total_count: 1_012, incomplete_results: false, items: [issue()] }), {
+        status: 200,
+        headers: { "x-ratelimit-resource": "search", "x-ratelimit-remaining": "29" },
+      });
+    }) as typeof fetch;
+    const client = new GitHubClient({ token: "t", fetchImpl });
+
+    const page = await fetchIssueSearchPage(client, "vercel", "next.js", 3);
+
+    const url = new URL(urls[0]);
+    expect(url.pathname).toBe("/search/issues");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: "repo:vercel/next.js is:issue is:open",
+      sort: "updated",
+      order: "desc",
+      per_page: "100",
+      page: "3",
+    });
+    expect(page).toEqual({ items: [issue()], total: 1_012, lastPage: null });
+    // Same REST issue object, so the same summary.
+    expect(mapIssues(page.items)).toEqual([mapIssue(issue())]);
+    expect(client.searchRemaining).toBe(29);
+  });
+
+  it("reads an odd body as an empty page", async () => {
+    const fetchImpl = (async () => new Response("[]", { status: 200 })) as unknown as typeof fetch;
+    const client = new GitHubClient({ token: "t", fetchImpl });
+    expect(await fetchIssueSearchPage(client, "o", "r", 1)).toEqual({ items: [], total: null, lastPage: null });
   });
 });

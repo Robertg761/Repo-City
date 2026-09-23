@@ -9,7 +9,9 @@
  * decision 6).
  *
  * A2 and A', the bulk pages, list open issues most recently updated first;
- * `lib/github/survey.ts` fetches them in parallel.
+ * `lib/github/survey.ts` fetches them in parallel. When pull requests crowd
+ * those pages, A' lists issues through search instead (`fetchIssueSearchPage`),
+ * which answers the same REST issue objects, so `mapIssue` maps them alike.
  *
  * The gotcha from section 29: this endpoint also returns pull requests. Every
  * item carrying a `pull_request` key is dropped from the issue list here, once,
@@ -41,6 +43,52 @@ export const BULK_ISSUES_QUERY = {
   direction: "desc",
   per_page: 100,
 } as const;
+
+/** Search answers a page of REST issue objects inside an envelope. */
+export interface IssueSearchPage {
+  items: GhIssue[];
+  /** Matches GitHub counted; search itself stops at 1,000. */
+  total: number | null;
+  /** Always null: search pages are planned from `total`, not from `Link`. */
+  lastPage: null;
+}
+
+export const SEARCH_ISSUES_PATH = "/search/issues";
+
+/**
+ * A' by search, same order as A2. `owner` and `repo` come from
+ * `parseRepoUrl`, whose character set has no search syntax in it.
+ */
+export function searchIssuesQuery(owner: string, repo: string) {
+  return {
+    q: `repo:${owner}/${repo} is:issue is:open`,
+    sort: "updated",
+    order: "desc",
+    per_page: 100,
+  } as const;
+}
+
+/**
+ * One page of open issues from search: pull requests are never among them.
+ * Search reads an index that can trail the repository by a minute or so, so
+ * an issue closed just now may still be listed; the backlog tolerates that.
+ */
+export async function fetchIssueSearchPage(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+  page: number,
+  signal?: AbortSignal,
+): Promise<IssueSearchPage> {
+  const body = await client.get<{ total_count?: number; items?: GhIssue[] }>(SEARCH_ISSUES_PATH, {
+    resource: `issue search page ${page}`,
+    query: { ...searchIssuesQuery(owner, repo), page },
+    signal,
+  });
+  const items = Array.isArray(body?.items) ? body.items : [];
+  const total = typeof body?.total_count === "number" ? body.total_count : null;
+  return { items, total, lastPage: null };
+}
 
 /** Discussion counts of a pull request as the issues endpoint reports it. */
 export interface PullItemStats {
