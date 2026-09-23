@@ -20,7 +20,7 @@ import type {
   WorksForm,
 } from "@/types/analysis";
 import type { IssueSummary, PullChecks, PullReview } from "@/types/repository";
-import { basename, clamp, daysBetween, dirname, round, segments } from "./tree";
+import { basename, clamp, daysBetween, dirname, round, segments } from "./tree.ts";
 
 /* ----------------------------------------------------------------- labels */
 
@@ -36,41 +36,88 @@ export function labelText(labels: readonly string[]): string {
 
 /* ------------------------------------------------------------- issue form */
 
+/*
+ * Content decides the form and age decides the weathering. An old issue keeps
+ * the shape its labels or title give it, and the renderer rusts and dusts it
+ * by `state` and idle days. Only an issue with nothing to say about itself
+ * and two years of silence becomes a wreck, and wrecks are capped at a
+ * quarter of the crowd (`capWrecks`), so an abandoned repository reads as
+ * weathered, not as a scrapyard.
+ */
+
 /** Rule 1: security work is always a fire. */
 const SECURITY_LABEL = /security|vulnerab|cve/;
-/** Rule 4. */
+/**
+ * Rule 2: blocked, on hold, or waiting on someone. "triaged" is the opposite
+ * of waiting, so `triage` must not match it.
+ */
 const ROADBLOCK_LABEL =
-  /blocked|on[- ]?hold|waiting|awaiting|needs[- ]?(info|repro|reproduction|feedback|triage)|triage|question/;
-/** Rule 5. */
+  /blocked|on[- ]?hold|waiting|awaiting|needs[- ]?(info|more|repro|reproduction|feedback|triage|investigation)|info(rmation)?[- ]?needed|triage(?!d)|question/;
+/** Rule 3. */
 const SIGNPOST_LABEL = /doc|typo|readme|website|example/;
-/** Rule 6. */
-const SURVEY_LABEL = /enhancement|feature|proposal|rfc|idea|suggestion|request/;
-/** Rule 7's volunteer flag: the pothole anyone may fill. */
+/** Rule 4. */
+const SURVEY_LABEL = /enhancement|feature|proposal|rfc|idea|suggestion|request|discussion/;
+/** Rule 8's volunteer flag: the pothole anyone may fill. */
 const VOLUNTEER_LABEL = /good[- ]first[- ]issue|help[- ]wanted/;
 
-/** Rule 2: an issue nobody has touched in a year is an abandoned car. */
-export const WRECK_IDLE_DAYS = 365;
+/*
+ * Rule 6, the title, for issues whose labels say nothing. Read in this order:
+ * documentation, then an explicit proposal, then a bug report, then a
+ * question. Matched on the lower-cased title with curly apostrophes folded.
+ */
+const SIGNPOST_TITLE = /\b(docs|documentation|readme|typos?|changelog)\b/;
+const SURVEY_TITLE =
+  /^\W*(feature|feat|proposal|rfc|idea|suggestion|enhancement|request)\b|feature request|would be (nice|great|useful)|\bplease add\b|^(add|allow|support|introduce|implement|provide)\b|\boption to\b/;
+const BUG_TITLE =
+  /\b(bug|crash(es|ed|ing)?|error|exception|uncaught|fail(s|ed|ing|ure)?|broken|breaks|regression|freez(e|es|ing)|hang(s|ing)?|leak(s|ing)?|incorrect(ly)?|wrong)\b|(\bnot|n't) (work|open|load|start|show)|\bcannot\b|\bcan't\b|\bunable to\b|\bwill not\b/;
+const QUESTION_TITLE = /\?\s*$|^\W*(how (to|do|can)|question)\b/;
+
+/** Rule 7: an issue nobody has touched in two years is an abandoned car. */
+export const WRECK_IDLE_DAYS = 730;
+/** `capWrecks`: at most this share of the crowd is wrecks. */
+export const WRECK_SHARE_MAX = 0.25;
 
 export interface IssueFormInput {
   state: IncidentState;
   labels: readonly string[];
+  /** Read only when the labels say nothing; omitted, it says nothing either. */
+  title?: string;
   comments: number;
   reactions: number;
   /** Days since `updatedAt`. */
   idleDays: number;
 }
 
+/** The title rule's form (76.7 rule 6), or `null` when the title says nothing. */
+export function titleForm(title: string): IncidentForm | null {
+  const text = title.toLowerCase().replace(/[\u2018\u2019]/g, "'");
+  if (SIGNPOST_TITLE.test(text)) return "signpost";
+  if (SURVEY_TITLE.test(text)) return "survey";
+  if (BUG_TITLE.test(text)) return "collision";
+  if (QUESTION_TITLE.test(text)) return "roadblock";
+  return null;
+}
+
 /**
- * 76.7 issue form, first match wins:
+ * 76.7 issue form, first match wins. Labels and content first, age last:
  *
  * 1. `fire`: state `major`, or a security label, or a severe bug with
  *    5 comments or 10 reactions;
- * 2. `wreck`: state `stale`, or idle for a year;
- * 3. `collision`: state `collision`;
- * 4. `roadblock`: blocked, on hold, waiting on someone, triage or a question;
- * 5. `signpost`: docs, typos, the README, the website, examples;
- * 6. `survey`: enhancements, features, proposals, ideas, requests;
- * 7. `pothole`: everything else.
+ * 2. `roadblock`: blocked, on hold, waiting on someone, awaiting triage, or a
+ *    question;
+ * 3. `signpost`: docs, typos, the README, the website, examples;
+ * 4. `survey`: enhancements, features, proposals, ideas, requests,
+ *    discussions;
+ * 5. `collision`: a bug label (state `collision` or `stale`; a stale bug is
+ *    still a bug, and the renderer rusts it);
+ * 6. the title, when no label spoke: documentation is a `signpost`, a
+ *    proposal a `survey`, a bug report a `collision`, a question a
+ *    `roadblock`;
+ * 7. `wreck`: nothing above, and idle for two years;
+ * 8. `pothole`: everything else.
+ *
+ * `capWrecks` then demotes the least significant wrecks past a quarter of the
+ * crowd to potholes.
  */
 export function issueForm(input: IssueFormInput): IncidentForm {
   const labels = labelText(input.labels);
@@ -84,23 +131,48 @@ export function issueForm(input: IssueFormInput): IncidentForm {
   ) {
     return "fire";
   }
-  if (input.state === "stale" || input.idleDays >= WRECK_IDLE_DAYS) return "wreck";
-  if (input.state === "collision") return "collision";
   if (ROADBLOCK_LABEL.test(labels)) return "roadblock";
   if (SIGNPOST_LABEL.test(labels)) return "signpost";
   if (SURVEY_LABEL.test(labels)) return "survey";
+  if (input.state === "collision" || input.state === "stale" || isBug) return "collision";
+  const fromTitle = input.title ? titleForm(input.title) : null;
+  if (fromTitle) return fromTitle;
+  if (input.idleDays >= WRECK_IDLE_DAYS) return "wreck";
   return "pothole";
+}
+
+/**
+ * Keeps wrecks to at most `share` of `items` (rounded up, so one ancient issue
+ * in a village can still be a wreck). `items` must already be in significance
+ * order: the first wrecks stay, and every wreck past the allowance becomes a
+ * pothole. Everything else is returned as it is, in the same order; the input
+ * is not mutated.
+ */
+export function capWrecks<T extends { form: IncidentForm }>(
+  items: readonly T[],
+  share: number = WRECK_SHARE_MAX,
+): T[] {
+  let allowed = Math.ceil(items.length * share);
+  return items.map((item) => {
+    if (item.form !== "wreck") return item;
+    if (allowed > 0) {
+      allowed -= 1;
+      return item;
+    }
+    return { ...item, form: "pothole" };
+  });
 }
 
 /** `issueForm` straight from a summary and its severity. */
 export function issueFormFor(
-  issue: Pick<IssueSummary, "labels" | "comments" | "reactions" | "updatedAt">,
+  issue: Pick<IssueSummary, "labels" | "comments" | "reactions" | "updatedAt"> & { title?: string },
   state: IncidentState,
   now: Date,
 ): IncidentForm {
   return issueForm({
     state,
     labels: issue.labels,
+    title: issue.title,
     comments: issue.comments,
     reactions: issue.reactions ?? 0,
     idleDays: daysBetween(issue.updatedAt, now),
@@ -108,7 +180,7 @@ export function issueFormFor(
 }
 
 /**
- * 76.7 rule 7: "good first issue" and "help wanted" are potholes that carry a
+ * 76.7 rule 8: "good first issue" and "help wanted" are potholes that carry a
  * volunteer flag in the inspector copy.
  */
 export function wantsVolunteer(labels: readonly string[]): boolean {
