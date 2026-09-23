@@ -223,21 +223,24 @@ export function addCylinder(
   const px = (i: number) => x + Math.cos((i / seg) * Math.PI * 2) * spec.radius;
   const pz = (i: number) => z + Math.sin((i / seg) * Math.PI * 2) * spec.radius;
 
+  // Wound from `j` back to `i`: the angle runs anticlockwise seen from below,
+  // and the other way round every face was inside out. The near side of a
+  // stack, a pot or a tank was culled and the camera saw into it.
   for (let i = 0; i < seg; i++) {
     const j = (i + 1) % seg;
     addQuad(
       draft,
-      [px(i), y0, pz(i)],
       [px(j), y0, pz(j)],
-      [px(j), y1, pz(j)],
+      [px(i), y0, pz(i)],
       [px(i), y1, pz(i)],
+      [px(j), y1, pz(j)],
       spec.color,
     );
   }
   // Flat cap as a fan of degenerate quads: cheap and it reads from above.
   for (let i = 0; i < seg; i++) {
     const j = (i + 1) % seg;
-    addQuad(draft, [x, y1, z], [px(i), y1, pz(i)], [px(j), y1, pz(j)], [px(j), y1, pz(j)], top);
+    addQuad(draft, [x, y1, z], [px(j), y1, pz(j)], [px(i), y1, pz(i)], [px(i), y1, pz(i)], top);
   }
 }
 
