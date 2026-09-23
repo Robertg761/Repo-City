@@ -25,6 +25,7 @@ import {
   framingObstacles,
   tallestPoint,
   focusTargetFor,
+  introFraming,
   overviewFraming,
   viewAngles,
   type Framing,
@@ -49,8 +50,9 @@ interface RigControls {
   getTarget(out: Vector3, receiveEndValue?: boolean): Vector3;
   normalizeRotations(): unknown;
   setBoundary(box3?: Box3): void;
-  addEventListener(type: "control", listener: () => void): void;
-  removeEventListener(type: "control", listener: () => void): void;
+  smoothTime: number;
+  addEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
+  removeEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
 }
 
 const isRigControls = (value: unknown): value is RigControls =>
@@ -96,7 +98,23 @@ export const CONTROLS_FEEL = {
 
 const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
 
+/**
+ * The arrival glide's `smoothTime`: slow enough that the camera eases out to
+ * the overview over the three or four seconds the city takes to build.
+ */
+const ARRIVAL_SMOOTH_TIME = 1.1;
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** How quickly a transition settles: `CONTROLS_FEEL`'s, or the arrival's. */
+function setPace(controls: RigControls, smoothTime: number): void {
+  controls.smoothTime = smoothTime;
+}
+
 function fly(controls: RigControls, framing: Framing, transition: boolean): void {
+  // Every flight but the arrival moves at the brisk pace of `CONTROLS_FEEL`.
+  setPace(controls, CONTROLS_FEEL.smoothTime);
   void controls.setLookAt(...framing.position, ...framing.target, transition);
   // `setLookAt` lands on an azimuth in (-PI, PI], but the live one keeps
   // counting whole turns as the user orbits. Without this a camera that has
@@ -121,14 +139,23 @@ export default function CameraRig({
   const touched = useRef(false);
   const size = city?.bounds.size ?? 120;
 
-  // Any drag, pinch or wheel turn is the user's framing, not ours.
+  // Any drag, pinch or wheel turn is the user's framing, not ours. Grabbing
+  // the camera mid-arrival, or the arrival coming to a stop, puts the pace
+  // back to normal.
   useEffect(() => {
     if (!isRigControls(controls)) return;
     const onControl = () => {
       touched.current = true;
     };
+    const onSettle = () => setPace(controls, CONTROLS_FEEL.smoothTime);
     controls.addEventListener("control", onControl);
-    return () => controls.removeEventListener("control", onControl);
+    controls.addEventListener("controlstart", onSettle);
+    controls.addEventListener("sleep", onSettle);
+    return () => {
+      controls.removeEventListener("control", onControl);
+      controls.removeEventListener("controlstart", onSettle);
+      controls.removeEventListener("sleep", onSettle);
+    };
   }, [controls]);
 
   // Pan and zoom-to-cursor keep the orbit target over the landscape and above
@@ -174,7 +201,16 @@ export default function CameraRig({
     } else {
       framing = overviewFraming(city?.bounds.size ?? 120, lastAspect.current);
     }
-    fly(controls, framing, !isNewModel);
+    if (isNewModel && city && !focus && !prefersReducedMotion()) {
+      // A new city arrives rather than cuts in: from a little closer and a
+      // little round, the camera eases out to the overview while the city
+      // builds itself.
+      fly(controls, introFraming(framing), false);
+      fly(controls, framing, true);
+      setPace(controls, ARRIVAL_SMOOTH_TIME);
+    } else {
+      fly(controls, framing, !isNewModel);
+    }
     touched.current = false;
     // `overviewNonce` is a trigger: "Return to overview" flies back even when
     // nothing is selected.

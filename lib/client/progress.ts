@@ -23,3 +23,21 @@ export function splitStageDetail(detail: string): StageDetailParts {
   if (!match) return { text: detail, note: null };
   return { text: detail.slice(0, match.index), note: match[1] };
 }
+
+/**
+ * The line a stage row shows. Almost always the server's own detail, or the
+ * placeholder label until one arrives. The architecture pass is the
+ * exception: it reports the bare word "skipped", or a model id, which read
+ * as a stray token in a list of sentences.
+ */
+export function stageLine(stage: { id: string; label: string; status: string; detail?: string }): string {
+  if (stage.id === "ai") {
+    if (stage.status === "failed") return "Architecture interpretation unavailable";
+    if (stage.status === "done") {
+      const detail = stage.detail?.trim();
+      if (!detail || detail === "skipped") return "Districts named from the folder tree";
+      return `Architecture interpreted by ${detail}`;
+    }
+  }
+  return stage.detail ?? stage.label;
+}

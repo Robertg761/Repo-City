@@ -249,6 +249,33 @@ export function overviewFraming(size: number, aspect = REFERENCE_ASPECT): Framin
 }
 
 /**
+ * Where the camera starts when a new city arrives: a little closer in and a
+ * little round from the overview, looking down a touch more steeply. It then
+ * glides out to the overview while the city builds itself (PLAN.md section
+ * 43), so the reveal ends on the familiar composition with the whole city in
+ * frame, having arrived rather than cut in.
+ */
+export function introFraming(overview: Framing): Framing {
+  const angles = viewAngles(overview.position, overview.target);
+  const distance = Math.hypot(
+    overview.position[0] - overview.target[0],
+    overview.position[1] - overview.target[1],
+    overview.position[2] - overview.target[2],
+  );
+  return orbitFraming(
+    overview.target,
+    { azimuth: angles.azimuth - INTRO_TURN, polar: Math.max(0.3, angles.polar - INTRO_TILT) },
+    Math.max(MIN_DISTANCE + 4, distance * INTRO_CLOSER),
+  );
+}
+/** How far round from the overview the arrival starts, radians. */
+const INTRO_TURN = 0.32;
+/** How much steeper the arrival looks down, radians. */
+const INTRO_TILT = 0.12;
+/** How much closer the arrival starts. */
+const INTRO_CLOSER = 0.72;
+
+/**
  * The direction a camera looks from, as the orbit angles `camera-controls`
  * uses: `azimuth` is the compass bearing of the camera around its target
  * (`atan2(x, z)` of the offset, so the default `+x +z` corner is `PI / 4`) and
