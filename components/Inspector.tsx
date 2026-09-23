@@ -9,7 +9,10 @@
  * building, district - uses this same layout, which is what makes the visual
  * language learnable.
  *
- * On a phone it becomes a bottom sheet rather than a side panel.
+ * It sits in the right-hand rail under the health card (`app/page.tsx`), so
+ * it always starts below the card's real height and never covers it. On a
+ * phone it becomes a bottom sheet rather than a side panel, and it shrinks
+ * before it would reach the card.
  */
 
 import { useEffect } from "react";
@@ -94,9 +97,11 @@ export default function Inspector() {
   return (
     <aside
       aria-label="Selected object"
-      /* Bottom sheet on a phone; on a wider screen a right-hand panel that
-         starts below the health card and hugs its own content. */
-      className="glass animate-panel-in pointer-events-auto absolute inset-x-2 bottom-2 z-30 max-h-[52vh] overflow-y-auto overscroll-contain p-4 text-sm text-white/80 sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-[18rem] sm:max-h-[calc(100dvh-19.5rem)] sm:w-[21rem]"
+      /* In the rail under the health card. A bottom sheet on a phone (pushed
+         down by `mt-auto`); on a wider screen a panel that hugs its own
+         content. Either way `min-h-0` lets it shrink and scroll rather than
+         run into the card when room is short. */
+      className="glass animate-panel-in pointer-events-auto relative z-10 mt-auto max-h-[52vh] min-h-0 w-full shrink overflow-y-auto overflow-x-hidden overscroll-contain p-4 text-sm text-white/80 sm:mt-0 sm:max-h-none sm:w-[21rem]"
     >
       {entity ? (
         <>
