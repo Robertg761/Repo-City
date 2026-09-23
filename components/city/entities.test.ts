@@ -6,6 +6,7 @@ import {
   MIN_DISTANCE,
   REFERENCE_ASPECT,
   STREET_POLAR,
+  CITY_TALLEST,
   aspectWiden,
   cameraBoundary,
   districtCenter,
@@ -15,8 +16,12 @@ import {
   maxCameraDistance,
   orbitFraming,
   overviewFraming,
+  tallestPoint,
   viewAngles,
 } from "./entities";
+import { generateCity } from "@/lib/city/generator";
+import backlogFixture from "@/fixtures/backlog.analysis.json";
+import type { RepoAnalysis } from "@/types/analysis";
 import { splitBuildings } from "./instances";
 import { roadGraph } from "./traffic";
 import { devCity } from "@/fixtures/dev.city";
@@ -346,5 +351,88 @@ describe("cameraBoundary", () => {
 
   it("keeps the target on or above the ground", () => {
     expect(cameraBoundary(200)[0][1]).toBe(0);
+  });
+});
+
+describe("crowd focus (PLAN.md 76.9)", () => {
+  const city = generateCity(backlogFixture as unknown as RepoAnalysis, { tier: "metropolis" });
+  const backlog = city.backlog!;
+
+  it("finds every crowd object and the queue through the index", () => {
+    for (const entity of [...backlog.incidents, ...backlog.constructionSites]) {
+      const focus = focusTargetFor(city, entity.id);
+      expect(focus?.kind, entity.id).toBe(entity.kind);
+    }
+    expect(focusTargetFor(city, "overflow")?.kind).toBe("overflow");
+  });
+
+  it("stands closer to a crowd object than to a hero scene", () => {
+    const crowd = backlog.incidents.find((i) => !i.lane)!;
+    const hero = city.incidents[0];
+    const near = inspectionFraming(focusTargetFor(city, crowd.id)!);
+    const far = inspectionFraming(focusTargetFor(city, hero.id)!);
+    expect(distance(near.position, near.target)).toBeLessThan(distance(far.position, far.target));
+    // Still a street-level look down, as for any incident.
+    const angles = viewAngles(near.position, near.target);
+    expect(angles.polar).toBeLessThanOrEqual(STREET_POLAR.max + 0.3);
+  });
+
+  it("inspects a scaffold from in front of its facade, whichever way the camera was", () => {
+    const scaffold = backlog.constructionSites.find((c) => c.form === "scaffold")!;
+    const focus = focusTargetFor(city, scaffold.id)!;
+    expect(focus.facing).toBeCloseTo(scaffold.rotationY);
+    expect(focus.position).toEqual(scaffold.position);
+    // Coming from directly behind the building, the camera swings round.
+    const behind = { azimuth: scaffold.rotationY + Math.PI, polar: 1 };
+    const framing = inspectionFraming(focus, behind);
+    const out = [Math.sin(scaffold.rotationY), Math.cos(scaffold.rotationY)];
+    const view = [framing.position[0] - framing.target[0], framing.position[2] - framing.target[2]];
+    expect(out[0] * view[0] + out[1] * view[1]).toBeGreaterThan(0);
+    // From in front already, it keeps the user's bearing.
+    const front = { azimuth: scaffold.rotationY + 0.3, polar: 1 };
+    expect(viewAngles(inspectionFraming(focus, front).position, focus.lookAt).azimuth).toBeCloseTo(
+      Math.atan2(Math.sin(front.azimuth), Math.cos(front.azimuth)),
+    );
+  });
+
+  it("aims at the queue's sign, at street level", () => {
+    const overflow = city.overflow!;
+    const focus = focusTargetFor(city, "overflow")!;
+    expect(focus.position).toEqual(overflow.position);
+    expect(focus.lookAt[1]).toBeGreaterThan(overflow.position[1]);
+    const framing = inspectionFraming(focus);
+    expect(distance(framing.position, framing.target)).toBeLessThan(MAX_DISTANCE);
+  });
+
+  it("keeps every crowd focus inside the camera boundary", () => {
+    const [min, max] = cameraBoundary(city.bounds.size, tallestPoint(city));
+    const inside = (p: Vec3) => p.every((v, i) => v >= min[i] && v <= max[i]);
+    for (const entity of [...backlog.incidents, ...backlog.constructionSites]) {
+      expect(inside(focusTargetFor(city, entity.id)!.lookAt), entity.id).toBe(true);
+    }
+  });
+});
+
+describe("camera ceiling at metropolis height (PLAN.md 76.5)", () => {
+  it("stays at 24 for today's towers", () => {
+    expect(cameraBoundary(200)[1][1]).toBe(24);
+    expect(cameraBoundary(200, CITY_TALLEST)[1][1]).toBe(24);
+    expect(cameraBoundary(200, tallestPoint(devCity))[1][1]).toBe(24);
+  });
+
+  it("rises to 0.6 of the tallest tower above that", () => {
+    // A 34 unit metropolis tower jittered up 15%.
+    expect(cameraBoundary(300, 39)[1][1]).toBe(24);
+    expect(cameraBoundary(300, 50)[1][1]).toBeCloseTo(30);
+    // Its aim point, 55% up, is always inside.
+    for (const h of [23, 34, 39, 50, 80]) expect(cameraBoundary(300, h)[1][1]).toBeGreaterThanOrEqual(h * 0.55);
+  });
+
+  it("measures the tallest building or landmark in the model", () => {
+    const top = Math.max(
+      ...devCity.buildings.map((b) => b.position[1] + b.size[1]),
+      ...devCity.landmarks.map((l) => l.position[1] + (l.size?.[1] ?? 0)),
+    );
+    expect(tallestPoint(devCity)).toBe(top);
   });
 });

@@ -5,13 +5,17 @@ import {
   CAR_HALF_LENGTH,
   CAR_HALF_WIDTH,
   MAX_CARS,
+  MAX_FLEET,
   advanceCar,
+  carCap,
   carPose,
   enterable,
   laneOffset,
   nextRide,
   roadGraph,
   spawnCars,
+  tractorsFor,
+  TRACTOR_SHARE,
   type Car,
   type RoadGraph,
 } from "./traffic";
@@ -169,8 +173,24 @@ describe("nextRide", () => {
 
 describe("spawnCars", () => {
   it("caps the fleet at the performance budget", () => {
-    expect(spawnCars(CROSS, 400, prngFor("s", "traffic"))).toHaveLength(MAX_CARS);
+    expect(spawnCars(CROSS, 400, prngFor("s", "traffic"))).toHaveLength(MAX_FLEET);
     expect(spawnCars(CROSS, 12, prngFor("s", "traffic"))).toHaveLength(12);
+  });
+
+  it("takes each settlement's own vehicle cap (PLAN.md 76.5)", () => {
+    expect(carCap("village")).toBe(10);
+    expect(carCap("town")).toBe(24);
+    expect(carCap("city")).toBe(MAX_CARS);
+    expect(carCap("metropolis")).toBe(64);
+    expect(MAX_FLEET).toBe(64);
+    // A model from before settlements is a city, exactly as it was.
+    expect(carCap(undefined)).toBe(MAX_CARS);
+  });
+
+  it("spawns a city's fleet exactly as before for any count up to its cap", () => {
+    const a = spawnCars(CROSS, MAX_CARS, prngFor("s", "traffic"));
+    const b = spawnCars(CROSS, 400, prngFor("s", "traffic")).slice(0, MAX_CARS);
+    expect(a).toEqual(b);
   });
 
   it("returns nothing when there are no drivable roads", () => {
@@ -500,5 +520,26 @@ describe("a fleet driving past the fixture incidents", () => {
   it("drives the same way every time for a given seed", () => {
     const [, city] = cities[1];
     expect(drive(city, 30).cars).toEqual(drive(city, 30).cars);
+  });
+});
+
+describe("tractors (PLAN.md 76.5)", () => {
+  it("keeps them out of any settlement that does not allow them", () => {
+    expect(tractorsFor(40, false, prngFor("s", "tractors")).some(Boolean)).toBe(false);
+  });
+
+  it("puts a few into a village fleet, and at least one", () => {
+    const picks = tractorsFor(10, true, prngFor("village", "tractors"));
+    expect(picks).toHaveLength(10);
+    expect(picks.filter(Boolean).length).toBeGreaterThanOrEqual(1);
+    let total = 0;
+    for (let i = 0; i < 200; i++) total += tractorsFor(10, true, prngFor(`v${i}`, "tractors")).filter(Boolean).length;
+    expect(total / 2000).toBeGreaterThan(TRACTOR_SHARE * 0.7);
+    expect(total / 2000).toBeLessThan(TRACTOR_SHARE * 1.6);
+  });
+
+  it("is deterministic for a seed", () => {
+    expect(tractorsFor(10, true, prngFor("a", "tractors"))).toEqual(tractorsFor(10, true, prngFor("a", "tractors")));
+    expect(tractorsFor(0, true, prngFor("a", "tractors"))).toEqual([]);
   });
 });

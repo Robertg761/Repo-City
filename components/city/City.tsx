@@ -6,10 +6,12 @@
  * selection and hover.
  *
  * Draw order and reveal order both follow section 43: terrain, roads,
- * districts, buildings, landmarks, incidents, construction, traffic.
+ * districts, buildings, landmarks, incidents, construction, the backlog and
+ * its queue (PLAN.md 76.8), traffic.
  */
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useThree } from "@react-three/fiber";
 import type { CityModel } from "@/types/city";
 import Backlog from "./backlog/Backlog";
 import Buildings from "./Buildings";
@@ -30,8 +32,33 @@ import Traffic from "./Traffic";
 import { REFERENCE_ASPECT, aspectWiden } from "./entities";
 import { splitBuildings } from "./instances";
 import { atmosphere as buildAtmosphere } from "./palette";
-import { revealEnd } from "./reveal";
+import { cityRevealEnd } from "./reveal";
 import { RevealContext, useRevealTicker } from "./useReveal";
+
+/** The lowest a district label hangs: over a city's low-rise blocks. */
+const LABEL_FLOOR = 12;
+/** The same over a village's cottages. */
+const VILLAGE_LABEL_FLOOR = 7.5;
+
+/**
+ * Development only: the renderer and camera on `window.__repoCityRenderer`
+ * and `window.__repoCityCamera`, so a driver can read `renderer.info` (draw
+ * calls, triangles) and project a crowd object to the screen to point at it
+ * (PLAN.md 76.13). Nothing is exposed in production.
+ */
+function useDevRendererHandle(): void {
+  const gl = useThree((state) => state.gl);
+  const camera = useThree((state) => state.camera);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const handle = window as unknown as {
+      __repoCityRenderer?: typeof gl;
+      __repoCityCamera?: typeof camera;
+    };
+    handle.__repoCityRenderer = gl;
+    handle.__repoCityCamera = camera;
+  }, [gl, camera]);
+}
 
 export default function City({
   city,
@@ -52,17 +79,11 @@ export default function City({
   // model, so a new city gets a fresh clock and replays the reveal.
   const clock = useRef(Number.POSITIVE_INFINITY);
   useRevealTicker(clock);
+  useDevRendererHandle();
 
-  const trafficStart = useMemo(
-    () =>
-      revealEnd([
-        ...city.buildings.map((b) => b.appearAt),
-        ...city.landmarks.map((l) => l.appearAt),
-        ...city.incidents.map((i) => i.appearAt),
-        ...city.constructionSites.map((c) => c.appearAt),
-      ]),
-    [city],
-  );
+  // Traffic waits for the whole reveal, the backlog's outward ripple and the
+  // queue at the city limits included (PLAN.md 76.9).
+  const trafficStart = useMemo(() => cityRevealEnd(city), [city]);
 
   const size = city.bounds.size;
   // The fog only hides where the landscape ends; it never reaches the city
@@ -75,6 +96,10 @@ export default function City({
    * towers needs its name higher than a district of sheds, or the DOM label
    * lands across a facade (PLAN.md section 8).
    */
+  const tier = city.settlement?.tier;
+  // A village is cottages three to five units tall: its lane names hang just
+  // over the roofs, not twelve units up in the sky.
+  const labelFloor = tier === "village" ? VILLAGE_LABEL_FLOOR : LABEL_FLOOR;
   const labelHeights = useMemo(() => {
     const tallest = new Map<string, number>();
     for (const building of city.buildings) {
@@ -83,10 +108,10 @@ export default function City({
     }
     const heights = new Map<string, number>();
     for (const district of city.districts) {
-      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, 12));
+      heights.set(district.id, Math.max((tallest.get(district.id) ?? 0) + 5.5, labelFloor));
     }
     return heights;
-  }, [city]);
+  }, [city, labelFloor]);
 
   return (
     <RevealContext.Provider value={clock}>
@@ -110,7 +135,8 @@ export default function City({
           key={district.id}
           district={district}
           atmosphere={atmosphere}
-          labelY={labelHeights.get(district.id) ?? 12}
+          labelY={labelHeights.get(district.id) ?? labelFloor}
+          settlement={tier}
           // The overview sits at about 1.45 times the city's side, so a label
           // scaled off `bounds.size` reads the same in a town and a metropolis.
           labelScale={size * 0.72}
@@ -119,13 +145,13 @@ export default function City({
 
       <Roads roads={city.roads} atmosphere={atmosphere} />
 
-      <Buildings buildings={instanced} atmosphere={atmosphere} />
+      <Buildings buildings={instanced} atmosphere={atmosphere} settlement={tier} roads={city.roads} />
       {civic.map((building) => (
         <CivicBuilding key={building.id} building={building} atmosphere={atmosphere} />
       ))}
 
       {city.landmarks.map((landmark) => (
-        <LandmarkPiece key={landmark.id} landmark={landmark} atmosphere={atmosphere} />
+        <LandmarkPiece key={landmark.id} landmark={landmark} atmosphere={atmosphere} settlement={tier} />
       ))}
 
       {city.incidents.map((incident) => (

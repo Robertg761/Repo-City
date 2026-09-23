@@ -25,6 +25,12 @@
 
 import type { ConstructionState, IncidentState } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
+import { CROWD_BASE_SIZE, HOARDING_KERB_SIZE, heatScale } from "@/lib/city/backlog";
+import { QUEUE_BODIES } from "@/lib/city/overflow";
+import type { CrowdMesh } from "./backlog/forms";
+import { SCAFFOLD_BAY } from "./backlog/constants";
+import { incidentForm, worksForm } from "./backlog/plan";
+import { BODY_SPECS, VEHICLE_BODIES } from "./models/vehicles/shapes";
 import { CAR_HALF_WIDTH, MIN_ROOM, laneOffset, reachFor, type RoadGraph } from "./traffic";
 
 /**
@@ -111,9 +117,74 @@ export const SITE_FOOTPRINT: Record<ConstructionState, LocalRect> = {
   completed: { minX: -5.7, maxX: 6.5, minZ: -5.7, maxZ: 6.5 },
 };
 
-/** Every incident and construction site in the city, as obstacles. */
+/** A centred rect from a `[w, h, d]` size. */
+const centred = (size: readonly number[]): LocalRect => ({
+  minX: -size[0] / 2,
+  maxX: size[0] / 2,
+  minZ: -size[2] / 2,
+  maxZ: size[2] / 2,
+});
+
+/**
+ * Each crowd model's extent on the ground, in its own frame, before heat
+ * (PLAN.md 76.9): S4's `CROWD_BASE_SIZE`, which is what placement keeps
+ * apart. `blockages.test.ts` holds every model in `backlog/forms.ts` inside
+ * its footprint, optional parts included, the way `INCIDENT_FOOTPRINT` is
+ * held to the hero decor. A scaffold's is its bay on the slab in front of the
+ * facade; the entity's `size` gives its real width.
+ */
+export const CROWD_FOOTPRINT: Record<CrowdMesh, LocalRect> = {
+  fire: centred(CROWD_BASE_SIZE.fire),
+  collision: centred(CROWD_BASE_SIZE.collision),
+  wreck: centred(CROWD_BASE_SIZE.wreck),
+  pothole: centred(CROWD_BASE_SIZE.pothole),
+  roadblock: centred(CROWD_BASE_SIZE.roadblock),
+  survey: centred(CROWD_BASE_SIZE.survey),
+  signpost: centred(CROWD_BASE_SIZE.signpost),
+  trench: centred(CROWD_BASE_SIZE.trench),
+  van: centred(CROWD_BASE_SIZE.van),
+  hoarding: centred(CROWD_BASE_SIZE.hoarding),
+  "hoarding-kerb": centred(HOARDING_KERB_SIZE),
+  scaffold: centred([SCAFFOLD_BAY.width, SCAFFOLD_BAY.height, SCAFFOLD_BAY.depth]),
+};
+
+/**
+ * A crowd object's ground rect in its own frame: its `size` when the model
+ * gives one (S4 writes it already scaled by heat), otherwise its form's
+ * footprint at its heat.
+ */
+export function crowdRect(
+  entity: { size?: readonly number[] | null; heat?: number },
+  mesh: CrowdMesh,
+): LocalRect {
+  if (entity.size && entity.size.length === 3) return centred(entity.size);
+  const s = heatScale(entity.heat ?? 0.3);
+  const rect = CROWD_FOOTPRINT[mesh];
+  return { minX: rect.minX * s, maxX: rect.maxX * s, minZ: rect.minZ * s, maxZ: rect.maxZ * s };
+}
+
+/** Daylight left round a queued car, so traffic stops short of its bumper. */
+const QUEUE_MARGIN = 0.3;
+
+/**
+ * The body a queue entry wears. S4 deals `body` from `0` to `QUEUE_BODIES - 1`
+ * (`lib/city/overflow.ts`), which indexes the fleet's own body list; anything
+ * outside wraps.
+ */
+export function queueBody(body: number) {
+  const n = Math.min(QUEUE_BODIES, VEHICLE_BODIES.length);
+  const i = Number.isFinite(body) ? Math.trunc(body) : 0;
+  return VEHICLE_BODIES[((i % n) + n) % n];
+}
+
+/**
+ * Every incident and construction site in the city, as obstacles: the heroes,
+ * the crowd objects that sit in a lane (`lane: true`; kerbside ones leave the
+ * carriageway alone), and every car standing in the queue at the city limits.
+ */
 export function cityObstacles(
-  city: Pick<CityModel, "incidents" | "constructionSites">,
+  city: Pick<CityModel, "incidents" | "constructionSites"> &
+    Partial<Pick<CityModel, "backlog" | "overflow">>,
 ): Obstacle[] {
   const obstacles: Obstacle[] = [];
   for (const incident of city.incidents) {
@@ -138,6 +209,44 @@ export function cityObstacles(
       minZ: rect.minZ * fit,
       maxZ: rect.maxZ * fit,
     });
+  }
+  for (const incident of city.backlog?.incidents ?? []) {
+    if (!incident.lane) continue;
+    obstacles.push({
+      id: incident.id,
+      x: incident.position[0],
+      z: incident.position[2],
+      rotationY: incident.rotationY,
+      ...crowdRect({ size: incident.size, heat: incident.heat ?? incident.issue.heat }, incidentForm(incident)),
+    });
+  }
+  for (const site of city.backlog?.constructionSites ?? []) {
+    if (!site.lane) continue;
+    obstacles.push({
+      id: site.id,
+      x: site.position[0],
+      z: site.position[2],
+      rotationY: site.rotationY,
+      ...crowdRect({ size: site.size, heat: site.heat ?? site.pull.heat }, worksForm(site)),
+    });
+  }
+  const overflow = city.overflow;
+  if (overflow) {
+    for (const car of overflow.queue) {
+      const spec = BODY_SPECS[queueBody(car.body)];
+      const halfLength = spec.length / 2 + QUEUE_MARGIN;
+      const halfWidth = spec.width / 2 + QUEUE_MARGIN / 2;
+      obstacles.push({
+        id: overflow.id,
+        x: car.position[0],
+        z: car.position[2],
+        rotationY: car.rotationY,
+        minX: -halfWidth,
+        maxX: halfWidth,
+        minZ: -halfLength,
+        maxZ: halfLength,
+      });
+    }
   }
   return obstacles;
 }
@@ -222,10 +331,94 @@ function merge(hits: BlockedStretch[]): BlockedStretch[] {
   return merged;
 }
 
+/** Side of the grid cells segments are binned into (PLAN.md 76.9). */
+export const BLOCKAGE_CELL = 16;
+
 /**
- * The blocked stretches for a road network and the obstacles on it. Cheap
- * enough to run once per city: segments times obstacles, twenty-odd
- * obstacles at most.
+ * Each segment's own stretches, before junctions. Binned: every segment is
+ * registered in the grid cells its lane band covers, and each obstacle is
+ * tested only against the segments in the cells its own box overlaps. With
+ * `binned: false` it is the plain segments-times-obstacles loop the tests
+ * hold the binned answer to. Both push a segment's hits in obstacle order, so
+ * the stable sort in `merge` gives identical lists.
+ */
+function ownStretches(
+  graph: RoadGraph,
+  obstacles: readonly Obstacle[],
+  binned: boolean,
+): BlockedStretch[][] {
+  const hits: BlockedStretch[][] = graph.segments.map(() => []);
+  const hit = (segment: number, obstacle: Obstacle) => {
+    const covered = coverage(graph, segment, obstacle);
+    if (covered) {
+      hits[segment].push({ segment, start: covered[0], end: covered[1], closed: false, causes: [obstacle.id] });
+    }
+  };
+
+  if (!binned) {
+    graph.segments.forEach((_, segment) => {
+      for (const obstacle of obstacles) hit(segment, obstacle);
+    });
+    return hits.map(merge);
+  }
+
+  const cell = (v: number) => Math.floor(v / BLOCKAGE_CELL);
+  // Cells keyed as one number; no city is 65,536 cells across.
+  const key = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
+  const grid = new Map<number, number[]>();
+  graph.segments.forEach((road, segment) => {
+    const band = laneOffset(road.width) + CAR_HALF_WIDTH;
+    const x0 = cell(Math.min(road.from[0], road.to[0]) - band);
+    const x1 = cell(Math.max(road.from[0], road.to[0]) + band);
+    const z0 = cell(Math.min(road.from[2], road.to[2]) - band);
+    const z1 = cell(Math.max(road.from[2], road.to[2]) + band);
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cz = z0; cz <= z1; cz++) {
+        const k = key(cx, cz);
+        const list = grid.get(k);
+        if (list) list.push(segment);
+        else grid.set(k, [segment]);
+      }
+    }
+  });
+
+  const seen = new Int32Array(graph.segments.length).fill(-1);
+  obstacles.forEach((obstacle, o) => {
+    const cos = Math.cos(obstacle.rotationY);
+    const sin = Math.sin(obstacle.rotationY);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const lx of [obstacle.minX, obstacle.maxX]) {
+      for (const lz of [obstacle.minZ, obstacle.maxZ]) {
+        const wx = obstacle.x + lx * cos + lz * sin;
+        const wz = obstacle.z - lx * sin + lz * cos;
+        if (wx < minX) minX = wx;
+        if (wx > maxX) maxX = wx;
+        if (wz < minZ) minZ = wz;
+        if (wz > maxZ) maxZ = wz;
+      }
+    }
+    for (let cx = cell(minX); cx <= cell(maxX); cx++) {
+      for (let cz = cell(minZ); cz <= cell(maxZ); cz++) {
+        for (const segment of grid.get(key(cx, cz)) ?? []) {
+          // One test per segment per obstacle, however many cells they share.
+          if (seen[segment] === o) continue;
+          seen[segment] = o;
+          hit(segment, obstacle);
+        }
+      }
+    }
+  });
+  return hits.map(merge);
+}
+
+/**
+ * The blocked stretches for a road network and the obstacles on it, once per
+ * city. A metropolis carries hundreds of obstacles -- lane crowd objects and
+ * the queue at the city limits -- so each obstacle is tested only against the
+ * segments near it (`ownStretches`).
  *
  * JUNCTIONS. A car crossing a junction has its nose over the next road before
  * it leaves its own, so a stretch that comes within a car's reach of a
@@ -233,17 +426,12 @@ function merge(hits: BlockedStretch[]): BlockedStretch[] {
  * stretch over the junction's own box at that end, and its traffic stops
  * short of the junction rather than squeezing past the scene.
  */
-export function blockedStretches(graph: RoadGraph, obstacles: readonly Obstacle[]): Blockages {
-  const own: BlockedStretch[][] = graph.segments.map((_, segment) => {
-    const hits: BlockedStretch[] = [];
-    for (const obstacle of obstacles) {
-      const covered = coverage(graph, segment, obstacle);
-      if (covered) {
-        hits.push({ segment, start: covered[0], end: covered[1], closed: false, causes: [obstacle.id] });
-      }
-    }
-    return merge(hits);
-  });
+export function blockedStretches(
+  graph: RoadGraph,
+  obstacles: readonly Obstacle[],
+  options: { binned?: boolean } = {},
+): Blockages {
+  const own = ownStretches(graph, obstacles, options.binned ?? true);
 
   // How far a junction's box reaches along each road meeting there: the
   // widest lane band among them.

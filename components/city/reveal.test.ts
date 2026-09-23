@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  BACKLOG_REVEAL,
   REVEAL_MS,
   SWING_DELAY,
   SWING_MS,
+  cityRevealEnd,
   craneSwing,
+  crowdAppearAt,
+  revealEnd,
   revealScale,
   revealSettle,
 } from "./reveal";
+import { CROWD_REVEAL } from "@/lib/city/backlog";
+import { generateCity } from "@/lib/city/generator";
+import backlogFixture from "@/fixtures/backlog.analysis.json";
+import { devCity } from "@/fixtures/dev.city";
+import type { RepoAnalysis } from "@/types/analysis";
 
 const at = (fraction: number) => 1000 + REVEAL_MS * fraction;
 
@@ -57,5 +66,48 @@ describe("craneSwing", () => {
     // The dev fixture's last construction site appears at 2640 ms, and its
     // crane's sweep is the last thing that moves.
     expect(2640 + SWING_DELAY + SWING_MS).toBeLessThan(3500);
+  });
+});
+
+describe("the backlog reveal (PLAN.md 76.8)", () => {
+  it("is S4's window: 2.7 to 3.9 seconds", () => {
+    expect(BACKLOG_REVEAL).toEqual(CROWD_REVEAL);
+  });
+
+  it("ripples outward from the centre across the window", () => {
+    const size = 300;
+    expect(crowdAppearAt(0, 0, size)).toBe(BACKLOG_REVEAL[0]);
+    expect(crowdAppearAt(size / 2, size / 2, size)).toBe(BACKLOG_REVEAL[1]);
+    // Past the corners, on an approach road, it is simply last.
+    expect(crowdAppearAt(size, size, size)).toBe(BACKLOG_REVEAL[1]);
+    let last = -Infinity;
+    for (let r = 0; r <= size * 0.7; r += 10) {
+      const t = crowdAppearAt(r * 0.6, r * 0.8, size);
+      expect(t).toBeGreaterThanOrEqual(last);
+      last = t;
+    }
+  });
+
+  it("holds traffic until the backlog and the queue have landed", () => {
+    const city = generateCity(backlogFixture as unknown as RepoAnalysis, { tier: "metropolis" });
+    const end = cityRevealEnd(city);
+    const crowd = [...city.backlog!.incidents, ...city.backlog!.constructionSites].map((e) => e.appearAt);
+    expect(end).toBe(revealEnd([...crowd, city.overflow!.appearAt, ...city.buildings.map((b) => b.appearAt)]));
+    expect(end).toBeGreaterThanOrEqual(BACKLOG_REVEAL[1]);
+    for (const t of crowd) {
+      expect(t).toBeGreaterThanOrEqual(BACKLOG_REVEAL[0]);
+      expect(t).toBeLessThanOrEqual(BACKLOG_REVEAL[1]);
+    }
+  });
+
+  it("leaves a model without a backlog exactly as it was", () => {
+    expect(cityRevealEnd(devCity)).toBe(
+      revealEnd([
+        ...devCity.buildings.map((b) => b.appearAt),
+        ...devCity.landmarks.map((l) => l.appearAt),
+        ...devCity.incidents.map((i) => i.appearAt),
+        ...devCity.constructionSites.map((c) => c.appearAt),
+      ]),
+    );
   });
 });

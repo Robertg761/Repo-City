@@ -8,8 +8,9 @@
  * kind so the whole layer is a handful of instanced draws.
  *
  * Placement is seeded and rejects anything that would land on a building, a
- * landmark, an incident, a construction site or the carriageway itself: props
- * decorate the city, they never occlude the things that carry meaning.
+ * landmark, an incident, a construction site, a crowd object, the queue at
+ * the city limits or the carriageway itself: props decorate the city, they
+ * never occlude the things that carry meaning.
  *
  * Pure apart from the geometry builders: unit tested.
  */
@@ -20,6 +21,8 @@ import type { CityModel, RoadSegment, Vec3 } from "@/types/city";
 import { desaturate } from "../../palette";
 import { geometryCache, mergeParts, toneKey, type Part } from "./geometry";
 import { paintFor, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
+import { incidentForm, worksForm } from "../../backlog/plan";
+import { crowdRect, type LocalRect } from "../../blockages";
 
 /** Section 37's "tiny props" allowance, over and above the trees and lamps. */
 export const SMALL_PROP_BUDGET = 150;
@@ -77,6 +80,26 @@ function blockersOf(city: CityModel): Blocker[] {
   }
   for (const lamp of city.props.lamps) {
     blockers.push({ x: lamp[0], z: lamp[2], r: 1.1 });
+  }
+  // The crowd (PLAN.md 76.9): a bench never stands on a pothole, and nobody
+  // parks across a trench. Each object's footprint, as the circle round it;
+  // a scaffold's slab is its facade's width.
+  const reach = (rect: LocalRect) =>
+    Math.hypot(Math.max(-rect.minX, rect.maxX), Math.max(-rect.minZ, rect.maxZ));
+  for (const incident of city.backlog?.incidents ?? []) {
+    const rect = crowdRect({ size: incident.size, heat: incident.heat ?? incident.issue.heat }, incidentForm(incident));
+    blockers.push({ x: incident.position[0], z: incident.position[2], r: reach(rect) + 0.3 });
+  }
+  for (const site of city.backlog?.constructionSites ?? []) {
+    const rect = crowdRect({ size: site.size, heat: site.heat ?? site.pull.heat }, worksForm(site));
+    blockers.push({ x: site.position[0], z: site.position[2], r: reach(rect) + 0.3 });
+  }
+  const overflow = city.overflow;
+  if (overflow) {
+    blockers.push({ x: overflow.position[0], z: overflow.position[2], r: 4 });
+    for (const car of overflow.queue) {
+      blockers.push({ x: car.position[0], z: car.position[2], r: 2.6 });
+    }
   }
   return blockers;
 }

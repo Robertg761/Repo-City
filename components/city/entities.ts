@@ -6,6 +6,8 @@
  * sensible inspection distance. Pure, no three.js: unit tested.
  */
 
+import { indexEntities } from "@/lib/city/entityIndex";
+import { SCAFFOLD_REACH } from "./backlog/constants";
 import type { CityModel, EntityKind, Vec3 } from "@/types/city";
 
 export interface FocusTarget {
@@ -17,6 +19,12 @@ export interface FocusTarget {
   lookAt: Vec3;
   /** Half the bounding size, used to pick an inspection distance. */
   radius: number;
+  /**
+   * The compass bearing the thing faces, as an orbit azimuth, when it can
+   * only be seen from one side: a scaffold on a facade. Inspection then looks
+   * at it from in front, however the user was looking at the city.
+   */
+  facing?: number;
 }
 
 /**
@@ -62,50 +70,96 @@ export function maxCameraDistance(size: number, aspect = REFERENCE_ASPECT): numb
 /** The cap used when no model is loaded. */
 export const MAX_DISTANCE = 160;
 
+/** How far round a crowd object the camera and the ring allow. */
+const CROWD_RADIUS = 2.4;
+/** The queue's signboard: its plot is `[6, 5, 1]`. */
+const OVERFLOW_SIGN: Vec3 = [6, 5, 1];
+
+/**
+ * The focus for any selectable id. Entities come from the shared index
+ * (`lib/city/entityIndex.ts`, PLAN.md 76.9), so fifteen hundred crowd objects
+ * cost a map lookup rather than a scan; districts are not in the index and are
+ * searched after it.
+ */
 export function focusTargetFor(city: CityModel, id: string): FocusTarget | null {
-  for (const b of city.buildings) {
-    if (b.id !== id) continue;
-    const [w, h, d] = b.size;
-    return {
-      id,
-      kind: "building",
-      position: b.position,
-      lookAt: [b.position[0], b.position[1] + h * 0.55, b.position[2]],
-      radius: Math.max(w, d, h) * 0.7,
-    };
-  }
-  for (const l of city.landmarks) {
-    if (l.id !== id) continue;
-    // `size` is the reserved plot the generator handed it (types/city.ts).
-    const [w, h, d] = l.size ?? [14, 10, 12];
-    return {
-      id,
-      kind: "landmark",
-      position: l.position,
-      lookAt: [l.position[0], l.position[1] + h * 0.45, l.position[2]],
-      radius: Math.max(w, d) * 0.6,
-    };
-  }
-  for (const i of city.incidents) {
-    if (i.id !== id) continue;
-    return {
-      id,
-      kind: "incident",
-      position: i.position,
-      lookAt: [i.position[0], i.position[1] + 1.2, i.position[2]],
-      radius: 5,
-    };
-  }
-  for (const c of city.constructionSites) {
-    if (c.id !== id) continue;
-    const [w, h, d] = c.size ?? [11, 12.6, 11];
-    return {
-      id,
-      kind: "construction",
-      position: c.position,
-      lookAt: [c.position[0], c.position[1] + h * 0.4, c.position[2]],
-      radius: Math.max(w, d) * 0.7,
-    };
+  const entity = indexEntities(city).get(id);
+  if (entity) {
+    const [x, y, z] = entity.position;
+    switch (entity.kind) {
+      case "building": {
+        const [w, h, d] = entity.size;
+        return {
+          id,
+          kind: "building",
+          position: entity.position,
+          lookAt: [x, y + h * 0.55, z],
+          radius: Math.max(w, d, h) * 0.7,
+        };
+      }
+      case "landmark": {
+        // `size` is the reserved plot the generator handed it (types/city.ts).
+        const [w, h, d] = entity.size ?? [14, 10, 12];
+        return {
+          id,
+          kind: "landmark",
+          position: entity.position,
+          lookAt: [x, y + h * 0.45, z],
+          radius: Math.max(w, d) * 0.6,
+        };
+      }
+      case "incident": {
+        if (entity.lod === "crowd") {
+          // A crowd object is a car or a barrier, not a whole scene.
+          const reach = entity.size ? Math.max(entity.size[0], entity.size[2]) * 0.5 : CROWD_RADIUS;
+          return { id, kind: "incident", position: entity.position, lookAt: [x, y + 0.8, z], radius: reach };
+        }
+        return { id, kind: "incident", position: entity.position, lookAt: [x, y + 1.2, z], radius: 5 };
+      }
+      case "construction": {
+        if (entity.lod === "crowd") {
+          if (entity.buildingId) {
+            // A scaffold: `position` is the centre of its slab in front of the
+            // facade (S4). Aim at its working lifts, which climb at most
+            // `SCAFFOLD_REACH` up the building.
+            const height = Math.min((entity.size?.[1] ?? 6) * 0.85, SCAFFOLD_REACH) * 0.45;
+            return {
+              id,
+              kind: "construction",
+              position: entity.position,
+              lookAt: [x, y + height, z],
+              radius: Math.min(Math.max((entity.size?.[0] ?? 4.4) * 0.5, CROWD_RADIUS), 5),
+              // `rotationY` faces out of the wall; the camera belongs out there.
+              facing: entity.rotationY,
+            };
+          }
+          return {
+            id,
+            kind: "construction",
+            position: entity.position,
+            lookAt: [x, y + 0.9, z],
+            radius: CROWD_RADIUS,
+          };
+        }
+        const [w, h, d] = entity.size ?? [11, 12.6, 11];
+        return {
+          id,
+          kind: "construction",
+          position: entity.position,
+          lookAt: [x, y + h * 0.4, z],
+          radius: Math.max(w, d) * 0.7,
+        };
+      }
+      case "overflow": {
+        const [w, h] = entity.size ?? OVERFLOW_SIGN;
+        return {
+          id,
+          kind: "overflow",
+          position: entity.position,
+          lookAt: [x, y + h * 0.55, z],
+          radius: Math.max(w * 0.8, 5),
+        };
+      }
+    }
   }
   for (const d of city.districts) {
     if (d.id !== id) continue;
@@ -218,6 +272,11 @@ export function orbitFraming(target: Vec3, angles: ViewAngles, distance: number)
 export const INSPECT_POLAR = { min: 0.86, max: 1.2 } as const;
 /** Street-level objects keep the steeper look down between the blocks. */
 export const STREET_POLAR = { min: 0.45, max: 0.72 } as const;
+/**
+ * A crowd object is a few units across on a pavement between tall blocks:
+ * look down on it from closer and steeper still, from over the street.
+ */
+export const CROWD_POLAR = { min: 0.32, max: 0.58 } as const;
 
 /**
  * A useful inspection distance for one entity, inside the camera limits.
@@ -228,21 +287,66 @@ export const STREET_POLAR = { min: 0.45, max: 0.72 } as const;
  * comes in from the default corner, `INSPECT_DIR`.
  */
 export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framing {
-  const street = focus.kind === "incident" || focus.kind === "construction";
+  // The queue's sign stands beside an approach road: street level too. A
+  // facade is not: it is looked at from across the street, at facade height.
+  const facade = focus.facing !== undefined && Number.isFinite(focus.facing);
+  const street =
+    !facade &&
+    (focus.kind === "incident" || focus.kind === "construction" || focus.kind === "overflow");
+  // A crowd object is a few units across: stand closer, or the next block
+  // stands between the camera and the thing that was clicked.
+  const small = street && focus.radius < 3;
   const distance = clamp(
-    focus.radius * 3.4 + (street ? 15 : 12),
+    small ? focus.radius * 2.5 + 9 : focus.radius * 3.4 + (street ? 15 : 12),
     MIN_DISTANCE + 2,
     MAX_DISTANCE - 20,
   );
+  const band = small ? CROWD_POLAR : street ? STREET_POLAR : INSPECT_POLAR;
+  if (facade) {
+    // Keep the user's bearing when it already looks at the face, otherwise
+    // come round to the nearer edge of the half circle in front of it. Look
+    // down steeply from over the street and stand close: from across the
+    // street the camera would be inside the building opposite.
+    const facing = focus.facing as number;
+    const bearing = from && Number.isFinite(from.azimuth) ? from.azimuth : facing;
+    const offset = Math.atan2(Math.sin(bearing - facing), Math.cos(bearing - facing));
+    const polar = from && Number.isFinite(from.polar) ? from.polar : FACADE_POLAR.max;
+    return orbitFraming(
+      focus.lookAt,
+      {
+        azimuth: facing + clamp(offset, -FACADE_SWING, FACADE_SWING),
+        polar: clamp(polar, FACADE_POLAR.min, FACADE_POLAR.max),
+      },
+      clamp(focus.radius * 2 + 9, MIN_DISTANCE + 2, MAX_DISTANCE - 20),
+    );
+  }
   if (!from || !Number.isFinite(from.azimuth) || !Number.isFinite(from.polar)) {
     return place(focus.lookAt, street ? STREET_INSPECT_DIR : INSPECT_DIR, distance);
   }
-  const band = street ? STREET_POLAR : INSPECT_POLAR;
   return orbitFraming(
     focus.lookAt,
     { azimuth: from.azimuth, polar: clamp(from.polar, band.min, band.max) },
     distance,
   );
+}
+
+/** How far either side of straight on a facade may be inspected from, radians. */
+const FACADE_SWING = 0.9;
+/** The tilt a facade is inspected at: from over the street in front of it. */
+export const FACADE_POLAR = { min: 0.35, max: 0.55 } as const;
+
+/** Today's tallest tower: tier 5 in a city, 23 units (PLAN.md 76.5). */
+export const CITY_TALLEST = 23;
+
+/**
+ * The highest point in a model: the top of its tallest building or landmark
+ * plot. A metropolis tower reaches about 39 units (34, jittered up to 15%).
+ */
+export function tallestPoint(city: Pick<CityModel, "buildings" | "landmarks">): number {
+  let top = 0;
+  for (const b of city.buildings) top = Math.max(top, b.position[1] + b.size[1]);
+  for (const l of city.landmarks) top = Math.max(top, l.position[1] + (l.size?.[1] ?? 0));
+  return top;
 }
 
 /**
@@ -251,13 +355,15 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
  * landscape instead of sliding the city off screen, and the floor at `y = 0`
  * keeps the target above the ground, which with the polar limit keeps the
  * camera above it too. The ceiling clears the highest point any focus target
- * aims at: the tallest tower is 23 units, aimed at 55% of its height.
+ * aims at, 55% up the tallest tower: 24 units for today's 23-unit towers, and
+ * `0.6 x tallest` above that, so a metropolis tower is not clipped (PLAN.md
+ * 76.5, "Scale checks"). Pass `tallestPoint(city)`.
  */
-export function cameraBoundary(size: number): [Vec3, Vec3] {
+export function cameraBoundary(size: number, tallest = CITY_TALLEST): [Vec3, Vec3] {
   const half = size * 0.8;
   return [
     [-half, 0, -half],
-    [half, 24, half],
+    [half, Math.max(24, 0.6 * tallest), half],
   ];
 }
 

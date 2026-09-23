@@ -2,14 +2,16 @@
 
 /**
  * Street movement (PLAN.md sections 17, 18, 37). `vehicles.count` vehicles,
- * capped at 40, driving the road graph from `traffic.ts`.
+ * capped per settlement tier (40 in a city, 64 in a metropolis; PLAN.md
+ * 76.5), driving the road graph from `traffic.ts`.
  *
  * A car picks a segment, drives it, turns at the junction. It keeps out of
  * the stretches incidents and construction close (`blockages.ts`): it will
  * not turn into a road it cannot use, and one that finds cones ahead pulls
  * up short and turns round. Each car gets a seeded body type
  * (`models/vehicles/shapes.ts`), wheels that turn at the speed it is actually
- * doing, and head and tail lamps that come up as the city's windows do.
+ * doing, and head and tail lamps that come up as the city's windows do. A
+ * village, whose settlement allows it, has a few tractors among them.
  *
  * COST. One instanced draw per body type present, one more for that type's
  * lamps, and a single instanced mesh carrying every wheel in the city: about
@@ -23,20 +25,35 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, Object3D, type InstancedMesh } from "three";
 import { prngFor } from "@/lib/city/seed";
+import { DEFAULT_SETTLEMENT_TIER, SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import type { CityModel } from "@/types/city";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import {
   BODY_SPECS,
   CAR_COLORS,
+  TRACTOR_COLORS,
+  TRACTOR_SPEC,
   VEHICLE_BODIES,
   bodyGeometry,
   fleetLooks,
   lightsGeometry,
+  tractorGeometry,
+  tractorLightsGeometry,
   wheelGeometry,
+  type BodySpec,
   type VehicleBody,
 } from "./models/vehicles/shapes";
 import { tintedMaterial } from "./models/props/material";
-import { MAX_CARS, advanceCar, carPose, roadGraph, spawnCars } from "./traffic";
+import {
+  MAX_FLEET,
+  TRACTOR_PACE,
+  advanceCar,
+  carCap,
+  carPose,
+  roadGraph,
+  spawnCars,
+  tractorsFor,
+} from "./traffic";
 import { blockedStretches, cityObstacles } from "./blockages";
 import { useRevealClock } from "./useReveal";
 
@@ -48,6 +65,16 @@ const scratchColor = new Color();
 
 /** The road surface sits a touch above the ground plane; tyres go on top. */
 const ROAD_SURFACE = 0.1;
+
+/** A body in the fleet: one of the city's cars, or a village tractor. */
+type FleetBody = VehicleBody | "tractor";
+
+const specOf = (body: FleetBody): BodySpec => (body === "tractor" ? TRACTOR_SPEC : BODY_SPECS[body]);
+/** A tractor's front wheels are smaller than its back ones. */
+const wheelRadiusOf = (body: FleetBody, wheel: number): number =>
+  body === "tractor" ? TRACTOR_SPEC.wheelRadii[wheel] : BODY_SPECS[body].wheelRadius;
+const geometryOf = (body: FleetBody) => (body === "tractor" ? tractorGeometry() : bodyGeometry(body));
+const lampsOf = (body: FleetBody) => (body === "tractor" ? tractorLightsGeometry() : lightsGeometry(body));
 
 export default function Traffic({
   city,
@@ -62,30 +89,41 @@ export default function Traffic({
 
   const { graph, blocks, cars, prng, looks, groups } = useMemo(() => {
     const rng = prngFor(city.seed, "traffic");
-    const wanted = Math.max(0, Math.min(city.vehicles.count, MAX_CARS));
+    // The settlement's own cap: a village runs ten cars, a metropolis 64.
+    const wanted = Math.max(0, Math.min(city.vehicles.count, carCap(city.settlement?.tier)));
     const network = roadGraph(city.roads);
-    // Incidents and any site that reaches a lane, once per city.
+    // Incidents, any site that reaches a lane, crowd objects standing in a
+    // lane and the queue at the city limits, once per city.
     const closures = blockedStretches(network, cityObstacles(city));
     const fleet = spawnCars(city.roads, wanted, rng, closures);
     // A separate stream, so adding body types cannot change where the cars
     // spawn or which way they drive (PLAN.md section 35).
     const shapes = fleetLooks(fleet.length, prngFor(city.seed, "fleet"));
-    const byBody = new Map<VehicleBody, number[]>();
+    // A village's lanes carry a few tractors, trundling along at half pace.
+    // Their own stream again, so a city's fleet is exactly as it was.
+    const tier = city.settlement?.tier ?? DEFAULT_SETTLEMENT_TIER;
+    const tractor = tractorsFor(fleet.length, SETTLEMENT_PARAMS[tier].vehicles.tractors, prngFor(city.seed, "tractors"));
+    fleet.forEach((car, i) => {
+      if (!tractor[i]) return;
+      car.speed *= TRACTOR_PACE;
+      car.v = car.speed;
+    });
+    const byBody = new Map<FleetBody, number[]>();
     shapes.forEach((look, i) => {
-      const list = byBody.get(look.body);
+      const body: FleetBody = tractor[i] ? "tractor" : look.body;
+      const list = byBody.get(body);
       if (list) list.push(i);
-      else byBody.set(look.body, [i]);
+      else byBody.set(body, [i]);
     });
     return {
       graph: network,
       blocks: closures,
       cars: fleet,
       prng: rng,
-      looks: shapes,
-      groups: VEHICLE_BODIES.filter((body) => byBody.has(body)).map((body) => ({
-        body,
-        cars: byBody.get(body) ?? [],
-      })),
+      looks: shapes.map((look, i) => ({ ...look, tractor: tractor[i] })),
+      groups: [...VEHICLE_BODIES, "tractor" as const]
+        .filter((body) => byBody.has(body))
+        .map((body) => ({ body, cars: byBody.get(body) ?? [] })),
     };
   }, [city]);
 
@@ -99,10 +137,10 @@ export default function Traffic({
   const wheelRef = useRef<InstancedMesh>(null);
   /**
    * Wheel angle per car, in radians. One fixed-size buffer for the whole run:
-   * the fleet can never exceed `MAX_CARS`, so this is allocated once and
+   * the fleet can never exceed `MAX_FLEET`, so this is allocated once and
    * accumulated in place rather than rebuilt with every city.
    */
-  const spin = useRef<Float32Array>(new Float32Array(MAX_CARS));
+  const spin = useRef<Float32Array>(new Float32Array(MAX_FLEET));
   useEffect(() => {
     spin.current.fill(0);
   }, [cars]);
@@ -122,7 +160,7 @@ export default function Traffic({
       const body = bodyRefs.current[g];
       const lamps = lampRefs.current[g];
       if (!body) continue;
-      const spec = BODY_SPECS[group.body];
+      const spec = specOf(group.body);
 
       for (let slot = 0; slot < group.cars.length; slot++) {
         const index = group.cars[slot];
@@ -147,13 +185,15 @@ export default function Traffic({
         const sin = Math.sin(pose.angle);
         for (let w = 0; w < spec.wheels.length; w++) {
           const [lx, lz] = spec.wheels[w];
+          const radius = wheelRadiusOf(group.body, w);
           wheelScratch.position.set(
             pose.x + lx * cos + lz * sin,
-            ROAD_SURFACE + spec.wheelRadius,
+            ROAD_SURFACE + radius,
             pose.z - lx * sin + lz * cos,
           );
-          wheelScratch.rotation.set(angle, pose.angle, 0);
-          wheelScratch.scale.setScalar(spec.wheelRadius * visible);
+          // A smaller wheel turns faster for the same ground covered.
+          wheelScratch.rotation.set((angle * spec.wheelRadius) / radius, pose.angle, 0);
+          wheelScratch.scale.setScalar(radius * visible);
           wheelScratch.updateMatrix();
           wheels.setMatrixAt(index * 4 + w, wheelScratch.matrix);
         }
@@ -169,7 +209,12 @@ export default function Traffic({
   const colors = useMemo(
     () =>
       looks.map((look) =>
-        desaturate(CAR_COLORS[look.colorIndex % CAR_COLORS.length], atmosphere.desaturation),
+        desaturate(
+          look.tractor
+            ? TRACTOR_COLORS[look.colorIndex % TRACTOR_COLORS.length]
+            : CAR_COLORS[look.colorIndex % CAR_COLORS.length],
+          atmosphere.desaturation,
+        ),
       ),
     [looks, atmosphere.desaturation],
   );
@@ -202,7 +247,7 @@ export default function Traffic({
             ref={(mesh) => {
               bodyRefs.current[g] = mesh;
             }}
-            args={[bodyGeometry(group.body), undefined, group.cars.length]}
+            args={[geometryOf(group.body), undefined, group.cars.length]}
             castShadow
             frustumCulled={false}
           >
@@ -212,7 +257,7 @@ export default function Traffic({
             ref={(mesh) => {
               lampRefs.current[g] = mesh;
             }}
-            args={[lightsGeometry(group.body), undefined, group.cars.length]}
+            args={[lampsOf(group.body), undefined, group.cars.length]}
             frustumCulled={false}
           >
             <meshBasicMaterial vertexColors color={lampTint} toneMapped={false} />

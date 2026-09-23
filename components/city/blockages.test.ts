@@ -3,16 +3,24 @@ import type { ConstructionState, IncidentState } from "@/types/analysis";
 import type { ConstructionSite, Incident, RoadSegment } from "@/types/city";
 import { devCity } from "@/fixtures/dev.city";
 import {
+  CROWD_FOOTPRINT,
   INCIDENT_FOOTPRINT,
   SITE_FOOTPRINT,
   SITE_SIDE,
   blockedStretches,
   cityObstacles,
+  crowdRect,
   type Obstacle,
 } from "./blockages";
+import { CROWD_BASE_SIZE, heatScale } from "@/lib/city/backlog";
+import { generateCity } from "@/lib/city/generator";
+import { prngFor } from "@/lib/city/seed";
+import backlogFixture from "@/fixtures/backlog.analysis.json";
+import type { RepoAnalysis } from "@/types/analysis";
+import { CROWD_MESHES, formGeometry } from "./backlog/forms";
 import { incidentDecor } from "./models/props/incidentDecor";
 import { constructionDecor } from "./models/props/constructionDecor";
-import { CAR_HALF_WIDTH, laneOffset, roadGraph } from "./traffic";
+import { CAR_HALF_WIDTH, laneOffset, roadGraph, type RoadGraph } from "./traffic";
 
 const road = (id: string, from: [number, number], to: [number, number], width = 7): RoadSegment => ({
   id,
@@ -227,5 +235,134 @@ describe("footprints", () => {
     expect(rect.maxX).toBeGreaterThanOrEqual(SITE_SIDE / 2);
     expect(rect.minZ).toBeLessThanOrEqual(-SITE_SIDE / 2);
     expect(rect.maxZ).toBeGreaterThanOrEqual(SITE_SIDE / 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The crowd and the queue (PLAN.md 76.9)
+// ---------------------------------------------------------------------------
+
+const backlogAnalysis = backlogFixture as unknown as RepoAnalysis;
+const metropolis = generateCity(backlogAnalysis, { tier: "metropolis" });
+
+describe("crowd footprints", () => {
+  it.each(CROWD_MESHES.map((mesh) => [mesh]))("holds the %s model inside its footprint", (mesh) => {
+    const geometry = formGeometry(mesh, 0);
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox!;
+    const rect = CROWD_FOOTPRINT[mesh];
+    // A hair of slack for the scaffold's board, which hangs on the front rail.
+    const slack = 0.03;
+    expect(box.min.x, mesh).toBeGreaterThanOrEqual(rect.minX - slack);
+    expect(box.max.x, mesh).toBeLessThanOrEqual(rect.maxX + slack);
+    expect(box.min.z, mesh).toBeGreaterThanOrEqual(rect.minZ - slack);
+    expect(box.max.z, mesh).toBeLessThanOrEqual(rect.maxZ + slack);
+  });
+
+  it("is S4's base size, so the model fills the ground placement kept for it", () => {
+    for (const form of ["fire", "collision", "wreck", "pothole", "roadblock", "survey", "signpost", "trench", "van", "hoarding"] as const) {
+      const rect = CROWD_FOOTPRINT[form];
+      expect(rect.maxX - rect.minX).toBeCloseTo(CROWD_BASE_SIZE[form][0]);
+      expect(rect.maxZ - rect.minZ).toBeCloseTo(CROWD_BASE_SIZE[form][2]);
+    }
+  });
+
+  it("uses an entity's own size, already scaled by heat, when it has one", () => {
+    expect(crowdRect({ size: [2, 1, 4], heat: 0 }, "pothole")).toEqual({ minX: -1, maxX: 1, minZ: -2, maxZ: 2 });
+    const s = heatScale(1);
+    const rect = crowdRect({ heat: 1 }, "pothole");
+    expect(rect.maxX).toBeCloseTo((CROWD_BASE_SIZE.pothole[0] / 2) * s);
+  });
+});
+
+describe("crowd and queue obstacles", () => {
+  it("turns crowd objects in a lane into obstacles and leaves the kerb alone", () => {
+    const obstacles = cityObstacles(metropolis);
+    const ids = new Set(obstacles.map((o) => o.id));
+    const backlog = metropolis.backlog!;
+    const crowd = [...backlog.incidents, ...backlog.constructionSites];
+    expect(crowd.some((e) => e.lane)).toBe(true);
+    for (const entity of crowd) expect(ids.has(entity.id), entity.id).toBe(entity.lane === true);
+  });
+
+  it("stands every queued car in the way, and closes the lane it queues in", () => {
+    const overflow = metropolis.overflow!;
+    expect(overflow.queue.length).toBeGreaterThan(0);
+    const obstacles = cityObstacles(metropolis).filter((o) => o.id === overflow.id);
+    expect(obstacles).toHaveLength(overflow.queue.length);
+    const graph = roadGraph(metropolis.roads);
+    const { stretches } = blockedStretches(graph, obstacles);
+    const queued = new Set(overflow.queue.map((car) => car.roadId));
+    for (const roadId of queued) {
+      const segment = metropolis.roads.findIndex((r) => r.id === roadId);
+      expect(stretches.some((s) => s.segment === segment && s.causes.includes(overflow.id)), roadId).toBe(true);
+    }
+  });
+
+  it("keeps a city without a backlog to its heroes, exactly as before", () => {
+    expect(cityObstacles(devCity)).toEqual(
+      cityObstacles({ incidents: devCity.incidents, constructionSites: devCity.constructionSites }),
+    );
+  });
+});
+
+describe("blockages on a grid", () => {
+  const same = (graph: RoadGraph, obstacles: readonly Obstacle[]) => {
+    const binned = blockedStretches(graph, obstacles);
+    const brute = blockedStretches(graph, obstacles, { binned: false });
+    expect(binned).toEqual(brute);
+    return binned;
+  };
+
+  it("matches the brute-force loop on a metropolis with its crowd and queue", () => {
+    const result = same(roadGraph(metropolis.roads), cityObstacles(metropolis));
+    expect(result.stretches.length).toBeGreaterThan(0);
+  });
+
+  it("matches it on hundreds of obstacles scattered at every angle", () => {
+    const prng = prngFor("grid", "blockages");
+    const half = metropolis.bounds.size / 2;
+    const obstacles: Obstacle[] = Array.from({ length: 900 }, (_, i) => {
+      const w = prng.range(0.4, 6);
+      const d = prng.range(0.4, 9);
+      return {
+        id: `o-${i}`,
+        x: prng.range(-half, half),
+        z: prng.range(-half, half),
+        rotationY: prng.range(-Math.PI, Math.PI),
+        minX: -w / 2,
+        maxX: w / 2,
+        minZ: -d * 0.3,
+        maxZ: d * 0.7,
+      };
+    });
+    const result = same(roadGraph(metropolis.roads), obstacles);
+    expect(result.stretches.length).toBeGreaterThan(20);
+  });
+
+  it("matches it on angled village lanes", () => {
+    const village = generateCity(backlogAnalysis, { tier: "village" });
+    same(roadGraph(village.roads), cityObstacles(village));
+  });
+
+  it("stays well inside the frame budget at metropolis scale", () => {
+    const graph = roadGraph(metropolis.roads);
+    // Plenty of lane blockers: every crowd object, as if all were in a lane.
+    const all: Obstacle[] = [
+      ...cityObstacles(metropolis),
+      ...[...metropolis.backlog!.incidents, ...metropolis.backlog!.constructionSites].map((e) => ({
+        id: e.id,
+        x: e.position[0],
+        z: e.position[2],
+        rotationY: e.rotationY,
+        ...crowdRect({ size: e.size, heat: e.heat }, "pothole"),
+      })),
+    ];
+    blockedStretches(graph, all);
+    const start = performance.now();
+    for (let i = 0; i < 5; i++) blockedStretches(graph, all);
+    const each = (performance.now() - start) / 5;
+    // PLAN.md 76.13: at most 30 ms; the CI bound is generous.
+    expect(each).toBeLessThan(150);
   });
 });
