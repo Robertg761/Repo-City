@@ -385,7 +385,9 @@ export function bodyParts(kind: VehicleBody): Part[] {
   const pillars = [-1.75, -1.05, -0.35, 0.35, 1.05];
   return [
     box([w, 0.8, spec.length], [0, 0.64, 0], PAINT),
-    box([w * 1.02, 0.2, spec.length * 0.97], [0, 0.34, 0], PANEL),
+    // The skirt stands a little less proud than the wheel arches it runs
+    // between, so the two never share a plane.
+    box([w + 0.012, 0.2, spec.length * 0.97], [0, 0.34, 0], PANEL),
     box([w * 0.97, 0.56, spec.length * 0.995], [0, 1.32, 0], GLASS),
     ...pillars.map((z) => box([w, 0.56, 0.1], [0, 1.32, z], PAINT)),
     // The windscreen runs down over the front of the skirt, as a bus's does.
@@ -846,7 +848,7 @@ export function tractorParts(): Part[] {
   ];
   return [
     // Chassis and engine block.
-    box([0.5, 0.3, 2.0], [0, 0.55, 0.3], TRIM),
+    box([0.5, 0.3, 1.96], [0, 0.55, 0.28], TRIM),
     // The bonnet, narrow and long, tapering to the grille.
     prism(
       [

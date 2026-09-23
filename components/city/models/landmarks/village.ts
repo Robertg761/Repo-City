@@ -69,7 +69,9 @@ function buildChapel(): ChapelLayout {
   a.box("stone", [NAVE_W + 0.3, 0.35, naveD + 0.3], { at: [0, 0.175, naveZ] });
   a.box("stone", [NAVE_W, NAVE_H, naveD], { at: [0, NAVE_H / 2, naveZ] });
   a.gable("roof", NAVE_W / 2 + 0.35, 2.7, naveD + 0.5, { at: [0, NAVE_H - 0.25 + 2.7 / 3, naveZ] });
-  a.box("trim", [0.24, 0.24, naveD + 0.5], { at: [0, NAVE_H - 0.25 + 2.7 - 0.02, naveZ] });
+  // The ridge runs a little past the roof's ends, so its ends and the gables'
+  // are never one plane.
+  a.box("trim", [0.24, 0.24, naveD + 0.56], { at: [0, NAVE_H - 0.25 + 2.7 - 0.02, naveZ] });
   // The east end: a lower, narrower chancel.
   a.box("stone", [3.2, 3.0, 1.6], { at: [0, 1.5, NAVE_Z0 - 0.7] });
   a.gable("roof", 1.85, 1.9, 1.8, { at: [0, 2.8 + 1.9 / 3, NAVE_Z0 - 0.7] });
@@ -129,7 +131,8 @@ function buildChapel(): ChapelLayout {
   // The door: an arched oak door in a stone surround, a step and a lamp.
   const front = TOWER_Z + TOWER / 2;
   a.box("trim", [1.35, 2.15, 0.14], { at: [0, 1.25, front + 0.04] });
-  a.box("wood", [1.0, 1.7, 0.1], { at: [0, 1.05, front + 0.1] });
+  // The door stands on the tower's plinth, not down behind its face.
+  a.box("wood", [1.0, 1.5, 0.1], { at: [0, 1.15, front + 0.1] });
   a.cylinder("wood", 0.5, 0.5, 0.1, 10, { at: [0, 1.9, front + 0.1], rot: [Math.PI / 2, 0, 0] });
   a.box("stone", [1.7, 0.2, 0.7], { at: [0, 0.1, front + 0.35] });
   const lamp: V3 = [0, 2.75, front + 0.28];
@@ -193,7 +196,7 @@ function buildVillageFire(level: number): VillageFireLayout {
   a.box("trim", [2.9, 2.75, 0.12], { at: [-0.3, 1.38, front + 0.03] });
   a.box("red", [2.5, 2.45, 0.1], { at: [-0.3, 1.25, front + 0.08] });
   for (let i = 0; i < 4; i++) {
-    a.box("trim", [2.5, 0.05, 0.04], { at: [-0.3, 0.45 + i * 0.55, front + 0.14] });
+    a.box("trim", [2.44, 0.05, 0.04], { at: [-0.3, 0.45 + i * 0.55, front + 0.14] });
   }
   a.box("red", [w + 0.02, 0.4, 0.06], { at: [-0.3, h - 0.45, front + 0.04] });
   a.box("glass", [0.8, 0.5, 0.06], { at: [-0.3, h + 0.5, front + 0.06] });
@@ -292,8 +295,9 @@ function buildHalt(level: number): HaltLayout {
   }
 
   // The name board on two posts, and two lamps.
-  a.box("steel", [0.08, 1.8, 0.08], { at: [3.2, 0.75 + 0.9, platformZ + 0.9] });
-  a.box("steel", [0.08, 1.8, 0.08], { at: [4.8, 0.75 + 0.9, platformZ + 0.9] });
+  // The posts stand behind the board rather than flush with its face.
+  a.box("steel", [0.08, 1.8, 0.08], { at: [3.2, 0.75 + 0.9, platformZ + 0.84] });
+  a.box("steel", [0.08, 1.8, 0.08], { at: [4.8, 0.75 + 0.9, platformZ + 0.84] });
   a.box("accent", [2.0, 0.55, 0.08], { at: [4.0, 0.75 + 1.75, platformZ + 0.9] });
   a.box("wall", [1.6, 0.14, 0.1], { at: [4.0, 0.75 + 1.75, platformZ + 0.95] });
   const lamps: V3[] = [];
@@ -314,7 +318,9 @@ function buildHalt(level: number): HaltLayout {
     const carL = 4.6;
     for (const cx of [-carL / 2 - 0.1, carL / 2 + 0.1]) {
       a.box("accent", [carL, 1.5, 1.7], { at: [cx, 0.4 + 1.05, trackZ] });
-      a.box("wall", [carL, 0.1, 1.72], { at: [cx, 0.4 + 1.5, trackZ] });
+      // The cream band stands proud of the body and the glass, and runs a
+      // hair past both ends.
+      a.box("wall", [carL + 0.04, 0.1, 1.78], { at: [cx, 0.4 + 1.5, trackZ] });
       a.box("roof", [carL - 0.2, 0.2, 1.5], { at: [cx, 0.4 + 1.9, trackZ] });
       a.box("glass", [carL - 0.6, 0.45, 1.74], { at: [cx, 0.4 + 1.35, trackZ] });
       a.box("dark", [carL - 0.8, 0.35, 1.3], { at: [cx, 0.4 + 0.2, trackZ] });

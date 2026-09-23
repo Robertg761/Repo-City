@@ -13,7 +13,7 @@
  */
 
 import type { ArchetypeModel } from "./models";
-import type { Panel } from "./mesh";
+import { LAYER, PANEL_LIFT, type Panel } from "./mesh";
 import {
   M,
   box,
@@ -101,7 +101,9 @@ export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
       ridgeCap: M.tileDark,
     });
     // The chimney stands on the gable end, the way a cottage hearth does.
-    box(draft, { x: halfW + 0.035, y: 0, z: -0.08, w: 0.08, h: 0.52, d: 0.14 }, M.stone);
+    // Its breast starts at the wall face rather than inside the wall, so its
+    // top does not share a plane with the wall's.
+    box(draft, { x: halfW + 0.035, y: 0, z: -0.08, w: 0.07, h: 0.52, d: 0.14 }, M.stone);
     chimney(draft, { x: halfW - 0.02, z: -0.08, y0: 0.5, top: 1.0, w: 0.1, d: 0.12, pots: 2 });
     // A porch hood on brackets over the door.
     gableRoof(draft, {
@@ -117,8 +119,9 @@ export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
       roof: M.tileDark,
       gable: M.frame,
     });
+    // Brackets clear of the climbing rose beside the door.
     for (const s of [-1, 1]) {
-      box(draft, { x: 0.1 + s * 0.09, y: 0.33, z: halfD + 0.05, w: 0.02, h: 0.065, d: 0.08 }, M.timber);
+      box(draft, { x: 0.1 + s * 0.085, y: 0.33, z: halfD + 0.05, w: 0.02, h: 0.055, d: 0.08 }, M.timber);
     }
   }
 
@@ -162,8 +165,9 @@ export function farmhouse(): ArchetypeModel {
 
   box(draft, { x: cx, y: 0, w: halfW * 2 + 0.04, h: 0.04, d: halfD * 2 + 0.04 }, M.stoneDark);
   box(draft, { x: cx, y: 0.04, w: halfW * 2, h: wallTop - 0.04, d: halfD * 2, skipBottom: true }, M.wall);
-  // A string course between the storeys.
-  box(draft, { x: cx, y: 0.33, w: halfW * 2 + 0.012, h: 0.014, d: halfD * 2 + 0.012, skipBottom: true }, M.wallShade);
+  // A string course between the storeys, two layers proud: the door's
+  // surround reaches up behind it.
+  box(draft, { x: cx, y: 0.33, w: halfW * 2 + LAYER * 4, h: 0.014, d: halfD * 2 + LAYER * 4, skipBottom: true }, M.wallShade);
   gableRoof(draft, {
     x: cx,
     y: wallTop,
@@ -177,22 +181,28 @@ export function farmhouse(): ArchetypeModel {
     gable: M.wall,
     ridgeCap: M.tileDark,
   });
+  // The stacks stand just inside the gable walls. Half a hundredth further
+  // out, as they were, their faces lay a hair in front of the gable and the
+  // two flickered through each other from any distance.
   for (const end of [-1, 1]) {
-    chimney(draft, { x: cx + end * (halfW - 0.04), z: 0, y0: 0.7, top: 1.02, w: 0.09, d: 0.13, pots: 2 });
+    chimney(draft, { x: cx + end * (halfW - 0.045 - LAYER * 2), z: 0, y0: 0.7, top: 1.02, w: 0.09, d: 0.13, pots: 2 });
   }
 
   // The lean-to: stone, lower, its roof falling away from the house.
   const leanX0 = -0.49;
   const leanX1 = cx - halfW;
   const leanHalfD = 0.26;
-  box(draft, { x: (leanX0 + leanX1) / 2, y: 0, w: leanX1 - leanX0, h: 0.3, d: leanHalfD * 2 }, M.stone);
+  // The roof's underside clears the top of the wall all the way to the eave;
+  // it used to cut through it, and a line of stone showed along the tiles.
+  const leanWall = 0.28;
+  box(draft, { x: (leanX0 + leanX1) / 2, y: 0, w: leanX1 - leanX0, h: leanWall, d: leanHalfD * 2 }, M.stone);
   slab(
     draft,
     [
       [leanX1 + 0.005, 0.44, leanHalfD + 0.035],
       [leanX1 + 0.005, 0.44, -leanHalfD - 0.035],
-      [leanX0 - 0.01, 0.28, -leanHalfD - 0.035],
-      [leanX0 - 0.01, 0.28, leanHalfD + 0.035],
+      [leanX0 - 0.01, 0.31, -leanHalfD - 0.035],
+      [leanX0 - 0.01, 0.31, leanHalfD + 0.035],
     ],
     0.03,
     M.tileDark,
@@ -202,11 +212,11 @@ export function farmhouse(): ArchetypeModel {
     face(
       draft,
       [
-        [leanX0, 0.3, s * leanHalfD],
-        [leanX1, 0.3, s * leanHalfD],
+        [leanX0, leanWall, s * leanHalfD],
+        [leanX1, leanWall, s * leanHalfD],
         [leanX1, 0.42, s * leanHalfD],
       ],
-      [(leanX0 + leanX1) / 2, 0.3, 0],
+      [(leanX0 + leanX1) / 2, leanWall, 0],
       M.stone,
     );
   }
@@ -227,8 +237,9 @@ export function farmhouse(): ArchetypeModel {
     roof: M.tileDark,
     gable: M.frame,
   });
+  // The posts stop inside the porch roof rather than poking through it.
   for (const s of [-1, 1]) {
-    box(draft, { x: cx + s * 0.1, y: 0.02, z: front + 0.12, w: 0.02, h: 0.29, d: 0.02 }, M.frame);
+    box(draft, { x: cx + s * 0.1, y: 0.02, z: front + 0.12, w: 0.02, h: 0.275, d: 0.02 }, M.frame);
   }
   box(draft, { x: cx, y: 0, z: front + 0.07, w: 0.26, h: 0.02, d: 0.15 }, M.stone);
   door(draft, { facing: "+z", plane: front, u: 0, cx, v: 0.02, w: 0.12, h: 0.24, fanlight: true, step: false });
@@ -236,9 +247,10 @@ export function farmhouse(): ArchetypeModel {
   const windows: Panel[] = [
     framedWindow(draft, { facing: "+z", plane: front, cx, u: -0.2, v: 0.19, w: 0.13, h: 0.14, flowers: M.flowerRed }),
     framedWindow(draft, { facing: "+z", plane: front, cx, u: 0.2, v: 0.19, w: 0.13, h: 0.14, flowers: M.flowerRed }),
-    framedWindow(draft, { facing: "+z", plane: front, cx, u: -0.2, v: 0.48, w: 0.12, h: 0.13, shutters: true, bars: "sash" }),
+    // Far enough apart that a shutter never overlaps the middle window's frame.
+    framedWindow(draft, { facing: "+z", plane: front, cx, u: -0.21, v: 0.48, w: 0.12, h: 0.13, shutters: true, bars: "sash" }),
     framedWindow(draft, { facing: "+z", plane: front, cx, u: 0, v: 0.48, w: 0.1, h: 0.12, bars: "sash" }),
-    framedWindow(draft, { facing: "+z", plane: front, cx, u: 0.2, v: 0.48, w: 0.12, h: 0.13, shutters: true, bars: "sash" }),
+    framedWindow(draft, { facing: "+z", plane: front, cx, u: 0.21, v: 0.48, w: 0.12, h: 0.13, shutters: true, bars: "sash" }),
     framedWindow(draft, { facing: "-z", plane: front, cx, u: -0.14, v: 0.19, w: 0.12, h: 0.13 }),
     framedWindow(draft, { facing: "-z", plane: front, cx, u: 0.14, v: 0.48, w: 0.12, h: 0.13 }),
     framedWindow(draft, { facing: "+x", plane: halfW, cx, u: 0, v: 0.48, w: 0.12, h: 0.13 }),
@@ -353,16 +365,18 @@ export function barn(): ArchetypeModel {
   }
 
   // The big doors on the lane gable, with their white frames and braces.
-  const z = halfD + 0.006;
   const doorW = 0.34;
   const doorH = 0.36;
   panel(draft, { facing: "+z", cx, u: 0, v: 0.035 + doorH / 2, w: doorW, h: doorH, plane: halfD }, M.wallDeep);
+  // The braces a layer in front of the doors, and all in one plane: they are
+  // one colour, so where they cross nothing can flicker. The bottom rail sits
+  // on the plinth rather than behind its face.
+  const t = 0.018;
   const x0 = cx - doorW / 2;
   const x1 = cx + doorW / 2;
-  const y0 = 0.035;
+  const y0 = 0.035 + t / 2;
   const y1 = 0.035 + doorH;
-  const t = 0.018;
-  const zb = z + 0.004;
+  const zb = halfD + PANEL_LIFT + LAYER;
   brace(draft, zb, [x0, y0], [x0, y1], t, M.frame);
   brace(draft, zb, [x1, y0], [x1, y1], t, M.frame);
   brace(draft, zb, [cx, y0], [cx, y1], t, M.frame);
@@ -372,12 +386,12 @@ export function barn(): ArchetypeModel {
     [x0, cx],
     [cx, x1],
   ]) {
-    brace(draft, zb + 0.001, [a, y0], [b, y1], t, M.frame);
-    brace(draft, zb + 0.001, [a, y1], [b, y0], t, M.frame);
+    brace(draft, zb, [a, y0], [b, y1], t, M.frame);
+    brace(draft, zb, [a, y1], [b, y0], t, M.frame);
   }
   // The hay loft: a hatch with hay showing, and the hoist beam over it.
   panel(draft, { facing: "+z", cx, u: 0, v: 0.6, w: 0.13, h: 0.12, plane: halfD }, M.frame);
-  panel(draft, { facing: "+z", cx, u: 0, v: 0.595, w: 0.1, h: 0.095, plane: halfD + 0.003 }, M.hay);
+  panel(draft, { facing: "+z", cx, u: 0, v: 0.595, w: 0.1, h: 0.095, plane: halfD + LAYER }, M.hay);
   box(draft, { x: cx, y: 0.73, z: halfD + 0.05, w: 0.03, h: 0.03, d: 0.12 }, M.timberDark);
 
   // A cupola on the ridge.
@@ -425,10 +439,12 @@ export function barn(): ArchetypeModel {
   // A chute from the silo into the barn.
   box(draft, { x: (sx - radius + cx + halfW) / 2, y: 0.4, z: sz, w: sx - radius - (cx + halfW) + 0.01, h: 0.05, d: 0.05 }, M.metal);
 
+  // The long walls' windows sit a layer out, over the battens.
+  const onBattens = halfW + LAYER;
   const windows: Panel[] = [
-    framedWindow(draft, { facing: "+x", cx, plane: halfW, u: 0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
-    framedWindow(draft, { facing: "-x", cx, plane: halfW, u: -0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
-    framedWindow(draft, { facing: "-x", cx, plane: halfW, u: 0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
+    framedWindow(draft, { facing: "+x", cx, plane: onBattens, u: 0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
+    framedWindow(draft, { facing: "-x", cx, plane: onBattens, u: -0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
+    framedWindow(draft, { facing: "-x", cx, plane: onBattens, u: 0.28, v: 0.3, w: 0.09, h: 0.08, bars: "cross" }),
     framedWindow(draft, { facing: "-z", cx, plane: halfD, u: 0, v: 0.35, w: 0.1, h: 0.09, bars: "cross" }),
   ];
 

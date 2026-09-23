@@ -223,21 +223,24 @@ export function addCylinder(
   const px = (i: number) => x + Math.cos((i / seg) * Math.PI * 2) * spec.radius;
   const pz = (i: number) => z + Math.sin((i / seg) * Math.PI * 2) * spec.radius;
 
+  // Wound from `j` back to `i`: the angle runs anticlockwise seen from below,
+  // and the other way round every face was inside out. The near side of a
+  // stack, a pot or a tank was culled and the camera saw into it.
   for (let i = 0; i < seg; i++) {
     const j = (i + 1) % seg;
     addQuad(
       draft,
-      [px(i), y0, pz(i)],
       [px(j), y0, pz(j)],
-      [px(j), y1, pz(j)],
+      [px(i), y0, pz(i)],
       [px(i), y1, pz(i)],
+      [px(j), y1, pz(j)],
       spec.color,
     );
   }
   // Flat cap as a fan of degenerate quads: cheap and it reads from above.
   for (let i = 0; i < seg; i++) {
     const j = (i + 1) % seg;
-    addQuad(draft, [x, y1, z], [px(i), y1, pz(i)], [px(j), y1, pz(j)], [px(j), y1, pz(j)], top);
+    addQuad(draft, [x, y1, z], [px(j), y1, pz(j)], [px(i), y1, pz(i)], [px(i), y1, pz(i)], top);
   }
 }
 
@@ -285,8 +288,21 @@ export interface Panel {
   cz?: number;
 }
 
-/** Nudge outward so a panel never z-fights the wall behind it. */
+/**
+ * Nudge outward so a panel never z-fights the wall behind it. Scaled by the
+ * footprint (2.2 to 7 world units) that is 0.013 to 0.04 units: several steps
+ * of the depth buffer at the furthest the camera goes.
+ */
 export const PANEL_LIFT = 0.006;
+
+/**
+ * The step between two details stacked on one wall: a door on its surround,
+ * glass in its frame, a lit pane on the glass. Anything overlapping another
+ * face that faces the same way stands at least this far off it, or the depth
+ * buffer cannot tell the two apart from the overview and they flicker in
+ * stripes as the camera moves (`coplanar.ts`, `zfight.test.ts`).
+ */
+export const LAYER = PANEL_LIFT;
 
 /** World-space centre of a panel, in the archetype's unit space. */
 export function panelCentre(panel: Panel, extraLift = 0): [number, number, number] {

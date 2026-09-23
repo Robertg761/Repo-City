@@ -13,7 +13,7 @@
  */
 
 import type { ArchetypeModel } from "./models";
-import type { Panel } from "./mesh";
+import { LAYER, type Panel } from "./mesh";
 import {
   M,
   box,
@@ -59,21 +59,29 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
   }
   wallBox(draft, { facing: "+z", plane, u: windowU, v: 0, w: windowW, h: riser, depth: 0.018 }, M.accentDark);
 
-  const glass: Panel = { facing: "+z", u: windowU, v: riser + (shopTop - riser) / 2, w: windowW, h: shopTop - riser - 0.02, plane: plane + 0.004 };
+  // Front to back a layer apart: the frame, the glass, the lit pane the
+  // lit-window pass lays on it, the goods on display and the mullions.
+  const glass: Panel = { facing: "+z", u: windowU, v: riser + (shopTop - riser) / 2, w: windowW, h: shopTop - riser - 0.02, plane: plane + LAYER };
   panel(draft, { ...glass, w: windowW + 0.02, h: glass.h + 0.02, plane }, M.frame);
   panel(draft, glass, M.shopGlass);
-  // Mullions: three lights and a transom.
+  // Mullions: three lights and a transom. Standing this far out, they stop
+  // short of the head of the glass, or their tops would show over the awning.
   for (const k of [-1, 1]) {
-    panel(draft, { facing: "+z", u: windowU + (k * windowW) / 6, v: glass.v, w: 0.01, h: glass.h, plane: plane + 0.007 }, M.frame);
+    panel(
+      draft,
+      { facing: "+z", u: windowU + (k * windowW) / 6, v: glass.v - 0.012, w: 0.01, h: glass.h - 0.024, plane: plane + LAYER * 4 },
+      M.frame,
+    );
   }
-  panel(draft, { facing: "+z", u: windowU, v: glass.v + glass.h * 0.3, w: windowW, h: 0.01, plane: plane + 0.007 }, M.frame);
-  // Something on display: coloured goods against the glass.
+  panel(draft, { facing: "+z", u: windowU, v: glass.v + glass.h * 0.3, w: windowW, h: 0.01, plane: plane + LAYER * 4 }, M.frame);
+  // Something on display: coloured goods against the glass, in front of the
+  // light when the shop is lit.
   const goods = [M.flowerYellow, M.accent, M.cream, M.flowerRed];
   for (let i = 0; i < goods.length; i++) {
     const h = (shopTop - riser) * (0.18 + (i % 2) * 0.1);
     panel(
       draft,
-      { facing: "+z", u: windowL + 0.05 + (i * (windowW - 0.1)) / 3, v: riser + 0.012 + h / 2, w: 0.045, h, plane: plane + 0.006 },
+      { facing: "+z", u: windowL + 0.05 + (i * (windowW - 0.1)) / 3, v: riser + 0.012 + h / 2, w: 0.045, h, plane: plane + LAYER * 3 },
       goods[i],
     );
   }
@@ -82,16 +90,18 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
   const doorU = (windowR + 0.05 + halfW - 0.05) / 2;
   const doorW = Math.min(0.13, halfW - 0.05 - (windowR + 0.05));
   door(draft, { facing: "+z", plane, u: doorU, v: 0, w: doorW, h: shopTop * 0.86, step: true, surround: M.accentDark });
-  panel(draft, { facing: "+z", u: doorU, v: shopTop * 0.55, w: doorW * 0.6, h: shopTop * 0.4, plane: plane + 0.006 }, M.shopGlass);
+  panel(draft, { facing: "+z", u: doorU, v: shopTop * 0.55, w: doorW * 0.6, h: shopTop * 0.4, plane: plane + LAYER * 2 }, M.shopGlass);
 
   // The fascia, with a pale band of lettering on it.
   wallBox(draft, { facing: "+z", plane, u: 0, v: shopTop, w: halfW * 2, h: fasciaH, depth: 0.035 }, M.accent);
-  wallBox(draft, { facing: "+z", plane, u: 0, v: top - 0.012, w: halfW * 2 + 0.01, h: 0.014, depth: 0.05 }, M.frame);
+  // The moulding on top stands clear of the fascia's top and ends, and the
+  // lettering a full layer proud of its face.
+  wallBox(draft, { facing: "+z", plane, u: 0, v: top - 0.008, w: halfW * 2 + LAYER * 4, h: 0.014, depth: 0.05 }, M.frame);
   for (let i = 0; i < 6; i++) {
     const w = 0.04 + ((i * 7) % 3) * 0.012;
     wallBox(
       draft,
-      { facing: "+z", plane: plane + 0.035, u: -0.24 + i * 0.075, v: shopTop + fasciaH * 0.3, w, h: fasciaH * 0.4, depth: 0.004 },
+      { facing: "+z", plane: plane + 0.035, u: -0.24 + i * 0.075, v: shopTop + fasciaH * 0.3, w, h: fasciaH * 0.4, depth: LAYER },
       M.cream,
     );
   }
@@ -161,7 +171,9 @@ export function shopfront(storeys: 2 | 3): ArchetypeModel {
   door(draft, { facing: "-z", plane: halfD, u: 0, v: 0, w: 0.13, h: shopTop * 0.8, mat: M.door });
 
   // Cornice and roof.
-  box(draft, { y: wallTop - 0.02, w: halfW * 2 + 0.03, h: 0.028, d: halfD * 2 + 0.03, skipBottom: true }, M.frame);
+  // The cornice stands well back from the eave above it: at 0.015 proud its
+  // face and the edge of the slates were a hair apart.
+  box(draft, { y: wallTop - 0.02, w: halfW * 2 + 0.016, h: 0.028, d: halfD * 2 + 0.016, skipBottom: true }, M.frame);
   gableRoof(draft, {
     y: wallTop + 0.008,
     w: halfW * 2,
@@ -174,8 +186,9 @@ export function shopfront(storeys: 2 | 3): ArchetypeModel {
     gable: M.wall,
     ridgeCap: M.slateDark,
   });
+  // The stacks stand clear inside the gable walls (`farmhouse`).
   for (const s of [-1, 1]) {
-    chimney(draft, { x: s * (halfW - 0.05), z: -0.05, y0: wallTop, top: 1.04, w: 0.09, d: 0.2, mat: M.brick, pots: 2 });
+    chimney(draft, { x: s * (halfW - 0.045 - LAYER * 2), z: -0.05, y0: wallTop, top: 1.04, w: 0.09, d: 0.2, mat: M.brick, pots: 2 });
   }
 
   // The hanging sign: a bracket off the corner and a board on edge.
@@ -211,7 +224,8 @@ export function terrace(): ArchetypeModel {
     const u = -halfW + houseW * i;
     wallBox(draft, { facing: "+z", plane: halfD, u, v: 0.035, w: 0.024, h: wallTop - 0.035, depth: 0.014 }, M.frame);
   }
-  box(draft, { y: 0.34, w: halfW * 2 + 0.012, h: 0.014, d: halfD * 2 + 0.012, skipBottom: true }, M.frame);
+  // Three layers proud: the doors' surrounds and fanlights reach up behind it.
+  box(draft, { y: 0.34, w: halfW * 2 + LAYER * 6, h: 0.014, d: halfD * 2 + LAYER * 6, skipBottom: true }, M.frame);
 
   gableRoof(draft, {
     y: wallTop,
@@ -229,8 +243,10 @@ export function terrace(): ArchetypeModel {
     const x = -halfW + houseW * i;
     chimney(draft, { x, z: -0.02, y0: 0.8, top: 1.03, w: 0.07, d: 0.14, mat: M.brick, pots: 2 });
   }
+  // The end stacks stand inside the gable walls. Flush with them, as they
+  // were, stack and gable were one plane in two colours and flickered.
   for (const s of [-1, 1]) {
-    chimney(draft, { x: s * (halfW - 0.035), z: -0.02, y0: 0.72, top: 1.0, w: 0.07, d: 0.14, mat: M.brick, pots: 1 });
+    chimney(draft, { x: s * (halfW - 0.035 - LAYER * 2), z: -0.02, y0: 0.72, top: 1.0, w: 0.07, d: 0.14, mat: M.brick, pots: 1 });
   }
 
   const windows: Panel[] = [];
@@ -247,8 +263,9 @@ export function terrace(): ArchetypeModel {
     wallBox(draft, { facing: "+z", plane: halfD, u: winU, v: 0.11, w: 0.13, h: 0.2, depth: 0.05 }, M.frame);
     const bay: Panel = { facing: "+z", u: winU, v: 0.205, w: 0.11, h: 0.17, plane: halfD + 0.053 };
     panel(draft, bay, M.glass);
-    panel(draft, { ...bay, w: 0.008, plane: bay.plane + 0.003 }, M.frame);
-    panel(draft, { ...bay, v: bay.v + 0.035, h: 0.008, plane: bay.plane + 0.003 }, M.frame);
+    // The glazing bars stand in front of the lit pane, two layers out.
+    panel(draft, { ...bay, w: 0.008, plane: bay.plane + LAYER * 2 }, M.frame);
+    panel(draft, { ...bay, v: bay.v + 0.035, h: 0.008, plane: bay.plane + LAYER * 2 }, M.frame);
     box(draft, { x: winU, y: 0.31, z: halfD + 0.028, w: 0.145, h: 0.02, d: 0.068 }, M.slateDark);
     windows.push(bay);
     windows.push(framedWindow(draft, { facing: "+z", plane: halfD, u: winU, v: 0.5, w: 0.1, h: 0.16, bars: "sash", frame: 0.012 }));
@@ -278,13 +295,17 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
   const floorH = (roofY - base) / (floors - 1 + 0.001);
 
   box(draft, { y: 0, w: halfW * 2 + 0.01, h: base, d: halfD * 2 + 0.01 }, retail ? M.wallDeep : M.stone);
-  box(draft, { y: base, w: halfW * 2, h: roofY - base, d: halfD * 2, skipBottom: true }, M.wall);
-  box(draft, { y: roofY - 0.004, w: halfW * 2 - 0.04, h: 0.006, d: halfD * 2 - 0.04, skipBottom: true }, M.concreteDark);
+  // The wall stops inside the cornice, the roof deck stands a layer above
+  // the cornice's top, the parapet is flush with the cornice's face and the
+  // string courses stand two layers proud: nothing on this block lies a hair
+  // off another face of it.
+  box(draft, { y: base, w: halfW * 2, h: roofY - base - LAYER, d: halfD * 2, skipBottom: true }, M.wall);
+  box(draft, { y: roofY - 0.004, w: halfW * 2 - 0.04, h: 0.004 + LAYER, d: halfD * 2 - 0.04, skipBottom: true }, M.concreteDark);
   box(draft, { y: roofY - 0.02, w: halfW * 2 + 0.024, h: 0.02, d: halfD * 2 + 0.024, skipBottom: true }, M.frame);
-  parapet(draft, roofY, halfW + 0.01, halfD + 0.01, 0.045);
+  parapet(draft, roofY, halfW + 0.012, halfD + 0.012, 0.045);
   // String courses at each floor line.
   for (let f = 1; f < floors - 1; f++) {
-    box(draft, { y: base + f * floorH - 0.006, w: halfW * 2 + 0.01, h: 0.01, d: halfD * 2 + 0.01, skipBottom: true }, M.wallShade);
+    box(draft, { y: base + f * floorH - 0.006, w: halfW * 2 + LAYER * 4, h: 0.01, d: halfD * 2 + LAYER * 4, skipBottom: true }, M.wallShade);
   }
   // A stair tower head on the roof.
   box(draft, { x: -0.22, y: roofY, z: -0.18, w: 0.2, h: 0.06, d: 0.16, skipBottom: true }, M.wallShade);
@@ -310,14 +331,14 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
       wallBox(draft, { facing: "+z", plane: halfD + 0.072, u, v: floorY + 0.014, w: 0.34, h: railH, depth: 0.008 }, M.accent);
       wallBox(draft, { facing: "+z", plane: halfD + 0.07, u, v: floorY + 0.014 + railH, w: 0.35, h: 0.008, depth: 0.012 }, M.frame);
       for (const s of [-1, 1]) {
-        wallBox(draft, { facing: "+z", plane: halfD, u: u + s * 0.166, v: floorY + 0.014, w: 0.008, h: railH, depth: 0.075 }, M.accentDark);
+        wallBox(draft, { facing: "+z", plane: halfD, u: u + s * 0.166, v: floorY + 0.014, w: 0.008, h: railH, depth: 0.072 }, M.accentDark);
       }
     }
   }
 
   if (retail) {
     windows.push(...shopFront(draft, { plane: halfD + 0.005, halfW, top: base }));
-    door(draft, { facing: "-z", plane: halfD, u: 0, v: 0, w: 0.14, h: base * 0.8, mat: M.accent });
+    door(draft, { facing: "-z", plane: halfD + 0.005, u: 0, v: 0, w: 0.14, h: base * 0.8, mat: M.accent });
   } else {
     // The entrance under a canopy, with glass either side.
     door(draft, { facing: "+z", plane: halfD + 0.005, u: 0, v: 0.02, w: 0.14, h: 0.15, mat: M.accent, surround: M.frame });
