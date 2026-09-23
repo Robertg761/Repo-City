@@ -24,7 +24,7 @@ import type {
   WorksForm,
 } from "@/types/analysis";
 import type { LandmarkDetail, LandmarkType, OverflowCount } from "@/types/city";
-import { pullModifiers, wantsVolunteer } from "../analysis/forms.ts";
+import { WRECK_IDLE_DAYS, pullModifiers, wantsVolunteer } from "../analysis/forms.ts";
 import type { RepositoryMeta } from "@/types/repository";
 
 /** The fields every `CityEntity` needs, before geometry is attached. */
@@ -108,18 +108,57 @@ const LANDMARK_FILE_REASON: Record<string, string> = {
   dockerfile: "the Dockerfile describes how the project is packaged",
 };
 
-const TIER_WORD: Record<number, string> = {
-  1: "a low-rise",
-  2: "a mid-rise",
-  3: "a tall block",
-  4: "a tower",
-  5: "a skyline tower",
+/**
+ * The height class a building's tier reads as, in the settlement's own
+ * buildings (`SETTLEMENT_PARAMS.tierHeight` and the archetype tables in
+ * `components/city/models/buildings/archetypes.ts`): a village tops out at a
+ * farmhouse, a town at a five-storey block, and only a city and a metropolis
+ * build towers. The city's words are the ones it always had.
+ */
+const TIER_WORD: Record<SettlementTier, Record<number, string>> = {
+  village: {
+    1: "a single-storey cottage",
+    2: "a two-storey cottage",
+    3: "a farmhouse",
+    4: "a large farmhouse",
+    5: "one of the village's biggest farmhouses",
+  },
+  town: {
+    1: "a single-storey house",
+    2: "a two-storey terrace",
+    3: "a three-storey block",
+    4: "a four-storey block",
+    5: "a five-storey block, as tall as the town builds",
+  },
+  city: {
+    1: "a low-rise",
+    2: "a mid-rise",
+    3: "a tall block",
+    4: "a tower",
+    5: "a skyline tower",
+  },
+  metropolis: {
+    1: "a low-rise",
+    2: "a mid-rise",
+    3: "a tall block",
+    4: "a tower",
+    5: "a skyline tower",
+  },
+};
+
+/** Where the root landmark files stand: the civic ground, named for the settlement. */
+const CIVIC_GROUND: Record<SettlementTier, string> = {
+  village: "on the village green",
+  town: "on the town square",
+  city: "in the civic centre",
+  metropolis: "in the civic centre",
 };
 
 export function buildingText(
   plan: BuildingPlan,
   district: DistrictPlan | undefined,
   repo: RepositoryMeta,
+  tier: SettlementTier = "city",
 ): EntityText {
   const isDirectory = plan.kind === "directory";
   const kindWord = isDirectory ? "Directory" : "File";
@@ -135,7 +174,7 @@ export function buildingText(
   const description = plan.role ? `${plan.role} ${plainDescription}` : plainDescription;
 
   const parts = [
-    `Its height is ${TIER_WORD[plan.tier]} because this path scores ${plan.score.toFixed(1)} on importance, which puts it in tier ${plan.tier} of 5.`,
+    `Its height is ${TIER_WORD[tier][plan.tier]} because this path scores ${plan.score.toFixed(1)} on importance, which puts it in tier ${plan.tier} of 5.`,
   ];
   if (isDirectory) {
     parts.push(`Its footprint follows the ${plural(plan.descendantCount, "file")} it contains.`);
@@ -145,7 +184,7 @@ export function buildingText(
   }
   if (plan.landmark) {
     parts.push(
-      `It stands in the civic centre because ${LANDMARK_FILE_REASON[plan.landmark] ?? "it is a root-level landmark file"}.`,
+      `It stands ${CIVIC_GROUND[tier]} because ${LANDMARK_FILE_REASON[plan.landmark] ?? "it is a root-level landmark file"}.`,
     );
   }
 
@@ -280,15 +319,58 @@ const ISSUE_STATE_RULE: Record<IncidentState, string> = {
   minor: "It carries no bug label.",
 };
 
+/** How old an issue or a pull request is, in whole days, against `generatedAt`. */
+export interface Ages {
+  /** Days since it was opened. */
+  open: number;
+  /** Days since it was last updated. */
+  idle: number;
+}
+
+/** `Ages` for an item, measured the way the description's facts are. */
+export function agesOf(item: { createdAt: string; updatedAt: string }, generatedAt: string): Ages {
+  return { open: daysBetween(item.createdAt, generatedAt), idle: daysBetween(item.updatedAt, generatedAt) };
+}
+
+/**
+ * The form sentence for this issue in particular: the branch of the rule that
+ * matched, not the whole rule. Only the fire and the wreck have more than one
+ * branch; a wreck says how long the issue has actually stood idle.
+ */
+function issueFormSentence(form: IncidentForm, state: IncidentState, labels: string[], ages?: Ages): string {
+  if (form === "fire") {
+    if (/security|vulnerab|cve/i.test(labels.join(" "))) return "A fire, because the issue is about security.";
+    return "A fire, because the issue is a severe bug drawing heavy discussion.";
+  }
+  if (form === "wreck" && ages) {
+    if (state !== "stale" && ages.idle >= WRECK_IDLE_DAYS) {
+      return `An abandoned wreck: nobody has touched the issue for ${plural(ages.idle, "day")}.`;
+    }
+    return "An abandoned wreck, because the bug has gone stale.";
+  }
+  return ISSUE_FORM_RULE[form];
+}
+
 /**
  * The generated "why" of a crowd issue: its form rule, its state rule and,
- * for a "good first issue" or "help wanted", the volunteer flag.
+ * for a "good first issue" or "help wanted", the volunteer flag. With `ages`
+ * the sentences say how old this issue actually is rather than quoting the
+ * rule's threshold.
  */
-export function crowdIssueReason(form: IncidentForm, state: IncidentState, labels: string[]): string {
+export function crowdIssueReason(
+  form: IncidentForm,
+  state: IncidentState,
+  labels: string[],
+  ages?: Ages,
+): string {
   const volunteer = wantsVolunteer(labels)
     ? " It is marked for volunteers, so anyone can fill it in."
     : "";
-  return `${ISSUE_FORM_RULE[form]} ${ISSUE_STATE_RULE[state]}${volunteer}`;
+  const stateRule =
+    state === "stale" && ages
+      ? `It is a bug that has stayed open for ${plural(ages.open, "day")}.`
+      : ISSUE_STATE_RULE[state];
+  return `${issueFormSentence(form, state, labels, ages)} ${stateRule}${volunteer}`;
 }
 
 const PULL_FORM_RULE: Record<WorksForm, string> = {
@@ -310,20 +392,42 @@ const PULL_STATE_RULE: Record<ConstructionState, string> = {
 };
 
 /**
+ * The state sentence for this pull request, with the days since it was last
+ * updated when they are known: "It was last updated 32 days ago, so the work
+ * is slow", not the rule's "15 to 59 days".
+ */
+function pullStateSentence(state: ConstructionState, idle: number | undefined): string {
+  if (idle === undefined) return PULL_STATE_RULE[state];
+  const ago = idle === 0 ? "today" : `${plural(idle, "day")} ago`;
+  switch (state) {
+    case "active":
+      return `It was last updated ${ago}, so work is going on.`;
+    case "slow":
+      return `It was last updated ${ago}, so the work is slow.`;
+    case "abandoned":
+      return `Nobody has touched it for ${plural(idle, "day")}, so the works stand idle.`;
+    case "completed":
+      return PULL_STATE_RULE.completed;
+  }
+}
+
+/**
  * The generated "why" of a crowd pull request: form rule, state rule, then
  * the review and CI modifiers `pullModifiers` draws (the state ones, rust and
- * dimming, are already said by the state rule).
+ * dimming, are already said by the state rule). With `ages` the state rule
+ * says how long ago it was actually updated.
  */
 export function crowdPullReason(
   form: WorksForm,
   state: ConstructionState,
   review: RankedPull["review"],
   checks: RankedPull["checks"],
+  ages?: Ages,
 ): string {
   const signals = pullModifiers({ review, checks, state })
     .filter((modifier) => modifier.id !== "abandoned" && modifier.id !== "slow")
     .map((modifier) => modifier.sentence);
-  return [PULL_FORM_RULE[form], PULL_STATE_RULE[state], ...signals].join(" ");
+  return [PULL_FORM_RULE[form], pullStateSentence(state, ages?.idle), ...signals].join(" ");
 }
 
 /** How a crowd object found its place, for the last sentence of its "why". */
@@ -361,7 +465,7 @@ export function placementSentence(kind: "issue" | "pull", p: CrowdPlacement): st
         ? `It stands on ${p.host} because the pull request touches ${p.path ?? p.host}.`
         : p.near
           ? `It stands on ${p.host}, the nearest building with a free face to ${p.near}.`
-          : `It names no path the ${word} knows, so it stands on ${p.host}, where there was room.`,
+          : `No path it names has a building in the ${word}, so its scaffolding stands on ${p.host} only because that facade was free.`,
     );
     return parts.join(" ");
   }

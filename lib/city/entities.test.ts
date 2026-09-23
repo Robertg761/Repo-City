@@ -58,6 +58,28 @@ describe("buildingText (PLAN.md sections 9, 10 and 41)", () => {
     expect(text.visualState).toBe("landmark");
     expect(text.reason).toContain("civic centre");
   });
+
+  it("names height classes and the civic ground in the settlement's own buildings", () => {
+    const plan = (tier: 1 | 2 | 3 | 4 | 5) => ({ ...fixture.buildings.find((b) => b.landmark === null)!, tier });
+    const reason = (tier: 1 | 2 | 3 | 4 | 5, settlement: "village" | "town" | "city" | "metropolis") =>
+      buildingText(plan(tier), undefined, repo, settlement).reason;
+    expect(reason(2, "village")).toMatch(/^Its height is a two-storey cottage because/);
+    expect(reason(5, "village")).toContain("farmhouse");
+    expect(reason(3, "town")).toMatch(/^Its height is a three-storey block because/);
+    // Nothing in a village or a town is called a tower.
+    for (const tier of [1, 2, 3, 4, 5] as const) {
+      expect(reason(tier, "village")).not.toMatch(/tower|rise/);
+      expect(reason(tier, "town")).not.toMatch(/tower|rise/);
+    }
+    expect(reason(5, "city")).toMatch(/^Its height is a skyline tower because/);
+    expect(reason(5, "metropolis")).toMatch(/^Its height is a skyline tower because/);
+    // The city's words are the ones it always had, and they are the default.
+    expect(buildingText(plan(4), undefined, repo).reason).toBe(reason(4, "city"));
+
+    const readme = fixture.buildings.find((b) => b.landmark === "readme")!;
+    expect(buildingText(readme, undefined, repo, "village").reason).toContain("It stands on the village green because");
+    expect(buildingText(readme, undefined, repo, "town").reason).toContain("It stands on the town square because");
+  });
 });
 
 describe("incidentText (PLAN.md section 12)", () => {
@@ -255,6 +277,33 @@ describe("crowd copy (PLAN.md 76.7 and 76.10)", () => {
     );
   });
 
+  it("says how old the issue actually is, and which branch of the rule matched", () => {
+    expect(crowdIssueReason("wreck", "stale", ["bug"], { open: 412, idle: 20 })).toBe(
+      "An abandoned wreck, because the bug has gone stale. It is a bug that has stayed open for 412 days.",
+    );
+    expect(crowdIssueReason("wreck", "minor", [], { open: 900, idle: 1_203 })).toBe(
+      "An abandoned wreck: nobody has touched the issue for 1,203 days. It carries no bug label.",
+    );
+    expect(crowdIssueReason("fire", "minor", ["security"], { open: 3, idle: 1 })).toMatch(
+      /^A fire, because the issue is about security\./,
+    );
+    expect(crowdIssueReason("fire", "major", ["bug", "p1"], { open: 3, idle: 1 })).toMatch(
+      /^A fire, because the issue is a severe bug drawing heavy discussion\./,
+    );
+  });
+
+  it("says when a pull request was actually last updated, not the rule's range", () => {
+    const slow = crowdPullReason("scaffold", "slow", null, null, { open: 90, idle: 32 });
+    expect(slow).toContain("It was last updated 32 days ago, so the work is slow.");
+    expect(slow).not.toMatch(/15 to 59/);
+    expect(crowdPullReason("van", "active", null, null, { open: 2, idle: 0 })).toContain(
+      "It was last updated today, so work is going on.",
+    );
+    expect(crowdPullReason("trench", "abandoned", null, null, { open: 400, idle: 212 })).toContain(
+      "Nobody has touched it for 212 days, so the works stand idle.",
+    );
+  });
+
   it("adds the review and CI signals to a pull request's rule, but not the state twice", () => {
     const reason = crowdPullReason("trench", "abandoned", "changes-requested", "failing");
     expect(reason).toMatch(/^A trench in the road, /);
@@ -280,6 +329,12 @@ describe("crowd copy (PLAN.md 76.7 and 76.10)", () => {
     );
     expect(placementSentence("pull", { ...placement, host: "src" })).toBe(
       "It stands on src, the nearest building with a free face to docs.",
+    );
+    // Scaffolding with nowhere to anchor says why it stands where it does,
+    // without claiming a path it never named.
+    const stray = placementSentence("pull", { ...placement, anchor: "none", near: null, path: null, host: "benchmarks/run.mts" });
+    expect(stray).toBe(
+      "No path it names has a building in the town, so its scaffolding stands on benchmarks/run.mts only because that facade was free.",
     );
     expect(placementSentence("pull", { ...placement, demoted: "cap" })).toMatch(/capped at 35%/);
     expect(placementSentence("pull", { ...placement, demoted: "no-facade" })).toMatch(

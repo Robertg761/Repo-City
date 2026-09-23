@@ -315,7 +315,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
       const slot = slots[cursor] ?? fallbackSlot(rect, cursor);
       cursor += 1;
       buildings.push(
-        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng, params),
+        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng, params, settlement.tier),
       );
     }
     usedSlots.set(plan.id, cursor);
@@ -351,6 +351,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
         slotPrng,
         buildingPrng,
         params,
+        settlement.tier,
       ),
     );
   });
@@ -641,6 +642,7 @@ function makeBuilding(
   slotPrng: Prng,
   buildingPrng: Prng,
   params: SettlementParams,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): Building {
   const { min, max } = params.footprint;
   const base = desiredFootprint(plan, params);
@@ -670,7 +672,7 @@ function makeBuilding(
   const x = turn === 0 ? slot.x + jx : slot.x + jx * Math.cos(turn) + jz * Math.sin(turn);
   const z = turn === 0 ? slot.z + jz : slot.z - jx * Math.sin(turn) + jz * Math.cos(turn);
 
-  const text = buildingText(plan, districtPlan, analysis.repo);
+  const text = buildingText(plan, districtPlan, analysis.repo, tier);
 
   return {
     id: plan.id,
