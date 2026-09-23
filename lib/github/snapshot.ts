@@ -19,7 +19,13 @@
  */
 
 import type { RepositorySnapshot } from "@/types/repository";
-import { fetchCommits, fetchContributors, fetchReleases } from "./activity.ts";
+import {
+  COMMITS_PER_PAGE,
+  CONTRIBUTORS_PER_PAGE,
+  fetchCommits,
+  fetchContributors,
+  fetchReleases,
+} from "./activity.ts";
 import { GitHubClient } from "./client.ts";
 import { ERROR_COPY, GitHubError, errorCodeOf, warningFor } from "./errors.ts";
 import { fetchFile, fetchReadme, selectManifests, type SnapshotFile } from "./files.ts";
@@ -74,6 +80,24 @@ function timeoutSignal(ms: number): AbortSignal {
 const count = (n: number): string => n.toLocaleString("en-US");
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${count(n)} ${n === 1 ? one : many}`;
+
+/**
+ * The activity stage's detail. Commits and contributors are one page each, so
+ * a full page is a floor, not a total: 100 commits are the 100 most recent,
+ * and 100 contributors means at least 100. A short page is the whole list. A
+ * request that failed says nothing rather than claiming zero.
+ */
+export function activityDetail(commits: number | null, contributors: number | null): string {
+  const parts: string[] = [];
+  if (commits !== null) {
+    parts.push(commits >= COMMITS_PER_PAGE ? plural(commits, "recent commit") : plural(commits, "commit"));
+  }
+  if (contributors !== null) {
+    const people = plural(contributors, "contributor");
+    parts.push(contributors >= CONTRIBUTORS_PER_PAGE ? `at least ${people}` : people);
+  }
+  return parts.length > 0 ? parts.join(", ") : "commits and contributors unavailable";
+}
 
 /**
  * @param owner owner as typed by the user; the canonical one comes from the
@@ -220,7 +244,10 @@ export async function fetchSnapshot(
       id: "activity",
       status: ok ? "done" : "failed",
       detail: ok
-        ? `${plural(commits.value.length, "commit")}, ${plural(contributors.value.length, "contributor")}`
+        ? activityDetail(
+            commits.ok ? commits.value.length : null,
+            contributors.ok ? contributors.value.length : null,
+          )
         : "activity unavailable",
     });
     return {

@@ -161,6 +161,28 @@ describe("fetchSnapshot", () => {
     expect(treeDone?.detail).toBe("2 files mapped");
     const issuesDone = events.find((event) => event.id === "issues" && event.status === "done");
     expect(issuesDone?.detail).toBe("1 open issue surveyed");
+    const activityDone = events.find((event) => event.id === "activity" && event.status === "done");
+    expect(activityDone?.detail).toBe("1 commit, 1 contributor");
+  });
+
+  it("does not report a full page of commits or contributors as the total", async () => {
+    const commit = (n: number): unknown => ({
+      sha: `sha${n}`,
+      html_url: "",
+      commit: { message: "m", author: { name: "A", email: "", date: "2026-09-20T00:00:00Z" }, committer: null },
+      author: null,
+      committer: null,
+    });
+    const person = (n: number): unknown => ({ login: `p${n}`, id: n, type: "User", contributions: 1 });
+    const { client, events } = fakeGitHub([
+      ["/commits", () => ok(Array.from({ length: 100 }, (_, n) => commit(n)))],
+      ["/contributors", () => ok(Array.from({ length: 100 }, (_, n) => person(n)))],
+    ]);
+
+    await fetchSnapshot("honojs", "hono", { client, onStage: (event) => events.push(event) });
+
+    const activityDone = events.find((event) => event.id === "activity" && event.status === "done");
+    expect(activityDone?.detail).toBe("100 recent commits, at least 100 contributors");
   });
 
   it("uses the canonical name from a redirected repository, and says so", async () => {
@@ -209,6 +231,15 @@ describe("fetchSnapshot", () => {
     // With no commits, the seed falls back to the tree SHA rather than empty.
     expect(snapshot.repo.headSha).toBe("treesha");
     expect(snapshot.warnings.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("leaves a failed count out of the activity detail rather than claiming zero", async () => {
+    const { client, events } = fakeGitHub([["/commits", () => fail(500)]]);
+
+    await fetchSnapshot("honojs", "hono", { client, onStage: (event) => events.push(event) });
+
+    const activityDone = events.find((event) => event.id === "activity" && event.status === "done");
+    expect(activityDone?.detail).toBe("1 contributor");
   });
 
   it("treats 202 and 204 from contributors and Actions as empty", async () => {
