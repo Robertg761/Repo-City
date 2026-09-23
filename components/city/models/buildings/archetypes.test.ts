@@ -14,7 +14,7 @@ import {
   type ArchetypeId,
 } from "./archetypes";
 import { archetypeModel } from "./models";
-import { doorTurn, planBuildings, propCount } from "./placement";
+import { doorTurn, litWindowCount, planBuildings, propCount } from "./placement";
 
 export function building(
   id: string,
@@ -302,6 +302,32 @@ describe("planBuildings (PLAN.md section 38)", () => {
   it("never lights a window on a building that went dark", () => {
     const plan = planBuildings(city, { litShare: 0.5 });
     for (const w of plan.windows) expect(plan.instances[w.buildingIndex].lit).toBe(true);
+  });
+
+  it("orders the windows by when their building lights up, so any hour is a prefix", () => {
+    const all = planBuildings(city, { litShare: 1 });
+    for (let i = 1; i < all.windows.length; i++) {
+      expect(all.windows[i].rank).toBeGreaterThanOrEqual(all.windows[i - 1].rank);
+    }
+    for (const share of [0, 0.2, 0.45, 0.7, 1]) {
+      const at = planBuildings(city, { litShare: share });
+      const count = litWindowCount(all.windows, share);
+      // The prefix of the full plan is exactly the plan made at that share.
+      expect(count).toBe(at.windows.length);
+      expect(all.windows.slice(0, count)).toEqual(at.windows);
+      for (const w of all.windows.slice(0, count)) expect(w.rank).toBeLessThan(share);
+      for (const w of all.windows.slice(count)) expect(w.rank).toBeGreaterThanOrEqual(share);
+    }
+    for (const w of all.windows) {
+      expect(w.tone).toBeGreaterThanOrEqual(0);
+      expect(w.tone).toBeLessThan(1);
+    }
+  });
+
+  it("keeps the first buildings to light up when the pane budget runs out", () => {
+    const all = planBuildings(city, { litShare: 1 });
+    const capped = planBuildings(city, { litShare: 1, windowCap: 40 });
+    expect(capped.windows).toEqual(all.windows.slice(0, 40));
   });
 
   it("respects the instance caps a metropolis could otherwise blow past", () => {
