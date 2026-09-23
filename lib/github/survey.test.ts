@@ -243,7 +243,7 @@ describe("small repositories (PLAN.md section 76.6)", () => {
     });
   });
 
-  it("keep today's progress lines", async () => {
+  it("say how many open issues and pull requests were surveyed, like a large repository", async () => {
     const events: StageEvent[] = [];
     const { client } = fakeGitHub({ issues: 30, pulls: 10 });
     await fetchSnapshot("o", "r", { client, onStage: (event) => events.push(event) });
@@ -253,7 +253,21 @@ describe("small repositories (PLAN.md section 76.6)", () => {
     expect(stage(events, "pulls").map((e) => e.status)).toEqual(
       ENRICH_SMALL_REPOS ? ["running", "running", "done"] : ["running", "done"],
     );
-    expect(stage(events, "pulls").at(-1)?.detail).toBe("10 pull requests reviewed");
+    expect(stage(events, "issues").at(-1)?.detail).toBe("30 open issues surveyed");
+    // Open pull requests only: the merged sample is not counted.
+    expect(stage(events, "pulls").at(-1)?.detail).toBe(
+      ENRICH_SMALL_REPOS
+        ? "10 open pull requests surveyed, 10 with reviews and CI"
+        : "10 open pull requests surveyed",
+    );
+  });
+
+  it("says so when there is nothing open", async () => {
+    const events: StageEvent[] = [];
+    const { client } = fakeGitHub({ issues: 0, pulls: 0 });
+    await fetchSnapshot("o", "r", { client, onStage: (event) => events.push(event) });
+    expect(stage(events, "issues").at(-1)?.detail).toBe("no open issues");
+    expect(stage(events, "pulls").at(-1)?.detail).toBe("no open pull requests");
   });
 });
 
