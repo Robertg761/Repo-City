@@ -8,14 +8,15 @@
  * Three short tabs rather than one long list: the city's buildings and
  * landmarks, the seven shapes an open issue takes, and the shapes and signals
  * of a pull request. Collapsed by default on small screens, where the city
- * needs the room.
+ * needs the room: a narrow phone, or one held sideways, where the open
+ * legend is taller than the screen leaves under the identity block.
  */
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { LEGEND_CONTROLS, LEGEND_SECTIONS, type LegendEntry } from "@/lib/client/legend";
 import { useCityStore } from "@/store/useCityStore";
 
-const SMALL_SCREEN = "(max-width: 640px)";
+const SMALL_SCREEN = "(max-width: 640px), (max-height: 600px)";
 
 /**
  * Subscribed rather than read once, so the server render and the first client
@@ -75,7 +76,9 @@ export default function Legend() {
         open && smallScreen ? "z-[24]" : "z-20"
       }`}
     >
-      <div className="glass pointer-events-auto p-3 text-[12px] text-white/70">
+      {/* Never taller than the room under the identity block; the tabs
+          scroll inside it instead. */}
+      <div className="glass pointer-events-auto max-h-[calc(100dvh-11rem)] overflow-y-auto overscroll-contain p-3 text-[12px] text-white/70">
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
