@@ -41,6 +41,13 @@ canvas {
     @apply rounded-full bg-white/10 px-2 py-0.5 text-[11px] leading-5 text-white/75;
   }
 
+  /* One keyboard focus mark for every control on the HUD: the accent
+     outline the buttons use, drawn only for keyboard focus. Text-only
+     controls used to switch the outline off and show nothing at all. */
+  .focus-ring {
+    @apply rounded-sm focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+  }
+
   .hud-button {
     @apply rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition;
     @apply bg-white/10 text-white/80 hover:bg-white/20 hover:text-white;

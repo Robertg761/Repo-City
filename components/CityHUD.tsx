@@ -97,7 +97,7 @@ function Explained({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-describedby={noteId}
-        className={`cursor-help text-left underline decoration-dotted underline-offset-4 focus:outline-none ${className}`}
+        className={`cursor-help text-left underline decoration-dotted underline-offset-4 focus-ring ${className}`}
       >
         {children}
       </button>
@@ -149,7 +149,7 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         <div className="group relative mt-1 flex justify-end">
           <button
             type="button"
-            className="cursor-help text-[11px] text-white/60 underline decoration-dotted underline-offset-4 hover:text-white/90 focus-visible:text-white/90 focus:outline-none"
+            className="cursor-help text-[11px] text-white/60 underline decoration-dotted underline-offset-4 hover:text-white/90 focus-visible:text-white/90 focus-ring"
           >
             Confidence: {CONFIDENCE_LABELS[confidence.level]}
           </button>
@@ -169,7 +169,7 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         <div className="group relative mt-2 flex justify-end">
           <button
             type="button"
-            className="cursor-help text-[11px] text-white/60 underline decoration-dotted underline-offset-4 hover:text-white/90 focus-visible:text-white/90 focus:outline-none"
+            className="cursor-help text-[11px] text-white/60 underline decoration-dotted underline-offset-4 hover:text-white/90 focus-visible:text-white/90 focus-ring"
           >
             Population {population.toLocaleString("en-US")}
             {analysis.metrics.archived ? " (last census)" : ""}
@@ -235,7 +235,7 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         <button
           type="button"
           onClick={() => setShowBreakdown((open) => !open)}
-          className="mt-3 text-[11px] text-white/55 transition hover:text-white focus-visible:text-white focus:outline-none"
+          className="focus-ring mt-3 text-[11px] text-white/55 transition hover:text-white focus-visible:text-white"
           aria-expanded={showBreakdown}
         >
           How is this scored? {showBreakdown ? "−" : "+"}

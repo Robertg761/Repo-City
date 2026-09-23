@@ -83,7 +83,7 @@ export default function Legend() {
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          className="flex w-full items-center justify-between gap-6 text-left focus:outline-none"
+          className="focus-ring flex w-full items-center justify-between gap-6 text-left"
         >
           <span className="eyebrow">Legend</span>
           <span aria-hidden className="text-white/45">
