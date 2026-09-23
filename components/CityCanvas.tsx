@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
-import { NeutralToneMapping, PCFShadowMap } from "three";
+import { NeutralToneMapping, PCFShadowMap, getConsoleFunction, setConsoleFunction } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import City from "@/components/city/City";
@@ -28,6 +28,7 @@ import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
+import { useQuality } from "@/components/city/quality";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -44,6 +45,25 @@ const EMPTY_SIZE = 120;
  * read as a pale veil over the whole frame.
  */
 const EMPTY_ATMOSPHERE = atmosphere(STAGE_AMBIENCE, false);
+
+/**
+ * R3F 9 still builds its frame clock from `THREE.Clock`, which three r183
+ * deprecated, so every visit opened with a deprecation warning in the
+ * console that nothing in this app can act on. three routes its own logging
+ * through one replaceable function; this passes everything through except
+ * that one line.
+ */
+const CLOCK_DEPRECATION = "THREE.Clock: This module has been deprecated";
+if (typeof window !== "undefined") {
+  const previous = getConsoleFunction();
+  setConsoleFunction((type: "log" | "warn" | "error", message: string, ...params: unknown[]) => {
+    if (type === "warn" && message.startsWith(CLOCK_DEPRECATION)) {
+      return;
+    }
+    if (previous) previous(type, message, ...params);
+    else console[type](message, ...params);
+  });
+}
 
 /** The dev scenes: the fixture city, and one settlement at each end of the scale. */
 type DevScene = "city" | "metropolis" | "village" | "town";
@@ -158,6 +178,11 @@ export default function CityCanvas() {
   const devCity = useDevCity(storeCity !== null);
   const city = storeCity ?? devCity;
   const aspect = useViewportAspect();
+  // The canvas is created at the tier's pixel ratio, and follows it. R3F
+  // re-applies this prop whenever the canvas re-renders, so it has to be the
+  // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
+  // back on twice the pixels each time a new city arrived.
+  const { maxDpr } = useQuality();
 
   // The sky, the exposure and the quality probe outlive any one model, so
   // they are mounted here rather than inside the keyed `<City>`, and the
@@ -178,7 +203,7 @@ export default function CityCanvas() {
       // supported filter directly; the softness now comes from the light's own
       // radius and bias in `Lighting.tsx` (PLAN.md section 39).
       shadows={{ type: PCFShadowMap }}
-      dpr={[1, 2]}
+      dpr={[1, maxDpr]}
       // The near plane is as far out as the closest camera allows (the orbit
       // stops ten units from its target). At 0.5 the depth buffer had so little
       // precision left out on the landscape that the ambient occlusion pass

@@ -479,17 +479,18 @@ function GroundDetail({ city }: { city: CityModel }) {
  * `NoToneMapping` besides -- so the high tier used to reach the screen with
  * no tone mapping and no exposure at all. `Post` ends its chain with the same
  * operator instead, and both tiers read the exposure from the renderer.
+ *
+ * The pixel ratio is the tier's too, but it is the canvas's prop
+ * (`CityCanvas.tsx`): R3F re-applies that prop on every render of the canvas,
+ * and a ratio set here was overwritten by it.
  */
 function Film({
-  maxDpr,
   composed,
 }: {
-  maxDpr: number;
   /** The composer is running and tone maps at the end of its chain. */
   composed: boolean;
 }) {
   const camera = useThree((state) => state.camera);
-  const setDpr = useThree((state) => state.setDpr);
   const sky = useSky();
   const toneMapping = composed ? NoToneMapping : NeutralToneMapping;
 
@@ -505,10 +506,6 @@ function Film({
   useEffect(() => {
     camera.layers.enable(SKY_LAYER);
   }, [camera]);
-
-  useEffect(() => {
-    setDpr([1, maxDpr]);
-  }, [setDpr, maxDpr]);
 
   return null;
 }
@@ -622,7 +619,7 @@ export default function Environment({
 
   return (
     <>
-      <Film maxDpr={quality.maxDpr} composed={quality.postProcessing} />
+      <Film composed={quality.postProcessing} />
       <Backdrop atmosphere={atmosphere} reach={size * aspectWiden(aspect)} />
       <SkyDome radius={skyRadius(size, maxCameraDistance(size, aspect))} />
 
