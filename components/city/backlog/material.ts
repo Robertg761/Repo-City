@@ -12,7 +12,8 @@
  *
  * Per instance the forms carry `instancePhase` (0..1, so neighbouring fires
  * do not flicker in step) and `instanceCrowd`: the optional-part mask, the
- * reveal time and a 0..1 glow from the item's heat. Per vertex they carry
+ * reveal time and a 0..1 glow from the item's heat. `instancePaintA` and
+ * `instancePaintB` are the colours its painted panels take. Per vertex they carry
  * `crowd` (`forms.ts`): which part the vertex belongs to and its weight.
  *
  * Three materials share those uniforms: the lit crowd material (a
@@ -39,6 +40,9 @@ export const CROWD_CLOCK = {
 /** Per-instance attributes the crowd shader reads. */
 export const PHASE_ATTRIBUTE = "instancePhase";
 export const DATA_ATTRIBUTE = "instanceCrowd";
+/** The instance's two paint colours, linear RGB, for body paint slots 1 and 2. */
+export const PAINT_A_ATTRIBUTE = "instancePaintA";
+export const PAINT_B_ATTRIBUTE = "instancePaintB";
 
 /** How fast each lamp part blinks, in the `effects.tsx` sense: pulses per second times two. */
 export const BLINK_RATE: Record<number, number> = {
@@ -66,6 +70,8 @@ export const CROWD_VERTEX_PARS = /* glsl */ `
 attribute vec2 ${CROWD_ATTRIBUTE};
 attribute float instancePhase;
 attribute vec3 instanceCrowd;
+attribute vec3 instancePaintA;
+attribute vec3 instancePaintB;
 uniform float uTime;
 uniform float uReveal;
 varying vec3 vCrowdGlow;
@@ -88,6 +94,9 @@ float crowdPhase = instancePhase;
 
 float crowdShown = 1.0;
 if ( crowdPart > 0.5 && crowdPart < 4.5 ) crowdShown = crowdBit( instanceCrowd.x, crowdPart - 1.0 );
+
+// A painted panel takes the instance's paint: slot 1 or 2 (\`forms.ts\`).
+if ( crowdPart < 0.5 && crowdWeight > 0.5 ) vColor.rgb *= crowdWeight < 1.5 ? instancePaintA : instancePaintB;
 
 vCrowdGlow = vec3( 0.0 );
 float crowdHeat = 0.45 + 0.55 * instanceCrowd.z;
