@@ -459,6 +459,11 @@ export interface OverflowFacts {
   surveyed: { issues: number; pulls: number };
   tier: SettlementTier;
   repoUrl: string;
+  /**
+   * False for a remainder too small to queue (`trivialOverflow`): the counts
+   * stand, but nothing waits at the limits. Absent means queued.
+   */
+  queued?: boolean;
 }
 
 /**
@@ -468,13 +473,16 @@ export interface OverflowFacts {
  */
 export function overflowText(facts: OverflowFacts): EntityText {
   const { issues, pulls, exact, surveyed, tier, repoUrl } = facts;
+  const queued = facts.queued ?? true;
   const word = SETTLEMENT_WORD[tier];
   const about = exact ? "" : "about ";
 
   const line = (c: OverflowCount, one: string, many: string): string =>
     `${count(c.drawn)} of ${about}${count(c.total)} open ${c.total === 1 ? one : many} ${
       c.drawn === 1 ? "is" : "are"
-    } drawn in the ${word}; ${about}${count(c.hidden)} more ${c.hidden === 1 ? "waits" : "wait"} in the queue.`;
+    } drawn in the ${word}; ${about}${count(c.hidden)} more ${
+      queued ? (c.hidden === 1 ? "waits in the queue" : "wait in the queue") : c.hidden === 1 ? "is counted but not drawn" : "are counted but not drawn"
+    }.`;
 
   const sign =
     issues.hidden > 0
@@ -496,7 +504,9 @@ export function overflowText(facts: OverflowFacts): EntityText {
   };
 
   const reasons = [
-    "Every open issue and pull request is drawn as its own object until the survey or the ground runs out; everything past that waits here, counted but not drawn.",
+    queued
+      ? "Every open issue and pull request is drawn as its own object until the survey or the ground runs out; everything past that waits here, counted but not drawn."
+      : `Every open issue and pull request is drawn as its own object until the survey or the ground runs out. So few are left over that no queue forms at the ${word} limits; they are counted but not drawn.`,
     limits(issues, surveyed.issues, "issues"),
     limits(pulls, surveyed.pulls, "pull requests"),
     exact

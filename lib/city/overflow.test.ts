@@ -5,6 +5,7 @@ import type { RoadSegment } from "@/types/city";
 import { distanceToRoad } from "./layout";
 import {
   OVERFLOW_APPEAR,
+  OVERVIEW_BEARING,
   QUEUE_BODIES,
   QUEUE_MAX,
   QUEUE_SPACING,
@@ -14,6 +15,8 @@ import {
   overflowTotals,
   planOverflowSite,
   queueLength,
+  signposted,
+  trivialOverflow,
 } from "./overflow";
 import { mulberry32 } from "./prng";
 import { SIDEWALK_WIDTH, boxesOverlap, laneOffset, roadBox } from "./spots";
@@ -145,17 +148,40 @@ describe("planOverflowSite and fillQueue", () => {
     expect(queue.length).toBe(Math.floor((30 - 7.3 - 2.3) / QUEUE_SPACING) + 1);
   });
 
-  it("stands the sign on the verge beside the head of the first queue, facing the road", () => {
+  it("stands the sign on the verge beside the head of the first queue, facing the overview camera", () => {
     const sign = site.sign;
     const hwy = highways[0];
-    const d = distanceToRoad(sign.x, sign.z, hwy);
-    expect(d).toBeCloseTo(8.4 / 2 + SIDEWALK_WIDTH + 0.5 + SIGN_SIZE[2] / 2, 3);
+    // Its face (local +z) points at the default overview camera, which looks
+    // from +x, +z (`OVERVIEW_DIR` in components/city/entities.ts).
+    expect(sign.rot).toBeCloseTo(OVERVIEW_BEARING, 3);
+    expect(Math.sin(sign.rot)).toBeGreaterThan(0.7);
+    expect(Math.cos(sign.rot)).toBeGreaterThan(0.7);
+    // Beside its road: the turned board clears the kerb and the pavement by
+    // half a unit, and comes no further out than that.
+    const [nx, nz] = [Math.sign(sign.x), 0];
+    const reach =
+      (SIGN_SIZE[0] / 2) * Math.abs(nx * Math.cos(sign.rot) - nz * Math.sin(sign.rot)) +
+      (SIGN_SIZE[2] / 2) * Math.abs(nx * Math.sin(sign.rot) + nz * Math.cos(sign.rot));
+    expect(distanceToRoad(sign.x, sign.z, hwy)).toBeCloseTo(8.4 / 2 + SIDEWALK_WIDTH + 0.5 + reach, 3);
     expect(sign.hw).toBe(SIGN_SIZE[0] / 2);
     expect(sign.hd).toBe(SIGN_SIZE[2] / 2);
     for (const r of roads) expect(boxesOverlap(sign, roadBox(r))).toBe(false);
-    // Its face (local +z) points at the highway.
-    const towards = Math.sign(-sign.x);
-    expect(Math.sign(Math.sin(sign.rot))).toBe(towards);
+  });
+
+  it("faces the overview camera on a road running any way", () => {
+    for (const [dx, dz] of [
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+      [0, -1],
+      [0.6, 0.8],
+    ]) {
+      const out = road("out", [dx * 60, dz * 60], [dx * 120, dz * 120], 8.4, "highway");
+      const sign = planOverflowSite([out], [out], nothing)!.sign;
+      expect(sign.rot).toBeCloseTo(OVERVIEW_BEARING, 3);
+      expect(boxesOverlap(sign, roadBox(out))).toBe(false);
+      expect(distanceToRoad(sign.x, sign.z, out)).toBeLessThan(8.4 / 2 + SIDEWALK_WIDTH + 0.5 + 3.6);
+    }
   });
 
   it("moves the sign along until it is clear of what stands there", () => {
@@ -189,6 +215,49 @@ describe("buildOverflow", () => {
     ).toBeNull();
   });
 
+  it("counts a trivial remainder but stands no sign and queues no cars", () => {
+    // atom/atom: 961 of 962 open issues reached the streets, the survey
+    // drifting by one between its pages.
+    const totals = {
+      issues: { total: 962, drawn: 961, hidden: 1 },
+      pulls: { total: 31, drawn: 31, hidden: 0 },
+      exact: true,
+    };
+    const overflow = buildOverflow({
+      site,
+      totals,
+      surveyed: { issues: 961, pulls: 31 },
+      tier: "city",
+      repoUrl: "https://github.com/o/r",
+      prng: mulberry32(1),
+    })!;
+    expect(overflow).not.toBeNull();
+    expect(overflow.issues).toEqual(totals.issues);
+    expect(overflow.issues.drawn + overflow.issues.hidden).toBe(overflow.issues.total);
+    expect(overflow.queue).toEqual([]);
+    expect(overflow.size).toEqual([0, 0, 0]);
+    expect(signposted(overflow)).toBe(false);
+    expect(overflow.description).toContain("1 more is counted but not drawn");
+    expect(overflow.reason).toContain("no queue forms at the city limits");
+    expect(overflow.reason).toContain("the survey reached 961 of the 962 open issues");
+  });
+
+  it("calls a remainder trivial at two or fewer, or under half a percent of exact totals", () => {
+    const totals = (issues: [number, number], pulls: [number, number], exact: boolean) => ({
+      issues: { total: issues[0], drawn: issues[0] - issues[1], hidden: issues[1] },
+      pulls: { total: pulls[0], drawn: pulls[0] - pulls[1], hidden: pulls[1] },
+      exact,
+    });
+    expect(trivialOverflow(totals([10, 1], [0, 0], true))).toBe(true);
+    expect(trivialOverflow(totals([10, 1], [5, 1], false))).toBe(true);
+    expect(trivialOverflow(totals([10, 3], [0, 0], true))).toBe(false);
+    expect(trivialOverflow(totals([2000, 9], [500, 3], true))).toBe(true);
+    // An estimate is never trusted to be that close.
+    expect(trivialOverflow(totals([2000, 9], [500, 3], false))).toBe(false);
+    // react: 12 of 512 pull requests queued, 859 of 859 issues drawn.
+    expect(trivialOverflow(totals([859, 0], [512, 12], true))).toBe(false);
+  });
+
   it("builds the signboard entity with its counts and a queue sized by the hidden total", () => {
     const totals = {
       issues: { total: 21_011, drawn: 1000, hidden: 20_011 },
@@ -206,6 +275,7 @@ describe("buildOverflow", () => {
     expect(overflow.id).toBe("overflow");
     expect(overflow.kind).toBe("overflow");
     expect(overflow.size).toEqual(SIGN_SIZE);
+    expect(signposted(overflow)).toBe(true);
     expect(overflow.issues).toEqual(totals.issues);
     expect(overflow.pulls).toEqual(totals.pulls);
     expect(overflow.exact).toBe(false);
