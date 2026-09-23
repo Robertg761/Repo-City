@@ -211,8 +211,11 @@ describe("captions", () => {
     for (const { caption, holdMs } of all) {
       for (const text of [caption.eyebrow, caption.title, caption.line]) {
         expect(text.trim().length).toBeGreaterThan(0);
-        expect(text).not.toMatch(/undefined|NaN|null|\[object/);
+        expect(text).not.toMatch(/NaN|\[object/);
       }
+      // A quoted issue title may say "undefined" ("c.json returning empty
+      // string for undefined values"); the template's own words never do.
+      for (const text of [caption.eyebrow, caption.line]) expect(text).not.toMatch(/\bundefined\b|\bnull\b/);
       expect(caption.eyebrow.length).toBeLessThanOrEqual(40);
       expect(caption.title.length).toBeLessThanOrEqual(MAX_QUOTED_TITLE + 2);
       expect(caption.line.length).toBeLessThanOrEqual(130);

@@ -240,19 +240,22 @@ export function hottestIncident(city: CityModel): Incident | null {
 
 /** The longest-open wreck, when it has been there at least a year. */
 export function oldestWreck(city: CityModel, now: number, exclude: ReadonlySet<string>): Incident | null {
-  let best: Incident | null = null;
-  let bestDays = 364;
+  let best: { incident: Incident; bug: boolean; days: number } | null = null;
   for (const incident of allIncidents(city)) {
     if (exclude.has(incident.id)) continue;
-    const wreck = incident.state === "stale" || incident.form === "wreck";
-    if (!wreck) continue;
+    // A stale incident is an old bug; a wreck without that state is any
+    // issue left idle for a year. The old bug makes the better story.
+    const bug = incident.state === "stale";
+    if (!bug && incident.form !== "wreck") continue;
     const days = daysBetween(incident.issue.createdAt, now);
-    if (days > bestDays || (days === bestDays && best && incident.id < best.id)) {
-      best = incident;
-      bestDays = days;
-    }
+    if (days < 365) continue;
+    const better =
+      !best ||
+      (bug && !best.bug) ||
+      (bug === best.bug && (days > best.days || (days === best.days && incident.id < best.incident.id)));
+    if (better) best = { incident, bug, days };
   }
-  return best;
+  return best?.incident ?? null;
 }
 
 /** Hero sites before crowd works; within each, the story order below. */
@@ -352,7 +355,10 @@ export function wreckCaption(ctx: TourContext, incident: Incident): TourCaption 
   return {
     eyebrow: "The oldest wreck",
     title: quoted(issue.title),
-    line: `Issue #${issue.number} has been open for ${ageText(days)}. Old bugs rust where they stand.`,
+    line:
+      incident.state === "stale"
+        ? `Issue #${issue.number} has been open for ${ageText(days)}. Old bugs rust where they stand.`
+        : `Issue #${issue.number} has been open for ${ageText(days)}. Issues left this long rust where they stand.`,
   };
 }
 

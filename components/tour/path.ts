@@ -386,13 +386,14 @@ function wideShot(key: string, finale: boolean, city: CityModel, aspect: number)
       to: base,
     };
   }
-  // The opening: high and wide, turning and settling lower over the city.
+  // The opening sets off from the overview the tour usually starts on, a
+  // little higher, and turns and settles lower over the city.
   return {
     kind: "orbit",
     key,
     target: overview.target,
-    from: { azimuth: base.azimuth - s * 1.0, polar: Math.max(0.35, base.polar - 0.24), distance: base.distance * 1.06 },
-    to: { azimuth: base.azimuth - s * 0.2, polar: base.polar + 0.3, distance: base.distance * 0.7 },
+    from: { azimuth: base.azimuth + s * 0.05, polar: Math.max(0.35, base.polar - 0.1), distance: base.distance * 1.03 },
+    to: { azimuth: base.azimuth + s * 0.8, polar: base.polar + 0.3, distance: base.distance * 0.7 },
   };
 }
 
@@ -690,6 +691,8 @@ function descentFrom(from: Pose, track: Shot, obstacles: readonly Obstacle[]): P
 export function flightDuration(length: number, kind: Flight["kind"]): number {
   if (kind === "cut") return 0;
   if (kind === "descent") return Math.round(clamp(1600 + 6.5 * length, 2600, 5200));
+  // A short hop (into the opening, from the overview it starts on) does not dawdle.
+  if (length < 40) return Math.round(600 + 40 * length);
   return Math.round(clamp(1500 + 7 * length, 2200, 5200));
 }
 
