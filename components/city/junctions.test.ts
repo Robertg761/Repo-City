@@ -37,6 +37,12 @@ const CROSS: RoadSegment[] = [
   road("e", [0, 0], [20, 0], 4.5),
 ];
 
+/**
+ * How far a path's centre may stray past the carriageway rectangles: the
+ * drawn road is a little more generous, with joint discs filling bends.
+ */
+const ROAD_SLACK = 0.3;
+
 const pose = (): PathPose => ({ x: 0, z: 0, angle: 0, curvature: 0 });
 const angleGap = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
 
@@ -241,6 +247,29 @@ describe("junction boxes on every tier's layout", () => {
     }
     expect(touches).toEqual([]);
   }, 30000);
+
+  it.each(layouts)("keeps every movement's path on the carriageway, even through a folded box (%s)", (_, city) => {
+    const network = junctionNetwork(roadGraph(city.roads));
+    const roads = city.roads;
+    const at = pose();
+    const off: string[] = [];
+    network.moves.forEach((m, move) => {
+      for (let k = 0; k <= 24; k++) {
+        movePoint(network, move, (m.length * k) / 24, at);
+        let outside = Infinity;
+        for (const r of roads) {
+          const dx = r.to[0] - r.from[0];
+          const dz = r.to[2] - r.from[2];
+          const len = Math.hypot(dx, dz) || 1;
+          const t = Math.max(0, Math.min(len, ((at.x - r.from[0]) * dx + (at.z - r.from[2]) * dz) / len));
+          const gap = Math.hypot(at.x - (r.from[0] + (dx / len) * t), at.z - (r.from[2] + (dz / len) * t)) - r.width / 2;
+          outside = Math.min(outside, gap);
+        }
+        if (outside > ROAD_SLACK) off.push(`move ${move} leaves the road by ${outside.toFixed(2)}`);
+      }
+    });
+    expect(off).toEqual([]);
+  });
 
   it.each(layouts)("records every spill onto a lane out of the box (%s)", (_, city) => {
     const network = junctionNetwork(roadGraph(city.roads));

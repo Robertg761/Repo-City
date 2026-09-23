@@ -63,6 +63,7 @@ import {
   junctionNetwork,
   lanePoint,
   movePoint,
+  moveSpeedCap,
   movesConflict,
   RELEASE_GAP,
   SPILL_MARGIN,
@@ -779,7 +780,7 @@ export function stepTraffic(traffic: Traffic, dt: number): void {
         if (c !== i && other.s > car.s) consider(other.s - car.s - other.half - car.half, other.v);
       }
       considerLaneStart(traffic, move.to, move.length - car.s, car.half);
-      cap = Math.min(cap, move.vmax);
+      cap = Math.min(cap, moveSpeedCap(network, car.move, car.s, STOP_BRAKE));
     } else {
       const lane = carLane(car);
       const length = graph.lengths[car.segment];
@@ -820,8 +821,7 @@ export function stepTraffic(traffic: Traffic, dt: number): void {
         stop = Math.max(along, network.stopLine[lane] - car.half);
       } else {
         // Brake for the curve in time to take it at its speed.
-        const vmax = network.moves[car.plan].vmax;
-        cap = Math.min(cap, Math.sqrt(vmax * vmax + 2 * STOP_BRAKE * Math.max(0, end - along)));
+        cap = Math.min(cap, moveSpeedCap(network, car.plan, along - end, STOP_BRAKE));
       }
 
       if (stop < Infinity) {
@@ -847,8 +847,7 @@ export function stepTraffic(traffic: Traffic, dt: number): void {
           const group = network.moves[car.plan].group;
           const answer = requestBox(traffic, i, group);
           if (answer === GRANTED) {
-            const vmax = network.moves[car.plan].vmax;
-            cap = Math.min(car.speed, Math.sqrt(vmax * vmax + 2 * STOP_BRAKE * Math.max(0, end - along)));
+            cap = Math.min(car.speed, moveSpeedCap(network, car.plan, along - end, STOP_BRAKE));
             limit = Infinity;
             const move = network.moves[car.plan];
             considerLaneStart(traffic, move.to, end - along + move.length, car.half);

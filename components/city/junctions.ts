@@ -67,6 +67,8 @@ export const DEAD_END_ROOM = 8.5;
 export const CORNERING = 2.2;
 /** No curve is taken faster than this, however straight. */
 const CURVE_TOP = 9;
+/** An inner lane of a folded box at least this long is driven along; a shorter one is cut in one curve. */
+const INNER_WAYPOINT = 6;
 /** A movement shorter than this is two lanes meeting, driven straight across. */
 const POINT_MOVE = 0.05;
 /** Samples along a movement for its arc-length table. */
@@ -103,21 +105,29 @@ export interface Move {
   /** The lane it leaves, and the lane it joins. */
   from: number;
   to: number;
-  /** Cubic Bezier control points in the xz plane. */
-  x0: number;
-  z0: number;
-  x1: number;
-  z1: number;
-  x2: number;
-  z2: number;
-  x3: number;
-  z3: number;
+  /**
+   * The inner lanes it runs along between the two, when the box folds
+   * several junctions together: the curve follows the road through them.
+   */
+  via: number[];
+  /**
+   * Its path: `pieces` cubic Beziers end to end, a corner at each junction
+   * and a straight along each inner lane, as eight control coordinates each
+   * (`x0 z0 x1 z1 x2 z2 x3 z3`).
+   */
+  ctrl: Float64Array;
+  pieces: number;
   /** Length along the curve, world units. */
   length: number;
-  /** Arc length at `u = i / ARC_STEPS`, `ARC_STEPS + 1` entries. */
+  /**
+   * Arc length from the start of the movement at `u = i / ARC_STEPS` of each
+   * piece: `ARC_STEPS + 1` entries per piece.
+   */
   arc: Float64Array;
-  /** The fastest the curve can be driven at `CORNERING`. */
+  /** The fastest its sharpest bend can be driven at `CORNERING`. */
   vmax: number;
+  /** The same for each piece, so a car need only slow for the bend it is coming to. */
+  pieceVmax: Float64Array;
   /** How many radians the heading turns through, signed: positive is a left turn. */
   turn: number;
   /**
@@ -211,19 +221,28 @@ export function lanePoint(network: Network, lane: number, along: number, out: Pa
 // Bezier maths
 // ---------------------------------------------------------------------------
 
-function bezier(m: Move, u: number, out: PathPose): PathPose {
+function bezier(c: Float64Array, piece: number, u: number, out: PathPose): PathPose {
+  const k = piece * 8;
+  const x0 = c[k];
+  const z0 = c[k + 1];
+  const x1 = c[k + 2];
+  const z1 = c[k + 3];
+  const x2 = c[k + 4];
+  const z2 = c[k + 5];
+  const x3 = c[k + 6];
+  const z3 = c[k + 7];
   const v = 1 - u;
   const b0 = v * v * v;
   const b1 = 3 * v * v * u;
   const b2 = 3 * v * u * u;
   const b3 = u * u * u;
-  out.x = b0 * m.x0 + b1 * m.x1 + b2 * m.x2 + b3 * m.x3;
-  out.z = b0 * m.z0 + b1 * m.z1 + b2 * m.z2 + b3 * m.z3;
+  out.x = b0 * x0 + b1 * x1 + b2 * x2 + b3 * x3;
+  out.z = b0 * z0 + b1 * z1 + b2 * z2 + b3 * z3;
   // First and second derivatives.
-  const dx = 3 * v * v * (m.x1 - m.x0) + 6 * v * u * (m.x2 - m.x1) + 3 * u * u * (m.x3 - m.x2);
-  const dz = 3 * v * v * (m.z1 - m.z0) + 6 * v * u * (m.z2 - m.z1) + 3 * u * u * (m.z3 - m.z2);
-  const ddx = 6 * v * (m.x2 - 2 * m.x1 + m.x0) + 6 * u * (m.x3 - 2 * m.x2 + m.x1);
-  const ddz = 6 * v * (m.z2 - 2 * m.z1 + m.z0) + 6 * u * (m.z3 - 2 * m.z2 + m.z1);
+  const dx = 3 * v * v * (x1 - x0) + 6 * v * u * (x2 - x1) + 3 * u * u * (x3 - x2);
+  const dz = 3 * v * v * (z1 - z0) + 6 * v * u * (z2 - z1) + 3 * u * u * (z3 - z2);
+  const ddx = 6 * v * (x2 - 2 * x1 + x0) + 6 * u * (x3 - 2 * x2 + x1);
+  const ddz = 6 * v * (z2 - 2 * z1 + z0) + 6 * u * (z3 - 2 * z2 + z1);
   const speed = Math.hypot(dx, dz);
   if (speed > 1e-9) {
     out.angle = Math.atan2(dx, dz);
@@ -235,23 +254,7 @@ function bezier(m: Move, u: number, out: PathPose): PathPose {
   return out;
 }
 
-
-/** `u` at arc length `s` along a movement, from its table. */
-function paramAt(m: Move, s: number): number {
-  if (m.length === 0 || s <= 0) return 0;
-  if (s >= m.length) return 1;
-  const arc = m.arc;
-  // The table is short; a binary search keeps it cheap anyway.
-  let lo = 0;
-  let hi = ARC_STEPS;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (arc[mid] <= s) lo = mid;
-    else hi = mid;
-  }
-  const span = arc[hi] - arc[lo] || 1;
-  return (lo + (s - arc[lo]) / span) / ARC_STEPS;
-}
+const STRIDE = ARC_STEPS + 1;
 
 /** A car `s` units into movement `move`. */
 export function movePoint(network: Network, move: number, s: number, out: PathPose): PathPose {
@@ -261,7 +264,47 @@ export function movePoint(network: Network, move: number, s: number, out: PathPo
     lanePoint(network, m.from, network.pieceEnd[m.from], out);
     return out;
   }
-  return bezier(m, paramAt(m, s), out);
+  return pathPoint(m, s, out);
+}
+
+/** A point `s` units along a movement's curve. */
+function pathPoint(m: Move, s: number, out: PathPose): PathPose {
+  const d = Math.min(Math.max(s, 0), m.length);
+  const arc = m.arc;
+  let piece = 0;
+  while (piece < m.pieces - 1 && arc[piece * STRIDE + ARC_STEPS] < d) piece++;
+  // Within the piece the table is short; a binary search keeps it cheap anyway.
+  let lo = piece * STRIDE;
+  let hi = lo + ARC_STEPS;
+  const base = lo;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (arc[mid] <= d) lo = mid;
+    else hi = mid;
+  }
+  const span = arc[hi] - arc[lo];
+  const u = (lo - base + (span > 1e-12 ? (d - arc[lo]) / span : 0)) / ARC_STEPS;
+  return bezier(m.ctrl, piece, Math.min(1, Math.max(0, u)), out);
+}
+
+/**
+ * The fastest a car `s` units into a movement may go and still brake in time,
+ * at `brake`, for every bend still ahead of it on the movement. `s` may be
+ * negative, for a car still on the lane in.
+ */
+export function moveSpeedCap(network: Network, move: number, s: number, brake: number): number {
+  const m = network.moves[move];
+  let cap = CURVE_TOP;
+  for (let piece = 0; piece < m.pieces; piece++) {
+    const end = m.arc[piece * STRIDE + ARC_STEPS];
+    if (end < s) continue;
+    const start = m.arc[piece * STRIDE];
+    const v = m.pieceVmax[piece];
+    const ahead = Math.max(0, start - s);
+    const allowed = Math.sqrt(v * v + 2 * brake * ahead);
+    if (allowed < cap) cap = allowed;
+  }
+  return cap;
 }
 
 /**
@@ -281,77 +324,145 @@ function sweepPoint(network: Network, move: number, d: number, out: PathPose): P
 // Building the network
 // ---------------------------------------------------------------------------
 
-function fitMove(network: Network, move: Move): void {
-  const start = lanePoint(network, move.from, network.pieceEnd[move.from], { x: 0, z: 0, angle: 0, curvature: 0 });
-  const end = lanePoint(network, move.to, network.pieceStart[move.to], { x: 0, z: 0, angle: 0, curvature: 0 });
-  const f = network.frame;
-  const ax = f[move.from * 4 + 2];
-  const az = f[move.from * 4 + 3];
-  const bx = f[move.to * 4 + 2];
-  const bz = f[move.to * 4 + 3];
-  move.x0 = start.x;
-  move.z0 = start.z;
-  move.x3 = end.x;
-  move.z3 = end.z;
-
-  // Where the two lane lines cross: start + a * t0 = end - b * t3.
+/**
+ * Control points of a curve leaving `start` along `(ax, az)` and arriving at
+ * `end` along `(bx, bz)`, pushed onto `out`. Where the two lines cross well
+ * ahead of both ends it is the quadratic with that corner as its control
+ * point; otherwise its handles are those of a circular arc through the same
+ * turn over the same chord, which spreads the bend along the whole curve.
+ */
+function corner(out: number[], sx: number, sz: number, ax: number, az: number, ex: number, ez: number, bx: number, bz: number): void {
   const cross = ax * bz - az * bx;
-  const rx = end.x - start.x;
-  const rz = end.z - start.z;
-  let quadratic = false;
+  const rx = ex - sx;
+  const rz = ez - sz;
   if (Math.abs(cross) > 0.17) {
     const t0 = (rx * bz - rz * bx) / cross;
     const t3 = (rx * az - rz * ax) / cross;
     // Only when the corner is well ahead on both lanes: a corner hard by one
     // end would make a quadratic run straight and then snap round.
     if (t0 > 0.3 && t3 > 0.3 && t0 < 3 * t3 && t3 < 3 * t0) {
-      // The quadratic through that corner, raised to a cubic.
-      move.x1 = start.x + ax * t0 * (2 / 3);
-      move.z1 = start.z + az * t0 * (2 / 3);
-      move.x2 = end.x - bx * t3 * (2 / 3);
-      move.z2 = end.z - bz * t3 * (2 / 3);
-      quadratic = true;
+      out.push(sx, sz, sx + ax * t0 * (2 / 3), sz + az * t0 * (2 / 3), ex - bx * t3 * (2 / 3), ez - bz * t3 * (2 / 3), ex, ez);
+      return;
     }
   }
-  if (!quadratic) {
-    // Straight on, a jog between offset lanes, a lopsided corner, or lanes
-    // that do not meet ahead: leave and arrive along each lane with handles
-    // that would draw a circular arc through this turn over this chord, so
-    // the bend is spread along the whole curve.
-    const chord = Math.hypot(rx, rz);
-    const theta = Math.acos(Math.max(-1, Math.min(1, ax * bx + az * bz)));
-    let handle = chord / 3;
-    if (theta > 0.09) {
-      const radius = chord / (2 * Math.sin(theta / 2));
-      handle = Math.min(chord, ((4 / 3) * Math.tan(theta / 4) * radius));
-    }
-    move.x1 = start.x + ax * handle;
-    move.z1 = start.z + az * handle;
-    move.x2 = end.x - bx * handle;
-    move.z2 = end.z - bz * handle;
+  const chord = Math.hypot(rx, rz);
+  const theta = Math.acos(Math.max(-1, Math.min(1, ax * bx + az * bz)));
+  let handle = chord / 3;
+  if (theta > 0.09) {
+    const radius = chord / (2 * Math.sin(theta / 2));
+    handle = Math.min(chord, (4 / 3) * Math.tan(theta / 4) * radius);
   }
+  out.push(sx, sz, sx + ax * handle, sz + az * handle, ex - bx * handle, ez - bz * handle, ex, ez);
+}
 
-  const arc = new Float64Array(ARC_STEPS + 1);
+/**
+ * Fits a movement's path: from the end of its lane in, through any inner
+ * lanes of the box, to the start of its lane out. Each junction on the way
+ * is a corner; each inner lane long enough to have one is a straight.
+ */
+function fitMove(network: Network, move: Move): void {
+  const lengthOf = (lane: number) => network.graph.lengths[laneSegment(lane)];
+  // A long link between two junctions of the box is driven along, with a
+  // corner at either end; a short one is cut in the one curve, unless that
+  // would take the curve off the road, when the longest is driven after all.
+  const anchors = new Set(move.via.filter((lane) => lengthOf(lane) >= INNER_WAYPOINT));
+  shapeMove(network, move, anchors);
+  const spare = move.via
+    .filter((lane) => !anchors.has(lane) && lengthOf(lane) >= 1.5)
+    .sort((p, q) => lengthOf(q) - lengthOf(p));
+  while (spare.length > 0 && offRoad(network, move)) {
+    anchors.add(spare.shift() as number);
+    shapeMove(network, move, anchors);
+  }
+}
+
+/** Whether any point of a movement's path is off every carriageway around its box. */
+function offRoad(network: Network, move: Move): boolean {
+  const { graph } = network;
+  const segments = network.groups[move.group].segments;
+  const at: PathPose = { x: 0, z: 0, angle: 0, curvature: 0 };
+  for (let k = 0; k <= 24; k++) {
+    const d = (move.length * k) / 24;
+    pathPoint(move, d, at);
+    let inside = false;
+    for (const segment of segments) {
+      const r = graph.segments[segment];
+      const dx = r.to[0] - r.from[0];
+      const dz = r.to[2] - r.from[2];
+      const len = graph.lengths[segment] || 1;
+      const t = Math.max(0, Math.min(len, ((at.x - r.from[0]) * dx + (at.z - r.from[2]) * dz) / len));
+      const gap = Math.hypot(at.x - (r.from[0] + (dx / len) * t), at.z - (r.from[2] + (dz / len) * t));
+      if (gap <= r.width / 2) {
+        inside = true;
+        break;
+      }
+    }
+    if (!inside) return true;
+  }
+  return false;
+}
+
+/** Shapes a movement's path through the given inner lanes of its box. */
+function shapeMove(network: Network, move: Move, anchors: Set<number>): void {
+  const f = network.frame;
+  const lengthOf = (lane: number) => network.graph.lengths[laneSegment(lane)];
+  const lanes = [move.from, ...move.via.filter((lane) => anchors.has(lane)), move.to];
+  const ctrl: number[] = [];
+  const a = { x: 0, z: 0, angle: 0, curvature: 0 };
+  const b = { x: 0, z: 0, angle: 0, curvature: 0 };
+  /** Where a path leaves an inner lane, and where it joins one. */
+  const leave = (lane: number) => lengthOf(lane) - Math.min(network.setback[laneFinishEnd(lane)], lengthOf(lane) / 2);
+  const join = (lane: number) => Math.min(network.setback[laneStartEnd(lane)], lengthOf(lane) / 2);
+  for (let i = 0; i + 1 < lanes.length; i++) {
+    const from = lanes[i];
+    const to = lanes[i + 1];
+    lanePoint(network, from, i === 0 ? network.pieceEnd[from] : leave(from), a);
+    const last = i + 2 === lanes.length;
+    lanePoint(network, to, last ? network.pieceStart[to] : join(to), b);
+    corner(ctrl, a.x, a.z, f[from * 4 + 2], f[from * 4 + 3], b.x, b.z, f[to * 4 + 2], f[to * 4 + 3]);
+    if (!last && leave(to) > join(to) + 1e-6) {
+      // Straight along the inner lane to the next junction.
+      lanePoint(network, to, leave(to), a);
+      ctrl.push(b.x, b.z, b.x + (a.x - b.x) / 3, b.z + (a.z - b.z) / 3, a.x - (a.x - b.x) / 3, a.z - (a.z - b.z) / 3, a.x, a.z);
+    }
+  }
+  move.ctrl = Float64Array.from(ctrl);
+  move.pieces = ctrl.length / 8;
+
+  const arc = new Float64Array(move.pieces * STRIDE);
+  const pieceVmax = new Float64Array(move.pieces);
   const pose: PathPose = { x: 0, z: 0, angle: 0, curvature: 0 };
-  bezier(move, 0, pose);
-  let px = pose.x;
-  let pz = pose.z;
-  let sharpest = Math.abs(pose.curvature);
-  for (let i = 1; i <= ARC_STEPS; i++) {
-    bezier(move, i / ARC_STEPS, pose);
-    arc[i] = arc[i - 1] + Math.hypot(pose.x - px, pose.z - pz);
-    px = pose.x;
-    pz = pose.z;
-    sharpest = Math.max(sharpest, Math.abs(pose.curvature));
+  let total = 0;
+  for (let piece = 0; piece < move.pieces; piece++) {
+    bezier(move.ctrl, piece, 0, pose);
+    let px = pose.x;
+    let pz = pose.z;
+    let sharpest = Math.abs(pose.curvature);
+    arc[piece * STRIDE] = total;
+    for (let i = 1; i <= ARC_STEPS; i++) {
+      bezier(move.ctrl, piece, i / ARC_STEPS, pose);
+      total += Math.hypot(pose.x - px, pose.z - pz);
+      arc[piece * STRIDE + i] = total;
+      px = pose.x;
+      pz = pose.z;
+      sharpest = Math.max(sharpest, Math.abs(pose.curvature));
+    }
+    pieceVmax[piece] = sharpest > 1e-6 ? Math.min(CURVE_TOP, Math.sqrt(CORNERING / sharpest)) : CURVE_TOP;
   }
   move.arc = arc;
-  move.length = arc[ARC_STEPS];
-  move.vmax = sharpest > 1e-6 ? Math.min(CURVE_TOP, Math.sqrt(CORNERING / sharpest)) : CURVE_TOP;
+  move.length = total;
+  move.pieceVmax = pieceVmax;
+  move.vmax = Math.min(CURVE_TOP, ...pieceVmax);
   if (move.length < POINT_MOVE) {
     // Two lanes that simply meet: nothing to drive, and no bend to slow for.
     move.length = 0;
     move.vmax = CURVE_TOP;
+    pieceVmax.fill(CURVE_TOP);
   }
+  const ax = f[move.from * 4 + 2];
+  const az = f[move.from * 4 + 3];
+  const bx = f[move.to * 4 + 2];
+  const bz = f[move.to * 4 + 3];
   let turn = Math.atan2(bx, bz) - Math.atan2(ax, az);
   while (turn > Math.PI) turn -= 2 * Math.PI;
   while (turn < -Math.PI) turn += 2 * Math.PI;
@@ -642,28 +753,71 @@ export function junctionNetwork(graph: RoadGraph, half: number = CAR_HALF_LENGTH
           if (usable[out]) exits.push(out);
         }
       }
+      // The inner lanes out of each junction of the box, to route through it
+      // along the road rather than across whatever lies between.
+      const innerOut = new Map<number, number[]>();
+      for (const segment of group.segments) {
+        if (!inner[segment]) continue;
+        for (const forward of [true, false]) {
+          const lane = laneOf(segment, forward);
+          const node = nodeOfEnd(laneStartEnd(lane));
+          const list = innerOut.get(node);
+          if (list) list.push(lane);
+          else innerOut.set(node, [lane]);
+        }
+      }
+      /** The shortest run of inner lanes from one junction of the box to another. */
+      const route = (start: number, finish: number): number[] | null => {
+        if (start === finish) return [];
+        const dist = new Map<number, number>([[start, 0]]);
+        const arrive = new Map<number, number>();
+        const open = [start];
+        const done = new Set<number>();
+        while (open.length > 0) {
+          open.sort((p, q) => (dist.get(p) as number) - (dist.get(q) as number));
+          const node = open.shift() as number;
+          if (done.has(node)) continue;
+          done.add(node);
+          if (node === finish) break;
+          for (const lane of innerOut.get(node) ?? []) {
+            const next = nodeOfEnd(laneFinishEnd(lane));
+            const d = (dist.get(node) as number) + graph.lengths[laneSegment(lane)];
+            if (d < (dist.get(next) ?? Infinity)) {
+              dist.set(next, d);
+              arrive.set(next, lane);
+              open.push(next);
+            }
+          }
+        }
+        if (!arrive.has(finish)) return null;
+        const path: number[] = [];
+        for (let node = finish; node !== start; ) {
+          const lane = arrive.get(node) as number;
+          path.unshift(lane);
+          node = nodeOfEnd(laneStartEnd(lane));
+        }
+        return path;
+      };
       for (const from of entries) {
         const ax = frame[from * 4 + 2];
         const az = frame[from * 4 + 3];
         for (const to of exits) {
           if (laneSegment(to) === laneSegment(from)) continue;
           if (ax * frame[to * 4 + 2] + az * frame[to * 4 + 3] < REVERSAL) continue;
+          const via = route(nodeOfEnd(laneFinishEnd(from)), nodeOfEnd(laneStartEnd(to)));
+          if (via === null) continue;
           const move: Move = {
             group: g,
             slot: group.moves.length,
             from,
             to,
-            x0: 0,
-            z0: 0,
-            x1: 0,
-            z1: 0,
-            x2: 0,
-            z2: 0,
-            x3: 0,
-            z3: 0,
+            via,
+            ctrl: new Float64Array(0),
+            pieces: 0,
             length: 0,
             arc: new Float64Array(0),
             vmax: CURVE_TOP,
+            pieceVmax: new Float64Array(0),
             turn: 0,
             spills: [],
           };

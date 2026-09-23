@@ -649,8 +649,9 @@ describe("a full fleet on every tier's roads", () => {
       expect(report.trespasses).toEqual([]);
       expect(report.stalls).toEqual([]);
       expect(report.jumps).toEqual([]);
-      // Headings turn smoothly: a quarter turn in a step would be 47 rad/s.
-      expect(report.fastestTurn).toBeLessThan(2);
+      // Headings turn smoothly: a quarter turn in one step would be 47 rad/s,
+      // and the tightest village bend taken at its speed is about 2.1.
+      expect(report.fastestTurn).toBeLessThan(2.5);
     },
     60000,
   );
