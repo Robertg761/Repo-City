@@ -54,6 +54,7 @@ import {
   stateTint,
   type SceneAtmosphere,
 } from "./palette";
+import { BatchEntity } from "./Batch";
 import { Beacon, BlinkLight, Glow, Smoke, Sparks } from "./effects";
 import { facingTurn } from "./models/landmarks/facing";
 import { POWER_ANCHORS, powerPlant } from "./models/landmarks/power";
@@ -669,28 +670,30 @@ export default function LandmarkPiece({
       rotation-y={landmark.rotationY}
       {...handlers}
     >
-      <group scale={fit} rotation-y={facingTurn(landmark.rotationY)}>
-        {village ? (
-          <>
-            {landmark.landmarkType === "power" && <Substation landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "fire" && <VillageFireStation landmark={landmark} skin={skin} />}
-            {/* The kiosk: a village's documentation is a notice board, not a library. */}
-            {landmark.landmarkType === "info" && (
-              <VisitorCenter landmark={{ ...landmark, level: 1 }} skin={skin} />
-            )}
-            {landmark.landmarkType === "station" && <Halt landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "civic" && <Chapel skin={skin} />}
-          </>
-        ) : (
-          <>
-            {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
-            {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
-          </>
-        )}
-      </group>
+      <BatchEntity id={landmark.id}>
+        <group scale={fit} rotation-y={facingTurn(landmark.rotationY)}>
+          {village ? (
+            <>
+              {landmark.landmarkType === "power" && <Substation landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "fire" && <VillageFireStation landmark={landmark} skin={skin} />}
+              {/* The kiosk: a village's documentation is a notice board, not a library. */}
+              {landmark.landmarkType === "info" && (
+                <VisitorCenter landmark={{ ...landmark, level: 1 }} skin={skin} />
+              )}
+              {landmark.landmarkType === "station" && <Halt landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "civic" && <Chapel skin={skin} />}
+            </>
+          ) : (
+            <>
+              {landmark.landmarkType === "power" && <PowerPlant landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "fire" && <FireStation landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "info" && <VisitorCenter landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "station" && <TransitStation landmark={landmark} skin={skin} />}
+              {landmark.landmarkType === "civic" && <TownHall skin={skin} />}
+            </>
+          )}
+        </group>
+      </BatchEntity>
     </group>
   );
 }

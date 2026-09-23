@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import type { CityModel } from "@/types/city";
 import Backlog from "./backlog/Backlog";
+import { BatchProvider } from "./Batch";
 import Buildings from "./Buildings";
 import CivicBuilding from "./Building";
 import ConstructionSitePiece from "./ConstructionSite";
@@ -115,6 +116,7 @@ export default function City({
 
   return (
     <RevealContext.Provider value={clock}>
+      <BatchProvider>
       <color attach="background" args={[atmosphere.background]} />
       <fog
         attach="fog"
@@ -170,6 +172,7 @@ export default function City({
       <Pedestrians city={city} startAt={trafficStart} atmosphere={atmosphere} />
 
       <SelectionRing city={city} />
+      </BatchProvider>
     </RevealContext.Provider>
   );
 }

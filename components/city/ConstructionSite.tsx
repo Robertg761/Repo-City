@@ -18,12 +18,22 @@
  *
  * COST. The dressing is one merged geometry per state and tone
  * (`models/props/constructionDecor.ts`) and the crane is two more -- tower and
- * jib -- so a site is about six draw calls however much is going on inside it.
+ * jib. Every part is drawn from the city's shared pools (`Batch.tsx`), so ten
+ * sites cost about a dozen draw calls between them, not a hundred (PLAN.md
+ * 76.13), however much is going on inside each.
  */
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group } from "three";
+import {
+  BoxGeometry,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  RingGeometry,
+  type BufferGeometry,
+  type Group,
+} from "three";
 import type { ConstructionSite } from "@/types/city";
 import {
   HIGHLIGHT,
@@ -40,9 +50,71 @@ import {
   craneJibGeometry,
   craneMastGeometry,
 } from "./models/props/constructionDecor";
+import { BatchEntity, BatchPart } from "./Batch";
+import { batchKind, type BatchKind } from "./batching";
+import { lampMaterial } from "./effects";
 import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
+
+/** One pool per merged shape; `receive` as the mesh it replaces had it. */
+function mergedKind(
+  name: string,
+  geometry: BufferGeometry,
+  surface: { roughness: number; metalness?: number },
+  receiveShadow: boolean,
+): BatchKind {
+  return batchKind(`site:${name}:${geometry.uuid}`, () => ({
+    geometry: () => geometry,
+    material: () => new MeshStandardMaterial({ vertexColors: true, ...surface }),
+    castShadow: true,
+    receiveShadow,
+  }));
+}
+
+const CRANE_SURFACE = { roughness: 0.6, metalness: 0.15 };
+
+/** The cleared plot, `SITE` square. */
+const GROUND = batchKind("site:ground", () => ({
+  geometry: () => new PlaneGeometry(SITE, SITE),
+  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 1 }),
+  receiveShadow: true,
+}));
+
+/** The unit box every shell and slab is scaled from. */
+const unitBox = () => new BoxGeometry(1, 1, 1);
+
+const SHELL = batchKind("site:shell", () => ({
+  geometry: unitBox,
+  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.95 }),
+  castShadow: true,
+  receiveShadow: true,
+}));
+
+/** A finished building's shell is a little smoother than a bare frame's. */
+const SHELL_DONE = batchKind("site:shell-done", () => ({
+  geometry: unitBox,
+  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.7 }),
+  castShadow: true,
+  receiveShadow: true,
+}));
+
+const SLAB = batchKind("site:slab", () => ({
+  geometry: unitBox,
+  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.95 }),
+}));
+
+/** The lit band of a finished building's windows. */
+const BAND = batchKind("site:band", () => ({
+  geometry: unitBox,
+  material: lampMaterial,
+}));
+
+const RIBBON = batchKind("site:ribbon", () => ({
+  geometry: () => new RingGeometry(SITE * 0.38, SITE * 0.41, 40),
+  material: () =>
+    new MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, toneMapped: false }),
+}));
 
 /** Where a crane's opening sweep starts, in radians. */
 const SWING_FROM = -1.5;
@@ -78,13 +150,13 @@ function Crane({
 
   return (
     <group position={[-SITE * 0.32, 0, -SITE * 0.3]} rotation-z={lean}>
-      <mesh geometry={craneMastGeometry(state, atmosphere.desaturation)} castShadow receiveShadow>
-        <meshStandardMaterial vertexColors roughness={0.6} metalness={0.15} />
-      </mesh>
+      <BatchPart
+        kind={mergedKind("mast", craneMastGeometry(state, atmosphere.desaturation), CRANE_SURFACE, true)}
+      />
       <group ref={jib} position={[0, 12.6, 0]}>
-        <mesh geometry={craneJibGeometry(state, atmosphere.desaturation)} castShadow>
-          <meshStandardMaterial vertexColors roughness={0.6} metalness={0.15} />
-        </mesh>
+        <BatchPart
+          kind={mergedKind("jib", craneJibGeometry(state, atmosphere.desaturation), CRANE_SURFACE, false)}
+        />
       </group>
     </group>
   );
@@ -122,55 +194,56 @@ export default function ConstructionSitePiece({
 
   return (
     <group ref={reveal} position={site.position} rotation-y={site.rotationY} {...handlers}>
-      <group scale={fit}>
-        <mesh rotation-x={-Math.PI / 2} position-y={0.05} receiveShadow>
-          <planeGeometry args={[SITE, SITE]} />
-          <meshStandardMaterial color={ground} roughness={1} />
-        </mesh>
+      <BatchEntity id={site.id}>
+        <group scale={fit}>
+          <BatchPart kind={GROUND} rotation-x={-Math.PI / 2} position-y={0.05} color={ground} />
 
-        {/* The structure under construction, or the finished one. */}
-        <mesh position={[SITE * 0.12, shellHeight / 2, SITE * 0.1]} castShadow receiveShadow>
-          <boxGeometry args={[5.4, shellHeight, 5.4]} />
-          <meshStandardMaterial color={shell} roughness={done ? 0.7 : 0.95} />
-        </mesh>
+          {/* The structure under construction, or the finished one. */}
+          <BatchPart
+            kind={done ? SHELL_DONE : SHELL}
+            position={[SITE * 0.12, shellHeight / 2, SITE * 0.1]}
+            scale={[5.4, shellHeight, 5.4]}
+            color={shell}
+          />
 
-        <mesh
-          geometry={constructionDecor(site.state, atmosphere.desaturation)}
-          castShadow
-          receiveShadow
-        >
-          <meshStandardMaterial vertexColors color={tint} roughness={0.85} />
-        </mesh>
+          <BatchPart
+            kind={mergedKind(
+              "decor",
+              constructionDecor(site.state, atmosphere.desaturation),
+              { roughness: 0.85 },
+              true,
+            )}
+            color={tint}
+          />
 
-        {done ? (
-          <>
-            <mesh position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}>
-              <boxGeometry args={[5.46, 0.34, 5.46]} />
-              <meshStandardMaterial
+          {done ? (
+            <>
+              <BatchPart
+                kind={BAND}
+                position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}
+                scale={[5.46, 0.34, 5.46]}
                 color={WINDOW_COLOR}
-                emissive={WINDOW_COLOR}
-                emissiveIntensity={0.3 + atmosphere.windowGlow}
-                toneMapped={false}
+                glow={0.3 + atmosphere.windowGlow}
               />
-            </mesh>
-            <mesh rotation-x={-Math.PI / 2} position-y={0.08}>
-              <ringGeometry args={[SITE * 0.38, SITE * 0.41, 40]} />
-              <meshBasicMaterial color={HIGHLIGHT} transparent opacity={0.35} toneMapped={false} />
-            </mesh>
-          </>
-        ) : (
-          <>
-            {/* Exposed floor slabs read as "unfinished" from a distance. */}
-            {[0.45, 0.78].map((f) => (
-              <mesh key={f} position={[SITE * 0.12, shellHeight * f, SITE * 0.1]}>
-                <boxGeometry args={[5.8, 0.18, 5.8]} />
-                <meshStandardMaterial color={mix(shell, "#ffffff", 0.18)} roughness={0.95} />
-              </mesh>
-            ))}
-            <Crane state={site.state} atmosphere={atmosphere} appearAt={site.appearAt} />
-          </>
-        )}
-      </group>
+              <BatchPart kind={RIBBON} rotation-x={-Math.PI / 2} position-y={0.08} color={HIGHLIGHT} />
+            </>
+          ) : (
+            <>
+              {/* Exposed floor slabs read as "unfinished" from a distance. */}
+              {[0.45, 0.78].map((f) => (
+                <BatchPart
+                  key={f}
+                  kind={SLAB}
+                  position={[SITE * 0.12, shellHeight * f, SITE * 0.1]}
+                  scale={[5.8, 0.18, 5.8]}
+                  color={mix(shell, "#ffffff", 0.18)}
+                />
+              ))}
+              <Crane state={site.state} atmosphere={atmosphere} appearAt={site.appearAt} />
+            </>
+          )}
+        </group>
+      </BatchEntity>
     </group>
   );
 }

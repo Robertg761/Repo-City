@@ -80,15 +80,20 @@ export interface InstanceHandlers {
 
 /**
  * Handlers for an `InstancedMesh`: `event.instanceId` indexes the `ids` array
- * built alongside the instance matrices (PLAN.md section 38).
+ * built alongside the instance matrices (PLAN.md section 38). A mesh whose
+ * instances change from frame to frame (`Batch.tsx`) passes a lookup instead.
  */
-export function useInstanceHandlers(ids: readonly string[]): InstanceHandlers {
+export function useInstanceHandlers(
+  ids: readonly string[] | ((instanceId: number) => string | undefined),
+): InstanceHandlers {
   const actions = useCityStore((s) => s.actions);
-  return useMemo(
-    () => ({
+  return useMemo(() => {
+    const idOf = (instanceId: number | undefined) =>
+      instanceId === undefined ? undefined : typeof ids === "function" ? ids(instanceId) : ids[instanceId];
+    return {
       onPointerMove(event) {
         event.stopPropagation();
-        const id = event.instanceId === undefined ? undefined : ids[event.instanceId];
+        const id = idOf(event.instanceId);
         if (!id) return;
         actions.hover(id);
         setCursor(true);
@@ -101,10 +106,9 @@ export function useInstanceHandlers(ids: readonly string[]): InstanceHandlers {
       onClick(event) {
         event.stopPropagation();
         if (wasDrag(event)) return;
-        const id = event.instanceId === undefined ? undefined : ids[event.instanceId];
+        const id = idOf(event.instanceId);
         if (id) actions.select(id);
       },
-    }),
-    [actions, ids],
-  );
+    } satisfies InstanceHandlers;
+  }, [actions, ids]);
 }
