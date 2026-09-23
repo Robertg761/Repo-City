@@ -386,6 +386,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     seed,
     highways,
     params.trees,
+    settlement.tier,
   );
   const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis, params.lamps)].slice(
     0,
@@ -557,6 +558,11 @@ function groundAreas(
     }
   }
   if (tier === "village") areas.push({ ...green, rotationY: 0 });
+  // A town park's lawn, inside the avenue of trees round its kerb.
+  for (const park of layout.parks ?? []) {
+    const lawn = insetBy(park, params.roads.major.width / 2 + 1.4 + 2.4);
+    if (lawn.w > 0 && lawn.d > 0) areas.push({ ...lawn, rotationY: 0 });
+  }
   for (const field of fields ?? []) {
     areas.push({ x: field.x, z: field.z, w: field.w, d: field.d, rotationY: field.rotationY });
   }
@@ -1006,6 +1012,7 @@ function placeTrees(
   seed: string,
   highways: readonly RoadSegment[] = [],
   cap: number = LIMITS.trees,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): Vec3[] {
   const parkSlots = parkSlotsOf(layout, usedSlots);
   let free = 0;
@@ -1039,11 +1046,15 @@ function placeTrees(
       radius: INCIDENT_SPACING / 2,
     })),
   ];
+  // Fields and allotments have their own hedgerow trees; a tree in the middle
+  // of the crop is a tree in the wrong place. A city has none.
+  const fields = (layout as LayoutExtras).fields ?? [];
   const clear = (x: number, z: number): boolean =>
     keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius) &&
     // The ring plantation crosses every highway where it leaves the city; a
     // tree in the fast lane is the one place this reads as a bug.
-    highways.every((road) => distanceToRoad(x, z, road) > road.width / 2 + 1.4);
+    highways.every((road) => distanceToRoad(x, z, road) > road.width / 2 + 1.4) &&
+    !fields.some((field) => insideField(field, x, z, TREE_HALF));
 
   // Along the ring road, on the outside.
   const ringRadius = layout.ringRadius + 5;
@@ -1127,9 +1138,19 @@ function placeTrees(
     .map((spot) => [round3(spot.x), 0, round3(spot.z)] as Vec3)
     .filter(([x, , z]) => clear(x, z));
 
+  // A town's parks beside its square (`layout.parks`): an avenue round the
+  // edge and a few copses on the lawn. Their own stream, so no other tree
+  // moves when a town gains or loses a park.
+  const townParks = plantTownParks(
+    layout.parks ?? [],
+    SETTLEMENT_PARAMS[tier].roads.major.width,
+    prngFor(seed, "parks"),
+    clear,
+  );
+
   // Order of precedence when the budget runs out: the plaza and the parks are
   // the ones doing the explaining, the ring and the margins are decoration.
-  const kept: Vec3[] = [...plaza, ...parks, ...groveTrees];
+  const kept: Vec3[] = [...plaza, ...townParks, ...parks, ...groveTrees];
   if (kept.length >= want) return kept.slice(0, want);
 
   const remaining = want - kept.length;
@@ -1191,6 +1212,79 @@ function plantParks(
     }
   }
   return out;
+}
+
+/** Spacing of the avenue round a town park. */
+const PARK_AVENUE_PITCH = 6;
+/** Copses on a town park's lawn, three trees each. */
+const PARK_COPSES = 3;
+
+/**
+ * Plant a town's parks (`CityLayout.parks`): trees at an even pitch round the
+ * inside of the kerb, which is what makes a block of grass read as a park
+ * rather than a vacant lot, and a few seeded copses on the lawn inside.
+ */
+function plantTownParks(
+  parks: readonly Rect[],
+  roadWidth: number,
+  prng: Prng,
+  clear: (x: number, z: number) => boolean,
+): Vec3[] {
+  const out: Vec3[] = [];
+  const inset = roadWidth / 2 + 1.4 + 1.2;
+  for (const park of parks) {
+    const hw = park.w / 2 - inset;
+    const hd = park.d / 2 - inset;
+    if (hw < 2 || hd < 2) continue;
+    // The avenue: each side divided evenly, corners included once.
+    const sides: [number, number, number, number][] = [
+      [-hw, -hd, hw, -hd],
+      [hw, -hd, hw, hd],
+      [hw, hd, -hw, hd],
+      [-hw, hd, -hw, -hd],
+    ];
+    for (const [x0, z0, x1, z1] of sides) {
+      const length = Math.hypot(x1 - x0, z1 - z0);
+      const count = Math.max(1, Math.round(length / PARK_AVENUE_PITCH));
+      for (let i = 0; i < count; i++) {
+        const t = i / count;
+        const x = round3(park.x + x0 + (x1 - x0) * t + prng.range(-0.3, 0.3));
+        const z = round3(park.z + z0 + (z1 - z0) * t + prng.range(-0.3, 0.3));
+        if (clear(x, z)) out.push([x, 0, z]);
+      }
+    }
+    // The lawn: copses well inside the avenue, spread along the park's long
+    // axis and zigzagging across the short one.
+    const lawnW = hw - 4;
+    const lawnD = hd - 4;
+    if (lawnW < 1 || lawnD < 1) continue;
+    const alongX = park.w >= park.d;
+    for (let c = 0; c < PARK_COPSES; c++) {
+      const along = ((c + 0.5) / PARK_COPSES) * 2 - 1;
+      const across = c % 2 === 0 ? 0.4 : -0.4;
+      const cx = park.x + (alongX ? along : across) * lawnW + prng.range(-1.5, 1.5);
+      const cz = park.z + (alongX ? across : along) * lawnD + prng.range(-1.5, 1.5);
+      for (let i = 0; i < 3; i++) {
+        const angle = (i / 3) * Math.PI * 2 + prng.range(-0.5, 0.5);
+        const x = round3(cx + Math.cos(angle) * 1.6);
+        const z = round3(cz + Math.sin(angle) * 1.6);
+        if (clear(x, z)) out.push([x, 0, z]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Whether `(x, z)` lies inside a field, grown by `margin`, in the field's own frame. */
+function insideField(field: FieldPatch, x: number, z: number, margin: number): boolean {
+  const dx = x - field.x;
+  const dz = z - field.z;
+  const c = Math.cos(field.rotationY);
+  const s = Math.sin(field.rotationY);
+  // Local x runs along (cos r, -sin r) and local z along (sin r, cos r).
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  return Math.abs(lx) <= field.w / 2 + margin && Math.abs(lz) <= field.d / 2 + margin;
 }
 
 /** Point at `t` (0..1) around a square of half-extent `r`, starting north-west. */

@@ -155,6 +155,11 @@ export interface CityLayout {
    * highways out continue from here; with none, the overflow queue waits here.
    */
   exits?: RoadExit[];
+  /**
+   * Town only: the pinwheel cells beside the civic square that no district
+   * was dealt, each ringed by streets. The generator plants them as parks.
+   */
+  parks?: Rect[];
 }
 
 export interface LayoutDistrictInput {
@@ -1160,18 +1165,39 @@ export function planLayout(
     .map((d) => ({ id: d.id, weight: districtWeight(d.buildingCount) }))
     .sort((a, b) => b.weight - a.weight || (a.id < b.id ? -1 : 1));
 
+  // A town always cuts the pinwheel, whatever its district count. With two or
+  // three districts the city's carve turns the civic cell into a band the
+  // full width of the square, and at a town's scale that band was a 99 by 27
+  // expanse of setts with a hall in the middle: an empty car park, not a
+  // market square. The pinwheel keeps the square square; the cells beside it
+  // that no district is dealt become parks.
+  const regionCount = tier === "town" ? Math.max(4, districts.length) : districts.length;
+
   // Two passes: group the districts against a symmetric carve, then cut the
   // pinwheel again to what those groups actually weigh. Grouping first is what
   // lets the cuts be weight-aware at all, and because a heavier group was
   // already matched to a larger region the second carve preserves the pairing.
-  const symmetric = carveRegions(districtSide, civic, districts.length);
+  const symmetric = carveRegions(districtSide, civic, regionCount);
   const buckets = assignRegions(items, symmetric.regions);
   const loads = buckets.map((bucket) => bucket.reduce((sum, item) => sum + item.weight, 0));
-  const { civicRect, regions } = carveRegions(districtSide, civic, districts.length, loads);
+  // A park weighs what an average district does, so a light district across
+  // the square from it takes no more ground than it can fill, and the park
+  // takes the rest. A city never has an empty region, so its loads are as
+  // they were.
+  const filled = loads.filter((_, i) => buckets[i].length > 0);
+  const parkLoad = filled.length > 0 ? filled.reduce((a, b) => a + b, 0) / filled.length : 1;
+  const { civicRect, regions } = carveRegions(
+    districtSide,
+    civic,
+    regionCount,
+    loads.map((load, i) => (buckets[i].length > 0 ? load : parkLoad)),
+  );
 
   const rects = new Map<string, Rect>();
+  const parks: Rect[] = [];
   for (let i = 0; i < regions.length; i++) {
-    squarify(buckets[i], regions[i], rects);
+    if (buckets[i].length === 0) parks.push(regions[i]);
+    else squarify(buckets[i], regions[i], rects);
   }
 
   const roads = new RoadSet();
@@ -1196,6 +1222,8 @@ export function planLayout(
     if (!rect) continue;
     roads.addRectEdges(rect, spec.major);
   }
+  // A park is a block like any other, with a street on every side.
+  for (const park of parks) roads.addRectEdges(park, spec.major);
 
   // The town's high street: the seam along the civic square's south edge,
   // run on through the landmark band to the ring on both sides. With a single
@@ -1234,6 +1262,7 @@ export function planLayout(
     roads: built,
     tier,
     plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
+    ...(parks.length > 0 ? { parks } : {}),
   };
   return layout;
 }

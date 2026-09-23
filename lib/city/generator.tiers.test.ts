@@ -18,6 +18,8 @@ const extras = vi.hoisted(() => ({
   on: false,
   fields: [] as FieldPatch[],
   plaza: null as null | { rect: { x: number; z: number; w: number; d: number }; surface: "green" },
+  /** The last layout the generator asked for, whether or not the double changed it. */
+  last: null as CityLayout | null,
 }));
 
 vi.mock("./layout", async (importOriginal) => {
@@ -26,6 +28,7 @@ vi.mock("./layout", async (importOriginal) => {
     ...actual,
     planLayout: (...args: Parameters<typeof actual.planLayout>): CityLayout => {
       const layout = actual.planLayout(...args);
+      extras.last = layout;
       if (!extras.on) return layout;
       // What S3's village and town layouts add: every other slot turned to a
       // lane, the first slot of each district on the high street.
@@ -83,6 +86,25 @@ describe("per-tier numbers come from SETTLEMENT_PARAMS", () => {
     expect(tallest("metropolis")).toBeGreaterThan(tallest("city"));
     expect(tallest("city")).toBeGreaterThan(tallest("town"));
     expect(tallest("town")).toBeGreaterThan(tallest("village"));
+  });
+});
+
+describe("a town's parks", () => {
+  it("plants the cells beside the square that no district was dealt", () => {
+    const few = { ...fixture, districts: fixture.districts.slice(0, 3) };
+    const city = generateCity(few, { tier: "town" });
+    const parks = extras.last?.parks ?? [];
+    expect(parks).toHaveLength(1);
+    const [park] = parks;
+    const inside = city.props.trees.filter(
+      ([x, , z]) => Math.abs(x - park.x) < park.w / 2 && Math.abs(z - park.z) < park.d / 2,
+    );
+    expect(inside.length).toBeGreaterThanOrEqual(10);
+    // Clear of the streets that ring it.
+    for (const [x, , z] of inside) {
+      expect(Math.abs(x - park.x)).toBeLessThan(park.w / 2 - 3);
+      expect(Math.abs(z - park.z)).toBeLessThan(park.d / 2 - 3);
+    }
   });
 });
 

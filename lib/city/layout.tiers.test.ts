@@ -198,3 +198,68 @@ describe("the metropolis's roads", () => {
     expect(planHighways(layoutOf([40, 20], "city"), 99)).toHaveLength(4);
   });
 });
+
+describe("the town square", () => {
+  const overlaps = (
+    a: { x: number; z: number; w: number; d: number },
+    b: { x: number; z: number; w: number; d: number },
+  ): boolean =>
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 1e-6 && Math.abs(a.z - b.z) < (a.d + b.d) / 2 - 1e-6;
+
+  it("stays a square sized to its hall whatever the district count, and the rest is parks", () => {
+    for (let count = 1; count <= 7; count++) {
+      const counts = split(40 + count * 8, count);
+      const layout = layoutOf(counts, "town");
+      const civic = layout.civic.rect;
+      // Square, and never the full-width band a city with three districts gets.
+      expect(civic.w, `count ${count}`).toBeCloseTo(civic.d, 6);
+      expect(civic.w).toBeLessThan(layout.districtSide * 0.5);
+      const parks = layout.parks ?? [];
+      expect(parks.length, `count ${count}`).toBe(Math.max(0, 4 - count));
+      // Districts, the square and the parks tile the district square exactly.
+      const cells = [...layout.districts.map((d) => d.rect), civic, ...parks];
+      for (let i = 0; i < cells.length; i++) {
+        for (let j = i + 1; j < cells.length; j++) expect(overlaps(cells[i], cells[j])).toBe(false);
+      }
+      const area = cells.reduce((total, r) => total + r.w * r.d, 0);
+      expect(area).toBeCloseTo(layout.districtSide ** 2, 3);
+    }
+  });
+
+  it("rings every park with streets", () => {
+    const layout = layoutOf([50, 30, 10], "town");
+    expect(layout.parks).toHaveLength(1);
+    const park = layout.parks![0];
+    const corners: [number, number][] = [
+      [park.x - park.w / 2, park.z - park.d / 2],
+      [park.x + park.w / 2, park.z - park.d / 2],
+      [park.x + park.w / 2, park.z + park.d / 2],
+      [park.x - park.w / 2, park.z + park.d / 2],
+    ];
+    for (let i = 0; i < 4; i++) {
+      const [ax, az] = corners[i];
+      const [bx, bz] = corners[(i + 1) % 4];
+      // Every point along the edge lies on some road centreline.
+      for (const t of [0.1, 0.5, 0.9]) {
+        const x = ax + (bx - ax) * t;
+        const z = az + (bz - az) * t;
+        const onRoad = layout.roads.some((road) => {
+          const minX = Math.min(road.from[0], road.to[0]) - 1e-3;
+          const maxX = Math.max(road.from[0], road.to[0]) + 1e-3;
+          const minZ = Math.min(road.from[2], road.to[2]) - 1e-3;
+          const maxZ = Math.max(road.from[2], road.to[2]) + 1e-3;
+          return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+        });
+        expect(onRoad, `edge ${i} at ${t}`).toBe(true);
+      }
+    }
+  });
+
+  it("never carves a park in a city or a metropolis", () => {
+    for (const tier of ["city", "metropolis"] as const) {
+      for (let count = 1; count <= 6; count++) {
+        expect(layoutOf(split(80 + count * 20, count), tier).parks).toBeUndefined();
+      }
+    }
+  });
+});
