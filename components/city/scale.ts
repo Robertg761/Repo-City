@@ -83,16 +83,18 @@ export function thinEvenly<T>(list: readonly T[], cap: number): T[] {
 /**
  * Half the side of the square the sun's shadow camera covers. A shadow cast
  * by a sun 24 degrees up is more than twice as long as one cast from 52
- * degrees: 0.62 of the city covers the midday case, and the evening term
- * covers the rest.
+ * degrees: 0.62 of the city covers the midday case, and the `low` term
+ * covers the rest. `low` is 0 for a light 52 degrees up and 1 for one at 30
+ * (`lowLight` in `timeOfDay.ts`, which is the old `evening` term exactly on
+ * the Auto stretch); a morning sun lower still takes it a little past 1.
  */
-export function shadowReach(size: number, evening: number): number {
-  return size * (0.62 + evening * 0.22);
+export function shadowReach(size: number, low: number): number {
+  return size * (0.62 + low * 0.22);
 }
 
 /** World units per shadow-map texel. */
-export function shadowTexel(size: number, evening: number, mapSize: number): number {
-  return (shadowReach(size, evening) * 2) / mapSize;
+export function shadowTexel(size: number, low: number, mapSize: number): number {
+  return (shadowReach(size, low) * 2) / mapSize;
 }
 
 /**
