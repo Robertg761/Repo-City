@@ -12,6 +12,20 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useCityStore } from "@/store/useCityStore";
 
+/**
+ * One repository of each settlement size (PLAN.md 76.1), a tap away on the
+ * empty stage: the fastest way to see what Repo City does, and a hint that a
+ * small repository becomes a village rather than a small city.
+ */
+const SAMPLES = [
+  { tier: "village", repo: "sindresorhus/p-limit" },
+  { tier: "town", repo: "pmndrs/zustand" },
+  { tier: "city", repo: "honojs/hono" },
+  { tier: "metropolis", repo: "facebook/react" },
+] as const;
+
+const EXAMPLE = "github.com/facebook/react";
+
 export default function RepoInput() {
   const [value, setValue] = useState("");
   const [expanded, setExpanded] = useState(true);
@@ -43,6 +57,12 @@ export default function RepoInput() {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [showInput, busy]);
+
+  const survey = (repo: string) => {
+    if (busy) return;
+    setValue(repo);
+    void analyze(repo);
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -102,14 +122,40 @@ export default function RepoInput() {
 
           <p className="mt-2 text-center text-xs text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
             <span className="text-white/55">Example </span>
-            <span className="font-mono text-white/80">github.com/facebook/react</span>
+            <button
+              type="button"
+              onClick={() => survey(EXAMPLE)}
+              disabled={busy}
+              title="Survey this repository"
+              className="focus-ring font-mono text-white/80 underline decoration-white/25 underline-offset-4 transition hover:text-white hover:decoration-white/70 disabled:no-underline"
+            >
+              {EXAMPLE}
+            </button>
           </p>
 
           {/* Empty state, PLAN.md section 3. */}
           {!hasCity && phase === "idle" ? (
-            <p className="mt-1 text-center text-xs text-white/65 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-              Paste any public GitHub repository and watch it become a city.
-            </p>
+            <>
+              <p className="mt-1 text-center text-xs text-white/65 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+                Paste any public GitHub repository and watch it become a city.
+              </p>
+              {/* Not on a phone: the identity block sits right under the box
+                  there, and the example above is already a tap away. */}
+              <p className="mt-2 hidden flex-wrap items-center justify-center gap-1.5 text-[11px] sm:flex text-white/60 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+                <span>Or visit a</span>
+                {SAMPLES.map(({ tier, repo }) => (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => survey(repo)}
+                    title={repo}
+                    className="rounded-full bg-[#080c12]/55 px-2 py-0.5 text-white/85 ring-1 ring-white/12 backdrop-blur-sm transition hover:bg-[#080c12]/75 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {tier}
+                  </button>
+                ))}
+              </p>
+            </>
           ) : null}
         </div>
       ) : (
