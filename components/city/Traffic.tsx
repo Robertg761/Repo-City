@@ -5,12 +5,15 @@
  * capped per settlement tier (40 in a city, 64 in a metropolis; PLAN.md
  * 76.5), driving the road graph from `traffic.ts`.
  *
- * A car picks a segment, drives it, turns at the junction. It keeps out of
- * the stretches incidents and construction close (`blockages.ts`): it will
- * not turn into a road it cannot use, and one that finds cones ahead pulls
- * up short and turns round. Each car gets a seeded body type
- * (`models/vehicles/shapes.ts`), wheels that turn at the speed it is actually
- * doing, and head and tail lamps that come up as the city's windows do. A
+ * A car drives its lane, rounds each junction on a curve at the speed the
+ * bend allows, keeps its distance from the car in front and waits its turn
+ * for the junction box. It keeps out of the stretches incidents and
+ * construction close (`blockages.ts`): it will not turn into a road it
+ * cannot use, and one that finds cones ahead pulls up short and turns round,
+ * in three points on a narrow road. The fleet is set up in `fleet.ts`. Each
+ * car gets a seeded body type (`models/vehicles/shapes.ts`), wheels that turn
+ * at the speed it is actually doing and front wheels that steer into the
+ * curve, and head and tail lamps that come up as the city's windows do. A
  * village, whose settlement allows it, has a few tractors among them.
  *
  * COST. One instanced draw per body type present, one more for that type's
