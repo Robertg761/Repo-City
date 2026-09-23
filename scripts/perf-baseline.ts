@@ -32,6 +32,7 @@
  *   QUALITY  auto (the probe decides) | high | medium | low (`?quality=`)
  *   ONLY     comma-separated scenario names to run
  *   UNCAP=1  lifts vsync to show headroom
+ *   SHOTS=1  saves a screenshot of each scenario
  *   MEASURE_MS, SETTLE_MS, TAG, CHROME
  *
  * Swiftshader renders on the CPU; its frame rates are a worst-case floor and
@@ -54,6 +55,7 @@ const MEASURE_MS = Number(process.env.MEASURE_MS ?? 10_000);
 /** From the city's first frame to the steady measurement: reveal plus probe. */
 const SETTLE_MS = Number(process.env.SETTLE_MS ?? 11_000);
 const PROD = Boolean(process.env.PROD);
+const SHOTS = Boolean(process.env.SHOTS);
 
 interface Profile {
   width: number;
@@ -434,9 +436,13 @@ async function main(): Promise<void> {
       messages: [...new Set(messages)],
     };
 
-    const shot = await send("Page.captureScreenshot", { format: "png" });
-    const data = (shot as { result?: { data?: string } }).result?.data;
-    if (data) writeFileSync(join(OUT, `${scenario.name}-${label}.png`), Buffer.from(data, "base64"));
+    // A JPEG, and only on request: the integrated-GPU profile's frame is
+    // 26 megapixels, and a matrix of PNGs filled /tmp.
+    if (SHOTS) {
+      const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+      const data = (shot as { result?: { data?: string } }).result?.data;
+      if (data) writeFileSync(join(OUT, `${scenario.name}-${label}.jpg`), Buffer.from(data, "base64"));
+    }
     results.push(row);
     console.log("  ", JSON.stringify(row));
   }
