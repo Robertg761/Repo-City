@@ -5,9 +5,10 @@ import backlogFixture from "@/fixtures/backlog.analysis.json";
 import type { RepoAnalysis } from "@/types/analysis";
 import type { CityModel, ConstructionSite, Incident } from "@/types/city";
 import { devCity } from "@/fixtures/dev.city";
-import { CROWD_MESHES, MASK, PART, formSpec } from "./forms";
+import { CROWD_MESHES, FORM_PAINT, MASK, PART, formSpec } from "./forms";
 import { BLINK_RATE } from "./material";
 import {
+  CAR_SKEW,
   PAVEMENT_TOP,
   ROAD_TOP,
   hoardingMesh,
@@ -17,6 +18,10 @@ import {
   planCrowd,
   pullMask,
   scaffoldScale,
+  STALE_WEAR,
+  WEAR_STYLE,
+  issueWear,
+  variantFor,
 } from "./plan";
 import { SCAFFOLD_BAY, SCAFFOLD_REACH } from "./constants";
 
@@ -199,6 +204,99 @@ describe("crowd scale and meshes", () => {
       const p = phaseFor(`x${i}`);
       expect(p).toBeGreaterThanOrEqual(0);
       expect(p).toBeLessThan(1);
+    }
+  });
+});
+
+describe("weathering by age (content decides the form, age the weathering)", () => {
+  it("rusts metal forms and fades the rest, more the longer an issue sits", () => {
+    for (const form of ["collision", "wreck", "roadblock", "signpost", "fire"] as const) {
+      expect(WEAR_STYLE[form], form).toBe("rust");
+      expect(issueWear(form, "minor", 0), form).toBe(0);
+      expect(issueWear(form, "minor", 300), form).toBeGreaterThan(0);
+      expect(issueWear(form, "minor", 2000), form).toBe(1);
+    }
+    for (const form of ["pothole", "survey"] as const) {
+      expect(WEAR_STYLE[form], form).toBe("fade");
+      expect(issueWear(form, "minor", 300), form).toBeLessThan(0);
+      expect(issueWear(form, "minor", 2000), form).toBe(-1);
+    }
+    expect(issueWear("collision", "minor", 200)).toBeLessThan(issueWear("collision", "minor", 400));
+  });
+
+  it("weathers a stale issue at least visibly, whatever its form", () => {
+    for (const form of ["collision", "pothole", "signpost", "survey"] as const) {
+      expect(Math.abs(issueWear(form, "stale", 0)), form).toBeGreaterThanOrEqual(STALE_WEAR);
+    }
+  });
+
+  it("leaves pull requests to their state tint: rust when abandoned, grey when slow", () => {
+    const plan = planCrowd(metropolis);
+    const incidents = new Map(metropolis.backlog!.incidents.map((i) => [i.id, i]));
+    let weathered = 0;
+    for (const group of plan.groups) {
+      for (const item of group.items) {
+        const incident = incidents.get(item.id);
+        if (!incident) {
+          expect(item.wear, item.id).toBe(0);
+          continue;
+        }
+        if (item.wear !== 0) weathered++;
+        expect(Math.abs(item.wear)).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(weathered).toBeGreaterThan(0);
+    // No draw calls: one mesh per form, as before.
+    expect(plan.groups.length).toBeLessThanOrEqual(CROWD_MESHES.length);
+  });
+});
+
+describe("crowd variety", () => {
+  const ids = Array.from({ length: 300 }, (_, i) => `incident-${1000 + i * 7}`);
+
+  it("paints a street of collisions in many colours, never two matching cars in one crash", () => {
+    const pairs = new Set<string>();
+    for (const id of ids) {
+      const { paint } = variantFor("collision", id);
+      expect(paint[0], id).not.toBe(paint[1]);
+      expect(FORM_PAINT.collision!.a).toContain(paint[0]);
+      expect(FORM_PAINT.collision!.b).toContain(paint[1]);
+      pairs.add(paint.join());
+    }
+    expect(pairs.size).toBeGreaterThan(40);
+  });
+
+  it("turns cars end for end about half the time and only a few degrees askew otherwise", () => {
+    let flipped = 0;
+    for (const id of ids) {
+      const { turn } = variantFor("wreck", id);
+      const flip = Math.abs(turn) > Math.PI / 2;
+      if (flip) flipped++;
+      expect(Math.abs(flip ? turn - Math.PI : turn), id).toBeLessThanOrEqual(CAR_SKEW + 1e-9);
+    }
+    expect(flipped).toBeGreaterThan(ids.length * 0.3);
+    expect(flipped).toBeLessThan(ids.length * 0.7);
+  });
+
+  it("leaves forms that are not cars facing as placed, and forms with no paint white", () => {
+    for (const form of ["pothole", "roadblock", "scaffold", "hoarding", "trench"] as const) {
+      expect(variantFor(form, "incident-1").turn).toBe(0);
+    }
+    expect(variantFor("pothole", "incident-1").paint).toEqual(["#ffffff", "#ffffff"]);
+  });
+
+  it("is stable per id and carried onto the instance", () => {
+    expect(variantFor("collision", "incident-7")).toEqual(variantFor("collision", "incident-7"));
+    const plan = planCrowd(metropolis);
+    const byId = new Map(
+      [...(metropolis.backlog?.incidents ?? []), ...(metropolis.backlog?.constructionSites ?? [])].map((e) => [e.id, e]),
+    );
+    for (const group of plan.groups) {
+      for (const item of group.items) {
+        const variant = variantFor(item.form, item.id);
+        expect(item.paint).toEqual(variant.paint);
+        expect(item.rotationY).toBeCloseTo(byId.get(item.id)!.rotationY + variant.turn);
+      }
     }
   });
 });

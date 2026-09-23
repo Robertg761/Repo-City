@@ -8,8 +8,12 @@
  *   - a pose: position, heading, and a scale: its `size` over its model's
  *     base size, which is its heat (PLAN.md 76.7, `0.9 + 0.35 * heat`), a
  *     plot hoarding's plot, or a scaffold's fit to its facade;
- *   - a tint for the instance colour: state and age, before hover;
+ *   - a tint for the instance colour: state and age, before hover, and for
+ *     issues a wear the shader turns into rust or a bleached fade;
  *   - a phase, so no two neighbours flicker or blink in step;
+ *   - two paint colours for the form's painted panels, and for the cars a
+ *     heading turned end for end or knocked a little askew, so a street of
+ *     crashes reads as different crashes (`variantFor`);
  *   - the optional-part mask: worker, failing checks, changes requested,
  *     approved (PLAN.md 76.7's modifiers);
  *   - its reveal time and a glow from its heat;
@@ -26,6 +30,7 @@ import { RUST, mix } from "../palette";
 import { SIDEWALK_HEIGHT, SIDEWALK_WIDTH } from "../groundwork";
 import {
   CROWD_MESHES,
+  FORM_PAINT,
   MASK,
   PART,
   SCAFFOLD_BAY,
@@ -60,6 +65,10 @@ export interface CrowdItem {
   tint: string;
   /** 0..1. */
   phase: number;
+  /** The colours its painted panels take, slots 1 and 2 (`FORM_PAINT`). */
+  paint: [string, string];
+  /** How weathered it is, -1..1 (`issueWear`); 0 for pull requests. */
+  wear: number;
   /** Optional parts switched on (`MASK`). */
   mask: number;
   appearAt: number;
@@ -119,6 +128,59 @@ export function phaseFor(id: string): number {
   return (hash % 10007) / 10007;
 }
 
+/** A second stable hash of an id, independent of `phaseFor`. */
+function variantHash(id: string): number {
+  let hash = 0x811c9dc5 ^ 0x5bd1e995;
+  for (let i = id.length - 1; i >= 0; i--) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0x5bd1e995) >>> 0;
+  return (hash ^ (hash >>> 15)) >>> 0;
+}
+
+/** Forms that are cars, and so may face either way down the street. */
+const TURNABLE: ReadonlySet<CrowdMesh> = new Set<CrowdMesh>(["collision", "wreck"]);
+/** How far askew a car may stand from the kerb line, radians either way. */
+export const CAR_SKEW = 0.09;
+
+export interface CrowdVariant {
+  paint: [string, string];
+  /** Added to the entity's heading. Its footprint is centred, so a half turn keeps it. */
+  turn: number;
+}
+
+/**
+ * The per-instance look that keeps a street of the same form from reading as
+ * one stamp, from the id alone: two paint colours out of the form's lists (a
+ * collision's two cars never match), and for the cars a heading turned end
+ * for end half the time and knocked a few degrees askew. Stable across
+ * reloads, and it costs no draw calls: the paint is two instance attributes.
+ */
+export function variantFor(form: CrowdMesh, id: string): CrowdVariant {
+  const hash = variantHash(id);
+  const lists = FORM_PAINT[form];
+  const white = "#ffffff";
+  let paint: [string, string] = [white, white];
+  if (lists) {
+    const a = lists.a[hash % lists.a.length];
+    let b = white;
+    if (lists.b) {
+      const n = lists.b.length;
+      const i = (hash >>> 8) % n;
+      b = lists.b[i] === a ? lists.b[(i + 1 + ((hash >>> 16) % (n - 1))) % n] : lists.b[i];
+    }
+    paint = [a, b];
+  }
+  let turn = 0;
+  if (TURNABLE.has(form)) {
+    const skew = (((hash >>> 20) & 0xff) / 255) * 2 - 1;
+    turn = ((hash >>> 28) & 1 ? Math.PI : 0) + skew * CAR_SKEW;
+  }
+  return { paint, turn };
+}
+
 /** The form an issue draws as, when the model does not say. */
 const STATE_FORM: Record<IncidentState, IncidentForm> = {
   major: "fire",
@@ -154,12 +216,50 @@ const DUST = "#c9b79c";
 
 const WHITE = "#ffffff";
 
-/** State and age, as an instance colour multiplied over the form's paint. */
-export function issueTint(state: IncidentState, idleDays: number): string {
-  let tint = state === "stale" ? mix(WHITE, mix(RUST, "#ffffff", 0.35), 0.45) : WHITE;
+/**
+ * Age, as an instance colour multiplied over the form's paint: a little dust.
+ * The rust and the bleaching are the shader's, from `issueWear`, so they
+ * land on the metal and the paint and not on the glass and the tyres.
+ */
+export function issueTint(_state: IncidentState, idleDays: number): string {
   const age = Math.min(1, Math.max(0, idleDays / 540));
-  tint = mix(tint, DUST, age * AGE_TINT);
-  return tint;
+  return mix(WHITE, DUST, age * AGE_TINT * 0.6);
+}
+
+/**
+ * How issues of each form weather (PLAN.md 76.7: content decides the form,
+ * age decides the weathering). Metal and paint rust: cars, barriers, posts,
+ * a skip. A hole in the road and a survey's pegs bleach and gather dust, and
+ * both grow weeds. Pull requests weather through their state instead
+ * (`pullTint`): rust when abandoned, grey when slow.
+ */
+export const WEAR_STYLE: Partial<Record<CrowdMesh, "rust" | "fade">> = {
+  collision: "rust",
+  wreck: "rust",
+  roadblock: "rust",
+  signpost: "rust",
+  fire: "rust",
+  pothole: "fade",
+  survey: "fade",
+};
+
+/** Idle days before an issue starts to weather, and by when it is fully weathered. */
+export const WEAR_FROM = 45;
+export const WEAR_FULL = 540;
+/** A stale issue (long-standing, per the analysis) is at least this weathered. */
+export const STALE_WEAR = 0.6;
+
+/**
+ * An issue's weathering, -1..1, for the `instanceWear` attribute: how old and
+ * idle it is, signed by its form's style (positive rusts, negative fades).
+ * 0 for forms that do not weather this way.
+ */
+export function issueWear(form: CrowdMesh, state: IncidentState, idleDays: number): number {
+  const style = WEAR_STYLE[form];
+  if (!style) return 0;
+  const age = Math.min(1, Math.max(0, (idleDays - WEAR_FROM) / (WEAR_FULL - WEAR_FROM)));
+  const wear = Math.max(age, state === "stale" ? STALE_WEAR : 0);
+  return style === "rust" ? wear : -wear;
 }
 
 export function pullTint(state: ConstructionState, idleDays: number): string {
@@ -362,16 +462,20 @@ export function planCrowd(city: CityModel): CrowdPlan {
     const heat = incident.heat ?? incident.issue.heat;
     const scale = instanceScale(form, incident.size, heat);
     const [x, , z] = incident.position;
+    const variant = variantFor(form, incident.id);
+    const idle = idleDays(incident.issue.updatedAt, newest);
     add({
       id: incident.id,
       form,
       x,
       y: incident.lane ? ROAD_TOP : surfaceAt(x, z, roads),
       z,
-      rotationY: incident.rotationY,
+      rotationY: incident.rotationY + variant.turn,
       scale,
-      tint: issueTint(incident.state, idleDays(incident.issue.updatedAt, newest)),
+      tint: issueTint(incident.state, idle),
       phase: phaseFor(incident.id),
+      paint: variant.paint,
+      wear: issueWear(form, incident.state, idle),
       mask: 0,
       appearAt: incident.appearAt,
       glow: heat ?? DEFAULT_HEAT,
@@ -386,6 +490,7 @@ export function planCrowd(city: CityModel): CrowdPlan {
     const heat = site.heat ?? site.pull.heat;
     const scale = instanceScale(form, site.size, heat);
     const [x, , z] = site.position;
+    const variant = variantFor(form, site.id);
     add({
       id: site.id,
       form,
@@ -393,10 +498,12 @@ export function planCrowd(city: CityModel): CrowdPlan {
       // A scaffold stands on its host's plot; everything else on what is under it.
       y: form === "scaffold" ? 0 : site.lane ? ROAD_TOP : surfaceAt(x, z, roads),
       z,
-      rotationY: site.rotationY,
+      rotationY: site.rotationY + variant.turn,
       scale,
       tint: pullTint(site.state, idleDays(site.pull.updatedAt, newest)),
       phase: phaseFor(site.id),
+      paint: variant.paint,
+      wear: 0,
       mask: pullMask(site),
       appearAt: site.appearAt,
       glow: heat ?? DEFAULT_HEAT,

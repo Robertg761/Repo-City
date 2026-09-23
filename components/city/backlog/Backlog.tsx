@@ -43,7 +43,7 @@ import {
 } from "three";
 import type { CityModel } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
-import { HIGHLIGHT, SELECT_LIFT, mix, type SceneAtmosphere } from "../palette";
+import { HIGHLIGHT, SELECT_LIFT, desaturate, mix, type SceneAtmosphere } from "../palette";
 import { useQuality, type QualitySettings } from "../quality";
 import { useInstanceHandlers } from "../useEntity";
 import { useRevealClock } from "../useReveal";
@@ -51,7 +51,10 @@ import { formGeometry } from "./forms";
 import {
   CROWD_CLOCK,
   DATA_ATTRIBUTE,
+  PAINT_A_ATTRIBUTE,
+  PAINT_B_ATTRIBUTE,
   PHASE_ATTRIBUTE,
+  WEAR_ATTRIBUTE,
   crowdMaterial,
   haloMaterial,
   linearRgb,
@@ -111,14 +114,33 @@ function FormInstances({
     const own = formGeometry(group.form, atmosphere.desaturation).clone();
     const phase = new Float32Array(count);
     const data = new Float32Array(count * 3);
+    const paintA = new Float32Array(count * 3);
+    const paintB = new Float32Array(count * 3);
+    const wear = new Float32Array(count);
+    // Paint is toned with the city, like every colour baked into the forms.
+    const toned = new Map<string, [number, number, number]>();
+    const linear = (hex: string) => {
+      let hit = toned.get(hex);
+      if (!hit) {
+        hit = linearRgb(desaturate(hex, atmosphere.desaturation));
+        toned.set(hex, hit);
+      }
+      return hit;
+    };
     group.items.forEach((item, i) => {
       phase[i] = item.phase;
       data[i * 3] = item.mask;
       data[i * 3 + 1] = item.appearAt;
       data[i * 3 + 2] = item.glow;
+      paintA.set(linear(item.paint[0]), i * 3);
+      paintB.set(linear(item.paint[1]), i * 3);
+      wear[i] = item.wear;
     });
     own.setAttribute(PHASE_ATTRIBUTE, new InstancedBufferAttribute(phase, 1));
     own.setAttribute(DATA_ATTRIBUTE, new InstancedBufferAttribute(data, 3));
+    own.setAttribute(PAINT_A_ATTRIBUTE, new InstancedBufferAttribute(paintA, 3));
+    own.setAttribute(PAINT_B_ATTRIBUTE, new InstancedBufferAttribute(paintB, 3));
+    own.setAttribute(WEAR_ATTRIBUTE, new InstancedBufferAttribute(wear, 1));
     return own;
   }, [group, count, atmosphere.desaturation]);
   useEffect(() => () => geometry.dispose(), [geometry]);

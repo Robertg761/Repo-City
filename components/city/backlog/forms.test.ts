@@ -4,8 +4,11 @@ import { triangleCount } from "../models/props/geometry";
 import {
   CROWD_ATTRIBUTE,
   CROWD_FORMS,
+  CROWD_MESHES,
+  FORM_PAINT,
   ISSUE_FORMS,
   MASK,
+  PAINT_SLOT,
   PART,
   PULL_FORMS,
   formGeometry,
@@ -15,6 +18,8 @@ import {
 import {
   CROWD_VERTEX_BODY,
   CROWD_VERTEX_PARS,
+  PAINT_A_ATTRIBUTE,
+  PAINT_B_ATTRIBUTE,
   crowdMaterial,
   haloMaterial,
   smokeMaterial,
@@ -112,6 +117,30 @@ describe("crowd forms", () => {
     expect(moving).toBeGreaterThan(0);
   });
 
+  it("paints only body panels, in the slots each form's paint lists cover", () => {
+    for (const form of CROWD_MESHES) {
+      const attribute = formGeometry(form).getAttribute(CROWD_ATTRIBUTE);
+      const slots = new Set<number>();
+      for (let i = 0; i < attribute.count; i++) {
+        if (attribute.getX(i) === PART.body) slots.add(attribute.getY(i));
+      }
+      const lists = FORM_PAINT[form];
+      expect(slots.has(PAINT_SLOT.a), form).toBe(lists !== undefined);
+      expect(slots.has(PAINT_SLOT.b), form).toBe(lists?.b !== undefined);
+      for (const slot of slots) expect([PAINT_SLOT.own, PAINT_SLOT.a, PAINT_SLOT.b], form).toContain(slot);
+    }
+  });
+
+  it("stands the wreck upright as a car: longer than wide, roofed, on the ground", () => {
+    const geometry = formGeometry("wreck");
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox!;
+    expect(box.max.z - box.min.z).toBeGreaterThan(2 * (box.max.x - box.min.x) * 0.8);
+    expect(box.min.y).toBeGreaterThanOrEqual(-0.01);
+    // A car's roof, and the cone on it, not a crate's lid.
+    expect(box.max.y).toBeGreaterThan(1.2);
+  });
+
   it("uses one mask bit per optional part", () => {
     expect(MASK.worker).toBe(1 << (PART.worker - 1));
     expect(MASK.beacon).toBe(1 << (PART.beacon - 1));
@@ -138,6 +167,9 @@ describe("crowd materials", () => {
     material.onBeforeCompile(shader as never, undefined as never);
     expect(shader.vertexShader).toContain(CROWD_VERTEX_PARS);
     expect(shader.vertexShader).toContain(CROWD_VERTEX_BODY);
+    // The per-instance paint the forms' painted panels take.
+    expect(CROWD_VERTEX_PARS).toContain(`attribute vec3 ${PAINT_A_ATTRIBUTE};`);
+    expect(CROWD_VERTEX_PARS).toContain(`attribute vec3 ${PAINT_B_ATTRIBUTE};`);
     expect(shader.fragmentShader).toContain("totalEmissiveRadiance += vCrowdGlow;");
     expect(shader.uniforms.uTime).toBeDefined();
     expect(shader.uniforms.uReveal).toBeDefined();

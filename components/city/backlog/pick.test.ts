@@ -16,6 +16,8 @@ import type { CrowdItem, LocalBox } from "./plan";
 const item = (i: number, x: number, z: number, rotationY: number, pick: LocalBox, appearAt = 0): CrowdItem => ({
   id: `crowd-${i}`,
   form: "pothole",
+  paint: ["#ffffff", "#ffffff"],
+  wear: 0,
   x,
   y: 0.1,
   z,

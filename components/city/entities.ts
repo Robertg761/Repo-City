@@ -7,6 +7,7 @@
  */
 
 import { indexEntities } from "@/lib/city/entityIndex";
+import { signposted } from "@/lib/city/overflow";
 import { SCAFFOLD_REACH } from "./backlog/constants";
 import type { CityModel, EntityKind, Vec3 } from "@/types/city";
 
@@ -25,6 +26,13 @@ export interface FocusTarget {
    * at it from in front, however the user was looking at the city.
    */
   facing?: number;
+  /**
+   * How much of the thing the frame has to hold, in world units, when that
+   * is more than its footprint: a scaffold climbs several storeys.
+   */
+  span?: number;
+  /** The building a scaffold stands against: the one tower it cannot clear. */
+  host?: string;
 }
 
 /**
@@ -121,15 +129,18 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
             // A scaffold: `position` is the centre of its slab in front of the
             // facade (S4). Aim at its working lifts, which climb at most
             // `SCAFFOLD_REACH` up the building.
-            const height = Math.min((entity.size?.[1] ?? 6) * 0.85, SCAFFOLD_REACH) * 0.45;
+            const drawn = Math.min(SCAFFOLD_REACH, Math.max(3.5, (entity.size?.[1] ?? 6) * 0.85));
+            const width = entity.size?.[0] ?? 4.4;
             return {
               id,
               kind: "construction",
               position: entity.position,
-              lookAt: [x, y + height, z],
-              radius: Math.min(Math.max((entity.size?.[0] ?? 4.4) * 0.5, CROWD_RADIUS), 5),
+              lookAt: [x, y + drawn * 0.45, z],
+              radius: Math.min(Math.max(width * 0.5, CROWD_RADIUS), 5),
               // `rotationY` faces out of the wall; the camera belongs out there.
               facing: entity.rotationY,
+              span: Math.max(width, drawn),
+              host: entity.buildingId,
             };
           }
           return {
@@ -150,6 +161,9 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
         };
       }
       case "overflow": {
+        // A trivial remainder stands no sign (`signposted`): there is nothing
+        // at the city limits to fly to or ring, so the view stays on the city.
+        if (entity.size && !signposted(entity)) return null;
         const [w, h] = entity.size ?? OVERFLOW_SIGN;
         return {
           id,
@@ -293,11 +307,13 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
   const street =
     !facade &&
     (focus.kind === "incident" || focus.kind === "construction" || focus.kind === "overflow");
-  // A crowd object is a few units across: stand closer, or the next block
-  // stands between the camera and the thing that was clicked.
+  // A crowd object is a few units across: closer than a hero scene, but far
+  // enough out that the street round it is in the frame too, so it reads as
+  // a crash on a street and not as a model on a turntable.
+  // `clearInspectionFraming` then finds a view the blocks do not hide.
   const small = street && focus.radius < 3;
   const distance = clamp(
-    small ? focus.radius * 2.5 + 9 : focus.radius * 3.4 + (street ? 15 : 12),
+    small ? focus.radius * 3 + CROWD_STANDOFF : focus.radius * 3.4 + (street ? 15 : 12),
     MIN_DISTANCE + 2,
     MAX_DISTANCE - 20,
   );
@@ -305,8 +321,10 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
   if (facade) {
     // Keep the user's bearing when it already looks at the face, otherwise
     // come round to the nearer edge of the half circle in front of it. Look
-    // down steeply from over the street and stand close: from across the
-    // street the camera would be inside the building opposite.
+    // down steeply from over the street, far enough out to hold the whole
+    // scaffold with the facade round it rather than filling the frame with
+    // poles; `clearInspectionFraming` keeps the building opposite out of
+    // the way.
     const facing = focus.facing as number;
     const bearing = from && Number.isFinite(from.azimuth) ? from.azimuth : facing;
     const offset = Math.atan2(Math.sin(bearing - facing), Math.cos(bearing - facing));
@@ -317,7 +335,7 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
         azimuth: facing + clamp(offset, -FACADE_SWING, FACADE_SWING),
         polar: clamp(polar, FACADE_POLAR.min, FACADE_POLAR.max),
       },
-      clamp(focus.radius * 2 + 9, MIN_DISTANCE + 2, MAX_DISTANCE - 20),
+      clamp((focus.span ?? focus.radius * 2) * 1.6 + 9, MIN_DISTANCE + 4, 40),
     );
   }
   if (!from || !Number.isFinite(from.azimuth) || !Number.isFinite(from.polar)) {
@@ -328,6 +346,215 @@ export function inspectionFraming(focus: FocusTarget, from?: ViewAngles): Framin
     { azimuth: from.azimuth, polar: clamp(from.polar, band.min, band.max) },
     distance,
   );
+}
+
+/** How far a crowd object is inspected from, beyond its own size. */
+export const CROWD_STANDOFF = 16;
+
+// ---------------------------------------------------------------------------
+// Keeping the camera out of the buildings
+// ---------------------------------------------------------------------------
+
+/** A building or landmark plot as the camera sees it: an upright box. */
+export interface Obstacle {
+  id: string;
+  x: number;
+  z: number;
+  cos: number;
+  sin: number;
+  /** Half extents along its own x and z. */
+  hw: number;
+  hd: number;
+  top: number;
+}
+
+/**
+ * The near plane is 2 units out (`CityCanvas.tsx`): a camera closer than
+ * that to a wall sees through it.
+ */
+export const CAMERA_CLEARANCE = 2.4;
+/** Spires, masts and cornices stand a little above a building's `size`. */
+const TOP_ALLOWANCE = 1.12;
+/** How close to the target the sight line starts being tested. */
+const SIGHT_START = 1.2;
+
+const obstacleCache = new WeakMap<object, Obstacle[]>();
+
+/** Every building and landmark plot the camera must not stand in or look through. */
+export function framingObstacles(city: Pick<CityModel, "buildings" | "landmarks">): Obstacle[] {
+  const hit = obstacleCache.get(city);
+  if (hit) return hit;
+  const made: Obstacle[] = [];
+  const add = (id: string, position: Vec3, size: Vec3, rotationY: number) =>
+    made.push({
+      id,
+      x: position[0],
+      z: position[2],
+      cos: Math.cos(rotationY),
+      sin: Math.sin(rotationY),
+      hw: size[0] / 2,
+      hd: size[2] / 2,
+      top: position[1] + size[1] * TOP_ALLOWANCE,
+    });
+  for (const b of city.buildings) add(b.id, b.position, b.size, b.rotationY);
+  for (const l of city.landmarks) if (l.size) add(l.id, l.position, l.size, l.rotationY);
+  obstacleCache.set(city, made);
+  return made;
+}
+
+/** A world point in an obstacle's own frame (the inverse of its `rotationY`). */
+function toLocal(o: Obstacle, px: number, pz: number): [number, number] {
+  const dx = px - o.x;
+  const dz = pz - o.z;
+  return [dx * o.cos - dz * o.sin, dx * o.sin + dz * o.cos];
+}
+
+/** Whether the segment `a -> b` passes through the box, grown by `pad`. */
+function segmentHits(o: Obstacle, a: Vec3, b: Vec3, pad: number): boolean {
+  const [ax, az] = toLocal(o, a[0], a[2]);
+  const [bx, bz] = toLocal(o, b[0], b[2]);
+  const lo = [-o.hw - pad, -pad, -o.hd - pad];
+  const hi = [o.hw + pad, o.top + pad, o.hd + pad];
+  const p0 = [ax, a[1], az];
+  const d = [bx - ax, b[1] - a[1], bz - az];
+  let t0 = 0;
+  let t1 = 1;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(d[k]) < 1e-9) {
+      if (p0[k] < lo[k] || p0[k] > hi[k]) return false;
+      continue;
+    }
+    let near = (lo[k] - p0[k]) / d[k];
+    let far = (hi[k] - p0[k]) / d[k];
+    if (near > far) [near, far] = [far, near];
+    t0 = Math.max(t0, near);
+    t1 = Math.min(t1, far);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether a camera at `position` looking at `target` is inside a building,
+ * too close to a wall for the near plane, or looking through one.
+ */
+export function framingBlocked(target: Vec3, position: Vec3, obstacles: readonly Obstacle[]): boolean {
+  const length = Math.hypot(position[0] - target[0], position[1] - target[1], position[2] - target[2]);
+  if (length < 1e-6) return true;
+  const s = Math.min(SIGHT_START / length, 0.5);
+  const start: Vec3 = [
+    target[0] + (position[0] - target[0]) * s,
+    target[1] + (position[1] - target[1]) * s,
+    target[2] + (position[2] - target[2]) * s,
+  ];
+  for (const o of obstacles) {
+    if (segmentHits(o, start, position, 0)) return true;
+    if (segmentHits(o, position, position, CAMERA_CLEARANCE)) return true;
+  }
+  return false;
+}
+
+/** The obstacles within `reach` of a point on the ground, by their far corner. */
+function near(obstacles: readonly Obstacle[], x: number, z: number, reach: number): Obstacle[] {
+  return obstacles.filter((o) => Math.hypot(o.x - x, o.z - z) - Math.hypot(o.hw, o.hd) <= reach);
+}
+
+/** How far round the nearby rooftops count for "clear of the blocks". */
+const ROOF_REACH = 10;
+/** Nearly straight down: just inside `<CameraControls>`' `minPolarAngle`. */
+const OVERHEAD_POLAR = 0.16;
+
+/**
+ * `inspectionFraming`, kept out of the buildings (PLAN.md section 6).
+ *
+ * The plain framing keeps the user's bearing and tilt, which in a metropolis
+ * can put the camera inside the tower across the street, or behind it. This
+ * tries it first, and when a building is in the way, looks for the nearest
+ * view that is clear: a steeper look down, a small turn, a step in or out,
+ * in that order of preference, costed so the smallest change wins. A crowd
+ * object also prefers to be looked at from above the nearby rooftops rather
+ * than from down in the canyon, in the towers' shadow. With nothing clear
+ * at all, it looks nearly straight down from over the roofs.
+ */
+export function clearInspectionFraming(
+  focus: FocusTarget,
+  from: ViewAngles | undefined,
+  obstacles: readonly Obstacle[],
+): Framing {
+  const base = inspectionFraming(focus, from);
+  if (focus.kind === "district") return base;
+  const target = base.target;
+  const angles = viewAngles(base.position, target);
+  const distance = Math.hypot(
+    base.position[0] - target[0],
+    base.position[1] - target[1],
+    base.position[2] - target[2],
+  );
+  const facade = focus.facing !== undefined && Number.isFinite(focus.facing);
+  const crowd = facade || (focus.radius < 3 && focus.kind !== "building" && focus.kind !== "landmark");
+  const local = near(obstacles, target[0], target[2], distance * 1.6 + 4);
+
+  // How high the camera should be to be out of the canyon: over the nearby
+  // roofs, the scaffold's own tower aside, if that is within reach.
+  let roofs = 0;
+  if (crowd) {
+    for (const o of near(local, target[0], target[2], ROOF_REACH)) {
+      if (o.id !== focus.host) roofs = Math.max(roofs, o.top / TOP_ALLOWANCE);
+    }
+  }
+
+  const blocked = (framing: Framing) => framingBlocked(target, framing.position, local);
+  const canyon = (framing: Framing) => crowd && framing.position[1] < roofs + 1.5;
+  if (!blocked(base) && !canyon(base)) return base;
+
+  const scales = crowd ? [1, 1.25, 1.5, 0.8] : [1, 0.8, 0.65];
+  const polars: number[] = [];
+  for (let p = angles.polar; p >= 0.2; p -= 0.08) polars.push(p);
+  const turns: number[] = [0];
+  const reach = facade ? FACADE_SWING : Math.PI;
+  for (let a = 0.25; a <= reach + 1e-9; a += 0.25) turns.push(a, -a);
+  if (!facade) turns.push(Math.PI);
+
+  let best: Framing | null = null;
+  let bestCost = Number.POSITIVE_INFINITY;
+  for (const scale of scales) {
+    for (const polar of polars) {
+      for (const turn of turns) {
+        let azimuth = angles.azimuth + turn;
+        if (facade) {
+          const facing = focus.facing as number;
+          const off = Math.atan2(Math.sin(azimuth - facing), Math.cos(azimuth - facing));
+          if (Math.abs(off) > FACADE_SWING + 1e-9) continue;
+          azimuth = facing + off;
+        }
+        const cost =
+          Math.abs(turn) * 1 +
+          (angles.polar - polar) * 1.3 +
+          Math.abs(scale - 1) * 1.5;
+        if (cost >= bestCost) continue;
+        const framing = orbitFraming(target, { azimuth, polar }, distance * scale);
+        if (blocked(framing)) continue;
+        const total = cost + (canyon(framing) ? 1.2 : 0);
+        if (total < bestCost) {
+          best = framing;
+          bestCost = total;
+        }
+      }
+    }
+  }
+  // A clear view down in the canyon still beats a long way round.
+  const baseClear = !blocked(base);
+  if (baseClear && (!best || bestCost >= 1.2)) return base;
+  if (best) return best;
+  // Walled in on every side (a scaffold in a slot between two towers): look
+  // straight down from over the roofs, from whichever side is open.
+  for (let d = distance; d <= distance + 48; d += 6) {
+    for (const turn of turns.length > 1 ? [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI] : [0]) {
+      const framing = orbitFraming(target, { azimuth: angles.azimuth + turn, polar: OVERHEAD_POLAR }, d);
+      if (!blocked(framing)) return framing;
+    }
+  }
+  return orbitFraming(target, { azimuth: angles.azimuth, polar: OVERHEAD_POLAR }, distance);
 }
 
 /** How far either side of straight on a facade may be inspected from, radians. */

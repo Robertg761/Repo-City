@@ -12,7 +12,9 @@
  *
  * Per instance the forms carry `instancePhase` (0..1, so neighbouring fires
  * do not flicker in step) and `instanceCrowd`: the optional-part mask, the
- * reveal time and a 0..1 glow from the item's heat. Per vertex they carry
+ * reveal time and a 0..1 glow from the item's heat. `instancePaintA` and
+ * `instancePaintB` are the colours its painted panels take, and
+ * `instanceWear` how weathered it is (`WEAR_ATTRIBUTE`). Per vertex they carry
  * `crowd` (`forms.ts`): which part the vertex belongs to and its weight.
  *
  * Three materials share those uniforms: the lit crowd material (a
@@ -39,6 +41,15 @@ export const CROWD_CLOCK = {
 /** Per-instance attributes the crowd shader reads. */
 export const PHASE_ATTRIBUTE = "instancePhase";
 export const DATA_ATTRIBUTE = "instanceCrowd";
+/** The instance's two paint colours, linear RGB, for body paint slots 1 and 2. */
+export const PAINT_A_ATTRIBUTE = "instancePaintA";
+export const PAINT_B_ATTRIBUTE = "instancePaintB";
+/**
+ * How weathered the instance is, -1..1: its magnitude is how old and idle it
+ * is, its sign the kind of weathering. Positive rusts (cars, barriers, posts,
+ * skips); negative bleaches and dusts (a hole in the road, survey pegs).
+ */
+export const WEAR_ATTRIBUTE = "instanceWear";
 
 /** How fast each lamp part blinks, in the `effects.tsx` sense: pulses per second times two. */
 export const BLINK_RATE: Record<number, number> = {
@@ -66,6 +77,9 @@ export const CROWD_VERTEX_PARS = /* glsl */ `
 attribute vec2 ${CROWD_ATTRIBUTE};
 attribute float instancePhase;
 attribute vec3 instanceCrowd;
+attribute vec3 instancePaintA;
+attribute vec3 instancePaintB;
+attribute float instanceWear;
 uniform float uTime;
 uniform float uReveal;
 varying vec3 vCrowdGlow;
@@ -89,6 +103,25 @@ float crowdPhase = instancePhase;
 float crowdShown = 1.0;
 if ( crowdPart > 0.5 && crowdPart < 4.5 ) crowdShown = crowdBit( instanceCrowd.x, crowdPart - 1.0 );
 
+// A painted panel takes the instance's paint: slot 1 or 2 (\`forms.ts\`).
+if ( crowdPart < 0.5 && crowdWeight > 0.5 ) vColor.rgb *= crowdWeight < 1.5 ? instancePaintA : instancePaintB;
+
+// Age: rust in patches on metal and paint, or a bleached, dusty fade.
+// Dark glass, tyres and holes hardly change; bright paint shows it most.
+float crowdWear = abs( instanceWear );
+if ( crowdPart < 0.5 && crowdWear > 0.0 ) {
+  float luma = dot( vColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+  float speck = fract( sin( dot( position, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );
+  if ( instanceWear > 0.0 ) {
+    float amount = crowdWear * smoothstep( 0.03, 0.25, luma ) * ( 0.3 + 0.7 * speck );
+    vec3 rust = vec3( 0.3, 0.11, 0.04 ) * ( 0.75 + 0.5 * speck );
+    vColor.rgb = mix( vColor.rgb, rust, amount * 0.7 );
+  } else {
+    vec3 dust = vec3( luma ) * 0.85 + vec3( 0.07, 0.06, 0.04 );
+    vColor.rgb = mix( vColor.rgb, dust, crowdWear * ( 0.35 + 0.3 * speck ) );
+  }
+}
+
 vCrowdGlow = vec3( 0.0 );
 float crowdHeat = 0.45 + 0.55 * instanceCrowd.z;
 
@@ -108,8 +141,11 @@ if ( crowdPart > 0.5 && crowdPart < 1.5 ) {
   vCrowdGlow = vColor.rgb * ( 1.1 + flicker * 2.5 ) * crowdHeat;
 } else if ( crowdPart > 5.5 && crowdPart < 6.5 ) {
   vCrowdGlow = vColor.rgb * ( 0.15 + 2.0 * crowdPulse( ${BLINK_RATE[PART.amber].toFixed(2)}, crowdPhase ) );
-} else if ( crowdPart > 6.5 ) {
+} else if ( crowdPart > 6.5 && crowdPart < 7.5 ) {
   vCrowdGlow = vColor.rgb * ( 0.1 + 1.8 * step( 0.5, crowdPulse( ${BLINK_RATE[PART.hazard].toFixed(2)}, crowdPhase ) ) );
+} else if ( crowdPart > 7.5 ) {
+  // Weeds: flat while the issue is fresh, up to full height once it is old.
+  transformed.y *= clamp( crowdWear * 1.6 - 0.3, 0.0, 1.0 );
 }
 
 transformed *= crowdShown * crowdGrow( instanceCrowd.y );

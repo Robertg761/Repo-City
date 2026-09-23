@@ -18,7 +18,7 @@ import { BatchProvider } from "./Batch";
 import Buildings from "./Buildings";
 import CivicBuilding from "./Building";
 import ConstructionSitePiece from "./ConstructionSite";
-import DistrictGround from "./District";
+import DistrictGround, { DistrictLabels } from "./District";
 import Fields from "./Fields";
 import IssueIncident from "./IssueIncident";
 import LandmarkPiece from "./Landmark";
@@ -133,17 +133,17 @@ export default function City({
       <Fields city={city} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
-        <DistrictGround
-          key={district.id}
-          district={district}
-          atmosphere={atmosphere}
-          labelY={labelHeights.get(district.id) ?? labelFloor}
-          settlement={tier}
-          // The overview sits at about 1.45 times the city's side, so a label
-          // scaled off `bounds.size` reads the same in a town and a metropolis.
-          labelScale={size * 0.72}
-        />
+        <DistrictGround key={district.id} district={district} atmosphere={atmosphere} settlement={tier} />
       ))}
+      <DistrictLabels
+        districts={city.districts}
+        labelHeights={labelHeights}
+        labelFloor={labelFloor}
+        settlement={tier}
+        // The overview sits at about 1.45 times the city's side, so a label
+        // scaled off `bounds.size` reads the same in a town and a metropolis.
+        labelScale={size * 0.72}
+      />
 
       <Roads roads={city.roads} atmosphere={atmosphere} />
 
@@ -161,7 +161,7 @@ export default function City({
       ))}
 
       {city.constructionSites.map((site) => (
-        <ConstructionSitePiece key={site.id} site={site} atmosphere={atmosphere} />
+        <ConstructionSitePiece key={site.id} site={site} atmosphere={atmosphere} settlement={tier} />
       ))}
 
       <Backlog city={city} atmosphere={atmosphere} />

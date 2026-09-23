@@ -7,8 +7,13 @@ import {
   REFERENCE_ASPECT,
   STREET_POLAR,
   CITY_TALLEST,
+  CROWD_STANDOFF,
   aspectWiden,
   cameraBoundary,
+  clearInspectionFraming,
+  framingBlocked,
+  framingObstacles,
+  type Obstacle,
   districtCenter,
   focusTargetFor,
   inspectionFraming,
@@ -402,6 +407,64 @@ describe("crowd focus (PLAN.md 76.9)", () => {
     expect(focus.lookAt[1]).toBeGreaterThan(overflow.position[1]);
     const framing = inspectionFraming(focus);
     expect(distance(framing.position, framing.target)).toBeLessThan(MAX_DISTANCE);
+  });
+
+  it("frames a crowd object with the street round it, and a scaffold whole", () => {
+    const crowd = backlog.incidents.find((i) => !i.lane)!;
+    const near = inspectionFraming(focusTargetFor(city, crowd.id)!);
+    expect(distance(near.position, near.target)).toBeGreaterThanOrEqual(CROWD_STANDOFF);
+    const scaffold = backlog.constructionSites.find((c) => c.form === "scaffold" && c.size && c.size[1] > 12)!;
+    const focus = focusTargetFor(city, scaffold.id)!;
+    expect(focus.span).toBeGreaterThanOrEqual(10);
+    const framing = inspectionFraming(focus);
+    // The frame's height at the scaffold holds it with room to spare.
+    const frameHeight = 2 * Math.tan((35 * Math.PI) / 360) * distance(framing.position, framing.target);
+    expect(frameHeight).toBeGreaterThan(focus.span! * 1.4);
+  });
+
+  it("never stands the camera in a building or looks through one", () => {
+    const obstacles = framingObstacles(city);
+    const overview = overviewFraming(city.bounds.size);
+    const from = viewAngles(overview.position, overview.target);
+    const ids = [
+      ...city.incidents.map((e) => e.id),
+      ...city.constructionSites.map((e) => e.id),
+      ...backlog.constructionSites.filter((c) => c.buildingId).slice(0, 60).map((e) => e.id),
+      ...backlog.incidents.slice(0, 60).map((e) => e.id),
+    ];
+    let plainBlocked = 0;
+    const started = performance.now();
+    for (const id of ids) {
+      const focus = focusTargetFor(city, id)!;
+      const plain = inspectionFraming(focus, from);
+      if (framingBlocked(plain.target, plain.position, obstacles)) plainBlocked++;
+      const framing = clearInspectionFraming(focus, from, obstacles);
+      expect(framingBlocked(framing.target, framing.position, obstacles), id).toBe(false);
+    }
+    // The metropolis really does hide things from the plain framing.
+    expect(plainBlocked).toBeGreaterThan(0);
+    // Selection stays instant: well under a frame per focus on average.
+    expect((performance.now() - started) / ids.length).toBeLessThan(16);
+  });
+
+  it("keeps the user's own view when nothing is in the way", () => {
+    const focus = focusTargetFor(city, city.incidents[0].id)!;
+    const from = { azimuth: 0.4, polar: 0.6 };
+    expect(clearInspectionFraming(focus, from, [])).toEqual(inspectionFraming(focus, from));
+  });
+
+  it("finds a camera inside a tower and a sight line through one", () => {
+    const tower: Obstacle = { id: "t", x: 10, z: 0, cos: 1, sin: 0, hw: 3, hd: 3, top: 30 };
+    expect(framingBlocked([0, 1, 0], [10, 10, 0], [tower])).toBe(true);
+    expect(framingBlocked([0, 1, 0], [20, 10, 0], [tower])).toBe(true);
+    expect(framingBlocked([0, 1, 0], [-20, 10, 0], [tower])).toBe(false);
+    // Over its roof is clear.
+    expect(framingBlocked([0, 1, 0], [10, 60, 0], [tower])).toBe(false);
+  });
+
+  it("has nothing to fly to when the remainder is too small to signpost", () => {
+    const trivial = { ...city, overflow: { ...city.overflow!, size: [0, 0, 0] as Vec3, queue: [] } };
+    expect(focusTargetFor(trivial, "overflow")).toBeNull();
   });
 
   it("keeps every crowd focus inside the camera boundary", () => {
