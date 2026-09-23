@@ -95,7 +95,10 @@ export default function SelectionRing({ city }: { city: CityModel }) {
   const halo = useRef<ShaderMaterial>(null);
 
   const focus = selectedId ? focusTargetFor(city, selectedId) : null;
-  const radius = Math.max((focus?.radius ?? 2) * 1.15, 2.2);
+  // Round the plot, not the camera's reach: a tower's focus radius follows
+  // its height, and a ring that size lay across the whole block and the
+  // streets round it.
+  const radius = Math.max((focus?.footprint ?? focus?.radius ?? 2) * 1.15, 2.2);
 
   const uniforms = useMemo(
     () => ({
