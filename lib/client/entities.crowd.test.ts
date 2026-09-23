@@ -256,6 +256,49 @@ describe("the queue at the limits", () => {
     );
   });
 
+  describe("a remainder too small to queue", () => {
+    // atom/atom: 961 of 962 open issues drawn. No sign stands and no cars
+    // queue, so nothing may say "queued" or "queue".
+    const leftover: Overflow = {
+      ...overflow,
+      issues: { total: 962, drawn: 961, hidden: 1 },
+      pulls: { total: 31, drawn: 31, hidden: 0 },
+      exact: true,
+      size: [0, 0, 0],
+      queue: [],
+    };
+    const model: CityModel = { ...city, overflow: leftover };
+
+    it("says what is not drawn instead of what is queued", () => {
+      expect(overflowFacts(leftover, null)).toEqual([
+        { label: "Issues open", value: "962" },
+        { label: "Issues drawn", value: "961" },
+        { label: "Issues left over", value: "1 not drawn (no queue for so few)" },
+        { label: "PRs open", value: "31" },
+        { label: "PRs drawn", value: "31" },
+        { label: "PRs left over", value: "none" },
+      ]);
+    });
+
+    it("is headed and titled as counted, not as a queue", () => {
+      const resolved = resolveEntity("overflow", model, analysis, NOW);
+      expect(resolved?.label).toBe("COUNTED, NOT DRAWN");
+      expect(resolved?.title).toBe("1 open issue not drawn");
+      expect(resolved?.tooltip).toBe("1 open issue counted but not drawn");
+      expect(JSON.stringify(resolved?.facts)).not.toMatch(/queued/i);
+    });
+
+    it("names both kinds when both are left over", () => {
+      const both: Overflow = {
+        ...leftover,
+        pulls: { total: 31, drawn: 30, hidden: 1 },
+        exact: false,
+      };
+      const resolved = resolveEntity("overflow", { ...city, overflow: both }, analysis, NOW);
+      expect(resolved?.title).toBe("about 1 open issue and about 1 open pull request not drawn");
+    });
+  });
+
   it("formats about-counts", () => {
     expect(aboutCount(21011, true)).toBe("21,011");
     expect(aboutCount(21011, false)).toBe("about 21,011");

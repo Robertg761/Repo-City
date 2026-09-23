@@ -11,7 +11,7 @@
 
 import dynamic from "next/dynamic";
 import AnalysisProgress from "@/components/AnalysisProgress";
-import CityHUD from "@/components/CityHUD";
+import CityHUD, { HealthPanel } from "@/components/CityHUD";
 import ErrorBanner from "@/components/ErrorBanner";
 import Inspector from "@/components/Inspector";
 import Legend from "@/components/Legend";
@@ -38,7 +38,20 @@ export default function Page() {
       <CityHUD />
       <RepoInput />
       <AnalysisProgress />
-      <Inspector />
+
+      {/* The right-hand rail: the health card, then the inspector below it.
+          One column, so the inspector always starts under the card's real
+          height, however many chips and notes the card carries, and shrinks
+          to scroll before it would reach it. On a phone the rail runs from
+          under the repo control to the bottom edge, and the inspector drops
+          to the bottom as a sheet. Above the legend, which the phone sheet
+          covers, and below the identity block, whose settlement note opens
+          over the card. */}
+      <div className="pointer-events-none absolute inset-x-2 bottom-2 top-[7rem] z-[22] flex flex-col items-end gap-3 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:top-4">
+        <HealthPanel />
+        <Inspector />
+      </div>
+
       <Tooltip />
       <Legend />
       <ErrorBanner />

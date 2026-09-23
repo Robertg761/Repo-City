@@ -15,6 +15,32 @@ describe("legend (PLAN.md 76.10)", () => {
     for (const form of forms) expect(terms("issues")).toContain(INCIDENT_FORM_LABEL[form]);
   });
 
+  it("lists the issue forms in the order the form rules try them", () => {
+    // `issueForm` in lib/analysis/forms.ts: labels first (fire, roadblock,
+    // signpost, survey, collision), then the title, then age (wreck), then
+    // everything else (pothole).
+    expect(ISSUE_FORM_ORDER).toEqual([
+      "fire",
+      "roadblock",
+      "signpost",
+      "survey",
+      "collision",
+      "wreck",
+      "pothole",
+    ]);
+    const issues = LEGEND_SECTIONS.find((s) => s.id === "issues");
+    const listed = issues?.entries.slice(1).map(([term]) => term);
+    expect(listed).toEqual(ISSUE_FORM_ORDER.map((form) => INCIDENT_FORM_LABEL[form]));
+  });
+
+  it("calls a wreck silent and two years untouched, and weathers every form", () => {
+    const issues = LEGEND_SECTIONS.find((s) => s.id === "issues");
+    const wreck = issues?.entries.find(([term]) => term === INCIDENT_FORM_LABEL.wreck);
+    expect(wreck?.[1]).toBe("untouched for two years with nothing in its labels or title");
+    expect(issues?.note).toMatch(/every form/i);
+    expect(issues?.note).toMatch(/rust/i);
+  });
+
   it("teaches the four crowd works forms, the crane and the three signals", () => {
     const forms = (Object.keys(WORKS_FORM_LABEL) as WorksForm[]).filter((f) => f !== "site");
     expect([...WORKS_FORM_ORDER].sort()).toEqual([...forms].sort());
