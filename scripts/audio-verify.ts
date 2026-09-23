@@ -49,6 +49,9 @@ const chrome = spawn(
     "--force-device-scale-factor=1",
     // The policy a visitor's browser applies: no audio before a gesture.
     "--autoplay-policy=user-gesture-required",
+    // Never through the machine's speakers: the contexts still run and
+    // render (which is what is being measured), and nothing is heard.
+    "--mute-audio",
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
     "--no-first-run",
@@ -113,22 +116,31 @@ async function connect(): Promise<WebSocket> {
   throw new Error("Chrome did not start");
 }
 
-/** utime + stime, in clock ticks, of every process in Chrome's tree, by type. */
-function chromeCpu(): Record<string, number> {
-  const byType: Record<string, number> = {};
+/**
+ * utime + stime, in clock ticks, of every process in Chrome's tree, by
+ * process type, and of every thread in it, by thread name: Chrome renders
+ * Web Audio on threads of its own ("AudioOutputDevice" and the like), so the
+ * soundscape's cost can be read apart from the WebGL rendering's.
+ */
+function chromeCpu(): { processes: Record<string, number>; threads: Record<string, number> } {
+  const processes: Record<string, number> = {};
+  const threads: Record<string, number> = {};
   const tree = new Set<number>([chrome.pid!]);
   const procs: { pid: number; ppid: number; ticks: number; type: string }[] = [];
+  const ticksOf = (stat: string) => {
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return { ppid: Number(fields[1]), ticks: Number(fields[11]) + Number(fields[12]) };
+  };
   for (const entry of readdirSync("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
     try {
-      const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      const ppid = Number(fields[1]);
-      const ticks = Number(fields[11]) + Number(fields[12]);
-      const cmd = readFileSync(`/proc/${entry}/cmdline`, "utf8").split("\0");
-      const typeArg = cmd.find((a) => a.startsWith("--type="))?.slice(7) ?? "browser";
-      const sub = cmd.find((a) => a.startsWith("--utility-sub-type="))?.slice(19);
-      procs.push({ pid: Number(entry), ppid, ticks, type: sub ? `${typeArg}:${sub}` : typeArg });
+      const { ppid, ticks } = ticksOf(readFileSync(`/proc/${entry}/stat`, "utf8"));
+      // Chrome retitles its children, so their arguments may come back as one
+      // space-separated string rather than NUL-separated ones.
+      const cmd = readFileSync(`/proc/${entry}/cmdline`, "utf8").replace(/\0/g, " ");
+      const type = /--type=(\S+)/.exec(cmd)?.[1] ?? "browser";
+      const sub = /--utility-sub-type=(\S+)/.exec(cmd)?.[1];
+      procs.push({ pid: Number(entry), ppid, ticks, type: sub ? `${type}:${sub}` : type });
     } catch {
       /* gone */
     }
@@ -144,8 +156,21 @@ function chromeCpu(): Record<string, number> {
       }
     }
   }
-  for (const p of procs) if (tree.has(p.pid)) byType[p.type] = (byType[p.type] ?? 0) + p.ticks;
-  return byType;
+  for (const p of procs) {
+    if (!tree.has(p.pid)) continue;
+    processes[p.type] = (processes[p.type] ?? 0) + p.ticks;
+    try {
+      for (const tid of readdirSync(`/proc/${p.pid}/task`)) {
+        const name = readFileSync(`/proc/${p.pid}/task/${tid}/comm`, "utf8").trim();
+        const { ticks } = ticksOf(readFileSync(`/proc/${p.pid}/task/${tid}/stat`, "utf8"));
+        const key = `${p.type} / ${name}`;
+        threads[key] = (threads[key] ?? 0) + ticks;
+      }
+    } catch {
+      /* gone */
+    }
+  }
+  return { processes, threads };
 }
 
 async function main(): Promise<void> {
@@ -180,8 +205,8 @@ async function main(): Promise<void> {
       pending.set(n, resolve);
       ws.send(JSON.stringify({ id: n, method, params }));
     });
-  const evaluate = async <T>(expression: string): Promise<T> => {
-    const reply = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  const evaluate = async <T>(expression: string, userGesture = false): Promise<T> => {
+    const reply = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true, userGesture });
     const result = reply.result as { result?: { value?: unknown }; exceptionDetails?: { text?: string; exception?: { description?: string } } };
     if (result?.exceptionDetails) {
       throw new Error(`evaluate failed: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
@@ -253,6 +278,25 @@ async function main(): Promise<void> {
     const cpuOff1 = chromeCpu();
     const metricsOff1 = await send("Performance.getMetrics");
 
+    // What Chrome's audio threads cost for a bare context playing nothing,
+    // to set the soundscape's own cost against.
+    const audioThreadTicks = () =>
+      Object.entries(chromeCpu().threads)
+        .filter(([name]) => /audio/i.test(name))
+        .reduce((sum, [, ticks]) => sum + ticks, 0);
+    const audioThreadsFor = async (ms: number) => {
+      const a = audioThreadTicks();
+      await sleep(ms);
+      return ((audioThreadTicks() - a) / 100 / (ms / 1000)) * 1000;
+    };
+    const bareState = await evaluate<string>(
+      "(async () => { window.__bare = new AudioContext({ latencyHint: 'playback' }); await window.__bare.resume(); return window.__bare.state; })()",
+      true,
+    );
+    const bare = await audioThreadsFor(CPU_WINDOW_MS);
+    await evaluate("window.__bare.close()");
+    log(`a bare AudioContext (${bareState}, nothing connected): ${bare.toFixed(1)} ms of audio-thread CPU a second`);
+
     // 2. A real click on the speaker.
     await click(before!.x, before!.y);
     await waitFor(`window.__repoCity.audio.stats().status === "playing"`, 15_000);
@@ -283,22 +327,36 @@ async function main(): Promise<void> {
     const metric = (m: Msg, name: string) =>
       ((m.result as { metrics: { name: string; value: number }[] }).metrics.find((x) => x.name === name)?.value ?? 0);
     const seconds = CPU_WINDOW_MS / 1000;
-    const offCpu = diff(cpuOff0, cpuOff1);
-    const onCpu = diff(cpuOn0, cpuOn1);
+    const perSecond = (v: number | undefined) => (((v ?? 0) / seconds) * 1000).toFixed(1);
     log(`draw calls per frame: off ${perfOff.calls}, on ${perfOn.calls}`);
     log(`update cost: ${Number(tickAfter.tickMs).toFixed(3)} ms mean, ${Number(tickAfter.tickMsMax).toFixed(3)} ms worst, ${(Number(tickAfter.ticks) - Number(tickBefore.ticks)) / seconds} updates a second`);
     log(
-      `main-thread script: off ${((metric(metricsOff1, "ScriptDuration") - metric(metricsOff0, "ScriptDuration")) / seconds * 1000).toFixed(1)} ms/s, on ${((metric(metricsOn1, "ScriptDuration") - metric(metricsOn0, "ScriptDuration")) / seconds * 1000).toFixed(1)} ms/s`,
+      `main-thread script: off ${perSecond(metric(metricsOff1, "ScriptDuration") - metric(metricsOff0, "ScriptDuration"))} ms/s, on ${perSecond(metric(metricsOn1, "ScriptDuration") - metric(metricsOn0, "ScriptDuration"))} ms/s`,
     );
-    for (const type of Object.keys({ ...offCpu, ...onCpu }).sort()) {
-      log(`cpu ${type}: off ${((offCpu[type] ?? 0) / seconds * 1000).toFixed(1)} ms/s, on ${((onCpu[type] ?? 0) / seconds * 1000).toFixed(1)} ms/s`);
+    const offProc = diff(cpuOff0.processes, cpuOff1.processes);
+    const onProc = diff(cpuOn0.processes, cpuOn1.processes);
+    for (const type of Object.keys({ ...offProc, ...onProc }).sort()) {
+      log(`cpu process ${type}: off ${perSecond(offProc[type])} ms/s, on ${perSecond(onProc[type])} ms/s`);
     }
+    const offThreads = diff(cpuOff0.threads, cpuOff1.threads);
+    const onThreads = diff(cpuOn0.threads, cpuOn1.threads);
+    const audioThreads = Object.keys({ ...offThreads, ...onThreads }).filter((k) => /audio/i.test(k)).sort();
+    for (const name of audioThreads) {
+      log(`cpu thread ${name}: off ${perSecond(offThreads[name])} ms/s, on ${perSecond(onThreads[name])} ms/s`);
+    }
+    const audioCost = audioThreads.reduce((sum, k) => sum + (onThreads[k] ?? 0) - (offThreads[k] ?? 0), 0);
+    log(`soundscape on the audio threads: ${perSecond(audioCost)} ms of CPU a second (${((audioCost / seconds) * 100).toFixed(2)}% of one core)`);
+
+    // Draw calls again, for the frame-to-frame spread the traffic alone makes.
+    await evaluate("window.__repoCity.perfClear()");
+    await sleep(5000);
+    log(`draw calls per frame, a second sound-on sample: ${(await evaluate<{ calls: number }>("window.__repoCity.perf")).calls}`);
 
     // 3. Down to the ground by the crane, then three city reloads.
     const flyTo = async (kind: "crane" | "fire" | "station") => {
       await evaluate(`(() => {
         const c = window.__repoCity.getState().city;
-        const e = ${kind === "crane" ? "c.constructionSites.find(s => s.state === 'active' || s.state === 'slow')" : kind === "fire" ? "c.incidents.find(i => i.form === 'fire')" : "c.landmarks.find(l => l.landmarkType === 'station')"};
+        const e = ${kind === "crane" ? "c.constructionSites.find(s => s.state === 'active' || s.state === 'slow')" : kind === "fire" ? "c.incidents.find(i => i.state === 'major')" : "c.landmarks.find(l => l.landmarkType === 'station')"};
         if (!e) return false;
         const [x, , z] = e.position;
         window.__repoCity.controls.setLookAt(x + 12, 10, z + 12, x, 0, z, false);
@@ -309,11 +367,13 @@ async function main(): Promise<void> {
     await flyTo("crane");
     const low = await stats();
     log(`at the crane: altitude=${Number(low.altitude).toFixed(2)}, local voices=${low.locals} [${(low.localIds as string[]).join(", ")}], live nodes=${low.liveNodes}`);
+    log(`audio threads at the crane, local voices panned: ${(await audioThreadsFor(CPU_WINDOW_MS)).toFixed(1)} ms of CPU a second`);
 
     const counts: string[] = [];
     for (const input of ["backlog", "stress", "fixture", "backlog", "fixture"]) {
       await survey(input);
-      await sleep(1500);
+      // Let the arrival glide finish before taking the camera.
+      await sleep(7000);
       await flyTo(input === "stress" ? "crane" : "fire");
       await sleep(2000);
       const s = await stats();
