@@ -16,6 +16,8 @@ import {
   MAX_OPEN_ISSUES,
   MAX_PULL_PAGES,
   PER_PAGE,
+  SEARCH_MAX_PAGES,
+  SEARCH_SWITCH_REACH,
 } from "./budgets.ts";
 
 export type StopReason = NonNullable<SurveyCoverage["stoppedBy"]>;
@@ -55,14 +57,31 @@ export async function fetchPages<T>(
   pages: number[],
   options: FetchPagesOptions<T> = {},
 ): Promise<PagesResult<T>> {
-  const settled = await Promise.allSettled(
-    pages.map(async (page) => {
-      const result = await client.getPage<T>(path, {
+  return settlePages(
+    pages,
+    (page) =>
+      client.getPage<T>(path, {
         resource: `${options.resource ?? path} page ${page}`,
         query: { ...query, page },
         signal: options.deadline,
         ...(options.slim ? { slim: options.slim } : {}),
-      });
+      }),
+    options,
+  );
+}
+
+/**
+ * Runs `fetchOne` for every page at once and settles them into one result,
+ * for list endpoints whose pages are not bare arrays (search).
+ */
+export async function settlePages<T>(
+  pages: number[],
+  fetchOne: (page: number) => Promise<{ items: T[]; lastPage: number | null }>,
+  options: Pick<FetchPagesOptions<T>, "deadline" | "onPage"> = {},
+): Promise<PagesResult<T>> {
+  const settled = await Promise.allSettled(
+    pages.map(async (page) => {
+      const result = await fetchOne(page);
       try {
         options.onPage?.(page, result.items);
       } catch {
@@ -149,6 +168,37 @@ export function planIssueTopUp(
   const wanted = Math.ceil(Math.min(MAX_OPEN_ISSUES, issues) / issuesPerPage);
 
   return Math.max(planned, Math.min(MAX_ISSUE_PAGES, wanted, lastListedPage));
+}
+
+/**
+ * Wave A' by search: how many `/search/issues` pages to fetch instead of REST
+ * top-up pages, or 0 to stay on REST. Search is chosen only when the REST
+ * ceiling of `MAX_ISSUE_PAGES` pages would reach less than
+ * `SEARCH_SWITCH_REACH` of the issues wanted, because pull requests take
+ * most of every `/issues` page. A listing REST can walk to its end within
+ * that ceiling never needs search, whatever its split.
+ */
+export function planIssueSearch(
+  planned: number,
+  totals: { issues: number; pulls: number },
+): number {
+  if (planned <= 0) return 0;
+  const { issues, pulls } = totals;
+  if (!(issues > 0)) return 0;
+
+  const listed = issues + Math.max(0, pulls);
+  if (Math.ceil(listed / PER_PAGE) <= MAX_ISSUE_PAGES) return 0;
+
+  const wanted = Math.min(MAX_OPEN_ISSUES, issues);
+  const restReach = (MAX_ISSUE_PAGES * PER_PAGE * issues) / listed;
+  if (restReach >= SEARCH_SWITCH_REACH * wanted) return 0;
+  return searchPagesFor(wanted);
+}
+
+/** Search pages that list `issues` issues, never past search's 1,000-result end. */
+export function searchPagesFor(issues: number): number {
+  if (!(issues > 0)) return 0;
+  return Math.min(SEARCH_MAX_PAGES, Math.ceil(Math.min(MAX_OPEN_ISSUES, issues) / PER_PAGE));
 }
 
 /** Wave B: open pull pages 2..min(5, lastPage) after page 1 said how many there are. */
