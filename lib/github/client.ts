@@ -11,7 +11,7 @@
  *   dedupe across serverless instances (section 30), and, for answers too
  *   large for the data cache, a slimmed copy in the per-process `memo.ts`
  * - budget: request counters, surfaced as `RepositorySnapshot.requestCount`,
- *   and the REST and GraphQL `x-ratelimit-remaining` read separately
+ *   and the REST, search and GraphQL `x-ratelimit-remaining` read separately
  * - failure: raw statuses mapped onto the `GitHubError` codes the stream knows
  * - time: a 12 second per-request timeout via `AbortController`, plus an
  *   optional per-request signal so one page can be abandoned at a deadline
@@ -114,6 +114,12 @@ export class GitHubClient {
   rateLimitRemaining: number | null = null;
   /** Last seen GraphQL `x-ratelimit-remaining`, in points: a separate budget from REST. */
   graphqlRemaining: number | null = null;
+  /**
+   * Last seen search `x-ratelimit-remaining`: `/search/*` has its own budget
+   * of 30 requests a minute with a token, and must not be mistaken for the
+   * core REST remainder the rate guard reads.
+   */
+  searchRemaining: number | null = null;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -373,7 +379,9 @@ export class GitHubClient {
     if (remaining !== null && remaining !== undefined && remaining !== "") {
       const parsed = Number(remaining);
       const value = Number.isFinite(parsed) ? parsed : null;
+      const resource = response.headers?.get?.("x-ratelimit-resource");
       if (graphql) this.graphqlRemaining = value;
+      else if (resource === "search") this.searchRemaining = value;
       else this.rateLimitRemaining = value;
     }
   }
