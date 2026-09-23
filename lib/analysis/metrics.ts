@@ -108,8 +108,9 @@ export interface MetricsResult {
 
 function computeScale(
   entries: readonly TreeEntry[],
-  surveyed: readonly TreeEntry[],
+  tree: Pick<RepositorySnapshot["tree"], "entries" | "totalFiles" | "totalDirs" | "githubTruncated">,
 ): RepoMetrics["scale"] {
+  const surveyed = tree.entries;
   const blobs = blobsOf(entries);
   const dirs = entries.filter((e) => e.type === "tree").length;
   const files = blobs.length;
@@ -119,7 +120,22 @@ function computeScale(
   // lockfiles, binaries and anything past the depth cap. The two numbers are
   // both true and must never be shown under one label (QA-2026-09-21 bug 2).
   const surveyedFiles = Math.max(files, blobsOf(surveyed).length);
-  return { files, dirs, languages: countLanguages(blobs), tier, surveyedFiles };
+  const scale: RepoMetrics["scale"] = {
+    files,
+    dirs,
+    languages: countLanguages(blobs),
+    tier,
+    surveyedFiles,
+  };
+  // PLAN.md 76.3: the uncapped counts ingestion took before the depth and
+  // entry caps, which the settlement and the "N files mapped" line read. Only
+  // when ingestion counted them, so an older snapshot keeps its old keys.
+  if (tree.totalFiles !== undefined && tree.totalDirs !== undefined) {
+    scale.totalFiles = tree.totalFiles;
+    scale.totalDirs = tree.totalDirs;
+    scale.lowerBound = tree.githubTruncated === true;
+  }
+  return scale;
 }
 
 /* ---------------------------------------------------------------- activity */
@@ -513,7 +529,7 @@ export function computeMetrics(
   const pruned = options.prunedEntries ?? pruneTree(snapshot.tree.entries);
 
   const core: MetricsCore = {
-    scale: computeScale(pruned, snapshot.tree.entries),
+    scale: computeScale(pruned, snapshot.tree),
     activity: computeActivity(snapshot, now),
     issues: computeIssues(snapshot, districts, now),
     pulls: computePulls(snapshot, districts, now),

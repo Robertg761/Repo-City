@@ -3,10 +3,17 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RepoAnalysis } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
+import {
+  SYNTHETIC_WARNING,
+  backlogBase,
+  buildBacklogFixture,
+  serializeFixture,
+} from "./make-backlog-fixture";
 
 const load = (name: string): RepoAnalysis =>
   JSON.parse(readFileSync(path.join(process.cwd(), "fixtures", name), "utf8")) as RepoAnalysis;
 
+const raw = readFileSync(path.join(process.cwd(), "fixtures", "backlog.analysis.json"), "utf8");
 const backlog = load("backlog.analysis.json");
 
 /**
@@ -15,14 +22,30 @@ const backlog = load("backlog.analysis.json");
  * the stress fixture built from it) stays frozen on the earlier capture, so
  * the base is the fixture itself with the synthetic crowd taken off.
  */
-const react: RepoAnalysis = {
-  ...backlog,
-  metrics: {
-    ...backlog.metrics,
-    issues: { ...backlog.metrics.issues, backlog: undefined, total: undefined },
-    pulls: { ...backlog.metrics.pulls, backlog: undefined, total: undefined },
-  },
-};
+const react: RepoAnalysis = backlogBase(backlog);
+
+describe("the frozen base (make-backlog-fixture.ts)", () => {
+  it("rebuilds the committed file byte for byte from its own base", () => {
+    expect(serializeFixture(buildBacklogFixture(react))).toBe(raw);
+  });
+
+  it("takes off exactly the synthetic crowd, totals and warning", () => {
+    expect(react.metrics.issues).not.toHaveProperty("backlog");
+    expect(react.metrics.issues).not.toHaveProperty("total");
+    expect(react.metrics.pulls).not.toHaveProperty("backlog");
+    expect(react.metrics.pulls).not.toHaveProperty("total");
+    expect(react.warnings).not.toContain(SYNTHETIC_WARNING);
+    expect(backlog.warnings).toEqual([...react.warnings, SYNTHETIC_WARNING]);
+  });
+
+  it("does not depend on the live react capture", () => {
+    // The recapture has a real crowd and a different head; the frozen base
+    // is the pre-settlement capture.
+    const live = load("react__react.analysis.json");
+    expect(live.generatedAt).not.toBe(react.generatedAt);
+    expect(buildBacklogFixture(react)).toEqual(backlog);
+  });
+});
 
 describe("fixtures/backlog.analysis.json (PLAN.md 76.11)", () => {
   const issues = backlog.metrics.issues.backlog!;

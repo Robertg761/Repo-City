@@ -8,10 +8,19 @@
  * so the crowd layer, the overflow and the HUD can be built and measured
  * before ingestion (S1) and interpretation (S2) produce real backlogs.
  *
- * Forms are assigned round-robin, so every form appears about equally often.
+ * Forms are assigned round-robin, so every form appears about equally often,
+ * on purpose: the fixture exists to exercise every crowd shape at scale, not
+ * to show a realistic mix, so `migrate-fixtures` leaves its forms alone.
  * Severity (`state`) follows the form where 76.7 ties them together: a fire
- * is `major`, a wreck `stale`, a collision `collision`. Nothing reads the
- * clock or `Math.random`, so re-running reproduces the file byte for byte.
+ * is `major`, a wreck `stale`, a collision `collision`.
+ *
+ * The base is frozen: the react capture the crowd was first built on (before
+ * the settlement round) is read back out of this fixture itself, with the
+ * synthetic crowd, totals and warning taken off (`backlogBase`). It never
+ * reads `fixtures/react__react.analysis.json`, which has since been
+ * recaptured, so a recapture cannot move this fixture or the stress fixture
+ * built on it. Nothing reads the clock or `Math.random`, so re-running
+ * reproduces the file byte for byte.
  *
  *   node scripts/make-backlog-fixture.ts
  *
@@ -20,7 +29,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { hashString, mulberry32 } from "../lib/city/prng.ts";
+import { hashString, mulberry32, type Prng } from "../lib/city/prng.ts";
 import type {
   BacklogIssue,
   BacklogPull,
@@ -38,11 +47,14 @@ export const BACKLOG_PULLS = 490;
 export const TOTAL_ISSUES = 1_320;
 export const TOTAL_PULLS = 560;
 
-const SOURCE = fileURLToPath(new URL("../fixtures/react__react.analysis.json", import.meta.url));
-const OUT = fileURLToPath(new URL("../fixtures/backlog.analysis.json", import.meta.url));
+/** Both the frozen base and the output: see `backlogBase`. */
+export const FIXTURE = fileURLToPath(new URL("../fixtures/backlog.analysis.json", import.meta.url));
+
+export const SYNTHETIC_WARNING =
+  "Synthetic backlog fixture: the crowd issues and pull requests are invented.";
 
 const DAY = 86_400_000;
-const prng = mulberry32(hashString("repo-city/backlog-fixture/v1"));
+const SEED = "repo-city/backlog-fixture/v1";
 
 const ISSUE_FORMS: readonly IncidentForm[] = [
   "fire",
@@ -106,13 +118,34 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const heatOf = (comments: number, reactions: number): number =>
   round2(clamp(Math.log2(1 + comments + 2 * reactions) / 7, 0, 1));
 
-function title(templates: readonly string[], module: string): string {
+function title(prng: Prng, templates: readonly string[], module: string): string {
   const noun = prng.pick(NOUNS);
   return prng.pick(templates).replace("{m}", module).replace("{n}", noun).slice(0, 140);
 }
 
-function main(): void {
-  const react = JSON.parse(readFileSync(SOURCE, "utf8")) as RepoAnalysis;
+/**
+ * The react capture this fixture was built on: the fixture with its synthetic
+ * crowd, totals and warning taken off. Every other field, the settlement
+ * included, is already what `buildBacklogFixture` would write over it.
+ */
+export function backlogBase(fixture: RepoAnalysis): RepoAnalysis {
+  const { issues, pulls } = fixture.metrics;
+  const { backlog: _issueBacklog, total: _issueTotal, ...issuesBase } = issues;
+  const { backlog: _pullBacklog, total: _pullTotal, ...pullsBase } = pulls;
+  void _issueBacklog;
+  void _issueTotal;
+  void _pullBacklog;
+  void _pullTotal;
+  return {
+    ...fixture,
+    metrics: { ...fixture.metrics, issues: issuesBase, pulls: pullsBase },
+    warnings: fixture.warnings.filter((warning) => warning !== SYNTHETIC_WARNING),
+  };
+}
+
+/** The fixture built on `react`, a fresh PRNG each call. */
+export function buildBacklogFixture(react: RepoAnalysis): RepoAnalysis {
+  const prng = mulberry32(hashString(SEED));
   const now = Date.parse(react.generatedAt);
   const iso = (daysAgo: number): string => new Date(now - Math.round(daysAgo * DAY)).toISOString();
 
@@ -142,7 +175,7 @@ function main(): void {
     const reactions = Math.floor(prng.next() ** 3 * 80);
     issues.push({
       number: nextNumber(),
-      title: title(ISSUE_TITLE[form], related ? moduleName(related) : prng.pick(NOUNS)),
+      title: title(prng, ISSUE_TITLE[form], related ? moduleName(related) : prng.pick(NOUNS)),
       createdAt: iso(age),
       updatedAt: iso(idle),
       comments,
@@ -168,7 +201,7 @@ function main(): void {
     const related = files[0] ?? (i % 3 === 0 ? null : prng.pick(paths));
     pulls.push({
       number: nextNumber(),
-      title: title(PULL_TITLE[form], related ? moduleName(related) : prng.pick(NOUNS)),
+      title: title(prng, PULL_TITLE[form], related ? moduleName(related) : prng.pick(NOUNS)),
       createdAt: iso(idle + prng.range(0, 60)),
       updatedAt: iso(idle),
       draft: form === "hoarding",
@@ -194,17 +227,28 @@ function main(): void {
       issues: { ...react.metrics.issues, total: TOTAL_ISSUES, backlog: issues },
       pulls: { ...react.metrics.pulls, total: TOTAL_PULLS, backlog: pulls },
     },
-    warnings: [...react.warnings, "Synthetic backlog fixture: the crowd issues and pull requests are invented."],
+    warnings: [...react.warnings, SYNTHETIC_WARNING],
     source: "fixture",
     totalsExact: true,
     settlement: { ...react.settlement!, tier: "metropolis" },
   };
+  return analysis;
+}
 
-  writeFileSync(OUT, `${JSON.stringify(analysis)}\n`, "utf8");
+/** The file `buildBacklogFixture` writes. */
+export function serializeFixture(analysis: RepoAnalysis): string {
+  return `${JSON.stringify(analysis)}\n`;
+}
+
+function main(): void {
+  const committed = JSON.parse(readFileSync(FIXTURE, "utf8")) as RepoAnalysis;
+  const analysis = buildBacklogFixture(backlogBase(committed));
+  const { issues, pulls } = analysis.metrics;
+  writeFileSync(FIXTURE, serializeFixture(analysis), "utf8");
   console.log(
-    `wrote ${OUT}: ${issues.length} backlog issues, ${pulls.length} backlog pulls, ` +
+    `wrote ${FIXTURE}: ${issues.backlog!.length} backlog issues, ${pulls.backlog!.length} backlog pulls, ` +
       `tier ${analysis.settlement!.tier}`,
   );
 }
 
-main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();

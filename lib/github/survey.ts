@@ -64,6 +64,7 @@ import {
   OPEN_PULLS_QUERY,
   fetchClosedPulls,
   fetchOpenPullsPage,
+  slimPull,
   mapPulls,
   pullsPath,
 } from "./pulls.ts";
@@ -237,6 +238,7 @@ export async function surveyOpenWork(
       const result = await fetchPages<GhPull>(client, pullsPath(owner, repo), { ...OPEN_PULLS_QUERY }, pages, {
         resource: "pulls (open)",
         deadline: pageDeadline,
+        slim: slimPull,
         onPage: (_page, items) => notePulls(items),
       });
       return { pages, result };
@@ -265,7 +267,7 @@ export async function surveyOpenWork(
 
       report(
         options.onIssues,
-        issuesDone(small, sample.ok, healthSample.length, healthSample.length + issueBacklog.length, openTotals, reasons),
+        issuesDone(small, sample.ok, healthSample.length + issueBacklog.length, openTotals, reasons),
       );
       return { sample, healthSample, issueBacklog, stats, openTotals, coverage, stoppedBy: firstStop(...reasons) };
     },
@@ -342,7 +344,7 @@ export async function surveyOpenWork(
 
   report(
     options.onPulls,
-    pullsDone(small, first.ok, pulls.length, openPulls.length, issues.openTotals, enrichment, pullReasons),
+    pullsDone(small, first.ok, openPulls.length, issues.openTotals, enrichment, pullReasons),
   );
 
   return {
@@ -597,36 +599,40 @@ function totalText(total: number, exact: boolean): string {
 function issuesDone(
   small: boolean,
   ok: boolean,
-  sampleSize: number,
   surveyed: number,
   totals: OpenTotals | null,
   reasons: (StopReason | null)[],
 ): SurveyProgress {
   if (!ok && surveyed === 0) return { status: "failed", detail: "issues unavailable" };
+  const suffix = suffixFor(reasons);
   if (small || !totals) {
-    // Today's line, unchanged for every repository A1 covers.
-    return ok
-      ? { status: "done", detail: `${plural(sampleSize, "issue")} inspected` }
-      : { status: "failed", detail: "issues unavailable" };
+    if (!ok) return { status: "failed", detail: "issues unavailable" };
+    // Request A1 held every open issue, so the count is the whole story and
+    // "N of N" would only repeat it. Same verb as the large-repository line.
+    const detail = surveyed === 0 ? "no open issues" : `${plural(surveyed, "open issue")} surveyed`;
+    return { status: "done", detail: `${detail}${suffix}` };
   }
-  const detail = `${count(surveyed)} of ${totalText(totals.issues, totals.exact)} open issues surveyed${suffixFor(reasons)}`;
+  const detail = `${count(surveyed)} of ${totalText(totals.issues, totals.exact)} open issues surveyed${suffix}`;
   return { status: ok ? "done" : "failed", detail };
 }
 
 function pullsDone(
   small: boolean,
   ok: boolean,
-  listed: number,
   open: number,
   totals: OpenTotals | null,
   enrichment: EnrichmentOutcome,
   reasons: (StopReason | null)[],
 ): SurveyProgress {
   if (!ok) return { status: "failed", detail: "pull requests unavailable" };
-  if (small || !totals) {
-    return { status: "done", detail: `${plural(listed, "pull request")} reviewed` };
-  }
-  let detail = `${count(open)} of ${totalText(totals.pulls, totals.exact)} open pull requests surveyed`;
+  // Open pull requests only: the merged sample (request A4) feeds the
+  // completed sites and the review measures, and is not part of the count.
+  let detail =
+    small || !totals
+      ? open === 0
+        ? "no open pull requests"
+        : `${plural(open, "open pull request")} surveyed`
+      : `${count(open)} of ${totalText(totals.pulls, totals.exact)} open pull requests surveyed`;
   if (enrichment.byNumber.size > 0) {
     detail += `, ${count(enrichment.byNumber.size)} with reviews and CI`;
   }

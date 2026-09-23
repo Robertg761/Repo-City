@@ -377,12 +377,13 @@ describe("city-tier fixtures keep today's heroes", () => {
   /**
    * cyrb53 of `{ incidents, constructionSites }` generated before settlements
    * existed. The captured fixtures' values were re-taken with 63e8779's
-   * generator when they were recaptured (integration step I).
+   * generator when they were recaptured (integration step I), and again when
+   * the crowd-form migration (L1) changed only the heroes' `form` fields.
    */
   const PINNED: Record<string, number> = {
     "sample.analysis.json": 3812625636034141,
-    "honojs__hono.analysis.json": 3997120279312397,
-    "atom__atom.analysis.json": 6867072686178569,
+    "honojs__hono.analysis.json": 1588975780549999,
+    "atom__atom.analysis.json": 7343991605970341,
     "vercel__turborepo.analysis.json": 6239463684083296,
   };
 

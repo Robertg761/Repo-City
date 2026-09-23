@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RepoAnalysis } from "@/types/analysis";
-import { detectLayout, fixtureSettlement } from "./migrate-fixtures";
+import { WRECK_SHARE_MAX } from "@/lib/analysis/forms";
+import { detectLayout, fixtureForms, fixtureSettlement } from "./migrate-fixtures";
 
 const load = (name: string): { raw: string; analysis: RepoAnalysis } => {
   const raw = readFileSync(path.join(process.cwd(), "fixtures", name), "utf8");
@@ -73,5 +74,41 @@ describe("migrate-fixtures (PLAN.md 76.4)", () => {
     for (const name of Object.keys(EXPECTED)) {
       expect(detectLayout(load(name).raw)).not.toBeNull();
     }
+  });
+
+  it.each(Object.keys(EXPECTED))("%s carries the forms the current rules give", (name) => {
+    const { analysis } = load(name);
+    expect(fixtureForms(analysis)).toEqual(analysis);
+  });
+
+  it("catches a stale form and puts the rule's form back", () => {
+    const { analysis } = load("atom__atom.analysis.json");
+    const stale = structuredClone(analysis);
+    const backlog = stale.metrics.issues.backlog!;
+    const target = backlog.findIndex((item) => item.form === "survey");
+    backlog[target] = { ...backlog[target], form: "wreck" };
+    stale.metrics.issues.ranked[0] = { ...stale.metrics.issues.ranked[0], form: "signpost" };
+    expect(fixtureForms(stale)).not.toEqual(stale);
+    expect(fixtureForms(stale)).toEqual(analysis);
+  });
+
+  it("holds every captured crowd to a quarter of wrecks", () => {
+    for (const name of Object.keys(EXPECTED)) {
+      const backlog = load(name).analysis.metrics.issues.backlog ?? [];
+      const wrecks = backlog.filter((item) => item.form === "wreck").length;
+      expect(wrecks).toBeLessThanOrEqual(Math.ceil(backlog.length * WRECK_SHARE_MAX));
+    }
+    // atom is archived and every crowd issue is years idle: it is the case
+    // the cap exists for, and it still reads as neglected.
+    const atom = load("atom__atom.analysis.json").analysis.metrics.issues.backlog!;
+    expect(atom.filter((item) => item.form === "wreck").length).toBe(
+      Math.ceil(atom.length * WRECK_SHARE_MAX),
+    );
+  });
+
+  it("leaves forms alone on an analysis that predates them", () => {
+    const { analysis } = load("sample.analysis.json");
+    expect(analysis.metrics.issues.ranked.every((issue) => issue.form === undefined)).toBe(true);
+    expect(fixtureForms(analysis)).toEqual(analysis);
   });
 });
