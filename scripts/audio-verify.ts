@@ -257,9 +257,9 @@ async function main(): Promise<void> {
 
   if (!process.env.ONLY_LEVELS) {
     // 1. Off by default.
-    await open("?perf=1");
+    await open("?perf=1&quality=high");
     await evaluate("localStorage.clear()");
-    await open("?perf=1");
+    await open("?perf=1&quality=high");
     await survey("fixture");
     await sleep(6000);
     const before = await speaker();
@@ -356,13 +356,16 @@ async function main(): Promise<void> {
     const flyTo = async (kind: "crane" | "fire" | "station") => {
       await evaluate(`(() => {
         const c = window.__repoCity.getState().city;
-        const e = ${kind === "crane" ? "c.constructionSites.find(s => s.state === 'active' || s.state === 'slow')" : kind === "fire" ? "c.incidents.find(i => i.state === 'major')" : "c.landmarks.find(l => l.landmarkType === 'station')"};
+        const e = ${kind === "crane" ? "c.constructionSites.find(s => s.state === 'active' || s.state === 'slow')" : kind === "fire" ? "c.incidents.find(i => i.state === 'major') ?? c.constructionSites.find(s => s.state === 'active' || s.state === 'slow')" : "c.landmarks.find(l => l.landmarkType === 'station')"};
         if (!e) return false;
         const [x, , z] = e.position;
         window.__repoCity.controls.setLookAt(x + 12, 10, z + 12, x, 0, z, false);
         return true;
       })()`);
       await sleep(2500);
+      if (process.env.DEBUG_CAMERA) {
+        console.log("  camera", kind, JSON.stringify(await evaluate("window.__repoCity.camera.state()")), JSON.stringify(await stats()));
+      }
     };
     await flyTo("crane");
     const low = await stats();
@@ -379,10 +382,9 @@ async function main(): Promise<void> {
       const s = await stats();
       counts.push(`${input}: locals ${s.locals}, live ${s.liveNodes}, one-shots ${s.oneShots}`);
     }
-    // Back up to the overview, where no local voice should remain.
+    // Back up to the overview (the rig glides there), where no local voice should remain.
     await evaluate("window.__repoCity.getState().actions.returnToOverview()");
-    await evaluate(`(() => { const c = window.__repoCity.controls; c.dollyTo(c.distance * 3, false); })()`);
-    await sleep(4000);
+    await sleep(6000);
     const settled = await stats();
     log(`city reloads: ${counts.join(" | ")}`);
     log(`at the overview after reloads: locals ${settled.locals}, live nodes ${settled.liveNodes} (created ${settled.createdNodes} in all), one-shots ${settled.oneShots}`);
@@ -422,6 +424,45 @@ async function main(): Promise<void> {
     const last = await speaker();
     await click(last!.x, last!.y);
     await sleep(800);
+
+    // 8. Where the speaker sits: a desktop and a phone, off and on, with a
+    // city loaded, so collisions with the time pill and the legend show.
+    const shot = async (name: string) => {
+      const reply = await send("Page.captureScreenshot", { format: "png" });
+      const data = (reply.result as { data?: string } | undefined)?.data;
+      if (data) writeFileSync(join(OUT, `${name}.png`), Buffer.from(data, "base64"));
+    };
+    const overlaps = () =>
+      evaluate<string[]>(`(() => {
+        const mine = document.querySelector('button[aria-label="Ambient sound"]').closest('.glass').getBoundingClientRect();
+        const others = [...document.querySelectorAll('.glass, [role=radiogroup]')].filter((el) => !el.contains(document.querySelector('button[aria-label="Ambient sound"]')));
+        return others
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && el.offsetParent !== null; })
+          .filter((el) => { const r = el.getBoundingClientRect(); return !(r.right <= mine.left || r.left >= mine.right || r.bottom <= mine.top || r.top >= mine.bottom); })
+          .map((el) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 40));
+      })()`);
+    for (const [label, width, height, mobile] of [
+      ["desktop", 1440, 900, false],
+      ["phone", 390, 844, true],
+    ] as const) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+      await open();
+      await survey("fixture");
+      await sleep(5000);
+      await shot(`toggle-${label}-off`);
+      const button = await speaker();
+      await click(button!.x, button!.y);
+      await waitFor(`window.__repoCity.audio.stats().status === "playing"`, 15_000);
+      await sleep(800);
+      await shot(`toggle-${label}-on`);
+      const hits = await overlaps();
+      const box = await evaluate<{ x: number; y: number; w: number; h: number }>(`(() => { const r = document.querySelector('button[aria-label="Ambient sound"]').closest('.glass').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+      log(`${label} ${width}x${height}: speaker pill at ${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.w)}x${Math.round(box.h)}, overlapping: ${hits.length ? hits.join(" | ") : "nothing"}`);
+      await click(button!.x, button!.y);
+      await sleep(600);
+    }
+    await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
     log(`console problems: ${problems.length === 0 ? "none" : ""}`);
     for (const problem of problems) log(`  ${problem}`);
     writeFileSync(join(OUT, "verify.txt"), `${report.join("\n")}\n`);
