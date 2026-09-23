@@ -1,12 +1,16 @@
 /**
  * Eyeball the generated city without the renderer.
  *
- *   node scripts/city-stats.ts [fixtures/sample.analysis.json]
+ *   node scripts/city-stats.ts [fixtures/sample.analysis.json] [--tier=village|town|city|metropolis]
+ *   node scripts/city-stats.ts [fixtures/sample.analysis.json] --tiers
  *
- * Prints counts, bounds, the PLAN.md section 37 limits, the two geometric
- * invariants (no two building footprints intersect; no building sits on a
- * road) and a coarse ASCII map. This is the layout's smoke test during
- * development and the evidence in the workstream report.
+ * Prints counts, bounds, the settlement's limits (PLAN.md 76.5), the
+ * geometric invariants (no two building footprints intersect; no building
+ * sits on a road) and a coarse ASCII map. `--tier` forces the settlement the
+ * way the dev `?tier=` override does. `--tiers` prints one line per tier
+ * instead: bounds, buildings, roads by kind, fields and a rough count of the
+ * kerb spots the crowd can stand on (PLAN.md 76.8). This is the layout's smoke
+ * test during development and the evidence in the workstream report.
  */
 
 import { readFileSync } from "node:fs";
@@ -34,8 +38,12 @@ registerHooks({
   },
 });
 
-const { generateCity, LIMITS, buildingsOnRoads, obstructedPlots, overlappingBuildings } =
+const { generateCity, buildingsOnRoads, obstructedPlots, overlappingBuildings } =
   await import("../lib/city/generator.ts");
+const { SETTLEMENT_PARAMS } = await import("../lib/city/settlement.ts");
+
+type Tier = "village" | "town" | "city" | "metropolis";
+const TIERS: Tier[] = ["village", "town", "city", "metropolis"];
 
 const COLS = 96;
 const ROWS = 48;
@@ -61,7 +69,16 @@ export function asciiMap(city: CityModel): string {
     grid[row(z)][col(x)] = glyph;
   };
 
-  // Props go down first: everything else is allowed to draw over them.
+  // Fields first, then props: everything else is allowed to draw over them.
+  for (const field of city.props.fields ?? []) {
+    const fx = Math.sin(field.rotationY);
+    const fz = Math.cos(field.rotationY);
+    for (let a = -field.w / 2; a <= field.w / 2; a += 1) {
+      for (let b = -field.d / 2; b <= field.d / 2; b += 1) {
+        put(field.x + fz * a + fx * b, field.z - fx * a + fz * b, ":");
+      }
+    }
+  }
   for (const lamp of city.props.lamps) put(lamp[0], lamp[2], "'");
   for (const tree of city.props.trees) put(tree[0], tree[2], "t");
 
@@ -106,20 +123,25 @@ function report(city: CityModel): string {
   const onRoads = buildingsOnRoads(city);
   const blocked = obstructedPlots(city);
   const tiers = [1, 2, 3, 4, 5].map((t) => city.buildings.filter((b) => b.tier === t).length);
+  const tier = (city.settlement?.tier ?? "city") as Tier;
+  const limits = SETTLEMENT_PARAMS[tier];
   const lines = [
     `repository        ${city.repository.fullName}${city.repository.archived ? " (archived)" : ""}`,
+    `settlement        ${city.settlement?.name ?? "(none)"}: ${city.settlement?.reason ?? ""}`,
     `seed              ${city.seed}`,
     `health            ${city.health.band} ${Math.round(city.health.score)}/100, activity ${city.activity.score}`,
-    `bounds            ${city.bounds.size} x ${city.bounds.size} units, centred on the origin`,
+    `bounds            ${city.bounds.size} x ${city.bounds.size} units, centred on the origin (band ${limits.bounds.min} to ${limits.bounds.max})`,
     `districts         ${city.districts.length}`,
-    `buildings         ${city.buildings.length} / ${LIMITS.buildings}   tiers 1-5: ${tiers.join(", ")}`,
-    `roads             ${city.roads.length} (${city.roads.filter((r) => r.major).length} major, ${city.roads.filter((r) => r.kind === "highway").length} highways out of town)`,
+    `buildings         ${city.buildings.length} / ${limits.buildings.max}   tiers 1-5: ${tiers.join(", ")}`,
+    `roads             ${roadSummary(city)}`,
+    `plaza             ${city.plaza ? `${city.plaza.surface} ${Math.round(city.plaza.rect.w)}x${Math.round(city.plaza.rect.d)}` : "none"}, fields ${city.props.fields?.length ?? 0}`,
     `landmarks         ${city.landmarks.map((l) => `${l.landmarkType}${l.size ? ` ${l.size[0]}x${l.size[2]}` : ""}`).join(", ") || "none"}`,
-    `incidents         ${city.incidents.length} / ${LIMITS.incidents}`,
-    `construction      ${city.constructionSites.length} / ${LIMITS.construction}`,
-    `trees             ${city.props.trees.length} / ${LIMITS.trees}`,
-    `lamps             ${city.props.lamps.length}`,
-    `vehicles          ${city.vehicles.count} / ${LIMITS.vehicles}, visitor share ${city.vehicles.visitorShare ?? "n/a"}`,
+    `incidents         ${city.incidents.length} / ${limits.heroes.incidents} heroes, ${city.backlog?.incidents.length ?? 0} crowd`,
+    `construction      ${city.constructionSites.length} / ${limits.heroes.sites} heroes, ${city.backlog?.constructionSites.length ?? 0} crowd`,
+    `kerb spots        about ${kerbSpots(city)}`,
+    `trees             ${city.props.trees.length} / ${limits.trees}`,
+    `lamps             ${city.props.lamps.length} / ${limits.lamps}`,
+    `vehicles          ${city.vehicles.count} / ${limits.vehicles.max}, visitor share ${city.vehicles.visitorShare ?? "n/a"}`,
     `landmark detail   ${
       city.landmarks
         .filter((l) => l.detail)
@@ -175,16 +197,78 @@ function districtTable(city: CityModel): string {
   return rows.join("\n");
 }
 
+/** Road counts by kind; highways split into the ring and the roads out. */
+function roadSummary(city: CityModel): string {
+  const count = (test: (road: CityModel["roads"][number]) => boolean): number => city.roads.filter(test).length;
+  const out = count((r) => r.id.startsWith("road-hwy-"));
+  const ring = count((r) => r.kind === "highway") - out;
+  return [
+    `${city.roads.length} segments`,
+    `${count((r) => r.major)} major`,
+    `${count((r) => (r.kind ?? "street") === "street")} street`,
+    `${count((r) => r.kind === "lane")} lane`,
+    `${count((r) => r.kind === "avenue")} avenue`,
+    `${ring} highway ring`,
+    `${out} highways out`,
+    `${count((r) => r.main === true)} high street`,
+  ].join(", ");
+}
+
+/**
+ * A rough count of the kerb spots the crowd can stand on (PLAN.md 76.8):
+ * both sides of every road that is not a highway, every 3.2 units, skipping
+ * the first and last 3.5 of each segment. The real index also skips lamps and
+ * heroes, so this is an upper bound.
+ */
+function kerbSpots(city: CityModel): number {
+  let spots = 0;
+  for (const road of city.roads) {
+    if (road.kind === "highway") continue;
+    const length = Math.hypot(road.to[0] - road.from[0], road.to[2] - road.from[2]);
+    if (length <= 7) continue;
+    spots += 2 * (Math.floor((length - 7) / 3.2) + 1);
+  }
+  return spots;
+}
+
+function tierLine(tier: Tier, city: CityModel): string {
+  const band = SETTLEMENT_PARAMS[tier].bounds;
+  const inBand = city.bounds.size >= band.min && city.bounds.size <= band.max ? "in band" : "OUT OF BAND";
+  const bad =
+    overlappingBuildings(city).length + buildingsOnRoads(city).length + obstructedPlots(city).length;
+  return [
+    tier.padEnd(11),
+    `${city.bounds.size.toFixed(1)}`.padStart(7),
+    ` (${band.min}-${band.max} ${inBand})`.padEnd(22),
+    `${city.buildings.length} buildings`.padEnd(15),
+    `${city.districts.length} districts`.padEnd(13),
+    roadSummary(city).padEnd(112),
+    `fields ${city.props.fields?.length ?? 0}`.padEnd(10),
+    `kerb spots ~${kerbSpots(city)}`.padEnd(17),
+    `plaza ${city.plaza?.surface ?? "none"}`.padEnd(13),
+    `clashes ${bad}`,
+  ].join(" ");
+}
+
 function main(): void {
-  const argument = process.argv[2] ?? "fixtures/sample.analysis.json";
+  const args = process.argv.slice(2);
+  const argument = args.find((a) => !a.startsWith("--")) ?? "fixtures/sample.analysis.json";
+  const forced = args.find((a) => a.startsWith("--tier="))?.slice("--tier=".length) as Tier | undefined;
+  if (forced && !TIERS.includes(forced)) throw new Error(`unknown tier ${forced}`);
   const path = resolve(process.cwd(), argument);
   const analysis = JSON.parse(readFileSync(path, "utf8")) as RepoAnalysis;
-  const city = generateCity(analysis);
 
+  if (args.includes("--tiers")) {
+    console.log(`${analysis.repo.fullName}, ${analysis.buildings.length} buildings planned`);
+    for (const tier of TIERS) console.log(tierLine(tier, generateCity(analysis, { tier })));
+    return;
+  }
+
+  const city = generateCity(analysis, forced ? { tier: forced } : {});
   console.log(report(city));
   console.log("");
   console.log(
-    "# major road  + minor road  1-5 building tier  ! incident  C construction  t tree  ' lamp",
+    "# major road  + minor road  1-5 building tier  ! incident  C construction  t tree  ' lamp  : field",
   );
   console.log("P power  F fire  I info  S station  H city hall");
   console.log("");
