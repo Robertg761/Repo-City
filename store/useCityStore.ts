@@ -20,6 +20,7 @@ import { analyzeRepository, AnalyzeError } from "@/lib/client/analyzeStream";
 import { constructedLine } from "@/lib/client/descriptors";
 import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
+import { DEFAULT_TIME_SETTING, isTimeSetting, type TimeSetting } from "@/lib/client/timeSetting";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
@@ -56,19 +57,25 @@ export interface CityStore {
    */
   overviewNonce: number;
   /**
-   * Reserved for a future time-of-day control in the HUD. Nothing sets it and
-   * nothing reads it yet: this round the renderer derives dusk from
-   * `ambience.litWindowShare`, and a second source of truth for the same thing
-   * would fight it. Declared so that whoever adds the toggle does not have to
-   * change the store contract (PLAN.md section 71.4).
+   * The viewer's time of day (`components/TimeOfDayControl.tsx`). "auto" is
+   * the hour the city infers from its repository, as it always has; the rest
+   * are the viewer's own choice. It belongs to the viewer, not the city, so
+   * analysing another repository keeps it.
    */
-  timeOfDay?: "day" | "dusk";
+  timeSetting: TimeSetting;
+  /**
+   * How the sky should reach the latest `timeSetting`: "animate" for a choice
+   * made in the HUD, "cut" for a setting restored from the address or from
+   * this browser's memory, which should simply be there when the city is.
+   */
+  timeChange: "animate" | "cut";
   actions: {
     analyze(input: string): Promise<void>;
     select(id: string | null): void;
     hover(id: string | null): void;
     returnToOverview(): void;
     dismissError(): void;
+    setTimeSetting(setting: TimeSetting, change?: "animate" | "cut"): void;
   };
 }
 
@@ -148,6 +155,8 @@ export const useCityStore = create<CityStore>()((set, get) => ({
   error: null,
   lastInput: null,
   overviewNonce: 0,
+  timeSetting: DEFAULT_TIME_SETTING,
+  timeChange: "cut",
   actions: {
     async analyze(input: string) {
       const trimmed = input.trim();
@@ -267,6 +276,11 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         hoveredId: null,
         overviewNonce: get().overviewNonce + 1,
       });
+    },
+
+    setTimeSetting(setting: TimeSetting, change: "animate" | "cut" = "animate") {
+      if (!isTimeSetting(setting)) return;
+      set({ timeSetting: setting, timeChange: change });
     },
 
     dismissError() {

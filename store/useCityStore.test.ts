@@ -63,3 +63,39 @@ describe("stage rows (PLAN.md section 44)", () => {
     expect(label("pulls")).toBe("Open pull requests surveyed");
   });
 });
+
+describe("the time of day (components/TimeOfDayControl.tsx)", () => {
+  it("starts at Auto, to be restored without a sweep", () => {
+    const fresh = useCityStore.getInitialState();
+    expect(fresh.timeSetting).toBe("auto");
+    expect(fresh.timeChange).toBe("cut");
+  });
+
+  it("animates a choice and cuts to a restored one", () => {
+    const { actions } = useCityStore.getState();
+    actions.setTimeSetting("night");
+    expect(useCityStore.getState().timeSetting).toBe("night");
+    expect(useCityStore.getState().timeChange).toBe("animate");
+    actions.setTimeSetting("morning", "cut");
+    expect(useCityStore.getState().timeSetting).toBe("morning");
+    expect(useCityStore.getState().timeChange).toBe("cut");
+    actions.setTimeSetting("auto");
+  });
+
+  it("ignores a setting that is not one", () => {
+    const { actions } = useCityStore.getState();
+    actions.setTimeSetting("evening");
+    actions.setTimeSetting("teatime" as never);
+    expect(useCityStore.getState().timeSetting).toBe("evening");
+    actions.setTimeSetting("auto");
+  });
+
+  it("belongs to the viewer: surveying another repository keeps it", async () => {
+    const { actions } = useCityStore.getState();
+    actions.setTimeSetting("night");
+    await actions.analyze("fixture");
+    expect(useCityStore.getState().city).not.toBeNull();
+    expect(useCityStore.getState().timeSetting).toBe("night");
+    actions.setTimeSetting("auto");
+  });
+});
