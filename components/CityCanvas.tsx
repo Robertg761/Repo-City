@@ -12,7 +12,16 @@
  * must never run during server rendering.
  */
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CameraControls } from "@react-three/drei";
 import { NeutralToneMapping, PCFShadowMap, getConsoleFunction, setConsoleFunction } from "three";
@@ -28,7 +37,7 @@ import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
-import { useQuality } from "@/components/city/quality";
+import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -242,7 +251,7 @@ function Scene({ city: latest, aspect }: { city: CityModel | null; aspect: numbe
   );
 }
 
-function Viewport() {
+function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   const storeCity = useCityStore((s) => s.city);
   const actions = useCityStore((s) => s.actions);
   const devCity = useDevCity(storeCity !== null);
@@ -278,6 +287,7 @@ function Viewport() {
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
     >
       <Scene city={city} aspect={aspect} />
+      <ContextWatch onLost={onLost} />
 
       {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
       <PerfOverlay />
@@ -285,6 +295,199 @@ function Viewport() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// When the graphics are not there
+// ---------------------------------------------------------------------------
+
+type GraphicsState = "ok" | "lost" | "stuck" | "unavailable" | "failed";
+
+/** How long a lost context may take to come back before the page offers a reload. */
+const RESTORE_WAIT_MS = 8000;
+
+/**
+ * three draws with WebGL 2 and nothing else. Asked once, with a throwaway
+ * canvas whose context is released straight away: browsers cap how many a
+ * page may hold.
+ */
+function webglAvailable(): boolean {
+  try {
+    const probe = document.createElement("canvas");
+    const gl = probe.getContext("webgl2");
+    if (!gl) return false;
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A lost WebGL context -- the GPU reset, or a low-memory device reclaiming it
+ * -- stops the canvas mid-visit. `ContextWatch` reports it with the canvas
+ * that lost it; `CityCanvas` takes it from there.
+ *
+ * The canvas is let go at once rather than restored in place. three can
+ * restore its own state on the same canvas, but every object made before the
+ * loss keeps a disposer bound to the dead context, so the next city, or the
+ * next tier, released them against the live one and filled the console with
+ * WebGL errors. Unmounted while the context is gone, everything is released
+ * as a no-op, and the city comes back on a fresh canvas.
+ */
+function ContextWatch({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
+  const gl = useThree((state) => state.gl);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const lost = () => {
+      // R3F ends an unmount by forcing the context lost through its
+      // extension, and on a context that is already gone three can only warn
+      // that the extension is missing. There is nothing left to lose.
+      gl.forceContextLoss = () => {};
+      onLost(canvas);
+    };
+    canvas.addEventListener("webglcontextlost", lost);
+    return () => canvas.removeEventListener("webglcontextlost", lost);
+  }, [gl, onLost]);
+
+  return null;
+}
+
+const NOTICE_COPY: Record<
+  Exclude<GraphicsState, "ok">,
+  { title: string; body: string; reload: boolean }
+> = {
+  lost: {
+    title: "Graphics reset",
+    body: "The browser paused the 3D view to free graphics memory. Bringing the city back…",
+    reload: false,
+  },
+  stuck: {
+    title: "Graphics reset",
+    body: "The 3D view did not come back on its own. Reloading the page will restore it.",
+    reload: true,
+  },
+  unavailable: {
+    title: "This browser can’t draw the city",
+    body: "Repo City needs WebGL 2, which is switched off or not supported here. Turning on hardware acceleration, or opening the page in a current Chrome, Edge, Firefox or Safari, will bring it up.",
+    reload: false,
+  },
+  failed: {
+    title: "The 3D view couldn’t start",
+    body: "Something stopped the graphics from starting. Reloading the page usually fixes it.",
+    reload: true,
+  },
+};
+
+function GraphicsNotice({ state }: { state: Exclude<GraphicsState, "ok"> }) {
+  const copy = NOTICE_COPY[state];
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-4">
+      <div
+        role="alert"
+        className="glass animate-fade-in pointer-events-auto w-full max-w-[24rem] p-4 text-center"
+      >
+        <p className="text-sm font-medium text-white/90">{copy.title}</p>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{copy.body}</p>
+        {copy.reload ? (
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="hud-button mt-3"
+          >
+            Reload
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Catches the canvas failing to start (no context could be created) and any
+ * error thrown from inside the scene, and shows a notice instead of the blank
+ * page an uncaught render error leaves behind. The HUD is outside this
+ * boundary and stays up.
+ */
+class CanvasBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("Repo City: the 3D view stopped", error);
+  }
+
+  render() {
+    return this.state.failed ? <GraphicsNotice state="failed" /> : this.props.children;
+  }
+}
+
+/** A context lost this many times in one visit is not coming back by itself. */
+const MAX_LOSSES = 3;
+
+/**
+ * Recovering from a lost context: the canvas is unmounted while the context is
+ * gone (`ContextWatch`), and once the browser hands the old canvas its context
+ * back -- the signal that the GPU is usable again -- a fresh canvas is mounted
+ * a quality tier lower, which asks the GPU for less memory. The store still
+ * holds the city, so it simply grows again. If the context has not come back
+ * after a few seconds, or keeps being lost, the notice offers a reload.
+ */
+function useContextRecovery() {
+  const [graphics, setGraphics] = useState<GraphicsState>("ok");
+  const [generation, setGeneration] = useState(0);
+  const losses = useRef(0);
+  const pending = useRef<() => void>(() => {});
+
+  useEffect(() => () => pending.current(), []);
+
+  const onLost = useCallback((canvas: HTMLCanvasElement) => {
+    pending.current();
+    losses.current += 1;
+    if (losses.current >= MAX_LOSSES) {
+      setGraphics("stuck");
+      return;
+    }
+    setGraphics("lost");
+    const restored = () => {
+      pending.current();
+      // Let the old context go now that it is back: it holds nothing.
+      canvas.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext();
+      stepDownAfterContextLoss();
+      setGeneration((n) => n + 1);
+      setGraphics("ok");
+    };
+    const timer = window.setTimeout(() => {
+      pending.current();
+      setGraphics("stuck");
+    }, RESTORE_WAIT_MS);
+    canvas.addEventListener("webglcontextrestored", restored);
+    pending.current = () => {
+      window.clearTimeout(timer);
+      canvas.removeEventListener("webglcontextrestored", restored);
+      pending.current = () => {};
+    };
+  }, []);
+
+  return { graphics, generation, onLost };
+}
+
 export default function CityCanvas() {
-  return <Viewport />;
+  // Client only (`next/dynamic` with `ssr: false`), so this runs in a browser.
+  const [webgl] = useState(webglAvailable);
+  const { graphics, generation, onLost } = useContextRecovery();
+
+  if (!webgl) return <GraphicsNotice state="unavailable" />;
+  return (
+    <>
+      {graphics === "ok" && (
+        <CanvasBoundary key={generation}>
+          <Viewport onLost={onLost} />
+        </CanvasBoundary>
+      )}
+      {graphics !== "ok" && <GraphicsNotice state={graphics} />}
+    </>
+  );
 }
