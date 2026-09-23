@@ -159,8 +159,13 @@ void main() {
     }
   }
 
+  // The moon's disc hangs lower than the light it stands for, so that it
+  // shows above the horizon from the lowest the camera can orbit to; its
+  // light comes from higher, for shadows a model can still be read by.
+  vec3 moonDir = normalize( vec3( uSun.x, uSun.y * 0.3, uSun.z ) );
+
   // The sun's (or at night the moon's) halo, in the canvas's pixels.
-  vec2 sun = skyUv( uSun );
+  vec2 sun = skyUv( uMoon > 0.0 ? normalize( mix( uSun, moonDir, uMoon ) ) : uSun );
   float du = ( fract( uv.x - sun.x + 0.5 ) - 0.5 ) * ${SKY_W.toFixed(1)};
   float dy = ( uv.y - sun.y ) * ${SKY_H.toFixed(1)};
   float d = length( vec2( du, dy ) );
@@ -170,9 +175,9 @@ void main() {
 
   // The moon: a small bright disc with a soft rim, a little larger than life.
   if ( uMoon > 0.0 ) {
-    float angle = acos( clamp( dot( dir, normalize( uSun ) ), -1.0, 1.0 ) );
-    float disc = smoothstep( 0.03, 0.026, angle );
-    float shade = 0.88 + 0.12 * smoothstep( 0.03, 0.0, angle );
+    float angle = acos( clamp( dot( dir, moonDir ), -1.0, 1.0 ) );
+    float disc = smoothstep( 0.026, 0.0225, angle );
+    float shade = 0.88 + 0.12 * smoothstep( 0.026, 0.0, angle );
     color = mix( color, vec3( 0.98, 0.96, 0.9 ) * shade, disc * uMoon );
   }
 

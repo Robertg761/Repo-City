@@ -36,9 +36,16 @@ import {
 import type { BodySpec } from "./models/vehicles/shapes";
 import type { SceneAtmosphere } from "./palette";
 import { linearRgb } from "./backlog/material";
+import { useQuality } from "./quality";
 import { revealScale } from "./reveal";
 import { useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
+
+/**
+ * How much of a glow the low tier draws. Measured by eye against the high
+ * tier's tone-mapped frame at night (`quality.ts`).
+ */
+export const LOW_TIER_GLOW = 0.6;
 
 const GLOW_VERTEX = /* glsl */ `
 attribute vec3 glowAt;
@@ -104,6 +111,10 @@ export function GlowField({
   const clock = useRevealClock();
   const hour = useRef(0);
   const grown = useRef(0);
+  // Without the composer an additive glow lands on the screen untouched by
+  // tone mapping, and reads brighter and whiter than the same glow rolled
+  // off with the rest of the frame; the low tier draws it softer to match.
+  const tierScale = useQuality().postProcessing ? 1 : LOW_TIER_GLOW;
 
   const geometry = useMemo(() => {
     const quad = new PlaneGeometry(1, 1);
@@ -152,9 +163,9 @@ export function GlowField({
   };
 
   useSkyFrame((atmosphere) => {
-    hour.current = Math.max(0, strength(atmosphere));
+    hour.current = Math.max(0, strength(atmosphere)) * tierScale;
     apply();
-  }, material);
+  }, `${material.uuid}:${tierScale}`);
 
   // The glows come on once the lamps they belong to have grown.
   useFrame(() => {

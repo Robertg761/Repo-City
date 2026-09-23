@@ -44,7 +44,8 @@ import {
 import { tintedMaterial } from "./models/props/material";
 import { MAX_FLEET, carPose, stepTraffic, type CarPose } from "./traffic";
 import { cityFleet, specOf, type FleetBody } from "./fleet";
-import { beamGeometry, beamMaterial } from "./glow";
+import { LOW_TIER_GLOW, beamGeometry, beamMaterial } from "./glow";
+import { useQuality } from "./quality";
 import { useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
 
@@ -110,6 +111,8 @@ export default function Traffic({
   // archived city, whose windows are mostly dark, drives with its lights low.
   // At night they burn past white, into the bloom, and throw their light on
   // the road ahead (`glow.tsx`). Both follow the live hour (`sky.tsx`).
+  // Softer without the composer's tone mapping (`glow.tsx`).
+  const beamScale = useQuality().postProcessing ? 1 : LOW_TIER_GLOW;
   const lampMaterial = useMemo(
     () => new MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     [],
@@ -221,14 +224,14 @@ export default function Traffic({
       lamp.color.set(lampTint(atmosphere));
       lamp.color.multiplyScalar(1 + atmosphere.nightness * 1.6);
     }
-    const strength = atmosphere.headlights * 0.5;
+    const strength = atmosphere.headlights * 0.5 * beamScale;
     const beam = beamRefs.current.find(Boolean)?.material as ShaderMaterial | undefined;
     if (beam) {
       beam.uniforms.uStrength.value = strength;
       // Hidden, not drawn at zero: the day pays no draw calls for them.
       beam.visible = strength > 0.002;
     }
-  });
+  }, beamScale);
 
   const colors = useMemo(
     () =>

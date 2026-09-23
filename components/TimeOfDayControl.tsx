@@ -15,7 +15,8 @@
  * none of them reaches. Narrower than that the corners crowd the middle, so
  * it moves to the bottom-right corner, which is free until something is
  * inspected, and steps aside while the inspector (a bottom sheet on a phone)
- * is open.
+ * or, on a phone, the open legend is using the bottom edge. It must follow
+ * the legend in the page, whose `data-open` it reads as a CSS `peer`.
  *
  * It is a radio group: one tab stop, arrow keys to move between hours (the
  * choice follows the focus, as radio groups do), and the HUD's focus ring.
@@ -143,8 +144,10 @@ export default function TimeOfDayControl() {
 
   return (
     <div
-      className={`pointer-events-none absolute bottom-3 right-3 z-20 lg:bottom-4 lg:right-auto lg:left-1/2 lg:-translate-x-1/2 ${
-        // Below the wide layout the inspector takes this corner.
+      className={`pointer-events-none absolute bottom-3 right-3 z-20 lg:bottom-4 lg:right-auto lg:left-1/2 lg:-translate-x-1/2 peer-data-[open=true]:max-sm:hidden ${
+        // Below the wide layout the inspector takes this corner. On a phone
+        // the open legend spans the bottom edge, so the control steps aside
+        // for it too (the legend is its peer in app/page.tsx).
         inspecting ? "max-lg:hidden" : ""
       }`}
     >

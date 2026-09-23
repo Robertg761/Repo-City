@@ -200,10 +200,10 @@ describe("the four presets", () => {
   it("keeps the night readable: a real key, a real fill and a lifted exposure", () => {
     const night = preset("night");
     expect(night.sunIntensity).toBeGreaterThanOrEqual(1.2);
-    expect(night.hemiIntensity).toBeGreaterThanOrEqual(1);
+    expect(night.hemiIntensity).toBeGreaterThanOrEqual(0.9);
     expect(night.exposure).toBeGreaterThan(1.1);
     expect(night.exposure).toBeLessThanOrEqual(1.25);
-    expect(keyElevation(night.sunDirection)).toBeGreaterThan(30);
+    expect(keyElevation(night.sunDirection)).toBeGreaterThan(28);
   });
 
   it("keeps exposure sane at every hour", () => {

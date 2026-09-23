@@ -157,9 +157,9 @@ const SUNRISE = { elevation: 4, azimuth: -10 } as const;
  * The moon: high on the eastern side, so its light falls on the faces the
  * camera sees and its soft shadows run away from the viewer, as the day's do.
  */
-const MOON = { elevation: 42, azimuth: 22 } as const;
-const MOONRISE = { elevation: 22, azimuth: 26 } as const;
-const MOONSET = { elevation: 20, azimuth: 16 } as const;
+const MOON = { elevation: 34, azimuth: 22 } as const;
+const MOONRISE = { elevation: 18, azimuth: 26 } as const;
+const MOONSET = { elevation: 16, azimuth: 16 } as const;
 
 /**
  * The key light at the handover between sun and moon: the one has set and
@@ -180,8 +180,11 @@ const EVENING_AMBER = "#ffb878";
 const EVENING_HORIZON = "#f2dfcf";
 const EVENING_ZENITH = "#5f82b8";
 const EVENING_HALO = "#ffb676";
-/** Shadows under a golden sky are cool, a little violet. */
-const EVENING_FILL = "#c6c3d6";
+/**
+ * Shadows under a golden sky are cool: a clear blue fill, which also keeps
+ * the grass green under an amber sun rather than letting it go olive.
+ */
+const EVENING_FILL = "#b7d0e6";
 /** The sun going down, and coming up. */
 const SUNSET_SUN = "#ff9868";
 const DAWN_SUN = "#ffb48c";
@@ -195,10 +198,10 @@ const DAWN_GLOW = "#ffc3a0";
 const NIGHT_ZENITH = "#0d1a38";
 const NIGHT_HORIZON = "#2a4272";
 /** Moonlight: a cool, clear blue-white. */
-const MOONLIGHT = "#c4cbf2";
+const MOONLIGHT = "#bcc4f4";
 const MOON_GLOW = "#c3d4ff";
 /** The night sky bouncing into the shadows, and the dark ground bouncing back. */
-const NIGHT_FILL = "#6b74ae";
+const NIGHT_FILL = "#6670ad";
 const NIGHT_BOUNCE = "#353a4a";
 /** The light as the sun hands over to the moon, or the moon to the sun. */
 const TWILIGHT_BLUE = "#98ace0";
@@ -256,7 +259,7 @@ export function eveningSky(ambience: Ambience, archived: boolean): SceneAtmosphe
   const { desaturation } = cityTone(ambience, archived);
   // An archived city keeps its drained character: half the amber, grey light.
   const drain = archived ? 0.5 : 0;
-  const background = desaturate(mix(golden.background, EVENING_HORIZON, 0.4), desaturation * 0.6 + drain * 0.3);
+  const background = desaturate(mix(golden.background, EVENING_HORIZON, 0.28), desaturation * 0.6 + drain * 0.3);
   return {
     ...golden,
     background,
@@ -266,12 +269,12 @@ export function eveningSky(ambience: Ambience, archived: boolean): SceneAtmosphe
     skyZenithColor: desaturate(EVENING_ZENITH, desaturation * 0.75 + drain * 0.3),
     skyHorizonColor: background,
     skyGroundColor: mix(background, "#ffffff", 0.18),
-    sunColor: desaturate(mix(golden.sunColor, EVENING_AMBER, 0.4), drain),
+    sunColor: desaturate(mix(golden.sunColor, EVENING_AMBER, 0.22), drain),
     sunGlowColor: desaturate(EVENING_HALO, drain),
     sunGlowStrength: 0.95 - desaturation * 0.25 - drain * 0.3,
     // A low sun lands less light on a roof again; this buys it back.
     sunIntensity: golden.sunIntensity + 0.25,
-    skyColor: desaturate(mix(golden.skyColor, EVENING_FILL, 0.45), drain),
+    skyColor: desaturate(mix(golden.skyColor, EVENING_FILL, 0.55), drain),
     hemiIntensity: golden.hemiIntensity - 0.05,
     lampGlow: archived ? 0.35 : 1,
     windowGlow: archived ? 0.3 : 1,
@@ -335,17 +338,17 @@ export function nightSky(ambience: Ambience, archived: boolean): SceneAtmosphere
     background,
     evening: 0,
     sunDirection: keyDirection(MOON.elevation, MOON.azimuth),
-    exposure: 1.16,
+    exposure: 1.18,
     skyZenithColor: desaturate(NIGHT_ZENITH, desaturation * 0.6 + drain * 0.4),
     skyHorizonColor: background,
     skyGroundColor: mix(background, "#ffffff", 0.05),
     sunGlowColor: MOON_GLOW,
     sunGlowStrength: 0.34,
     sunColor: desaturate(MOONLIGHT, drain),
-    sunIntensity: 1.5,
+    sunIntensity: 1.6,
     skyColor: desaturate(mix(NIGHT_FILL, "#8199cc", warmth * 0.3), drain),
     groundBounceColor: NIGHT_BOUNCE,
-    hemiIntensity: 1.1,
+    hemiIntensity: 0.95,
     lampGlow: archived ? 0.45 : 1,
     windowGlow: archived ? 0.5 : 1,
     litWindowShare: archived ? 0.28 : 0.7,
