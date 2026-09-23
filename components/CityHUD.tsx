@@ -10,13 +10,14 @@
  * "Archived repository", never "bad repository" (section 19).
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   attentionChips,
   cityPopulation,
   describeRepository,
   explainPopulation,
-  queueChip,
+  queueChipNoun,
+  queueChipParts,
   scoreLines,
 } from "@/lib/client/descriptors";
 import type { RepoAnalysis, RepoMetrics } from "@/types/analysis";
@@ -300,9 +301,15 @@ function SettlementLine({ settlement }: { settlement: SettlementInfo }) {
  * "1,000 of 21,011 issues on the streets", shown only when some open issues
  * or pull requests wait in the queue. Tapping it opens the queue in the
  * inspector, which is where the counts are explained.
+ *
+ * Each kind's counts are one run ("and 500 of 2,651 pull requests"), so a
+ * narrow column wraps between the kinds rather than inside one, and a phone
+ * says "PRs" so each run fits its line.
  */
-function QueueChip({ label, overflow }: { label: string; overflow: Overflow }) {
+function QueueChip({ overflow }: { overflow: Overflow }) {
   const select = useCityStore((s) => s.actions.select);
+  const parts = queueChipParts(overflow);
+  if (parts.length === 0) return null;
   return (
     <button
       type="button"
@@ -311,7 +318,24 @@ function QueueChip({ label, overflow }: { label: string; overflow: Overflow }) {
       title={signposted(overflow) ? "Show the queue at the limits" : "Show what is counted but not drawn"}
       className="pointer-events-auto mt-2 block rounded-2xl bg-[#080c12]/60 px-2.5 py-1 text-left text-[11px] leading-snug text-white/85 ring-1 ring-white/12 backdrop-blur-sm transition hover:bg-[#080c12]/75 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
-      {label}
+      {parts.map((part, i) => (
+        <Fragment key={part.kind}>
+          {i > 0 ? " " : null}
+          <span className="inline-block">
+            {i > 0 ? "and " : ""}
+            {part.counts}{" "}
+            {part.kind === "pulls" ? (
+              <>
+                <span className="sm:hidden">{queueChipNoun(part, true)}</span>
+                <span className="max-sm:hidden">{queueChipNoun(part)}</span>
+              </>
+            ) : (
+              queueChipNoun(part)
+            )}
+          </span>
+        </Fragment>
+      ))}{" "}
+      <span className="inline-block">on the streets</span>
     </button>
   );
 }
@@ -348,7 +372,6 @@ export default function CityHUD() {
   const phase = useCityStore((s) => s.phase);
   const settlement = useCityStore((s) => s.city?.settlement);
   const overflow = useCityStore((s) => s.city?.overflow);
-  const queue = queueChip(overflow);
 
   return (
     <>
@@ -365,7 +388,9 @@ export default function CityHUD() {
             title={BUILD_SHA ? `build ${BUILD_SHA}` : undefined}
           >
             v{APP_VERSION}
-            {BUILD_SHA ? ` · ${BUILD_SHA}` : ""}
+            {/* A phone's narrow column would push the build hash onto a line
+                of its own; there it stays in the tooltip. */}
+            {BUILD_SHA ? <span className="max-sm:hidden">{` · ${BUILD_SHA}`}</span> : null}
           </span>
         </p>
         {analysis ? (
@@ -390,7 +415,7 @@ export default function CityHUD() {
             Archived repository
           </p>
         ) : null}
-        {analysis && overflow && queue ? <QueueChip label={queue} overflow={overflow} /> : null}
+        {analysis && overflow ? <QueueChip overflow={overflow} /> : null}
       </div>
     </>
   );

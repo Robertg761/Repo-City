@@ -9,6 +9,8 @@ import {
   describeRepository,
   explainPopulation,
   queueChip,
+  queueChipNoun,
+  queueChipParts,
   scoreLines,
 } from "./descriptors";
 
@@ -193,5 +195,14 @@ describe("queueChip (PLAN.md 76.10)", () => {
     expect(queueChip(null)).toBeNull();
     expect(queueChip(undefined)).toBeNull();
     expect(queueChip(queue([12, 12], [3, 3]))).toBeNull();
+  });
+
+  it("splits into one run per kind, with a short noun for a phone", () => {
+    const parts = queueChipParts(queue([1000, 18610], [500, 2651], false));
+    expect(parts.map((part) => part.counts)).toEqual(["1,000 of about 18,610", "500 of about 2,651"]);
+    expect(parts.map((part) => queueChipNoun(part))).toEqual(["issues", "pull requests"]);
+    expect(parts.map((part) => queueChipNoun(part, true))).toEqual(["issues", "PRs"]);
+    expect(queueChipNoun(queueChipParts(queue([0, 1], [3, 3]))[0])).toBe("issue");
+    expect(queueChipParts(null)).toEqual([]);
   });
 });
