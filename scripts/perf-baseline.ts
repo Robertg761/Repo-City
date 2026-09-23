@@ -10,6 +10,11 @@
  *   pnpm dev --port 3149 &
  *   node scripts/perf-baseline.ts [baseUrl] [outDir]
  *
+ * `ANGLE=vulkan` draws on the discrete GPU instead of swiftshader, and then
+ * the frame times mean something; `UNCAP=1` lifts vsync to show headroom;
+ * `QUALITY=low` pins the low tier; `ONLY=stress` runs one scenario; `TAG`
+ * names the output files.
+ *
  * It needs the overlay mounted in `CityCanvas.tsx` and the `stress` input
  * registered in the store. The Chrome profile lives in `outDir` and is
  * deleted on exit, whatever happens.
@@ -74,6 +79,8 @@ const chrome = spawn(
   { stdio: "ignore" },
 );
 
+const chromeExited = new Promise<void>((resolve) => chrome.once("exit", () => resolve()));
+
 let cleaned = false;
 function cleanup(): void {
   if (cleaned) return;
@@ -88,6 +95,20 @@ function cleanup(): void {
       /* retry */
     }
   }
+}
+
+/**
+ * The normal way out: kill Chrome, wait until it and its helpers have let go
+ * of the profile, and only then delete it. Removing it the instant the kill
+ * is sent left the GPU and renderer processes writing a fresh copy.
+ */
+async function shutdown(): Promise<void> {
+  chrome.kill("SIGKILL");
+  await Promise.race([chromeExited, sleep(3000)]);
+  await sleep(500);
+  cleanup();
+  await sleep(300);
+  rmSync(profile, { recursive: true, force: true });
 }
 process.on("exit", cleanup);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -226,7 +247,7 @@ main()
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => {
-    cleanup();
+  .finally(async () => {
+    await shutdown();
     process.exit();
   });
