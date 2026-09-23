@@ -33,6 +33,12 @@ export interface FocusTarget {
   span?: number;
   /** The building a scaffold stands against: the one tower it cannot clear. */
   host?: string;
+  /**
+   * How far the thing reaches across the ground, when `radius` is set by
+   * something else: a tower's radius follows its height, so the camera backs
+   * off far enough to hold it, but the selection ring belongs round its plot.
+   */
+  footprint?: number;
 }
 
 /**
@@ -102,6 +108,7 @@ export function focusTargetFor(city: CityModel, id: string): FocusTarget | null 
           position: entity.position,
           lookAt: [x, y + h * 0.55, z],
           radius: Math.max(w, d, h) * 0.7,
+          footprint: Math.hypot(w, d) * 0.5,
         };
       }
       case "landmark": {
@@ -240,6 +247,33 @@ export function overviewFraming(size: number, aspect = REFERENCE_ASPECT): Framin
   const bias = size * 0.05;
   return place([bias, Math.min(size * 0.02, 3), bias], OVERVIEW_DIR, distance);
 }
+
+/**
+ * Where the camera starts when a new city arrives: a little closer in and a
+ * little round from the overview, looking down a touch more steeply. It then
+ * glides out to the overview while the city builds itself (PLAN.md section
+ * 43), so the reveal ends on the familiar composition with the whole city in
+ * frame, having arrived rather than cut in.
+ */
+export function introFraming(overview: Framing): Framing {
+  const angles = viewAngles(overview.position, overview.target);
+  const distance = Math.hypot(
+    overview.position[0] - overview.target[0],
+    overview.position[1] - overview.target[1],
+    overview.position[2] - overview.target[2],
+  );
+  return orbitFraming(
+    overview.target,
+    { azimuth: angles.azimuth - INTRO_TURN, polar: Math.max(0.3, angles.polar - INTRO_TILT) },
+    Math.max(MIN_DISTANCE + 4, distance * INTRO_CLOSER),
+  );
+}
+/** How far round from the overview the arrival starts, radians. */
+const INTRO_TURN = 0.32;
+/** How much steeper the arrival looks down, radians. */
+const INTRO_TILT = 0.12;
+/** How much closer the arrival starts. */
+const INTRO_CLOSER = 0.72;
 
 /**
  * The direction a camera looks from, as the orbit angles `camera-controls`
@@ -492,7 +526,13 @@ export function clearInspectionFraming(
   );
   const facade = focus.facing !== undefined && Number.isFinite(focus.facing);
   const crowd = facade || (focus.radius < 3 && focus.kind !== "building" && focus.kind !== "landmark");
-  const local = near(obstacles, target[0], target[2], distance * 1.6 + 4);
+  // The thing being inspected is not in its own way. A building or a
+  // landmark is aimed at from inside its own plot, so its own box sat across
+  // every sight line, every framing read as blocked, and every building was
+  // inspected from straight overhead.
+  const local = near(obstacles, target[0], target[2], distance * 1.6 + 4).filter(
+    (o) => o.id !== focus.id,
+  );
 
   // How high the camera should be to be out of the canyon: over the nearby
   // roofs, the scaffold's own tower aside, if that is within reach.

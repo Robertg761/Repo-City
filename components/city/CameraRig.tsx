@@ -25,6 +25,7 @@ import {
   framingObstacles,
   tallestPoint,
   focusTargetFor,
+  introFraming,
   overviewFraming,
   viewAngles,
   type Framing,
@@ -49,8 +50,10 @@ interface RigControls {
   getTarget(out: Vector3, receiveEndValue?: boolean): Vector3;
   normalizeRotations(): unknown;
   setBoundary(box3?: Box3): void;
-  addEventListener(type: "control", listener: () => void): void;
-  removeEventListener(type: "control", listener: () => void): void;
+  smoothTime: number;
+  setFocalOffset(x: number, y: number, z: number, enableTransition?: boolean): Promise<void>;
+  addEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
+  removeEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
 }
 
 const isRigControls = (value: unknown): value is RigControls =>
@@ -96,12 +99,48 @@ export const CONTROLS_FEEL = {
 
 const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
 
+/**
+ * The arrival glide's `smoothTime`: slow enough that the camera eases out to
+ * the overview over the three or four seconds the city takes to build.
+ */
+const ARRIVAL_SMOOTH_TIME = 1.1;
+
+/**
+ * On a phone the inspector is a sheet over the bottom half of the screen and
+ * the folded health card sits at the top, so an object framed in the middle
+ * of the screen ended up half under the sheet. While something is inspected
+ * there, the object sits this share of the screen's height above the middle,
+ * in the open band between the two.
+ */
+const PHONE_SHEET_LIFT = 0.15;
+/** The width below which the inspector is a bottom sheet (`sm` in the HUD). */
+const SHEET_BELOW = 640;
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** How quickly a transition settles: `CONTROLS_FEEL`'s, or the arrival's. */
+function setPace(controls: RigControls, smoothTime: number): void {
+  controls.smoothTime = smoothTime;
+}
+
 function fly(controls: RigControls, framing: Framing, transition: boolean): void {
+  // Every flight but the arrival moves at the brisk pace of `CONTROLS_FEEL`.
+  setPace(controls, CONTROLS_FEEL.smoothTime);
   void controls.setLookAt(...framing.position, ...framing.target, transition);
   // `setLookAt` lands on an azimuth in (-PI, PI], but the live one keeps
   // counting whole turns as the user orbits. Without this a camera that has
   // been spun round twice unwinds both turns on its way to the next object.
   if (transition) controls.normalizeRotations();
+}
+
+/** The vertical focal offset, in world units, for a framing `distance` long. */
+function sheetOffset(distance: number, fov: number, inspecting: boolean): number {
+  if (!inspecting || typeof window === "undefined" || window.innerWidth >= SHEET_BELOW) return 0;
+  const visible = 2 * distance * Math.tan((fov * Math.PI) / 360);
+  // A positive offset slides the frame up, which carries the object up the
+  // screen with it.
+  return visible * PHONE_SHEET_LIFT;
 }
 
 export default function CameraRig({
@@ -113,6 +152,7 @@ export default function CameraRig({
   aspect: number;
 }) {
   const controls = useThree((state) => state.controls);
+  const camera = useThree((state) => state.camera);
   const selectedId = useCityStore((s) => s.selectedId);
   const overviewNonce = useCityStore((s) => s.overviewNonce);
   const lastCity = useRef<CityModel | null>(null);
@@ -121,14 +161,25 @@ export default function CameraRig({
   const touched = useRef(false);
   const size = city?.bounds.size ?? 120;
 
-  // Any drag, pinch or wheel turn is the user's framing, not ours.
+  // Any drag, pinch or wheel turn is the user's framing, not ours. Grabbing
+  // the camera mid-arrival, or the arrival coming to a stop, puts the pace
+  // back to normal.
   useEffect(() => {
     if (!isRigControls(controls)) return;
     const onControl = () => {
       touched.current = true;
+      // A wheel turn only reports `control`, never `controlstart`.
+      setPace(controls, CONTROLS_FEEL.smoothTime);
     };
+    const onSettle = () => setPace(controls, CONTROLS_FEEL.smoothTime);
     controls.addEventListener("control", onControl);
-    return () => controls.removeEventListener("control", onControl);
+    controls.addEventListener("controlstart", onSettle);
+    controls.addEventListener("sleep", onSettle);
+    return () => {
+      controls.removeEventListener("control", onControl);
+      controls.removeEventListener("controlstart", onSettle);
+      controls.removeEventListener("sleep", onSettle);
+    };
   }, [controls]);
 
   // Pan and zoom-to-cursor keep the orbit target over the landscape and above
@@ -174,11 +225,27 @@ export default function CameraRig({
     } else {
       framing = overviewFraming(city?.bounds.size ?? 120, lastAspect.current);
     }
-    fly(controls, framing, !isNewModel);
+    if (isNewModel && city && !focus && !prefersReducedMotion()) {
+      // A new city arrives rather than cuts in: from a little closer and a
+      // little round, the camera eases out to the overview while the city
+      // builds itself.
+      fly(controls, introFraming(framing), false);
+      fly(controls, framing, true);
+      setPace(controls, ARRIVAL_SMOOTH_TIME);
+    } else {
+      fly(controls, framing, !isNewModel);
+    }
+    const distance = Math.hypot(
+      framing.position[0] - framing.target[0],
+      framing.position[1] - framing.target[1],
+      framing.position[2] - framing.target[2],
+    );
+    const fov = "fov" in camera ? (camera.fov as number) : 35;
+    void controls.setFocalOffset(0, sheetOffset(distance, fov, focus !== null), 0, !isNewModel);
     touched.current = false;
     // `overviewNonce` is a trigger: "Return to overview" flies back even when
     // nothing is selected.
-  }, [controls, city, selectedId, overviewNonce]);
+  }, [controls, camera, city, selectedId, overviewNonce]);
 
   useCameraDebugHandle(controls);
   usePinchAsDolly();

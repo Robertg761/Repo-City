@@ -135,6 +135,8 @@ const pendingStages = (): Stage[] =>
  * its events can never overwrite the newer city.
  */
 let inFlight: AbortController | null = null;
+/** The city the in-flight survey will hand back if it fails. */
+let inFlightPrevious: { analysis: RepoAnalysis | null; city: CityModel | null } | null = null;
 
 export const useCityStore = create<CityStore>()((set, get) => ({
   phase: "idle",
@@ -166,6 +168,16 @@ export const useCityStore = create<CityStore>()((set, get) => ({
       inFlight?.abort();
       const controller = new AbortController();
       inFlight = controller;
+
+      // The city on screen when this survey started. A new survey clears the
+      // stage for its own reveal, but one that fails hands the old city back
+      // rather than leaving the visitor on an empty lawn (section 0.2: an
+      // error never replaces the world). A survey started while another was
+      // still running inherits the city that one would have restored.
+      const previous = get().city
+        ? { analysis: get().analysis, city: get().city }
+        : (inFlightPrevious ?? { analysis: null, city: null });
+      inFlightPrevious = previous;
 
       set({
         phase: "analyzing",
@@ -216,6 +228,8 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         set({
           phase: "error",
           error: { code, message },
+          analysis: previous.analysis,
+          city: previous.city,
           // Only the step that was actually in flight failed; the ones after
           // it never ran, and a panel of eight red crosses claims work the
           // server never attempted (PLAN.md section 44).
@@ -230,7 +244,10 @@ export const useCityStore = create<CityStore>()((set, get) => ({
           console.error(`Repo City: analysis of ${trimmed} failed`, cause);
         }
       } finally {
-        if (inFlight === controller) inFlight = null;
+        if (inFlight === controller) {
+          inFlight = null;
+          inFlightPrevious = null;
+        }
       }
     },
 

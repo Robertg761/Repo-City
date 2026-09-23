@@ -455,8 +455,14 @@ function Post({
     effects.push(
       <N8AO
         key="ao"
-        halfRes
-        quality="low"
+        // Full resolution, with twice the denoise samples of the "low" preset
+        // over a tighter radius. At half resolution the occlusion is sampled
+        // on a grid coarser than a tower's mullions, and the upsample drew
+        // faint diagonal hatching down the side of every thin fin; the high
+        // tier this runs on has the headroom (PLAN.md 76.13).
+        aoSamples={16}
+        denoiseSamples={8}
+        denoiseRadius={8}
         aoRadius={2.6}
         distanceFalloff={1.1}
         intensity={1.05}

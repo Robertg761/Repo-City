@@ -13,15 +13,33 @@ import { useCityStore } from "@/store/useCityStore";
 
 const OFFSET = 14;
 
+/**
+ * Where the pointer last was, kept outside React so following it costs no
+ * render while nothing is hovered. Without it the label had no position on
+ * the move that started the hover, and only appeared on the move after:
+ * holding the mouse still over a building showed nothing.
+ */
+const lastPointer = { x: 0, y: 0, seen: false };
+
 export default function Tooltip() {
   const hoveredId = useCityStore((s) => s.hoveredId);
   const city = useCityStore((s) => s.city);
   const analysis = useCityStore((s) => s.analysis);
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
 
-  // Only listen while something is hovered; the canvas emits a lot of moves.
-  // The last known point survives an unhover on purpose: the pointer has not
-  // moved, so it is still where the next tooltip belongs.
+  useEffect(() => {
+    const remember = (event: PointerEvent) => {
+      lastPointer.x = event.clientX;
+      lastPointer.y = event.clientY;
+      lastPointer.seen = true;
+    };
+    // Capture phase: this runs before the canvas's own handler sets the hover.
+    window.addEventListener("pointermove", remember, { passive: true, capture: true });
+    return () => window.removeEventListener("pointermove", remember, { capture: true });
+  }, []);
+
+  // Follow the pointer only while something is hovered; the canvas emits a
+  // lot of moves. The label starts where the pointer already is.
   useEffect(() => {
     if (!hoveredId) return;
     const onPointerMove = (event: PointerEvent) => {
@@ -30,6 +48,14 @@ export default function Tooltip() {
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     return () => window.removeEventListener("pointermove", onPointerMove);
   }, [hoveredId]);
+
+  // Picked up during render when the hover changes, the pattern React
+  // documents for "state derived from a change".
+  const [sawHovered, setSawHovered] = useState(hoveredId);
+  if (sawHovered !== hoveredId) {
+    setSawHovered(hoveredId);
+    if (hoveredId && lastPointer.seen) setPoint({ x: lastPointer.x, y: lastPointer.y });
+  }
 
   const entity = resolveEntity(hoveredId, city, analysis);
   if (!entity || !point) return null;

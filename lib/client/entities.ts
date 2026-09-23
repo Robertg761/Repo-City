@@ -15,6 +15,7 @@
  *     flattering number, or describes something the analysis did not measure.
  */
 
+import { plainExcerpt } from "./plainText";
 import {
   pullModifiers,
   wantsVolunteer,
@@ -627,7 +628,8 @@ export function resolveEntity(
       label: "INCIDENT",
       title: issue.title,
       subtitle: `Issue #${issue.number}`,
-      description: issue.bodyExcerpt,
+      // The excerpt is raw markdown; the inspector wants the words.
+      description: plainExcerpt(issue.bodyExcerpt),
       reason: incident.reason || issue.reason,
       sourceUrl: incident.sourceUrl ?? issue.url,
       facts,

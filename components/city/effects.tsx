@@ -26,6 +26,8 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   SphereGeometry,
+  Vector3,
+  type Object3D,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { BatchPart } from "./Batch";
@@ -47,6 +49,31 @@ export function lampMaterial(): MeshStandardMaterial {
     { glow: true },
   );
 }
+
+const scratchWorld = new Vector3();
+
+/**
+ * A steady 0..1 offset for an effect, from where it stands in the world.
+ * Every effect used to run off the one scene clock, so every beacon in the
+ * city flashed on the same beat and every smoke column breathed in step,
+ * which read as one machine rather than a city of separate emergencies.
+ * The offset comes from the world position, so it is stable across frames
+ * and the same on every visit to the same city.
+ */
+export function placePhase(x: number, y: number, z: number): number {
+  const h = Math.sin(x * 12.9898 + y * 4.1414 + z * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+/** `placePhase` of an object once it is in the scene, or null before then. */
+function worldPhase(object: Object3D | null | undefined): number | null {
+  if (!object?.parent) return null;
+  object.getWorldPosition(scratchWorld);
+  return placePhase(scratchWorld.x, scratchWorld.y, scratchWorld.z);
+}
+
+/** How much of its rise a puff spends fading in, so it never pops into being. */
+const PUFF_FADE_IN = 0.14;
 
 /** Every lamp and puff was a 10 by 8 sphere of its own radius: one unit sphere, scaled. */
 const LAMP = batchKind("fx:lamp", () => ({
@@ -125,9 +152,11 @@ export function Smoke({
   opacity?: number;
 }) {
   const handles = useRef<(BatchHandle | null)[]>([]);
+  const offset = useRef<number | null>(null);
 
   useFrame(({ clock }) => {
-    const t = clock.elapsedTime * rate;
+    offset.current ??= worldPhase(handles.current[0]?.object);
+    const t = clock.elapsedTime * rate + (offset.current ?? 0);
     const list = handles.current;
     for (let i = 0; i < list.length; i++) {
       const handle = list[i];
@@ -142,7 +171,10 @@ export function Smoke({
       // Puffs keep growing as they rise, so the column widens with height the
       // way a real plume does rather than reading as a string of beads.
       puff.scale.setScalar(radius * (0.5 + phase * 1.6));
-      handle.opacity = opacity * (1 - phase * 0.92);
+      // Fades in off the source and all the way out at the top: a puff used
+      // to appear at full strength and vanish from a twelfth of it.
+      const rise = Math.min(1, phase / PUFF_FADE_IN);
+      handle.opacity = opacity * rise * (1 - phase) ** 1.1;
     }
   });
 
@@ -178,11 +210,13 @@ export function BlinkLight({
   radius?: number;
 }) {
   const handle = useRef<BatchHandle>(null);
+  const offset = useRef<number | null>(null);
 
   useFrame(({ clock }) => {
     const lamp = handle.current;
     if (!lamp?.object) return;
-    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * rate * Math.PI);
+    offset.current ??= worldPhase(lamp.object);
+    const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
     lamp.glow = 0.25 + pulse * 2.6;
     lamp.object.scale.setScalar(radius * (0.85 + pulse * 0.25));
   });
@@ -205,11 +239,14 @@ export function Glow({
   strength?: number;
 }) {
   const handle = useRef<BatchHandle>(null);
+  const offset = useRef<number | null>(null);
 
   useFrame(({ clock }) => {
     const glow = handle.current;
     if (!glow?.object) return;
-    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * rate * Math.PI);
+    // The same offset as the lamp it surrounds: both are placed at one point.
+    offset.current ??= worldPhase(glow.object);
+    const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
     glow.opacity = strength * (0.32 + pulse);
     glow.object.scale.setScalar(radius * (0.8 + pulse * 0.4));
   });
@@ -273,9 +310,11 @@ export function Sparks({
   count?: number;
 }) {
   const handles = useRef<(BatchHandle | null)[]>([]);
+  const offset = useRef<number | null>(null);
 
   useFrame(({ clock }) => {
-    const t = clock.elapsedTime * rate;
+    offset.current ??= worldPhase(handles.current[0]?.object);
+    const t = clock.elapsedTime * rate + (offset.current ?? 0);
     // One burst per cycle, lasting a fifth of it.
     const cycle = t % 1;
     const burst = cycle < 0.22 ? 1 - cycle / 0.22 : 0;

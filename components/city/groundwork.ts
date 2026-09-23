@@ -47,6 +47,41 @@ export const SIDEWALK_WIDTH = 1.2;
 /** Height of that slab above the road surface: the kerb step. */
 export const SIDEWALK_HEIGHT = 0.19;
 
+/** Width of the darker kerb stone between the carriageway and the pavement. */
+export const CURB_WIDTH = 0.3;
+
+/**
+ * How the pavement's band is cut between the kerb stone and the paving slab,
+ * as offsets from the road's centreline on one `side` (+1 or -1) and widths.
+ *
+ * The two sit side by side and flush, and never overlap. The kerb used to be
+ * a box laid over the slab's inner edge, a hair taller: the two tops were
+ * five thousandths apart and the kerb face was the slab's face, so at the
+ * overview the depth buffer could not tell them apart and every kerb broke
+ * up into a dashed line.
+ */
+export function pavementCut(roadWidth: number, side: number): {
+  kerbLateral: number;
+  slabLateral: number;
+  slabWidth: number;
+} {
+  const edge = roadWidth / 2;
+  return {
+    kerbLateral: (edge + CURB_WIDTH / 2) * side,
+    slabLateral: (edge + CURB_WIDTH + (SIDEWALK_WIDTH - CURB_WIDTH) / 2) * side,
+    slabWidth: SIDEWALK_WIDTH - CURB_WIDTH,
+  };
+}
+
+/**
+ * How far an avenue median's planted bed stands above its kerb. A clear
+ * step, not a hair: the bed used to sit six thousandths over the kerb box it
+ * lies in, and flickered against it from any distance.
+ */
+export const MEDIAN_BED_LIFT = 0.03;
+/** How far the bed stops short of the median's rounded ends. */
+export const MEDIAN_BED_INSET = 0.16;
+
 /**
  * Gap left in the pavement at each end of a segment. Segments are split at
  * junctions, so both ends are corners: without this the four slabs meeting

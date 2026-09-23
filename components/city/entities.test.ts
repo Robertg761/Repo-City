@@ -447,6 +447,22 @@ describe("crowd focus (PLAN.md 76.9)", () => {
     expect((performance.now() - started) / ids.length).toBeLessThan(16);
   });
 
+  it("inspects buildings and landmarks from the side, not from straight overhead", () => {
+    const obstacles = framingObstacles(city);
+    const overview = overviewFraming(city.bounds.size);
+    const from = viewAngles(overview.position, overview.target);
+    const ids = [...city.buildings.map((b) => b.id), ...city.landmarks.map((l) => l.id)];
+    let overhead = 0;
+    for (const id of ids) {
+      const framing = clearInspectionFraming(focusTargetFor(city, id)!, from, obstacles);
+      expect(framingBlocked(framing.target, framing.position, obstacles.filter((o) => o.id !== id)), id).toBe(false);
+      if (viewAngles(framing.position, framing.target).polar < 0.18) overhead++;
+    }
+    // A thing is never in its own way: every one of them used to fall back to
+    // the look straight down, because the sight line started inside its plot.
+    expect(overhead).toBe(0);
+  });
+
   it("keeps the user's own view when nothing is in the way", () => {
     const focus = focusTargetFor(city, city.incidents[0].id)!;
     const from = { azimuth: 0.4, polar: 0.6 };
