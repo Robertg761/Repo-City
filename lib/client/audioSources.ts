@@ -56,7 +56,8 @@ export function soundSources(city: CityModel): SoundSource[] {
 
   for (const incident of city.incidents) {
     if (incident.lod === "crowd") continue;
-    const fire = incident.form === "fire" || (incident.form === undefined && incident.state === "major");
+    // A hero draws its fire for the "major" state (`IssueIncident.tsx`).
+    const fire = incident.state === "major" || incident.form === "fire";
     if (!fire) continue;
     sources.push({
       id: incident.id,
