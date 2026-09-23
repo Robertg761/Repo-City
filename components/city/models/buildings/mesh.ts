@@ -285,8 +285,21 @@ export interface Panel {
   cz?: number;
 }
 
-/** Nudge outward so a panel never z-fights the wall behind it. */
+/**
+ * Nudge outward so a panel never z-fights the wall behind it. Scaled by the
+ * footprint (2.2 to 7 world units) that is 0.013 to 0.04 units: several steps
+ * of the depth buffer at the furthest the camera goes.
+ */
 export const PANEL_LIFT = 0.006;
+
+/**
+ * The step between two details stacked on one wall: a door on its surround,
+ * glass in its frame, a lit pane on the glass. Anything overlapping another
+ * face that faces the same way stands at least this far off it, or the depth
+ * buffer cannot tell the two apart from the overview and they flicker in
+ * stripes as the camera moves (`coplanar.ts`, `zfight.test.ts`).
+ */
+export const LAYER = PANEL_LIFT;
 
 /** World-space centre of a panel, in the archetype's unit space. */
 export function panelCentre(panel: Panel, extraLift = 0): [number, number, number] {
