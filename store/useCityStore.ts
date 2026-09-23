@@ -82,12 +82,19 @@ export const FIXTURE_INPUT = "fixture";
  */
 export const BACKLOG_INPUT = "backlog";
 
-type FixtureName = "sample" | "backlog";
+/**
+ * Development only: `fixtures/stress.analysis.json`, the heaviest metropolis
+ * the generator allows, for the performance gate (PLAN.md 76.13).
+ */
+export const STRESS_INPUT = "stress";
+
+type FixtureName = "sample" | "backlog" | "stress";
 
 function fixtureFor(input: string): FixtureName | null {
   const lower = input.toLowerCase();
   if (lower === FIXTURE_INPUT) return "sample";
   if (process.env.NODE_ENV !== "production" && lower === BACKLOG_INPUT) return "backlog";
+  if (process.env.NODE_ENV !== "production" && lower === STRESS_INPUT) return "stress";
   return null;
 }
 
@@ -267,7 +274,9 @@ async function loadFixture(
   const loaded =
     process.env.NODE_ENV !== "production" && name === "backlog"
       ? (await import("@/fixtures/backlog.analysis.json")).default
-      : (await import("@/fixtures/sample.analysis.json")).default;
+      : process.env.NODE_ENV !== "production" && name === "stress"
+        ? (await import("@/fixtures/stress.analysis.json")).default
+        : (await import("@/fixtures/sample.analysis.json")).default;
   const analysis = loaded as unknown as RepoAnalysis;
 
   markStage("discover", "done", analysis.repo.fullName);

@@ -21,6 +21,7 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel, Vec3 } from "@/types/city";
 import {
   cameraBoundary,
+  tallestPoint,
   focusTargetFor,
   inspectionFraming,
   overviewFraming,
@@ -133,9 +134,11 @@ export default function CameraRig({
   // the ground (PLAN.md section 5).
   useEffect(() => {
     if (!isRigControls(controls)) return;
-    const [min, max] = cameraBoundary(size);
+    // The ceiling follows the tallest tower, so a metropolis spire can still
+    // be framed from its top (76.5 scale checks).
+    const [min, max] = cameraBoundary(size, city ? tallestPoint(city) : undefined);
     controls.setBoundary(new Box3(new Vector3(...min), new Vector3(...max)));
-  }, [controls, size]);
+  }, [controls, size, city]);
 
   // A resize (a phone turned on its side, a window snapped to half the
   // screen) refits an overview nobody has moved. Anything else stays put.

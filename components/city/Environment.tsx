@@ -54,7 +54,7 @@ import {
   type SceneAtmosphere,
 } from "./palette";
 import { useQuality, useQualityProbe, type QualitySettings } from "./quality";
-import { revealEnd } from "./reveal";
+import { cityRevealEnd } from "./reveal";
 import { skyRadius } from "./scale";
 import {
   surfaceTexture,
@@ -503,19 +503,9 @@ export default function Environment({
   const quality = useQuality();
 
   // The probe has to wait for the generation animation to finish, or it times
-  // three hundred buildings growing out of the ground (PLAN.md section 43).
-  const settleMs = useMemo(
-    () =>
-      city
-        ? revealEnd([
-            ...city.buildings.map((b) => b.appearAt),
-            ...city.landmarks.map((l) => l.appearAt),
-            ...city.incidents.map((i) => i.appearAt),
-            ...city.constructionSites.map((c) => c.appearAt),
-          ]) + 250
-        : null,
-    [city],
-  );
+  // three hundred buildings growing out of the ground (PLAN.md section 43),
+  // and now the backlog's ripple and the queue behind them (76.8).
+  const settleMs = useMemo(() => (city ? cityRevealEnd(city) + 250 : null), [city]);
   useQualityProbe(settleMs);
 
   return (

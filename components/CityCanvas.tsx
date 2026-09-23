@@ -26,6 +26,7 @@ import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
 import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
+import PerfOverlay from "@/components/city/perf/PerfOverlay";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -238,6 +239,9 @@ export default function CityCanvas() {
         maxPolarAngle={Math.PI * 0.48}
         minPolarAngle={0.15}
       />
+
+      {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
+      <PerfOverlay />
     </Canvas>
   );
 }
