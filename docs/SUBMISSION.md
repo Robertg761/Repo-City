@@ -1,7 +1,8 @@
 # Hackyard Yard #3 submission material
 
 Everything the submission form needs, in the order the form asks for it.
-Prepared 2026-09-21 against the live production deployment.
+Refreshed 2026-09-23 against `main` at v0.6.0 (`3dca27a` and later): settlement tiers, every
+open issue and PR drawn, time of day, the tour, ambient sound and the low-end hardening.
 
 ---
 
@@ -22,8 +23,9 @@ Must be public at submission time. It was made public on 2026-09-21, after kicko
 https://repo-city-five.vercel.app
 ```
 
-Verified live and public on 2026-09-21. Open it in a private window before submitting
-(PLAN.md section 70).
+Before submitting, open it in a private window and check that the version in the top-left
+corner of the HUD reads `v0.6.0` or later. An older deployment has no villages, no tour and no
+time-of-day pill, and the writeup below would describe features voters cannot find.
 
 ---
 
@@ -32,27 +34,28 @@ Verified live and public on 2026-09-21. Open it in a private window before submi
 Paste exactly the block between the markers, markers excluded.
 
 <!-- WRITEUP START -->
-Repo City turns any public GitHub repository into a living 3D city. Files become buildings, directories become districts, open pull requests become construction cranes, CI becomes the power plant, and unresolved issues leave burning scars in the streets. Click anything to read the real GitHub data behind it. One persistent 3D viewport: one route, no page changes, no second screen. Try honojs/hono, then atom/atom.
+Repo City turns any public GitHub repo into a 3D city on one screen. Files are buildings, folders are districts, and every open issue and PR is drawn: fires, crashes and roadblocks for issues, scaffolding and trenches for PRs. Small repos become villages, giants become metropolises. Click anything to see the real GitHub record, switch to night, or press Tour for a one-minute fly-through. One route, no page changes. Try honojs/hono, then facebook/react.
 
 https://repo-city-five.vercel.app
 <!-- WRITEUP END -->
 
-**Character count: 451** (49 characters of slack under the 500 limit).
+**Character count: 491** (9 characters of slack under the 500 limit).
 
-Counted with `wc -m`. The text is pure ASCII, so `wc -m` and `wc -c` agree at 451 and the
-count cannot shift depending on whether the form counts characters, bytes or UTF-16 units.
-Do not add an em dash, a curly quote or an emoji without re-counting — each one makes the
-byte count exceed the character count.
+It leads with the theme ("on one screen") and closes on it ("One route, no page changes"),
+and in between names the three things a voter remembers: every issue and PR as an object in
+the street, villages to metropolises, and the tour.
 
-To re-count after any edit, from the repository root:
+The text is pure ASCII, so `wc -m` and `wc -c` agree at 491 and the count does not depend on
+whether the form counts characters, bytes or UTF-16 units. An em dash, a curly quote or an
+emoji would each change that, so re-count after any edit. From the repository root:
 
 ```bash
 printf '%s' "$(awk '/WRITEUP[ ]START/{f=1;next} /WRITEUP[ ]END/{f=0} f' docs/SUBMISSION.md)" | wc -m
 ```
 
 The `[ ]` in each pattern stops the command from matching its own text in this file. The
-blank line and the URL are part of what gets pasted, so the whole block is counted, internal
-newline included; `printf '%s' "$(...)"` trims only the trailing newline.
+blank line and the URL are part of what gets pasted, so they are counted;
+`printf '%s' "$(...)"` trims only the trailing newline.
 
 ---
 
@@ -70,6 +73,9 @@ Development:
 - Claude Opus 5 (claude-opus-5) - implementation sub-agents, one per workstream, in parallel
   git worktrees. Also wrote the curated architecture interpretations in
   fixtures/interpretations/.
+- Claude Opus 5.5 (claude-opus-5-5) - orchestration, review, integration and implementation
+  sub-agents from the enhancement round onward: settlement tiers, every issue and PR drawn,
+  time of day, the tour, ambient sound, low-end hardening and the submission material.
 - [Robert: name the model used to draft the original plan before kickoff, or say "none".]
 
 Runtime, inside the shipped product:
@@ -79,39 +85,45 @@ Runtime, inside the shipped product:
   anyone who deploys their own copy, but it ships disabled, and the demo serves committed
   curated interpretations for the reference repositories instead.
 
-No AI receipts are being submitted beyond this declaration and the git history; Yard #3
-lists receipts as optional.
+Every commit names its model in a Co-Authored-By trailer. No AI receipts are being submitted
+beyond this declaration and the git history; Yard #3 lists receipts as optional.
 ```
 
 **Before pasting:** replace the bracketed line. AI_MODELS.md still carries a `[TO CONFIRM]`
 entry for the model that drafted the plan before kickoff, and only Robert can resolve it.
-That is the one factual gap in the declaration.
 
 ---
 
 ## 5. Screenshot
 
 ```
-docs/screenshot.png
+docs/screenshot.jpg
 ```
 
-1600 x 1000 PNG, captured from the live production site in headless Chromium: `honojs/hono`
-analysed, reveal finished, inspector closed, camera pulled down to a low aerial angle.
+1600 x 1000 JPEG, 350 KB, captured on a real GPU (ANGLE Vulkan) from v0.6.0: `facebook/react`
+surveyed live, drawn as the metropolis "Greater react" at evening, legend folded, camera
+lowered to a three-quarter aerial.
 
-It shows, in one frame: labelled districts with their real directory paths, the skyline,
-roads and traffic, two construction cranes over open pull requests, the CI power plant with
-its stacks, the information centre, an incident, and the health card reading `76 Healthy`.
+In one frame it shows the settlement tier, five labelled districts with their real folder
+paths, the tower skyline, the motorway ring and highways out, farmland at the edges,
+construction cranes, the civic centre, the fire station and the transit station, the chip
+"500 of 514 pull requests on the streets" and the health card reading `85 Thriving`.
 
-This is the image Hackyard uses on the project card, so it is doing most of the work of
-explaining the project. Upload this file.
+This is the image Hackyard puts on the project card, so it does most of the explaining. Upload
+this file. `docs/screenshot.png` is the same shot at 1200 x 750 for the link preview
+(`og:image` in `app/layout.tsx`); do not upload that one.
+
+A second set in `docs/screenshots/` shows the tiers side by side (village, town, city), the
+metropolis at night, a crowd object with the inspector open, a tour frame and the phone
+inspector. Use any of them if the form takes more than one image.
 
 ---
 
 ## 6. Demo video
 
 Optional per Hackyard, strongly recommended, and treated as required here. Shot list,
-narration and recording settings: [DEMO-SCRIPT.md](./DEMO-SCRIPT.md). 45-70 seconds.
-Upload to YouTube, Vimeo or Loom — those are the sources Hackyard embeds inline.
+narration and recording settings: [DEMO-SCRIPT.md](./DEMO-SCRIPT.md). 60-90 seconds.
+Upload to YouTube, Vimeo or Loom, the sources Hackyard embeds inline.
 
 ---
 
@@ -123,11 +135,11 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
       was released, rejoin before 2026-09-23 18:00 UTC, which counts as check-in.
 - [ ] **Repository is public.** `https://github.com/Robertg761/Repo-City`. Check in a logged-out
       browser, not just your own.
-- [ ] **Repository URL field** <- section 1 above.
-- [ ] **Writeup field** <- the block in section 3. Confirm the form's own counter agrees with 451
+- [ ] **Repository URL field** <- section 1.
+- [ ] **Writeup field** <- the block in section 3. Confirm the form's own counter agrees with 491
       and does not show it over 500.
 - [ ] **AI model declaration field** <- the block in section 4, with the bracketed line replaced.
-- [ ] **Screenshot upload** <- `docs/screenshot.png`. Check the preview renders and is not
+- [ ] **Screenshot upload** <- `docs/screenshot.jpg`. Check the preview renders and is not
       cropped into unreadability on the project card.
 - [ ] **Demo video URL** <- the YouTube / Vimeo / Loom link. Play it back from the submission
       page to confirm it embeds.
@@ -138,20 +150,27 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 
 ### Pre-submission checks that are not form fields
 
+- [ ] **Production is on the latest `main`.** The HUD's top-left corner shows the version and
+      short SHA. It must be v0.6.0 or later.
+- [ ] **Walk the live demo once, as a voter would**, in a private window at 1600 x 1000:
+      type `honojs/hono`, click a crowd object, switch to night and back, press Tour and let it
+      finish, then Analyze another repo with `sindresorhus/p-limit` (village) and
+      `facebook/react` (metropolis). Then load `/?tour=1`, survey a repository and check the
+      tour starts on its own once the city stands. Repeat the survey and a click on a phone.
 - [ ] `FIXTURE_FALLBACK` is set to `true` in the Vercel project's environment variables.
       **It is opt-in: unset means off.** If it is unset, the fixture fallback that keeps the
       demo alive through a GitHub rate limit during voting is silently disabled. See
       [QA-2026-09-21.md](./QA-2026-09-21.md), bug 1.
 - [ ] `AI_PROVIDER` is `none` (or unset) in Vercel, so the declaration in section 4 stays true.
-- [ ] `GITHUB_TOKEN` in Vercel is a fine-grained PAT with public-repository read only, and has
-      not expired. The whole demo dies without it.
+- [ ] `GITHUB_TOKEN` in Vercel is a fine-grained token with public-repository read only, and
+      has not expired. The whole demo dies without it. The settlement-era survey pages through
+      up to 1,000 issues and 500 PRs, so it spends more of the token's hourly budget per
+      uncached repository than v0.3 did; the 15-minute cache and the fixture fallback absorb
+      repeat visits.
 - [ ] `pnpm typecheck && pnpm lint && pnpm test && pnpm build` all pass on `main`.
 - [ ] Secret scan is clean (`git grep -nIE 'ghp_|github_pat_|sk-ant-'`), `.env.local` is not
       tracked, and no `NEXT_PUBLIC_` variable holds a credential.
-- [ ] The production URL loads in a private window and renders a city for at least two
-      repositories.
 - [ ] The link preview works. `app/layout.tsx` points `og:image` at
       `https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png`, which
-      only resolves once this work is merged to `main` and pushed. Open that URL in a browser
-      after pushing; if it 404s, the preview card will be blank. Context in
-      [QA-2026-09-21.md](./QA-2026-09-21.md), section 4.
+      shows the new shot only once this work is merged to `main` and pushed. Open that URL
+      after pushing and check it is the React metropolis, not the old hono shot.
