@@ -142,13 +142,23 @@ describe("crowd placement: nothing overlaps", () => {
 
 describe("crowd placement: where each class stands", () => {
   it("stands kerb forms on the pavement and lane blockers in a lane", () => {
+    // Measured against the item's own road, not the nearest one: beside a
+    // junction another segment's end can be a hair closer than the host.
+    const offset = (width: number, lane: boolean | undefined) =>
+      lane ? laneOffset(width) : width / 2 + SIDEWALK_WIDTH / 2;
     for (const entity of crowd(metro)) {
       const onRoad = entity.form === "fire" || entity.form === "signpost" || entity.form === "van" || entity.lane;
       if (!onRoad) continue;
-      const { road, d } = nearestRoad(metro, entity.position[0], entity.position[2]);
-      const width = metro.roads[road].width;
-      const expected = entity.lane ? laneOffset(width) : width / 2 + SIDEWALK_WIDTH / 2;
-      expect(Math.abs(d - expected)).toBeLessThan(0.01);
+      const [x, , z] = entity.position;
+      const host = metro.roads.findIndex(
+        (road) => Math.abs(distanceToRoad(x, z, road) - offset(road.width, entity.lane)) < 0.01,
+      );
+      expect(host).toBeGreaterThanOrEqual(0);
+      // A kerb item never stands on any carriageway; a lane item only on its own.
+      metro.roads.forEach((road, index) => {
+        if (entity.lane && index === host) return;
+        expect(distanceToRoad(x, z, road)).toBeGreaterThanOrEqual(road.width / 2);
+      });
     }
   });
 
@@ -156,8 +166,12 @@ describe("crowd placement: where each class stands", () => {
     for (const [, city] of TIERS) {
       const bridges = findBridges(city.roads);
       const streets = city.roads.filter((r) => r.kind !== "highway").length;
+      // The budget counts street segments only (76.8): a hero that
+      // `findRoadSpot` stood on a highway ring holds no street lane.
       const heroSegments = new Set(
-        city.incidents.map((i) => nearestRoad(city, i.position[0], i.position[2]).road),
+        city.incidents
+          .map((i) => nearestRoad(city, i.position[0], i.position[2]).road)
+          .filter((road) => city.roads[road].kind !== "highway"),
       );
       const laneSegments: number[] = [];
       for (const entity of crowd(city).filter((e) => e.lane)) {

@@ -64,7 +64,8 @@ describe("per-tier numbers come from SETTLEMENT_PARAMS", () => {
     expect(city.vehicles.count).toBeLessThanOrEqual(params.vehicles.max);
     expect(city.incidents.length).toBeLessThanOrEqual(params.heroes.incidents);
     expect(city.constructionSites.length).toBeLessThanOrEqual(params.heroes.sites);
-    const highways = city.roads.filter((r) => r.kind === "highway").length;
+    // Roads out only: a metropolis ring is `kind: "highway"` too (76.5).
+    const highways = city.roads.filter((r) => r.id.startsWith("road-hwy-")).length;
     expect(highways).toBeGreaterThanOrEqual(params.highways.min);
     expect(highways).toBeLessThanOrEqual(params.highways.max);
   });
@@ -72,7 +73,7 @@ describe("per-tier numbers come from SETTLEMENT_PARAMS", () => {
   it("gives a metropolis its two highways even when nobody forked it", () => {
     const lonely = structuredClone(fixture);
     lonely.repo.forks = 0;
-    expect(generateCity(lonely, { tier: "metropolis" }).roads.filter((r) => r.kind === "highway")).toHaveLength(2);
+    expect(generateCity(lonely, { tier: "metropolis" }).roads.filter((r) => r.id.startsWith("road-hwy-"))).toHaveLength(2);
     expect(generateCity(lonely).roads.some((r) => r.kind === "highway")).toBe(false);
   });
 
