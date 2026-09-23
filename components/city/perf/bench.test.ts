@@ -19,19 +19,18 @@ import { describe, expect, it } from "vitest";
 import {
   BoxGeometry,
   InstancedMesh,
-  Matrix4,
   MeshBasicMaterial,
   PerspectiveCamera,
-  Quaternion,
   Raycaster,
   Vector2,
-  Vector3,
   type Intersection,
 } from "three";
 import type { RepoAnalysis } from "@/types/analysis";
 import type { CityModel, ConstructionSite, Incident } from "@/types/city";
 import { generateCity } from "@/lib/city/generator";
 import { mulberry32 } from "@/lib/city/prng";
+import { pickTable, raycastTable } from "../backlog/pick";
+import { planCrowd } from "../backlog/plan";
 import { blockedStretches, cityObstacles, type Obstacle } from "../blockages";
 import { roadGraph } from "../traffic";
 import { median } from "./stats";
@@ -129,11 +128,10 @@ describe("performance micro-benchmarks (PLAN.md 76.13)", () => {
     expect(result.median).toBeLessThanOrEqual(bound("blockedStretches"));
   });
 
-  // TODO(S5): unskip once `blockages.ts` bins segments into the 16-unit grid
-  // (76.9). The brute-force loop is segments x obstacles: with all 1,499
-  // obstacles over the 138 segments of today's layout it measured about
-  // 75 ms on the development desktop before S5, well over the 30 ms target.
-  it.skip(`blockedStretches(stress) with every crowd object in a lane within ${bound("blockedStretches")} ms`, ({
+  // The worst case: every crowd object closing a lane at once. Before S5's
+  // 16-unit grid in `blockages.ts` the brute-force loop (segments x
+  // obstacles) took about 75 ms here on the development desktop.
+  it(`blockedStretches(stress) with every crowd object in a lane within ${bound("blockedStretches")} ms`, ({
     annotate,
   }) => {
     const graph = roadGraph(city.roads);
@@ -146,43 +144,28 @@ describe("performance micro-benchmarks (PLAN.md 76.13)", () => {
     expect(result.median).toBeLessThanOrEqual(bound("blockedStretches"));
   });
 
-  // TODO(S5): unskip once `components/city/backlog/pick.ts` lands. Replace
-  // the marked line with S5's raycast (76.9: a slab test per instance against
-  // its `size`, writing `{ distance, point, object, instanceId }`). The
-  // harness around it is the gate: one InstancedMesh per crowd form, rays
-  // from the overview camera through random screen points, the median cost of
-  // one pointer move over every crowd mesh. Before S5, with three's own
-  // instanced raycast against unit boxes standing in for the forms, it
-  // measured about 0.45 ms a move; real forms have ten times the triangles,
-  // which is why 76.9 replaces the triangle test with a slab test.
-  it.skip(`a pointer-move raycast over every crowd mesh within ${bound("raycast")} ms`, ({
-    annotate,
-  }) => {
-    const items = crowd(city);
-    const byForm = new Map<string, (Incident | ConstructionSite)[]>();
-    for (const item of items) {
-      const form = item.form ?? item.kind;
-      byForm.set(form, [...(byForm.get(form) ?? []), item]);
-    }
-
-    const geometry = new BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  // The gate: one mesh per crowd form exactly as `Backlog.tsx` builds it,
+  // each with S5's slab-test raycast (`backlog/pick.ts`), and rays from the
+  // overview camera through random screen points. What is timed is one
+  // pointer move over every crowd mesh. Before S5, three's own instanced
+  // raycast against unit boxes standing in for the forms took about 0.45 ms
+  // a move, and the real forms have ten times their triangles.
+  it(`a pointer-move raycast over every crowd mesh within ${bound("raycast")} ms`, ({ annotate }) => {
+    const plan = planCrowd(city);
+    const geometry = new BoxGeometry(1, 1, 1);
     const material = new MeshBasicMaterial();
-    const matrix = new Matrix4();
-    const rotation = new Quaternion();
-    const up = new Vector3(0, 1, 0);
     const meshes: InstancedMesh[] = [];
-    for (const group of byForm.values()) {
-      const mesh = new InstancedMesh(geometry, material, group.length);
-      group.forEach((item, i) => {
-        const [w, h, d] = item.size ?? [2, 2, 2];
-        rotation.setFromAxisAngle(up, item.rotationY);
-        matrix.compose(new Vector3(...item.position), rotation, new Vector3(w, h, d));
-        mesh.setMatrixAt(i, matrix);
-      });
-      mesh.computeBoundingSphere();
-      // mesh.raycast = <S5's pick.ts raycast for this mesh>;  <- TODO(S5)
+    let instances = 0;
+    for (const group of plan.groups) {
+      const count = group.items.length;
+      const mesh = new InstancedMesh(geometry, material, count);
+      const table = pickTable(group.items);
+      mesh.raycast = (raycaster, intersects) => raycastTable(table, count, mesh, raycaster, intersects);
+      mesh.updateMatrixWorld();
       meshes.push(mesh);
+      instances += count;
     }
+    expect(instances).toBe(crowd(city).length);
 
     const size = city.bounds.size;
     const camera = new PerspectiveCamera(35, 16 / 9, 2, 2000);
@@ -205,7 +188,7 @@ describe("performance micro-benchmarks (PLAN.md 76.13)", () => {
     }, 5, 1);
     const perMove = result.median / 50;
     void annotate(
-      `raycast: ${items.length} crowd instances in ${meshes.length} meshes, ` +
+      `raycast: ${instances} crowd instances in ${meshes.length} meshes, ` +
         `${ms(perMove)} per pointer move (target ${BUDGET.raycast.target} ms)`,
     );
     expect(perMove).toBeLessThanOrEqual(bound("raycast"));

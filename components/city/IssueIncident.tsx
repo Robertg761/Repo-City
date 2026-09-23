@@ -19,17 +19,31 @@
  *
  * COST. The scene on the ground is one merged geometry per state, variant and
  * tone (`models/props/incidentDecor.ts`), shared by every incident in that
- * state; only the things that move -- the ring, the flames, the smoke, the
- * light bars -- are meshes of their own.
+ * state. Every part -- the patch, the scene, the ring, the flames, the smoke,
+ * the light bars -- is drawn from the city's shared pools (`Batch.tsx`), so
+ * sixteen incidents cost a handful of draw calls between them, not a hundred
+ * and fifty (PLAN.md 76.13). Only the fire's halo, a sprite, is its own mesh.
  *
  * Six to twelve of these exist at a time (section 11).
  */
 
 import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
-import { AdditiveBlending, type Mesh, type MeshBasicMaterial, type Sprite } from "three";
+import {
+  AdditiveBlending,
+  CircleGeometry,
+  ConeGeometry,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  RingGeometry,
+  type BufferGeometry,
+  type Sprite,
+} from "three";
 import type { Incident } from "@/types/city";
 import { HAZARD_RED, WARNING_ORANGE, desaturate, mix, stateTint, type SceneAtmosphere } from "./palette";
+import { BatchEntity, BatchPart } from "./Batch";
+import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
 import { Beacon, BlinkLight, Smoke } from "./effects";
 import { FIRE_AT, glowTexture, incidentDecor, variantFor } from "./models/props/incidentDecor";
 import { useQuality } from "./quality";
@@ -41,6 +55,17 @@ import { useRevealGroup } from "./useReveal";
  * overview camera looking almost straight down at it, pulsing slowly for the
  * states that mean "something is happening right now".
  */
+const RING = batchKind("incident:ring", () => ({
+  // `ringGeometry args={[r, r * 1.22, 40]}` is this ring scaled by `r`.
+  geometry: () => new RingGeometry(1, 1.22, 40),
+  material: () =>
+    withExtras(
+      new MeshBasicMaterial({ color: "#ffffff", transparent: true, depthWrite: false, toneMapped: false }),
+      { opacity: true },
+    ),
+  renderOrder: 1,
+}));
+
 function HazardRing({
   radius,
   color,
@@ -52,30 +77,98 @@ function HazardRing({
   opacity?: number;
   rate?: number;
 }) {
-  const ref = useRef<Mesh>(null);
+  const ref = useRef<BatchHandle>(null);
 
   useFrame(({ clock }) => {
-    const mesh = ref.current;
-    if (!mesh || rate === 0) return;
+    const ring = ref.current;
+    if (!ring?.object || rate === 0) return;
     const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * rate);
-    (mesh.material as MeshBasicMaterial).opacity = opacity * (0.55 + pulse * 0.45);
-    const scale = 1 + pulse * 0.06;
-    mesh.scale.set(scale, scale, 1);
+    ring.opacity = opacity * (0.55 + pulse * 0.45);
+    const scale = radius * (1 + pulse * 0.06);
+    ring.object.scale.set(scale, scale, 1);
   });
 
   return (
-    <mesh ref={ref} rotation-x={-Math.PI / 2} position-y={0.13} renderOrder={1}>
-      <ringGeometry args={[radius, radius * 1.22, 40]} />
-      <meshBasicMaterial
-        color={color}
-        transparent
-        opacity={opacity}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
+    <BatchPart
+      kind={RING}
+      handle={ref}
+      rotation-x={-Math.PI / 2}
+      position-y={0.13}
+      scale={[radius, radius, 1]}
+      color={color}
+      opacity={opacity}
+    />
   );
 }
+
+function patchKind(name: string, geometry: () => BufferGeometry): BatchKind {
+  return batchKind(`incident:patch:${name}`, () => ({
+    geometry,
+    material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 1 }),
+  }));
+}
+
+/** The dark patch under an incident: a small one under a pothole, a wide one otherwise. */
+const PATCH_SMALL = patchKind("small", () => new CircleGeometry(1.8, 18));
+const PATCH_WIDE = patchKind("wide", () => new CircleGeometry(3.1, 22));
+
+/** One pool per merged scene: every incident in the same state, variant and tone shares it. */
+function decorKind(geometry: BufferGeometry): BatchKind {
+  return batchKind(`incident:decor:${geometry.uuid}`, () => ({
+    geometry: () => geometry,
+    material: () => new MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
+    castShadow: true,
+    receiveShadow: true,
+  }));
+}
+
+const FLAME_OUTER = batchKind("incident:flame-outer", () => ({
+  geometry: () => new ConeGeometry(1, 3.4, 7),
+  material: () =>
+    new MeshStandardMaterial({
+      color: "#f2803a",
+      emissive: "#ff6a1f",
+      emissiveIntensity: 1.6,
+      toneMapped: false,
+    }),
+}));
+
+const FLAME_INNER = batchKind("incident:flame-inner", () => ({
+  geometry: () => new ConeGeometry(0.66, 2.5, 6),
+  material: () =>
+    new MeshStandardMaterial({
+      color: "#ffd66b",
+      emissive: "#ffc14d",
+      emissiveIntensity: 2.2,
+      toneMapped: false,
+    }),
+}));
+
+/**
+ * The pool of firelight on the road, just over the burnt patch. Drawn after
+ * the ground and never into the depth buffer, so the wrecks and the crew
+ * standing in it still hide it where they stand. It never takes the
+ * pointer: a twelve-unit square of light is not the incident, and must not
+ * steal a click from the building beside it.
+ */
+const FIRELIGHT = batchKind("incident:firelight", () => ({
+  geometry: () => new PlaneGeometry(12, 12),
+  material: () =>
+    withExtras(
+      new MeshBasicMaterial({
+        map: glowTexture(),
+        color: "#ff7a2e",
+        transparent: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        toneMapped: false,
+        fog: false,
+      }),
+      { opacity: true },
+    ),
+  renderOrder: 2,
+  pickable: false,
+}));
 
 /** A viewer who asked the system for less motion gets a fire that holds still. */
 const prefersStill = (): boolean =>
@@ -123,9 +216,9 @@ function Fire({
   halo: boolean;
   still: boolean;
 }) {
-  const inner = useRef<Mesh>(null);
-  const outer = useRef<Mesh>(null);
-  const pool = useRef<Mesh>(null);
+  const inner = useRef<BatchHandle>(null);
+  const outer = useRef<BatchHandle>(null);
+  const pool = useRef<BatchHandle>(null);
   const aura = useRef<Sprite>(null);
   const texture = glowTexture();
 
@@ -133,14 +226,15 @@ function Fire({
     if (still) return;
     const t = clock.elapsedTime;
     const flicker = FLAME_REST + Math.sin(t * 11) * 0.09 + Math.sin(t * 6.3) * 0.06;
-    if (outer.current) outer.current.scale.set(flicker, flicker * 1.12, flicker);
-    if (inner.current) inner.current.scale.setScalar(flicker * 0.72);
+    outer.current?.object?.scale.set(flicker, flicker * 1.12, flicker);
+    inner.current?.object?.scale.setScalar(flicker * 0.72);
     // The glow breathes with the flames, a little behind them and a lot less:
     // light off a fire wavers, it does not strobe.
     const waver = 1 + (flicker - FLAME_REST) * 0.9 + Math.sin(t * 2.1) * 0.05;
-    if (pool.current) {
-      (pool.current.material as MeshBasicMaterial).opacity = strength * waver;
-      pool.current.scale.setScalar(1 + (flicker - FLAME_REST) * 0.3);
+    const light = pool.current;
+    if (light?.object) {
+      light.opacity = strength * waver;
+      light.object.scale.setScalar(1 + (flicker - FLAME_REST) * 0.3);
     }
     if (aura.current) {
       aura.current.material.opacity = strength * HALO * waver;
@@ -149,48 +243,22 @@ function Fire({
 
   return (
     <group position={position}>
-      <mesh ref={outer} position-y={1.1} scale={[FLAME_REST, FLAME_REST * 1.12, FLAME_REST]}>
-        <coneGeometry args={[1, 3.4, 7]} />
-        <meshStandardMaterial
-          color="#f2803a"
-          emissive="#ff6a1f"
-          emissiveIntensity={1.6}
-          toneMapped={false}
-        />
-      </mesh>
-      <mesh ref={inner} position-y={0.9} scale={FLAME_REST * 0.72}>
-        <coneGeometry args={[0.66, 2.5, 6]} />
-        <meshStandardMaterial
-          color="#ffd66b"
-          emissive="#ffc14d"
-          emissiveIntensity={2.2}
-          toneMapped={false}
-        />
-      </mesh>
-      {/* The pool of firelight on the road, just over the burnt patch. Drawn
-          after the ground and never into the depth buffer, so the wrecks and
-          the crew standing in it still hide it where they stand. Neither glow
-          takes the pointer: a twelve-unit square of light is not the incident,
-          and must not steal a click from the building beside it. */}
-      <mesh
-        ref={pool}
+      <BatchPart
+        kind={FLAME_OUTER}
+        handle={outer}
+        position-y={1.1}
+        scale={[FLAME_REST, FLAME_REST * 1.12, FLAME_REST]}
+      />
+      <BatchPart kind={FLAME_INNER} handle={inner} position-y={0.9} scale={FLAME_REST * 0.72} />
+      {/* The pool of firelight (`FIRELIGHT`). The halo below does not take
+          the pointer either. */}
+      <BatchPart
+        kind={FIRELIGHT}
+        handle={pool}
         rotation-x={-Math.PI / 2}
         position-y={-0.01}
-        renderOrder={2}
-        raycast={ignoreRay}
-      >
-        <planeGeometry args={[12, 12]} />
-        <meshBasicMaterial
-          map={texture}
-          color="#ff7a2e"
-          transparent
-          opacity={strength}
-          depthWrite={false}
-          blending={AdditiveBlending}
-          toneMapped={false}
-          fog={false}
-        />
-      </mesh>
+        opacity={strength}
+      />
       {halo && (
         <sprite
           ref={aura}
@@ -251,68 +319,70 @@ export default function IssueIncident({
       rotation-y={incident.rotationY}
       {...handlers}
     >
-      {/* A dark patch under every incident: it reads from the overview. */}
-      <mesh rotation-x={-Math.PI / 2} position-y={0.11}>
-        <circleGeometry args={incident.state === "minor" ? [1.8, 18] : [3.1, 22]} />
-        <meshStandardMaterial color={mix("#5a5c57", marker, 0.12)} roughness={1} />
-      </mesh>
-
-      <mesh geometry={decor.geometry} castShadow receiveShadow>
-        <meshStandardMaterial vertexColors color={tint} roughness={0.8} />
-      </mesh>
-
-      {decor.lights.map((light, i) => (
-        <BlinkLight
-          key={i}
-          position={light.position}
-          color={light.color}
-          rate={light.rate}
-          radius={light.radius}
+      <BatchEntity id={incident.id}>
+        {/* A dark patch under every incident: it reads from the overview. */}
+        <BatchPart
+          kind={incident.state === "minor" ? PATCH_SMALL : PATCH_WIDE}
+          rotation-x={-Math.PI / 2}
+          position-y={0.11}
+          color={mix("#5a5c57", marker, 0.12)}
         />
-      ))}
 
-      {incident.state === "minor" && (
-        <HazardRing radius={2.1} color={WARNING_ORANGE} opacity={0.42} rate={still ? 0 : 1.6} />
-      )}
+        <BatchPart kind={decorKind(decor.geometry)} color={tint} />
 
-      {incident.state === "collision" && (
-        <>
-          <HazardRing radius={3} color={HAZARD_RED} opacity={0.42} rate={still ? 0 : 2.6} />
-          {/* The emergency response, raised so the blink clears the wreck and
-              survives being three pixels wide from the overview. */}
-          <Beacon position={[2.4, 0, 1.8]} color="#4f8bff" rate={2.4} height={4.2} />
-        </>
-      )}
-
-      {incident.state === "stale" && (
-        // No pulse: nothing here is happening any more.
-        <HazardRing radius={2.9} color={desaturate("#9a7b5f", 0.3)} opacity={0.4} />
-      )}
-
-      {incident.state === "major" && (
-        <>
-          <HazardRing radius={3.4} color={HAZARD_RED} opacity={0.5} rate={still ? 0 : 2.2} />
-          <Fire
-            position={[FIRE_AT[0], 0.2, FIRE_AT[1]]}
-            strength={0.3 + atmosphere.lampGlow * 0.4}
-            halo={quality.tier === "high"}
-            still={still}
+        {decor.lights.map((light, i) => (
+          <BlinkLight
+            key={i}
+            position={light.position}
+            color={light.color}
+            rate={light.rate}
+            radius={light.radius}
           />
-          {/* The tallest thing in the city short of a crane: a column of smoke
-              is what makes a major issue findable from the default camera. */}
-          <Smoke
-            origin={[0, 2.6, 0]}
-            color="#6f6d6a"
-            rate={still ? 0 : 0.34}
-            height={16}
-            spread={2}
-            radius={0.9}
-            puffs={8}
-            opacity={0.42}
-          />
-          <Beacon position={[3.2, 0, 2.4]} color="#ff4d4d" rate={3} height={4.4} glowRadius={1.25} />
-        </>
-      )}
+        ))}
+
+        {incident.state === "minor" && (
+          <HazardRing radius={2.1} color={WARNING_ORANGE} opacity={0.42} rate={still ? 0 : 1.6} />
+        )}
+
+        {incident.state === "collision" && (
+          <>
+            <HazardRing radius={3} color={HAZARD_RED} opacity={0.42} rate={still ? 0 : 2.6} />
+            {/* The emergency response, raised so the blink clears the wreck and
+                survives being three pixels wide from the overview. */}
+            <Beacon position={[2.4, 0, 1.8]} color="#4f8bff" rate={2.4} height={4.2} />
+          </>
+        )}
+
+        {incident.state === "stale" && (
+          // No pulse: nothing here is happening any more.
+          <HazardRing radius={2.9} color={desaturate("#9a7b5f", 0.3)} opacity={0.4} />
+        )}
+
+        {incident.state === "major" && (
+          <>
+            <HazardRing radius={3.4} color={HAZARD_RED} opacity={0.5} rate={still ? 0 : 2.2} />
+            <Fire
+              position={[FIRE_AT[0], 0.2, FIRE_AT[1]]}
+              strength={0.3 + atmosphere.lampGlow * 0.4}
+              halo={quality.tier === "high"}
+              still={still}
+            />
+            {/* The tallest thing in the city short of a crane: a column of smoke
+                is what makes a major issue findable from the default camera. */}
+            <Smoke
+              origin={[0, 2.6, 0]}
+              color="#6f6d6a"
+              rate={still ? 0 : 0.34}
+              height={16}
+              spread={2}
+              radius={0.9}
+              puffs={8}
+              opacity={0.42}
+            />
+            <Beacon position={[3.2, 0, 2.4]} color="#ff4d4d" rate={3} height={4.4} glowRadius={1.25} />
+          </>
+        )}
+      </BatchEntity>
     </group>
   );
 }

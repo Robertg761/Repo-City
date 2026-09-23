@@ -10,6 +10,11 @@
  *   pnpm dev --port 3149 &
  *   node scripts/perf-baseline.ts [baseUrl] [outDir]
  *
+ * `ANGLE=vulkan` draws on the discrete GPU instead of swiftshader, and then
+ * the frame times mean something; `UNCAP=1` lifts vsync to show headroom;
+ * `QUALITY=low` pins the low tier; `ONLY=stress` runs one scenario; `TAG`
+ * names the output files.
+ *
  * It needs the overlay mounted in `CityCanvas.tsx` and the `stress` input
  * registered in the store. The Chrome profile lives in `outDir` and is
  * deleted on exit, whatever happens.
@@ -34,9 +39,16 @@ interface Scenario {
 }
 
 const QUALITY = process.env.QUALITY ?? "high";
+/**
+ * `ANGLE=vulkan` (or `gl`) draws on the real GPU when headless Chrome can
+ * reach it; frame times are then worth reading. The default, swiftshader,
+ * runs anywhere.
+ */
+const ANGLE = process.env.ANGLE ?? "swiftshader";
 const SCENARIOS: Scenario[] = [
   { name: "sample (city)", input: "fixture", query: "" },
   { name: "sample ?tier=village", input: "fixture", query: "&tier=village" },
+  { name: "sample ?tier=town", input: "fixture", query: "&tier=town" },
   { name: "sample ?tier=metropolis", input: "fixture", query: "&tier=metropolis" },
   { name: "backlog", input: "backlog", query: "" },
   { name: "stress", input: "stress", query: "" },
@@ -49,8 +61,12 @@ const chrome = spawn(
   CHROME,
   [
     "--headless=new",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
+    `--use-angle=${ANGLE}`,
+    ...(ANGLE === "swiftshader"
+      ? ["--enable-unsafe-swiftshader"]
+      : ["--enable-gpu", "--ignore-gpu-blocklist"]),
+    // `UNCAP=1` lifts vsync, so a fast GPU shows its headroom instead of 60.
+    ...(process.env.UNCAP ? ["--disable-gpu-vsync", "--disable-frame-rate-limit"] : []),
     "--window-size=1920,1080",
     "--force-device-scale-factor=1",
     `--remote-debugging-port=${port}`,
@@ -62,6 +78,8 @@ const chrome = spawn(
   ],
   { stdio: "ignore" },
 );
+
+const chromeExited = new Promise<void>((resolve) => chrome.once("exit", () => resolve()));
 
 let cleaned = false;
 function cleanup(): void {
@@ -77,6 +95,20 @@ function cleanup(): void {
       /* retry */
     }
   }
+}
+
+/**
+ * The normal way out: kill Chrome, wait until it and its helpers have let go
+ * of the profile, and only then delete it. Removing it the instant the kill
+ * is sent left the GPU and renderer processes writing a fresh copy.
+ */
+async function shutdown(): Promise<void> {
+  chrome.kill("SIGKILL");
+  await Promise.race([chromeExited, sleep(3000)]);
+  await sleep(500);
+  cleanup();
+  await sleep(300);
+  rmSync(profile, { recursive: true, force: true });
 }
 process.on("exit", cleanup);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -173,13 +205,14 @@ async function main(): Promise<void> {
     const shot = await send("Page.captureScreenshot", { format: "png" });
     const data = (shot as { result?: { data?: string } }).result?.data;
     if (data) {
-      writeFileSync(join(OUT, `${scenario.name.replace(/[^a-z0-9]+/gi, "-")}-${QUALITY}.png`), Buffer.from(data, "base64"));
+      writeFileSync(join(OUT, `${scenario.name.replace(/[^a-z0-9]+/gi, "-")}-${QUALITY}${process.env.TAG ? `-${process.env.TAG}` : ""}.png`), Buffer.from(data, "base64"));
     }
     results.push({ scenario: scenario.name, quality: QUALITY, ...city, ...perf });
     console.log("  ", JSON.stringify({ city, perf }));
   }
 
-  writeFileSync(join(OUT, `baseline-${QUALITY}.json`), JSON.stringify(results, null, 2));
+  const tag = process.env.TAG ? `-${process.env.TAG}` : "";
+  writeFileSync(join(OUT, `baseline-${QUALITY}${tag}.json`), JSON.stringify(results, null, 2));
   const rows = results.map((r) =>
     [
       r.scenario,
@@ -192,17 +225,19 @@ async function main(): Promise<void> {
       r.shadowCalls,
       r.shadowTriangles,
       Number(r.fps).toFixed(2),
-      Number(r.frameP95).toFixed(0),
+      Number(r.frameP95).toFixed(1),
+      Number(r.cpuMs).toFixed(1),
+      r.programs,
       r.geometries,
       r.textures,
       r.quality,
     ].join(" | "),
   );
   const table = [
-    "scenario | tier | size | buildings | crowd | calls | triangles | shadow calls | shadow tris | fps | p95 ms | geometries | textures | quality",
+    "scenario | tier | size | buildings | crowd | calls | triangles | shadow calls | shadow tris | fps | p95 ms | cpu ms | programs | geometries | textures | quality",
     ...rows,
   ].join("\n");
-  writeFileSync(join(OUT, `baseline-${QUALITY}.txt`), `${table}\n`);
+  writeFileSync(join(OUT, `baseline-${QUALITY}${tag}.txt`), `${table}\n`);
   console.log(table);
   ws.close();
 }
@@ -212,7 +247,7 @@ main()
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => {
-    cleanup();
+  .finally(async () => {
+    await shutdown();
     process.exit();
   });

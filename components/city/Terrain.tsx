@@ -24,6 +24,7 @@ import { useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { BufferAttribute, Color } from "three";
 import { useCityStore } from "@/store/useCityStore";
+import { REFERENCE_ASPECT, aspectWiden } from "./entities";
 import { wasDrag } from "./useEntity";
 import {
   STAGE_KERB,
@@ -37,6 +38,13 @@ import { useTiledSurface } from "./textures/surfaces";
 
 interface TerrainProps {
   size: number;
+  /**
+   * Canvas width over height. A narrow screen frames the city from up to
+   * twice as far back (`aspectWiden`), so the landscape widens with the
+   * camera and the fog, or a phone pulled all the way out sees its far
+   * corner against the sky. A desktop's is exactly today's.
+   */
+  aspect?: number;
   atmosphere: SceneAtmosphere;
 }
 
@@ -94,9 +102,10 @@ function rimColors(segments: number, near: string, far: string): BufferAttribute
 
 const RIM_SEGMENTS = 32;
 
-export default function Terrain({ size, atmosphere }: TerrainProps) {
+export default function Terrain({ size, atmosphere, aspect = REFERENCE_ASPECT }: TerrainProps) {
   const actions = useCityStore((s) => s.actions);
-  const landscape = useTiledSurface("meadow", size * LANDSCAPE, GRASS_TILE.landscape);
+  const reach = size * LANDSCAPE * aspectWiden(aspect);
+  const landscape = useTiledSurface("meadow", reach, GRASS_TILE.landscape);
   const plate = useTiledSurface("lawn", size * 1.04, GRASS_TILE.plate);
   const rim = useMemo(
     () => rimColors(RIM_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
@@ -124,7 +133,7 @@ export default function Terrain({ size, atmosphere }: TerrainProps) {
         onClick={clearSelection}
         onPointerMove={clearHover}
       >
-        <planeGeometry args={[size * LANDSCAPE, size * LANDSCAPE, RIM_SEGMENTS, RIM_SEGMENTS]}>
+        <planeGeometry args={[reach, reach, RIM_SEGMENTS, RIM_SEGMENTS]}>
           <primitive attach="attributes-color" object={rim} />
         </planeGeometry>
         {/* White, because the colour is in the vertices: the rim fade has to

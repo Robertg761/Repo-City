@@ -162,7 +162,7 @@ function EmptyStage({ aspect }: { aspect: number }) {
         ]}
       />
       <Lighting atmosphere={EMPTY_ATMOSPHERE} size={EMPTY_SIZE} />
-      <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
+      <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} aspect={aspect} />
       <StagePlate size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
   );
