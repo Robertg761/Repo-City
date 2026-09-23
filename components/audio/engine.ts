@@ -3,12 +3,14 @@
  * `lib/client/audioMix.ts` asks for.
  *
  *   beds      wind, traffic hum and a low rumble: looped noise through
- *             filters, each on its own gain, always running, crossfaded
+ *             filters, each on its own gain, crossfaded; a bed silent for a
+ *             few seconds is taken off the bus and costs nothing
  *   events    birds, crickets, horns, a passing car, a tractor, a sheep:
  *             short voices (`voices.ts`) fired at random on a seeded
  *             Poisson clock, each layer on its own gain
  *   local     the nearest few fires, cranes and landmarks, each on a
- *             `PannerNode` at its place in the city, heard from the camera
+ *             distance gain and a stereo pan worked out from the camera
+ *             (`spatialize`), heard from where they stand in the city
  *
  * All three meet on one bus, then the master volume, the fade (for the
  * switch and for a hidden tab), and a soft safety shaper that can never
@@ -17,7 +19,9 @@
  * The engine knows nothing of React, the store or three.js: `live.ts` feeds
  * it a `Frame` a few times a second, and `offline.ts` feeds the same frames
  * to an `OfflineAudioContext` to measure levels. Every change of mix is a
- * `setTargetAtTime` glide, so nothing ever jumps.
+ * `setTargetAtTime` glide, so nothing ever jumps, and every slow parameter
+ * is computed once per 128-sample block rather than per sample, which is
+ * most of what keeps the audio thread's cost down.
  *
  * VOICE BUDGET. At most `MAX_ONE_SHOTS` short voices sound at once (an
  * event past that is dropped, not queued) and at most `MAX_LOCAL_SOURCES`
@@ -35,7 +39,14 @@ import {
   type EventLayer,
   type Mix,
 } from "@/lib/client/audioMix";
-import { nextTrainArrival, type NearSource, type SourceKind } from "@/lib/client/audioSources";
+import {
+  distanceGain,
+  nextTrainArrival,
+  spatialize,
+  type ListenerPose,
+  type NearSource,
+  type SourceKind,
+} from "@/lib/client/audioSources";
 import type { Vec3 } from "@/types/city";
 import { noiseBank, safetyCurve, type NoiseBank } from "./buffers";
 import * as voices from "./voices";
@@ -100,11 +111,7 @@ const SYNTHS: Record<EventLayer, (kit: Kit, when: number, dest: AudioNode, level
 };
 
 /** Where the camera is: the listener. */
-export interface Pose {
-  position: Vec3;
-  forward: Vec3;
-  up: Vec3;
-}
+export type Pose = ListenerPose;
 
 /** Everything the engine needs to know, a few times a second. */
 export interface Frame {
@@ -140,7 +147,10 @@ interface LocalVoice {
   id: string;
   kind: SourceKind;
   bus: GainNode;
-  panner: PannerNode;
+  /** Distance and direction from the camera, updated every frame. */
+  spot: GainNode;
+  pan: StereoPannerNode;
+  position: Vec3;
   /** The next clank or siren, in context time. */
   next: number;
   /** Station: the last arrival seen, and the last one chimed (renderer clock). */
@@ -427,50 +437,21 @@ export class Soundscape implements Ledger {
     }
     this.glide(this.localBus.gain, mix.local, immediate);
 
-    if (frame.pose) this.place(frame.pose, immediate);
     if (frame.clock !== null) this.clockAt = { clock: frame.clock, audio: this.ctx.currentTime };
-    this.follow(mix.local > 0.02 ? frame.local : [], immediate);
-  }
-
-  private place(pose: Pose, immediate: boolean): void {
-    const listener = this.ctx.listener;
-    const now = this.ctx.currentTime;
-    const set = (param: AudioParam | undefined, value: number) => {
-      if (!param) return;
-      if (immediate) param.setValueAtTime(value, now);
-      else param.setTargetAtTime(value, now, 0.12);
-    };
-    if (listener.positionX) {
-      set(listener.positionX, pose.position[0]);
-      set(listener.positionY, pose.position[1]);
-      set(listener.positionZ, pose.position[2]);
-      set(listener.forwardX, pose.forward[0]);
-      set(listener.forwardY, pose.forward[1]);
-      set(listener.forwardZ, pose.forward[2]);
-      set(listener.upX, pose.up[0]);
-      set(listener.upY, pose.up[1]);
-      set(listener.upZ, pose.up[2]);
-    } else {
-      // Older Firefox: the listener has only the deprecated setters.
-      const legacy = listener as unknown as {
-        setPosition(x: number, y: number, z: number): void;
-        setOrientation(x: number, y: number, z: number, ux: number, uy: number, uz: number): void;
-      };
-      legacy.setPosition(...pose.position);
-      legacy.setOrientation(...pose.forward, ...pose.up);
-    }
+    this.follow(mix.local > 0.02 ? frame.local : [], frame.pose, immediate);
   }
 
   // --- Local sources ------------------------------------------------------
 
   /** Adds voices for newly chosen sources and fades out the ones no longer chosen. */
-  private follow(chosen: readonly NearSource[], immediate: boolean): void {
+  private follow(chosen: readonly NearSource[], pose: Pose | null, immediate: boolean): void {
     const keep = new Set(chosen.map((near) => near.source.id));
     for (const [id, voice] of this.locals) {
       if (!keep.has(id)) this.retire(voice);
     }
-    for (const { source } of chosen) {
+    for (const { source, distance } of chosen) {
       let voice = this.locals.get(source.id);
+      const fresh = !voice;
       if (!voice) {
         voice = this.voice(source.id, source.kind, source.position, source.trainsPerMinute ?? 0, !!source.troubled);
         this.locals.set(source.id, voice);
@@ -478,6 +459,11 @@ export class Soundscape implements Ledger {
       voice.level = source.level;
       voice.trainsPerMinute = source.trainsPerMinute ?? 0;
       this.glide(voice.bus.gain, source.level, immediate, 0.5);
+      // Where it is from the camera. A new voice starts in place (its level
+      // fades it in); an old one follows the camera with a short glide.
+      const heard = pose ? spatialize(pose, voice.position) : { gain: distanceGain(distance), pan: 0 };
+      this.glide(voice.spot.gain, heard.gain, immediate || fresh, 0.15);
+      this.glide(voice.pan.pan, heard.pan, immediate || fresh, 0.15);
     }
   }
 
@@ -491,20 +477,13 @@ export class Soundscape implements Ledger {
     };
     const bus = t(ctx.createGain());
     bus.gain.value = 0;
-    const panner = t(ctx.createPanner());
-    panner.panningModel = "equalpower";
-    panner.distanceModel = "inverse";
-    panner.refDistance = 14;
-    panner.rolloffFactor = 1.1;
-    panner.maxDistance = 2000;
-    if (panner.positionX) {
-      panner.positionX.value = at[0];
-      panner.positionY.value = at[1] + 2;
-      panner.positionZ.value = at[2];
-    } else {
-      (panner as unknown as { setPosition(x: number, y: number, z: number): void }).setPosition(at[0], at[1] + 2, at[2]);
-    }
-    bus.connect(panner).connect(this.localBus);
+    blockRate(bus.gain);
+    const pan = t(ctx.createStereoPanner());
+    blockRate(pan.pan);
+    const spot = t(ctx.createGain());
+    spot.gain.value = 0;
+    blockRate(spot.gain);
+    bus.connect(pan).connect(spot).connect(this.localBus);
 
     const loop = (buffer: AudioBuffer) => {
       const src = t(ctx.createBufferSource());
@@ -576,7 +555,10 @@ export class Soundscape implements Ledger {
       id,
       kind,
       bus,
-      panner,
+      spot,
+      pan,
+      // A little above the ground: the crane's jib, the fire's flames.
+      position: [at[0], at[1] + 2, at[2]],
       next: now + (kind === "fire" ? this.rng.range(6, 20) : this.rng.range(0.4, 2)),
       lastArrival: Number.NEGATIVE_INFINITY,
       lastChime: Number.NEGATIVE_INFINITY,

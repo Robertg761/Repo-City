@@ -247,11 +247,16 @@ describe("Soundscape", () => {
     expect(chimes).toBeLessThanOrEqual(4);
   });
 
-  it("places the listener at the camera", () => {
+  it("pans a local source to the camera's side of it", () => {
     const { ctx, engine } = setup();
-    engine.update(frame(mixFor(scene(), 0)), true);
-    expect((ctx.listener.positionY as FakeParam).value).toBe(10);
-    expect((ctx.listener.forwardZ as FakeParam).value).toBeCloseTo(-0.7);
+    const pose: Frame["pose"] = { position: [0, 10, 0], forward: [0, 0, -1], up: [0, 1, 0] };
+    const f = (p: Frame["pose"]): Frame => ({ mix: mixFor(scene(), 0), local: [source("power", "power", 30)], pose: p, clock: null });
+    engine.update(f(pose), true);
+    const pans = ctx.made.filter((n) => n.kind === "stereo") as unknown as { pan: FakeParam }[];
+    expect(pans.at(-1)!.pan.value).toBeGreaterThan(0.5);
+    // Turn round, and it is on the other side.
+    engine.update(f({ ...pose!, forward: [0, 0, 1] }), true);
+    expect(pans.at(-1)!.pan.value).toBeLessThan(-0.5);
   });
 
   it("disposes of everything at once", () => {

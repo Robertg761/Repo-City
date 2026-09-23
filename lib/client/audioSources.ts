@@ -182,12 +182,46 @@ export function nextTrainArrival(seconds: number, perMinute: number): number {
 }
 
 /**
- * Distance attenuation for a local source when the engine does not use a
- * `PannerNode`'s own model: the inverse-distance law with a reference
- * distance, which is what the panner does too, so the offline renders and
- * the unit tests can reason about levels.
+ * Distance attenuation for a local source: the inverse-distance law with a
+ * reference distance (a `PannerNode`'s "inverse" model, worked out here
+ * rather than per sample on the audio thread).
  */
 export function distanceGain(distance: number, reference = 14, rolloff = 1.1): number {
   if (!(distance > reference)) return 1;
   return reference / (reference + rolloff * (distance - reference));
+}
+
+/** A listener: where the camera is, where it looks, and which way is up. */
+export interface ListenerPose {
+  position: Vec3;
+  forward: Vec3;
+  up: Vec3;
+}
+
+/**
+ * How a source at `at` sounds from `listener`: its distance gain and its
+ * place between the ears, -1 (left) to 1 (right), from the camera's own
+ * right-hand direction. The engine applies these to a gain and a
+ * `StereoPannerNode` a few times a second, which costs the audio thread a
+ * fraction of what a `PannerNode` following a moving listener does.
+ */
+export function spatialize(listener: ListenerPose, at: Vec3): { gain: number; pan: number; distance: number } {
+  const [fx, fy, fz] = listener.forward;
+  const [ux, uy, uz] = listener.up;
+  // Right = forward x up.
+  let rx = fy * uz - fz * uy;
+  let ry = fz * ux - fx * uz;
+  let rz = fx * uy - fy * ux;
+  const rl = Math.hypot(rx, ry, rz) || 1;
+  rx /= rl;
+  ry /= rl;
+  rz /= rl;
+  const dx = at[0] - listener.position[0];
+  const dy = at[1] - listener.position[1];
+  const dz = at[2] - listener.position[2];
+  const distance = Math.hypot(dx, dy, dz);
+  const side = distance > 0 ? (dx * rx + dy * ry + dz * rz) / distance : 0;
+  // Never hard into one ear: a city is all around.
+  const pan = side === 0 ? 0 : Math.max(-0.85, Math.min(0.85, side));
+  return { gain: distanceGain(distance), pan, distance };
 }

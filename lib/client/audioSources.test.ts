@@ -12,6 +12,7 @@ import {
   nearestSources,
   nextTrainArrival,
   soundSources,
+  spatialize,
   stationArrivals,
   viewFocus,
   type SoundSource,
@@ -144,5 +145,32 @@ describe("distanceGain", () => {
     expect(distanceGain(14)).toBe(1);
     expect(distanceGain(50)).toBeLessThan(distanceGain(30));
     expect(distanceGain(300)).toBeLessThan(0.06);
+  });
+});
+
+describe("spatialize", () => {
+  // A camera at the origin looking down -z, up +y: +x is on its right.
+  const pose = { position: [0, 0, 0], forward: [0, 0, -1], up: [0, 1, 0] } as Parameters<typeof spatialize>[0];
+
+  it("puts a source on the right to the right, and one on the left to the left", () => {
+    expect(spatialize(pose, [10, 0, 0]).pan).toBeGreaterThan(0.5);
+    expect(spatialize(pose, [-10, 0, 0]).pan).toBeLessThan(-0.5);
+    expect(spatialize(pose, [0, 0, -10]).pan).toBeCloseTo(0);
+  });
+
+  it("never pans hard into one ear", () => {
+    expect(Math.abs(spatialize(pose, [100, 0, 0]).pan)).toBeLessThanOrEqual(0.85);
+  });
+
+  it("falls off with distance, as the inverse law says", () => {
+    const near = spatialize(pose, [0, 0, -10]);
+    const far = spatialize(pose, [0, 0, -100]);
+    expect(near.gain).toBe(1);
+    expect(far.gain).toBeCloseTo(distanceGain(100));
+    expect(far.distance).toBeCloseTo(100);
+  });
+
+  it("copes with a source exactly at the camera", () => {
+    expect(spatialize(pose, [0, 0, 0])).toEqual({ gain: 1, pan: 0, distance: 0 });
   });
 });
