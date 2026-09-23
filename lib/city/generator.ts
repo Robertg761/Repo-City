@@ -180,6 +180,19 @@ const INCIDENT_SPACING = 9;
 const NATURAL_SITE = 11;
 /** Natural height of the crane, used to fill in `ConstructionSite.size`. */
 const NATURAL_SITE_HEIGHT = 12.6;
+/**
+ * A merged pull request's site in a village or a town: the plot it takes and
+ * the height of the finished building on it, `size = [plot, height, plot]`.
+ * The finished building is a two-storey cottage in a village (the village's
+ * tier-2 height) and a three-storey block in a town (its tier-3 height), on
+ * a plot a house cell wide, so it reads as one more house on the street and
+ * not as a beige block over the rooftops. A plot squeezed smaller keeps the
+ * proportions. A city and a metropolis keep the crane-sized site.
+ */
+export const COMPLETED_SITE: Partial<Record<SettlementTier, { plot: number; height: number }>> = {
+  village: { plot: 7, height: SETTLEMENT_PARAMS.village.tierHeight[2] },
+  town: { plot: 9, height: SETTLEMENT_PARAMS.town.tierHeight[3] },
+};
 
 /**
  * Footprints the crowd keeps clear of, beyond buildings and landmark plots.
@@ -366,6 +379,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     buildings,
     usedSlots,
     seed,
+    settlement.tier,
   );
 
   // -- Stage 8: highways, then props ---------------------------------------
@@ -844,6 +858,7 @@ function placeConstruction(
   buildings: Building[],
   usedSlots: Map<string, number>,
   seed: string,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): ConstructionSite[] {
   if (ranked.length === 0) return [];
 
@@ -864,7 +879,11 @@ function placeConstruction(
 
     // The renderer draws an eleven unit site; it is scaled down to whatever is
     // actually free here, which is usually a slot cell plus the gap around it.
-    const half = clamp(clearHalfExtent(slot.x, slot.z, obstacles, NATURAL_SITE / 2), 1.8, NATURAL_SITE / 2);
+    // A merged pull request in a village or a town is a finished house, not
+    // a works: its plot and height are the settlement's own.
+    const finished = pull.state === "completed" ? COMPLETED_SITE[tier] : undefined;
+    const cap = finished ? finished.plot / 2 : NATURAL_SITE / 2;
+    const half = clamp(clearHalfExtent(slot.x, slot.z, obstacles, cap), 1.8, cap);
     const side = round3(half * 2);
     obstacles.push({
       id: `construction-${pull.number}`,
@@ -885,7 +904,11 @@ function placeConstruction(
       appearAt: spread(REVEAL.construction, index, ranked.length),
       state: pull.state,
       pull,
-      size: [side, round3((NATURAL_SITE_HEIGHT * side) / NATURAL_SITE), side],
+      size: [
+        side,
+        round3(finished ? (finished.height * side) / finished.plot : (NATURAL_SITE_HEIGHT * side) / NATURAL_SITE),
+        side,
+      ],
     });
   });
 

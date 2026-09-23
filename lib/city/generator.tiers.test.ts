@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import sample from "@/fixtures/sample.analysis.json";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import type { FieldPatch } from "@/types/city";
-import { generateCity, overlappingBuildings } from "./generator";
+import { COMPLETED_SITE, generateCity, overlappingBuildings } from "./generator";
 import type { CityLayout } from "./layout";
 import { SETTLEMENT_PARAMS } from "./settlement";
 
@@ -86,6 +86,34 @@ describe("per-tier numbers come from SETTLEMENT_PARAMS", () => {
     expect(tallest("metropolis")).toBeGreaterThan(tallest("city"));
     expect(tallest("city")).toBeGreaterThan(tallest("town"));
     expect(tallest("town")).toBeGreaterThan(tallest("village"));
+  });
+});
+
+describe("a merged pull request in a village or a town", () => {
+  const completed = (tier: SettlementTier) => {
+    const city = generateCity(fixture, { tier });
+    const site = city.constructionSites.find((s) => s.state === "completed");
+    if (!site?.size) throw new Error(`no completed site in the ${tier}`);
+    return { city, size: site.size };
+  };
+
+  it.each(["village", "town"] as const)("%s: is a house-sized plot with a house-height building", (tier) => {
+    const { city, size } = completed(tier);
+    const { plot, height } = COMPLETED_SITE[tier]!;
+    expect(size[0]).toBeLessThanOrEqual(plot + 1e-9);
+    expect(size[2]).toBe(size[0]);
+    // A squeezed plot keeps the proportions of a full one.
+    expect(size[1]).toBeCloseTo((height * size[0]) / plot, 3);
+    // Never taller than the settlement's own tallest buildings.
+    const tallest = Math.max(...city.buildings.map((b) => b.size[1]));
+    expect(size[1]).toBeLessThan(tallest);
+  });
+
+  it("keeps the crane-sized site in a city and a metropolis", () => {
+    for (const tier of ["city", "metropolis"] as const) {
+      const { size } = completed(tier);
+      expect(size[1]).toBeCloseTo((12.6 * size[0]) / 11, 3);
+    }
   });
 });
 
