@@ -51,6 +51,7 @@ interface RigControls {
   normalizeRotations(): unknown;
   setBoundary(box3?: Box3): void;
   smoothTime: number;
+  setFocalOffset(x: number, y: number, z: number, enableTransition?: boolean): Promise<void>;
   addEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
   removeEventListener(type: "control" | "controlstart" | "sleep", listener: () => void): void;
 }
@@ -104,6 +105,17 @@ const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
  */
 const ARRIVAL_SMOOTH_TIME = 1.1;
 
+/**
+ * On a phone the inspector is a sheet over the bottom half of the screen and
+ * the folded health card sits at the top, so an object framed in the middle
+ * of the screen ended up half under the sheet. While something is inspected
+ * there, the view slides down by this share of the screen's height, which
+ * puts the object in the open band between the two.
+ */
+const PHONE_SHEET_LIFT = 0.15;
+/** The width below which the inspector is a bottom sheet (`sm` in the HUD). */
+const SHEET_BELOW = 640;
+
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -122,6 +134,15 @@ function fly(controls: RigControls, framing: Framing, transition: boolean): void
   if (transition) controls.normalizeRotations();
 }
 
+/** The vertical focal offset, in world units, for a framing `distance` long. */
+function sheetOffset(distance: number, fov: number, inspecting: boolean): number {
+  if (!inspecting || typeof window === "undefined" || window.innerWidth >= SHEET_BELOW) return 0;
+  const visible = 2 * distance * Math.tan((fov * Math.PI) / 360);
+  // A positive offset slides the frame up, which carries the object up the
+  // screen with it.
+  return visible * PHONE_SHEET_LIFT;
+}
+
 export default function CameraRig({
   city,
   aspect,
@@ -131,6 +152,7 @@ export default function CameraRig({
   aspect: number;
 }) {
   const controls = useThree((state) => state.controls);
+  const camera = useThree((state) => state.camera);
   const selectedId = useCityStore((s) => s.selectedId);
   const overviewNonce = useCityStore((s) => s.overviewNonce);
   const lastCity = useRef<CityModel | null>(null);
@@ -211,10 +233,17 @@ export default function CameraRig({
     } else {
       fly(controls, framing, !isNewModel);
     }
+    const distance = Math.hypot(
+      framing.position[0] - framing.target[0],
+      framing.position[1] - framing.target[1],
+      framing.position[2] - framing.target[2],
+    );
+    const fov = "fov" in camera ? (camera.fov as number) : 35;
+    void controls.setFocalOffset(0, sheetOffset(distance, fov, focus !== null), 0, !isNewModel);
     touched.current = false;
     // `overviewNonce` is a trigger: "Return to overview" flies back even when
     // nothing is selected.
-  }, [controls, city, selectedId, overviewNonce]);
+  }, [controls, camera, city, selectedId, overviewNonce]);
 
   useCameraDebugHandle(controls);
   usePinchAsDolly();
