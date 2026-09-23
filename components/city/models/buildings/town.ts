@@ -64,9 +64,14 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
   const glass: Panel = { facing: "+z", u: windowU, v: riser + (shopTop - riser) / 2, w: windowW, h: shopTop - riser - 0.02, plane: plane + LAYER };
   panel(draft, { ...glass, w: windowW + 0.02, h: glass.h + 0.02, plane }, M.frame);
   panel(draft, glass, M.shopGlass);
-  // Mullions: three lights and a transom.
+  // Mullions: three lights and a transom. Standing this far out, they stop
+  // short of the head of the glass, or their tops would show over the awning.
   for (const k of [-1, 1]) {
-    panel(draft, { facing: "+z", u: windowU + (k * windowW) / 6, v: glass.v, w: 0.01, h: glass.h, plane: plane + LAYER * 4 }, M.frame);
+    panel(
+      draft,
+      { facing: "+z", u: windowU + (k * windowW) / 6, v: glass.v - 0.012, w: 0.01, h: glass.h - 0.024, plane: plane + LAYER * 4 },
+      M.frame,
+    );
   }
   panel(draft, { facing: "+z", u: windowU, v: glass.v + glass.h * 0.3, w: windowW, h: 0.01, plane: plane + LAYER * 4 }, M.frame);
   // Something on display: coloured goods against the glass, in front of the
