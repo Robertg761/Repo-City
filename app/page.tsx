@@ -16,6 +16,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import Inspector from "@/components/Inspector";
 import Legend from "@/components/Legend";
 import RepoInput from "@/components/RepoInput";
+import SoundToggle from "@/components/audio/SoundToggle";
 import TimeOfDayControl from "@/components/TimeOfDayControl";
 import Tooltip from "@/components/Tooltip";
 import TourOverlay from "@/components/tour/TourOverlay";
@@ -57,6 +58,7 @@ export default function Page() {
       <Tooltip />
       <Legend />
       <TimeOfDayControl />
+      <SoundToggle />
       <ErrorBanner />
       <TourOverlay />
     </main>

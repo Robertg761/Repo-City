@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { Euler, Matrix4, Quaternion, Vector3, type BufferGeometry } from "three";
 import type { FieldPatch } from "@/types/city";
+import { coplanarOverlaps } from "../coplanar";
+import { narrowLedges } from "../ledges";
+import { LAYER } from "./mesh";
 import {
   CROP_ROWS,
   GATE_WIDTH,
   HEADLAND,
-  HEDGE_WIDTH,
+  HEDGE_INSET,
+  HEDGE_OVERRUN,
   ROW_CAP,
   baleGeometry,
   groundGeometry,
@@ -84,8 +89,8 @@ describe("planFarmland (PLAN.md 76.5, village step 7)", () => {
       // Four sides, one of them in two pieces.
       expect(plan.hedges).toHaveLength(5);
       const perimeter = plan.hedges.reduce((sum, h) => sum + h.length, 0);
-      const inset = 0.35;
-      const full = 2 * (f.w - 2 * inset) + 2 * (f.d - 2 * inset) + 2 * HEDGE_WIDTH;
+      const inset = HEDGE_INSET;
+      const full = 2 * (f.w - 2 * inset) + 2 * (f.d - 2 * inset) + 4 * HEDGE_OVERRUN;
       expect(perimeter).toBeCloseTo(full - GATE_WIDTH, 5);
       for (const h of plan.hedges) {
         const [lx, lz] = local(f, h.x, h.z);
@@ -124,5 +129,64 @@ describe("planFarmland (PLAN.md 76.5, village step 7)", () => {
     }
     expect(triangleCount(hedgeGeometry())).toBeLessThanOrEqual(24);
     expect(triangleCount(baleGeometry())).toBeLessThanOrEqual(64);
+  });
+});
+
+/**
+ * The fields as `Fields.tsx` lays them out: the ground a little sunk, the
+ * rows just above it, the hedges and bales on the ground, each instance
+ * turned and stretched by its own matrix. One soup, every triangle tagged
+ * with the instance it belongs to (each hedge is its own shade of green).
+ */
+function fieldSoup(fields: readonly FieldPatch[]): { positions: number[]; indices: number[]; tags: string[] } {
+  const plan = planFarmland(fields);
+  const soup = { positions: [] as number[], indices: [] as number[], tags: [] as string[] };
+  const add = (geometry: BufferGeometry, tag: string, at: [number, number, number], yaw: number, scale: [number, number, number]) => {
+    const matrix = new Matrix4().compose(new Vector3(...at), new Quaternion().setFromEuler(new Euler(0, yaw, 0)), new Vector3(...scale));
+    const pos = geometry.attributes.position;
+    const base = soup.positions.length / 3;
+    const v = new Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(matrix);
+      soup.positions.push(v.x, v.y, v.z);
+    }
+    const idx = geometry.index;
+    const count = idx ? idx.count : pos.count;
+    for (let i = 0; i < count; i++) {
+      soup.indices.push(base + (idx ? idx.getX(i) : i));
+      if (i % 3 === 0) soup.tags.push(tag);
+    }
+  };
+  plan.ground.forEach((g, i) => add(groundGeometry(), `ground ${i}`, [g.x, -0.012, g.z], g.yaw, [g.w, 1, g.d]));
+  plan.rows.forEach((r, i) => {
+    const spec = CROP_ROWS[r.crop];
+    add(rowGeometry(r.crop), `row ${i}`, [r.x, 0.005, r.z], r.yaw, [r.length, spec.height, spec.width]);
+  });
+  plan.hedges.forEach((h, i) => add(hedgeGeometry(), `hedge ${i}`, [h.x, 0, h.z], h.yaw, [h.length, 0.85 + h.shade * 0.3, 1]));
+  plan.bales.forEach((b, i) => {
+    const s = 0.9 + b.size * 0.25;
+    add(baleGeometry(), `bale ${i}`, [b.x, 0, b.z], b.yaw, [s, s, s]);
+  });
+  return soup;
+}
+
+describe("the fields draw cleanly from the overview", () => {
+  // Rules as for the buildings (`ledges.test.ts`, `zfight.test.ts`), in world
+  // units: the fields are drawn at their own size.
+  it("leave no sliver of ledge: the hedges meet the ground's edge and each other cleanly", () => {
+    const soup = fieldSoup(FIELDS);
+    const found = narrowLedges(soup.positions, soup.indices, { narrowerThan: LAYER * 1.9, lowerThan: LAYER * 0.95 });
+    expect(found.map((l) => `${l.width.toFixed(4)} wide, lip ${l.height.toFixed(4)}, at ${l.at.map((c) => c.toFixed(2)).join(",")}`)).toEqual([]);
+  });
+
+  it("have no two faces of different instances flickering through each other", () => {
+    // Before: the end of each long hedge lay in the plane of the face of the
+    // hedge it met at the corner, and the side of the ground in the plane of
+    // the hedges' outer faces.
+    const soup = fieldSoup(FIELDS);
+    const fights = coplanarOverlaps(soup.positions, soup.indices, { within: LAYER * 2, minOverlap: 1e-5, buriedWithin: 0.05 })
+      .filter((p) => soup.tags[p.a] !== soup.tags[p.b] && p.normal[1] > -0.99)
+      .map((p) => `${soup.tags[p.a]} vs ${soup.tags[p.b]} ${p.separation.toFixed(4)} apart at ${p.at.map((c) => c.toFixed(2)).join(",")}`);
+    expect(fights).toEqual([]);
   });
 });

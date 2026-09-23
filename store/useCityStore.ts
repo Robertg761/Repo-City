@@ -22,6 +22,7 @@ import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/error
 import { parseRepoInput } from "@/lib/client/repoInput";
 import { DEFAULT_TIME_SETTING, isTimeSetting, type TimeSetting } from "@/lib/client/timeSetting";
 import { IDLE_TOUR, currentStop, reduceTour, type TourCommand, type TourState } from "@/lib/client/tourState";
+import { DEFAULT_SOUND, clampVolume, type SoundSetting } from "@/lib/client/audioSettings";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
@@ -72,6 +73,11 @@ export interface CityStore {
   timeChange: "animate" | "cut";
   /** The cinematic tour (`components/tour`); its rules live in `lib/client/tourState.ts`. */
   tour: TourState;
+  /**
+   * The ambient soundscape (`components/audio/`): off until the viewer turns
+   * it on, and the master volume. It belongs to the viewer, like the hour.
+   */
+  sound: SoundSetting;
   actions: {
     analyze(input: string): Promise<void>;
     select(id: string | null): void;
@@ -81,6 +87,7 @@ export interface CityStore {
     setTimeSetting(setting: TimeSetting, change?: "animate" | "cut"): void;
     /** Play, pause, skip or leave the tour. The stop on screen is the selection. */
     tour(command: TourCommand): void;
+    setSound(change: Partial<SoundSetting>): void;
   };
 }
 
@@ -163,6 +170,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
   timeSetting: DEFAULT_TIME_SETTING,
   timeChange: "cut",
   tour: IDLE_TOUR,
+  sound: DEFAULT_SOUND,
   actions: {
     async analyze(input: string) {
       const trimmed = input.trim();
@@ -297,6 +305,13 @@ export const useCityStore = create<CityStore>()((set, get) => ({
       // The stop's subject wears the selection ring; the wide shots and the
       // end of the tour clear it.
       set({ tour, selectedId: currentStop(tour)?.subjectId ?? null, hoveredId: null });
+    },
+
+    setSound(change: Partial<SoundSetting>) {
+      const sound = get().sound;
+      const on = typeof change.on === "boolean" ? change.on : sound.on;
+      const volume = change.volume === undefined ? sound.volume : clampVolume(change.volume);
+      if (on !== sound.on || volume !== sound.volume) set({ sound: { on, volume } });
     },
 
     dismissError() {
