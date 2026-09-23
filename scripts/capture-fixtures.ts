@@ -109,6 +109,8 @@ function summary(analysis: RepoAnalysis, bytes: number): string {
     // capped and pruned ones the buildings are chosen from.
     `  files ${settlement?.files ?? "?"} / dirs ${settlement?.dirs ?? "?"} uncapped;` +
       ` surveyed ${scale.surveyedFiles ?? "?"}; pruned ${scale.files} files ${scale.dirs} dirs`,
+    `  activity: ${settlement ? `${settlement.activity.commitsLast90d} commits and ${settlement.activity.activeContributors90d} people in 90 days${settlement.activity.busy ? ", busy" : ""}` : "?"}` +
+      `; last push ${analysis.metrics.activity.lastPushDaysAgo} days ago`,
     `  reason: ${settlement?.reason ?? ""}`,
     `  buildings ${analysis.buildings.length} (city ${city.buildings.length}),` +
       ` heroes ${city.incidents.length} incidents / ${city.constructionSites.length} sites,` +

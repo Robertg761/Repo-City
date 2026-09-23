@@ -3503,27 +3503,29 @@ promotion, one step at most, never when archived, needs lastPushDaysAgo <= 30
 
 `commitsLast90d` saturates at 100, because the commits request is one page. The metropolis step asks for 90, which in practice means "saturated". `activeContributors90d` is counted from those same commits.
 
-Calibration. Fixture rows use the real numbers in `fixtures/*.analysis.json`, with `surveyedFiles` standing in for `totalFiles`. Rows marked "est." are my estimates, to be replaced by live values in integration step I.
+Calibration. Every row except the first and the last is live: GitHub's uncapped `totalFiles` and `totalDirs` from the settlement-era route, read on 2026-09-22 in integration step I (the fixture rows come from the recaptured `fixtures/*.analysis.json`, the others from `node scripts/capture-fixtures.ts --dry-run`). Activity is 90-day commits and active people.
 
 | Repository | files | dirs | footprint | base | activity | tier |
 |---|---|---|---|---|---|---|
 | a 20-file library | 20 | 2 | 24 | village | any | village |
-| sindresorhus/p-limit (fixture) | 16 | 1 | 18 | village | 7 commits, 3 people | village |
-| pmndrs/zustand (est.) | ~180 | ~35 | ~250 | town | ~8 active people, not busy | town |
-| expressjs/express (est.) | ~190 | ~30 | ~250 | town | not busy | town |
-| honojs/hono (fixture) | 470 | 110 | 690 | city | busy, but not in the metropolis zone | city |
-| atom/atom (fixture, archived) | 1,139 | 295 | 1,729 | city | archived | quiet city |
-| vercel/turborepo (fixture) | 2,887 | 1,392 | 5,671 | city, in zone | 9 active people | city |
-| react/react (fixture) | 2,922 | 516 | 3,954 | city, in zone | 100 commits, 32 people | metropolis |
-| microsoft/vscode (fixture capped, est. ~10k files) | 10k+ | 2k+ | 14k+ | metropolis | | metropolis |
-| vercel/next.js (est.) | ~20k | ~6k | ~32k | metropolis | | metropolis |
+| sindresorhus/p-limit (fixture) | 16 | 3 | 22 | village | 7 commits, 3 people | village |
+| pmndrs/zustand | 128 | 32 | 192 | town | 11 commits, 4 people | town |
+| expressjs/express | 214 | 68 | 350 | town | 17 commits, 9 people | town |
+| honojs/hono (fixture) | 470 | 122 | 714 | city | 100 commits, 33 people, busy, not in the metropolis zone | city |
+| atom/atom (fixture, archived) | 1,282 | 416 | 2,114 | city | archived, none | quiet city |
+| vercel/turborepo (fixture) | 4,863 | 2,352 | 9,567 | city, in zone | 100 commits, 9 people | city |
+| react/react (fixture) | 7,064 | 641 | 8,346 | city, in zone | 100 commits, 32 people | metropolis |
+| microsoft/vscode (fixture) | 17,592 | 4,381 | 26,354 | metropolis | 100 commits, 30 people | metropolis |
+| vercel/next.js | 30,412 | 15,320 | 61,052 | metropolis | 100 commits, 21 people | metropolis |
 | torvalds/linux | tree truncated by GitHub | | floor | metropolis | | metropolis |
 
-Legacy fixtures: `scripts/migrate-fixtures.ts` (S0) writes `settlement` into every `fixtures/*.analysis.json`. For fixtures whose warnings include the tree-cap or truncation line (vscode), it sets `lowerBound: true` and raises the footprint to at least 10,000. The generator never classifies. It reads the field or defaults to `"city"`.
+The live numbers confirm S1's measurements (zustand 128/32/192 and express 214/68/350 exactly; next.js and vscode have grown by a dozen files since). No threshold needs to move: the nearest calls are turborepo, 433 short of the metropolis line and held a city by its 9 active people, and zustand, 72 inside the town band.
+
+Legacy fixtures: `scripts/migrate-fixtures.ts` (S0) writes `settlement` into every `fixtures/*.analysis.json`. For fixtures whose warnings include the tree-cap or truncation line (vscode before its recapture), it sets `lowerBound: true` and raises the footprint to at least 10,000. A recaptured fixture carries `coverage`, and the script re-runs the rules on the uncapped counts its settlement already holds. The generator never classifies. It reads the field or defaults to `"city"`.
 
 `reason` examples:
 - "18 files in 1 folder make a village. It is busy, but a village stays a village until it has 40 files and folders."
-- "2,922 files in 516 folders make a city. 100 commits from 32 people in the last 90 days raise it to a metropolis."
+- "7,064 files in 641 folders make a city. 100 commits from 32 people in the last 90 days raise it to a metropolis." (react, live)
 
 ## 76.5 Per-tier layout and scale
 
