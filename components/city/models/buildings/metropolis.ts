@@ -247,7 +247,12 @@ function addCurtainWall(draft: MeshDraft, spec: CurtainSpec): Panel[] {
   return windows;
 }
 
-/** Thin walls round a flat roof. */
+/**
+ * Thin walls round a flat roof. Every caller makes it exactly as wide as the
+ * cornice it stands on: set a hair inside, it leaves a strip of lit cornice
+ * too thin to draw, which breaks up into a dashed line along the roof
+ * (`ledges.ts`).
+ */
 function addParapet(
   draft: MeshDraft,
   spec: { x?: number; z?: number; y: number; h: number; w: number; d: number; t?: number; color?: Rgb3 },
@@ -276,19 +281,49 @@ function addLobby(draft: MeshDraft, spec: { plane: number; h: number }): void {
   // plot; flush, the two were one plane in two colours.
   const plinth = Math.max(1, spec.plane * 2 + LAYER * 4);
   addBox(draft, { y: 0, w: plinth, h: PLINTH_H, d: plinth, color: PLINTH });
+  // The glass starts a sill above the plinth. Standing on it, a layer in front
+  // of the wall, it left a strip of plinth a layer wide in front of it: too
+  // thin to draw, so a broken bright line round the foot of the tower.
+  const glassFoot = Math.max(spec.h * 0.24, PLINTH_H + spec.h * 0.1);
+  const glassHead = spec.h * 0.86;
   for (const facing of FACINGS) {
-    addPanel(draft, { facing, u: 0, v: spec.h * 0.55, w: spec.plane * 1.6, h: spec.h * 0.62, plane: spec.plane }, LOBBY);
+    addPanel(
+      draft,
+      { facing, u: 0, v: (glassFoot + glassHead) / 2, w: spec.plane * 1.6, h: glassHead - glassFoot, plane: spec.plane },
+      LOBBY,
+    );
   }
-  // The door stands on the plinth rather than running down behind its face.
+  // The door stands on the plinth rather than running down behind its face,
+  // and comes forward to be flush with it when it would otherwise stand a
+  // sliver behind: no strip of plinth too thin to draw in front of it.
   const doorFoot = Math.max(spec.h * 0.09, PLINTH_H);
   const doorHead = spec.h * 0.81;
+  const doorPlane = spec.plane + LAYER;
+  const plinthFace = plinth / 2 - LAYER;
   addPanel(
     draft,
-    { facing: "+z", u: 0, v: (doorFoot + doorHead) / 2, w: 0.2, h: doorHead - doorFoot, plane: spec.plane + LAYER },
+    {
+      facing: "+z",
+      u: 0,
+      v: (doorFoot + doorHead) / 2,
+      w: 0.2,
+      h: doorHead - doorFoot,
+      plane: plinthFace - doorPlane < LAYER * 2 ? Math.max(doorPlane, plinthFace) : doorPlane,
+    },
     DOOR,
   );
-  // The canopy starts at the wall, so its top never lies over the lobby's roof.
-  addBox(draft, { y: spec.h * 0.86, z: spec.plane + 0.045, w: 0.36, h: 0.008, d: 0.09, color: TRIM });
+  // The canopy starts at the wall, so its top never lies over the lobby's
+  // roof, and stops at the roof's height, so its back never stands a hair
+  // above the roof's edge.
+  const canopy = 0.008;
+  addBox(draft, {
+    y: Math.min(spec.h * 0.86, spec.h - canopy),
+    z: spec.plane + 0.045,
+    w: 0.36,
+    h: canopy,
+    d: 0.09,
+    color: TRIM,
+  });
 }
 
 /**
@@ -371,7 +406,9 @@ export function towerTwin(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: podium, d: 1, color: WALL, topColor: ROOF, skipBottom: true });
   addLobby(draft, { plane: 0.5, h: 0.05 });
   addBox(draft, { y: podium, w: 1.02, h: 0.012, d: 1.02, color: TRIM, skipBottom: true });
-  addParapet(draft, { y: podium + 0.012, h: 0.014, w: 1.0, d: 1.0 });
+  // Flush with the band outside, and thick enough inside to meet the shafts'
+  // glass, which stands 0.03 in from the podium's edge.
+  addParapet(draft, { y: podium + 0.012, h: 0.014, w: 1.02, d: 1.02, t: 0.04 });
 
   // Podium ribbon windows above the lobby: dark glass, never lit, so the
   // shafts keep the lit-window budget.
@@ -447,10 +484,13 @@ export function towerSpire(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: lobbyH, d: 1, color: WALL, topColor: ROOF, skipBottom: true });
   addLobby(draft, { plane: 0.5, h: lobbyH });
 
+  // Each setback rises from the top of the cornice below it. Rising from its
+  // foot, the first spandrel came up through the cornice and stopped a hair
+  // above it, a lip too low to draw.
   const stages = [
     { y0: lobbyH, y1: 0.5, half: 0.46, bands: 11, mullions: 3 },
-    { y0: 0.5, y1: 0.72, half: 0.36, bands: 5, mullions: 2 },
-    { y0: 0.72, y1: 0.84, half: 0.26, bands: 3, mullions: 1 },
+    { y0: 0.512, y1: 0.72, half: 0.36, bands: 5, mullions: 2 },
+    { y0: 0.732, y1: 0.84, half: 0.26, bands: 3, mullions: 1 },
   ];
   const windows: Panel[] = [];
   for (const stage of stages) {
@@ -467,10 +507,10 @@ export function towerSpire(): ArchetypeModel {
         spandrelColor: WALL,
       }),
     );
-    // A cornice and a parapet at each setback.
-    const w = stage.half * 2;
-    addBox(draft, { y: stage.y1, w: w + 0.04, h: 0.012, d: w + 0.04, color: TRIM, skipBottom: true });
-    addParapet(draft, { y: stage.y1 + 0.012, h: 0.012, w: w + 0.03, d: w + 0.03, t: 0.02 });
+    // A cornice and a parapet at each setback, the parapet flush with it.
+    const w = stage.half * 2 + 0.04;
+    addBox(draft, { y: stage.y1, w, h: 0.012, d: w, color: TRIM, skipBottom: true });
+    addParapet(draft, { y: stage.y1 + 0.012, h: 0.012, w, d: w, t: 0.02 });
   }
 
   // The crown: a stone lantern with a rib standing proud at each corner and

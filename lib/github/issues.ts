@@ -21,6 +21,7 @@
 import type { GhIssue, GhLabel } from "@/types/github";
 import type { IssueSummary } from "@/types/repository";
 import { GitHubClient } from "./client.ts";
+import { plainTextExcerpt } from "./markdown.ts";
 
 /** PLAN.md section 71.1: issue bodies are summarized, never shipped whole. */
 export const BODY_EXCERPT_LENGTH = 300;
@@ -144,11 +145,10 @@ export function mapLabels(labels: (GhLabel | string)[] | undefined): string[] {
 }
 
 /**
- * First 300 characters of the body, whitespace collapsed so the inspector gets
+ * At most 300 characters of the body as plain text: markdown and HTML
+ * stripped, whitespace collapsed, cut on a whole word, so the inspector gets
  * a readable line rather than a wall of markdown (PLAN.md section 12).
  */
 export function excerpt(body: string | null | undefined): string {
-  if (typeof body !== "string" || body === "") return "";
-  const flattened = body.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
-  return flattened.slice(0, BODY_EXCERPT_LENGTH);
+  return plainTextExcerpt(body, BODY_EXCERPT_LENGTH);
 }

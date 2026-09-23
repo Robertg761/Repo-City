@@ -116,8 +116,16 @@ describe("excerpt", () => {
     expect(excerpt("short")).toBe("short");
   });
 
-  it("collapses runs of spaces and tabs but keeps line structure", () => {
-    expect(excerpt("a     b\n\tc")).toBe("a b\n c");
+  it("collapses every run of whitespace into one space", () => {
+    expect(excerpt("a     b\n\tc")).toBe("a b c");
+  });
+
+  it("ships plain text, not markdown", () => {
+    const body =
+      "<!-- Thanks for filing! -->\n### Describe the bug\n\nThe **router** drops [trailing slashes](https://x.y) in `app.get()`.\n\n```js\napp.get('/a/')\n```\n\n- [ ] I searched existing issues";
+    expect(excerpt(body)).toBe(
+      "Describe the bug: The router drops trailing slashes in app.get(). I searched existing issues",
+    );
   });
 
   it("answers an empty string for a missing body", () => {

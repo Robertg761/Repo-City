@@ -96,6 +96,8 @@ function addEntrance(
      * running on down behind the plinth's face, a hair behind it.
      */
     floor?: number;
+    /** Where the plinth's face is, 0.5 (the whole plot) unless said. */
+    plinthFace?: number;
   },
 ): void {
   if (spec.lobby) {
@@ -118,14 +120,23 @@ function addEntrance(
   // and the door one more: the layer between is the lit pane of any window
   // the entrance stands over. Four faces over one patch of wall, none of them
   // in the same plane.
-  const floor = spec.floor ?? 0;
+  //
+  // Set well back, the entrance stands on the plinth. Near its face, standing
+  // on it would leave a strip of plinth in front too thin to draw, a broken
+  // bright line at the door's foot (`ledges.ts`), so there the surround and
+  // door come forward of the plinth, a layer apart, and run down to the street.
+  const plinthFace = spec.plinthFace ?? 0.5;
+  const surround = spec.plane + LAYER * 2;
+  const forward = spec.floor !== undefined && plinthFace - (surround + LAYER) < LAYER * 2;
+  const surroundPlane = forward ? Math.max(surround, plinthFace) : surround;
+  const floor = forward ? 0 : (spec.floor ?? 0);
   const standing = (h: number) => {
     const bottom = Math.max(spec.v - h / 2, floor);
     const top = spec.v + h / 2;
     return { v: (bottom + top) / 2, h: top - bottom };
   };
-  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h * 1.15), w: spec.w * 1.3, plane: spec.plane + LAYER * 2 }, WALL_SOFT);
-  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h), w: spec.w, plane: spec.plane + LAYER * 3 }, DOOR);
+  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h * 1.15), w: spec.w * 1.3, plane: surroundPlane }, WALL_SOFT);
+  addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h), w: spec.w, plane: surroundPlane + LAYER }, DOOR);
   if (spec.canopy !== false) {
     addBox(draft, {
       y: spec.v + spec.h * 0.6,
@@ -244,9 +255,10 @@ function lowriseParapet(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: 0.05, d: 1, color: PLINTH });
   addBox(draft, { y: 0.05, w: 0.96, h: 0.82, d: 0.96, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.85, w: 1.02, h: 0.035, d: 1.02, color: TRIM, skipBottom: true });
-  // The roof deck stops short of the parapet: run into it, its edge lay a
-  // hair behind the parapet's ends.
-  addBox(draft, { y: 0.885, w: 0.92, h: 0.015, d: 0.92, color: ROOF, skipBottom: true });
+  // The roof deck runs exactly to the parapet's inner face. Run into it, its
+  // edge lay a hair behind the parapet's ends; stopped short, it left a crack
+  // of lit cornice round the roof too thin to draw.
+  addBox(draft, { y: 0.885, w: 0.93, h: 0.015, d: 0.93, color: ROOF, skipBottom: true });
   addParapet(draft, { y: 0.885, h: 0.055, w: 1.02, d: 1.02 });
 
   const windows = windowRing({ plane: 0.48, span: 0.66, columns: 3, rows: 2, from: 0.45, to: 0.7, w: 0.17, h: 0.12 });
@@ -271,7 +283,8 @@ function lowrisePitched(): ArchetypeModel {
   addBox(draft, { y: 0, w: 1, h: 0.04, d: 1, color: PLINTH });
   addBox(draft, { y: 0.04, w: 0.96, h: 0.7, d: 0.96, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.74, w: 1.02, h: 0.03, d: 1.02, color: TRIM, skipBottom: true });
-  addGable(draft, { y: 0.77, w: 1.0, h: 0.23, d: 1.0, color: ROOF, ridge: "z" });
+  // As wide as the band it sits on, as a parapet is its cornice.
+  addGable(draft, { y: 0.77, w: 1.02, h: 0.23, d: 1.02, color: ROOF, ridge: "z" });
   for (const side of [1, -1]) {
     addBox(draft, {
       x: side * 0.26,
@@ -296,20 +309,23 @@ function lowrisePitched(): ArchetypeModel {
 function warehouseSawtooth(): ArchetypeModel {
   const draft = emptyDraft();
   addBox(draft, { y: 0, w: 1, h: 0.05, d: 1, color: PLINTH });
-  addBox(draft, { y: 0.05, w: 0.98, h: 0.6, d: 0.96, color: WALL, skipBottom: true });
+  // Square on the plinth: 0.98 wide, it left a plinth step a hair wide down
+  // the two long sides.
+  addBox(draft, { y: 0.05, w: 0.96, h: 0.6, d: 0.96, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.65, w: 1.0, h: 0.025, d: 0.98, color: TRIM, skipBottom: true });
 
   // Five shallow teeth rather than four deep ones: from the overview the roof
-  // should read as texture, not as black stripes.
+  // should read as texture, not as black stripes. Together they cover the band
+  // they sit on exactly, as a parapet does its cornice.
   const teeth = 5;
-  const toothW = 0.98 / teeth;
+  const toothW = 1.0 / teeth;
   for (let i = 0; i < teeth; i++) {
     addSawtooth(draft, {
-      x: -0.49 + toothW * (i + 0.5),
+      x: -0.5 + toothW * (i + 0.5),
       y: 0.675,
       w: toothW,
       rise: 0.13,
-      d: 0.96,
+      d: 0.98,
       color: ROOF,
       glassColor: GLASS,
     });
@@ -321,8 +337,8 @@ function warehouseSawtooth(): ArchetypeModel {
   const windows = [
     ...windowGrid({ facing: "+z", plane: 0.48, span: 0.7, columns: 3, rows: 1, from: 0.5, to: 0.5, w: 0.14, h: 0.1 }),
     ...windowGrid({ facing: "-z", plane: 0.48, span: 0.7, columns: 3, rows: 1, from: 0.5, to: 0.5, w: 0.14, h: 0.1 }),
-    ...windowGrid({ facing: "+x", plane: 0.49, span: 0.55, columns: 2, rows: 1, from: 0.48, to: 0.48, w: 0.14, h: 0.1 }),
-    ...windowGrid({ facing: "-x", plane: 0.49, span: 0.55, columns: 2, rows: 1, from: 0.48, to: 0.48, w: 0.14, h: 0.1 }),
+    ...windowGrid({ facing: "+x", plane: 0.48, span: 0.55, columns: 2, rows: 1, from: 0.48, to: 0.48, w: 0.14, h: 0.1 }),
+    ...windowGrid({ facing: "-x", plane: 0.48, span: 0.55, columns: 2, rows: 1, from: 0.48, to: 0.48, w: 0.14, h: 0.1 }),
   ];
   bake(draft, windows);
   // The roll-up door, wide enough for the lorry the city implies.
