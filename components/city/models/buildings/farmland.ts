@@ -56,8 +56,19 @@ export const HEDGE_WIDTH = 0.7;
 export const HEDGE_HEIGHT = 1.05;
 /** The gateway left in one side of every hedge. */
 export const GATE_WIDTH = 2.6;
-/** How far the hedge sits inside the field's edge. */
-const HEDGE_INSET = 0.35;
+/**
+ * How far the hedge's centre line sits inside the field's edge: its outer
+ * face stands a little past the edge, so the side of the field's ground is
+ * inside the hedge rather than in the plane of its face.
+ */
+export const HEDGE_INSET = HEDGE_WIDTH / 2 - 0.015;
+/**
+ * How far a hedge on a long side runs past its ends, over the corner: a
+ * little past the outer face of the hedge it meets. The two are different
+ * greens, and where the end of one lay in the plane of the other's face they
+ * flickered through each other at every corner of every field.
+ */
+export const HEDGE_OVERRUN = HEDGE_WIDTH / 2 + 0.02;
 
 export interface Placed {
   x: number;
@@ -146,7 +157,9 @@ export function planFarmland(fields: readonly FieldPatch[]): FarmPlan {
           const bales = 1 + Math.floor(unit(seed, 40 + i) * 3);
           for (let b = 0; b < bales; b++) {
             const t = (unit(seed, 60 + i * 7 + b) - 0.5) * (length - 1.6);
-            const offset = rows.width * 0.9;
+            // Beside the row on the side towards the middle of the field: on
+            // the outer side of the last row, a bale ran into the hedge.
+            const offset = rows.width * 0.9 * (across > 0 ? -1 : 1);
             const p = alongX ? toWorld(field, t, across + offset) : toWorld(field, across + offset, t);
             plan.bales.push({ ...p, yaw: field.rotationY + (unit(seed, 80 + i * 7 + b) - 0.5) * 0.8, size: unit(seed, 90 + i * 7 + b) });
           }
@@ -177,7 +190,7 @@ export function planFarmland(fields: readonly FieldPatch[]): FarmPlan {
             ]
           : [[0, full]];
       // Hedges on the long sides overlap the corners so there is no gap.
-      const extend = index < 2 ? HEDGE_WIDTH / 2 : 0;
+      const extend = index < 2 ? HEDGE_OVERRUN : 0;
       for (const [a0, a1] of pieces) {
         const start = a0 === 0 ? a0 - extend : a0;
         const end = a1 === full ? a1 + extend : a1;
