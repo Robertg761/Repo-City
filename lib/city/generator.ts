@@ -74,6 +74,7 @@ import { prngFor, seedFor } from "./seed.ts";
 import {
   DEFAULT_SETTLEMENT_TIER,
   SETTLEMENT_PARAMS,
+  inSettlementWords,
   settlementName,
   type SettlementParams,
 } from "./settlement.ts";
@@ -180,6 +181,19 @@ const INCIDENT_SPACING = 9;
 const NATURAL_SITE = 11;
 /** Natural height of the crane, used to fill in `ConstructionSite.size`. */
 const NATURAL_SITE_HEIGHT = 12.6;
+/**
+ * A merged pull request's site in a village or a town: the plot it takes and
+ * the height of the finished building on it, `size = [plot, height, plot]`.
+ * The finished building is a two-storey cottage in a village (the village's
+ * tier-2 height) and a three-storey block in a town (its tier-3 height), on
+ * a plot a house cell wide, so it reads as one more house on the street and
+ * not as a beige block over the rooftops. A plot squeezed smaller keeps the
+ * proportions. A city and a metropolis keep the crane-sized site.
+ */
+export const COMPLETED_SITE: Partial<Record<SettlementTier, { plot: number; height: number }>> = {
+  village: { plot: 7, height: SETTLEMENT_PARAMS.village.tierHeight[2] },
+  town: { plot: 9, height: SETTLEMENT_PARAMS.town.tierHeight[3] },
+};
 
 /**
  * Footprints the crowd keeps clear of, beyond buildings and landmark plots.
@@ -240,7 +254,18 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
   const params = SETTLEMENT_PARAMS[settlement.tier];
 
   // -- Stage 1: districts -------------------------------------------------
-  const districtPlans = analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT];
+  // Names and purposes in the settlement's own words: "The Whole Town" is
+  // "The Whole Village" in a village. A city's are left as written.
+  const districtPlans = (analysis.districts.length > 0 ? analysis.districts : [ROOT_DISTRICT]).map(
+    (plan) =>
+      settlement.tier === "city"
+        ? plan
+        : {
+            ...plan,
+            name: inSettlementWords(plan.name, settlement.tier),
+            purpose: plan.purpose === null ? null : inSettlementWords(plan.purpose, settlement.tier),
+          },
+  );
   const districtById = new Map<string, DistrictPlan>(districtPlans.map((d) => [d.id, d]));
   const fallbackDistrictId = districtPlans[0]?.id ?? "d-outskirts";
 
@@ -302,7 +327,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
       const slot = slots[cursor] ?? fallbackSlot(rect, cursor);
       cursor += 1;
       buildings.push(
-        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng, params),
+        makeBuilding(member, plan, plan.id, colorIndex, slot, analysis, slotPrng, buildingPrng, params, settlement.tier),
       );
     }
     usedSlots.set(plan.id, cursor);
@@ -338,6 +363,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
         slotPrng,
         buildingPrng,
         params,
+        settlement.tier,
       ),
     );
   });
@@ -366,6 +392,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     buildings,
     usedSlots,
     seed,
+    settlement.tier,
   );
 
   // -- Stage 8: highways, then props ---------------------------------------
@@ -386,6 +413,7 @@ export function generateCity(analysis: RepoAnalysis, options: GenerateOptions = 
     seed,
     highways,
     params.trees,
+    settlement.tier,
   );
   const lamps = [...plazaLamps(layout), ...placeLamps(layout, analysis, params.lamps)].slice(
     0,
@@ -557,6 +585,11 @@ function groundAreas(
     }
   }
   if (tier === "village") areas.push({ ...green, rotationY: 0 });
+  // A town park's lawn, inside the avenue of trees round its kerb.
+  for (const park of layout.parks ?? []) {
+    const lawn = insetBy(park, params.roads.major.width / 2 + 1.4 + 2.4);
+    if (lawn.w > 0 && lawn.d > 0) areas.push({ ...lawn, rotationY: 0 });
+  }
   for (const field of fields ?? []) {
     areas.push({ x: field.x, z: field.z, w: field.w, d: field.d, rotationY: field.rotationY });
   }
@@ -621,6 +654,7 @@ function makeBuilding(
   slotPrng: Prng,
   buildingPrng: Prng,
   params: SettlementParams,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): Building {
   const { min, max } = params.footprint;
   const base = desiredFootprint(plan, params);
@@ -650,7 +684,7 @@ function makeBuilding(
   const x = turn === 0 ? slot.x + jx : slot.x + jx * Math.cos(turn) + jz * Math.sin(turn);
   const z = turn === 0 ? slot.z + jz : slot.z - jx * Math.sin(turn) + jz * Math.cos(turn);
 
-  const text = buildingText(plan, districtPlan, analysis.repo);
+  const text = buildingText(plan, districtPlan, analysis.repo, tier);
 
   return {
     id: plan.id,
@@ -838,6 +872,7 @@ function placeConstruction(
   buildings: Building[],
   usedSlots: Map<string, number>,
   seed: string,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): ConstructionSite[] {
   if (ranked.length === 0) return [];
 
@@ -858,7 +893,11 @@ function placeConstruction(
 
     // The renderer draws an eleven unit site; it is scaled down to whatever is
     // actually free here, which is usually a slot cell plus the gap around it.
-    const half = clamp(clearHalfExtent(slot.x, slot.z, obstacles, NATURAL_SITE / 2), 1.8, NATURAL_SITE / 2);
+    // A merged pull request in a village or a town is a finished house, not
+    // a works: its plot and height are the settlement's own.
+    const finished = pull.state === "completed" ? COMPLETED_SITE[tier] : undefined;
+    const cap = finished ? finished.plot / 2 : NATURAL_SITE / 2;
+    const half = clamp(clearHalfExtent(slot.x, slot.z, obstacles, cap), 1.8, cap);
     const side = round3(half * 2);
     obstacles.push({
       id: `construction-${pull.number}`,
@@ -879,7 +918,11 @@ function placeConstruction(
       appearAt: spread(REVEAL.construction, index, ranked.length),
       state: pull.state,
       pull,
-      size: [side, round3((NATURAL_SITE_HEIGHT * side) / NATURAL_SITE), side],
+      size: [
+        side,
+        round3(finished ? (finished.height * side) / finished.plot : (NATURAL_SITE_HEIGHT * side) / NATURAL_SITE),
+        side,
+      ],
     });
   });
 
@@ -1006,6 +1049,7 @@ function placeTrees(
   seed: string,
   highways: readonly RoadSegment[] = [],
   cap: number = LIMITS.trees,
+  tier: SettlementTier = DEFAULT_SETTLEMENT_TIER,
 ): Vec3[] {
   const parkSlots = parkSlotsOf(layout, usedSlots);
   let free = 0;
@@ -1039,11 +1083,15 @@ function placeTrees(
       radius: INCIDENT_SPACING / 2,
     })),
   ];
+  // Fields and allotments have their own hedgerow trees; a tree in the middle
+  // of the crop is a tree in the wrong place. A city has none.
+  const fields = (layout as LayoutExtras).fields ?? [];
   const clear = (x: number, z: number): boolean =>
     keepOut.every((zone) => Math.hypot(x - zone.x, z - zone.z) > zone.radius) &&
     // The ring plantation crosses every highway where it leaves the city; a
     // tree in the fast lane is the one place this reads as a bug.
-    highways.every((road) => distanceToRoad(x, z, road) > road.width / 2 + 1.4);
+    highways.every((road) => distanceToRoad(x, z, road) > road.width / 2 + 1.4) &&
+    !fields.some((field) => insideField(field, x, z, TREE_HALF));
 
   // Along the ring road, on the outside.
   const ringRadius = layout.ringRadius + 5;
@@ -1100,7 +1148,22 @@ function placeTrees(
       .map(([, plot]) => ({ x: plot.x, z: plot.z, radius: Math.min(plot.w, plot.d) * 0.42 })),
   ];
   const groveTrees: Vec3[] = [];
-  for (const grove of groves) {
+  // A metropolis's band corners are a block of grass twenty-odd units across
+  // each, which five scattered trees left reading as vacant lots. They are
+  // planted as small parks instead: a three-by-three grove on a grid.
+  const cornerParks = tier === "metropolis";
+  for (const [index, grove] of groves.entries()) {
+    if (cornerParks && index < 4) {
+      const step = layout.bandDepth * 0.26;
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          const x = round3(grove.x + i * step + prng.range(-0.6, 0.6));
+          const z = round3(grove.z + j * step + prng.range(-0.6, 0.6));
+          if (clear(x, z)) groveTrees.push([x, 0, z]);
+        }
+      }
+      continue;
+    }
     for (let i = 0; i < 5; i++) {
       const angle = (i / 5) * Math.PI * 2 + prng.range(-0.4, 0.4);
       const radius = grove.radius * prng.range(0.25, 1);
@@ -1127,9 +1190,19 @@ function placeTrees(
     .map((spot) => [round3(spot.x), 0, round3(spot.z)] as Vec3)
     .filter(([x, , z]) => clear(x, z));
 
+  // A town's parks beside its square (`layout.parks`): an avenue round the
+  // edge and a few copses on the lawn. Their own stream, so no other tree
+  // moves when a town gains or loses a park.
+  const townParks = plantTownParks(
+    layout.parks ?? [],
+    SETTLEMENT_PARAMS[tier].roads.major.width,
+    prngFor(seed, "parks"),
+    clear,
+  );
+
   // Order of precedence when the budget runs out: the plaza and the parks are
   // the ones doing the explaining, the ring and the margins are decoration.
-  const kept: Vec3[] = [...plaza, ...parks, ...groveTrees];
+  const kept: Vec3[] = [...plaza, ...townParks, ...parks, ...groveTrees];
   if (kept.length >= want) return kept.slice(0, want);
 
   const remaining = want - kept.length;
@@ -1191,6 +1264,79 @@ function plantParks(
     }
   }
   return out;
+}
+
+/** Spacing of the avenue round a town park. */
+const PARK_AVENUE_PITCH = 6;
+/** Copses on a town park's lawn, three trees each. */
+const PARK_COPSES = 3;
+
+/**
+ * Plant a town's parks (`CityLayout.parks`): trees at an even pitch round the
+ * inside of the kerb, which is what makes a block of grass read as a park
+ * rather than a vacant lot, and a few seeded copses on the lawn inside.
+ */
+function plantTownParks(
+  parks: readonly Rect[],
+  roadWidth: number,
+  prng: Prng,
+  clear: (x: number, z: number) => boolean,
+): Vec3[] {
+  const out: Vec3[] = [];
+  const inset = roadWidth / 2 + 1.4 + 1.2;
+  for (const park of parks) {
+    const hw = park.w / 2 - inset;
+    const hd = park.d / 2 - inset;
+    if (hw < 2 || hd < 2) continue;
+    // The avenue: each side divided evenly, corners included once.
+    const sides: [number, number, number, number][] = [
+      [-hw, -hd, hw, -hd],
+      [hw, -hd, hw, hd],
+      [hw, hd, -hw, hd],
+      [-hw, hd, -hw, -hd],
+    ];
+    for (const [x0, z0, x1, z1] of sides) {
+      const length = Math.hypot(x1 - x0, z1 - z0);
+      const count = Math.max(1, Math.round(length / PARK_AVENUE_PITCH));
+      for (let i = 0; i < count; i++) {
+        const t = i / count;
+        const x = round3(park.x + x0 + (x1 - x0) * t + prng.range(-0.3, 0.3));
+        const z = round3(park.z + z0 + (z1 - z0) * t + prng.range(-0.3, 0.3));
+        if (clear(x, z)) out.push([x, 0, z]);
+      }
+    }
+    // The lawn: copses well inside the avenue, spread along the park's long
+    // axis and zigzagging across the short one.
+    const lawnW = hw - 4;
+    const lawnD = hd - 4;
+    if (lawnW < 1 || lawnD < 1) continue;
+    const alongX = park.w >= park.d;
+    for (let c = 0; c < PARK_COPSES; c++) {
+      const along = ((c + 0.5) / PARK_COPSES) * 2 - 1;
+      const across = c % 2 === 0 ? 0.4 : -0.4;
+      const cx = park.x + (alongX ? along : across) * lawnW + prng.range(-1.5, 1.5);
+      const cz = park.z + (alongX ? across : along) * lawnD + prng.range(-1.5, 1.5);
+      for (let i = 0; i < 3; i++) {
+        const angle = (i / 3) * Math.PI * 2 + prng.range(-0.5, 0.5);
+        const x = round3(cx + Math.cos(angle) * 1.6);
+        const z = round3(cz + Math.sin(angle) * 1.6);
+        if (clear(x, z)) out.push([x, 0, z]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Whether `(x, z)` lies inside a field, grown by `margin`, in the field's own frame. */
+function insideField(field: FieldPatch, x: number, z: number, margin: number): boolean {
+  const dx = x - field.x;
+  const dz = z - field.z;
+  const c = Math.cos(field.rotationY);
+  const s = Math.sin(field.rotationY);
+  // Local x runs along (cos r, -sin r) and local z along (sin r, cos r).
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  return Math.abs(lx) <= field.w / 2 + margin && Math.abs(lz) <= field.d / 2 + margin;
 }
 
 /** Point at `t` (0..1) around a square of half-extent `r`, starting north-west. */

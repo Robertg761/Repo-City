@@ -46,6 +46,7 @@ import type {
 import type { Building, ConstructionSite, Incident, Vec3 } from "@/types/city";
 import { heatOf } from "../analysis/forms.ts";
 import {
+  agesOf,
   crowdConstructionText,
   crowdIncidentText,
   crowdIssueReason,
@@ -129,7 +130,8 @@ export function heatScale(heat: number): number {
 const FORM_FOR_STATE: Record<IncidentState, IncidentForm> = {
   major: "fire",
   collision: "collision",
-  stale: "wreck",
+  // A stale bug is still a bug (76.7 rule 5); the renderer rusts it by state.
+  stale: "collision",
   minor: "pothole",
 };
 
@@ -300,7 +302,7 @@ interface PullItem {
 
 type Item = IssueItem | PullItem;
 
-function issueItem(issue: BacklogIssue, repoUrl: string): IssueItem {
+function issueItem(issue: BacklogIssue, repoUrl: string, now: string): IssueItem {
   const ranked: RankedIssue = {
     number: issue.number,
     title: issue.title,
@@ -314,7 +316,7 @@ function issueItem(issue: BacklogIssue, repoUrl: string): IssueItem {
     reactions: issue.reactions,
     score: issue.score,
     state: issue.state,
-    reason: crowdIssueReason(issue.form, issue.state, issue.labels),
+    reason: crowdIssueReason(issue.form, issue.state, issue.labels, agesOf(issue, now), issue.title),
     relatedPath: issue.relatedPath,
     form: issue.form,
     heat: issue.heat,
@@ -330,7 +332,7 @@ function issueItem(issue: BacklogIssue, repoUrl: string): IssueItem {
 }
 
 /** A ranked issue past the tier's hero cap, turned into a crowd item. */
-function demotedIssueItem(issue: RankedIssue): IssueItem {
+function demotedIssueItem(issue: RankedIssue, now: string): IssueItem {
   const form = issue.form ?? FORM_FOR_STATE[issue.state];
   const heat = issue.heat ?? heatOf(issue.comments, issue.reactions ?? 0);
   return {
@@ -343,7 +345,7 @@ function demotedIssueItem(issue: RankedIssue): IssueItem {
       ...issue,
       form,
       heat,
-      reason: crowdIssueReason(form, issue.state, issue.labels),
+      reason: crowdIssueReason(form, issue.state, issue.labels, agesOf(issue, now), issue.title),
     },
   };
 }
@@ -353,7 +355,7 @@ function crowdWorksForm(form: WorksForm | undefined, draft: boolean): Exclude<Wo
   return draft ? "hoarding" : "scaffold";
 }
 
-function pullItem(pull: BacklogPull, repoUrl: string): PullItem {
+function pullItem(pull: BacklogPull, repoUrl: string, now: string): PullItem {
   const form = crowdWorksForm(pull.form, pull.draft);
   const ranked: RankedPull = {
     number: pull.number,
@@ -372,7 +374,7 @@ function pullItem(pull: BacklogPull, repoUrl: string): PullItem {
     files: pull.files,
     score: pull.score,
     state: openState(pull.state),
-    reason: crowdPullReason(form, openState(pull.state), pull.review, pull.checks),
+    reason: crowdPullReason(form, openState(pull.state), pull.review, pull.checks, agesOf(pull, now)),
     form,
     relatedPath: pull.relatedPath,
     heat: pull.heat,
@@ -392,7 +394,7 @@ const openState = (state: ConstructionState): ConstructionState =>
   state === "completed" ? "active" : state;
 
 /** An open ranked pull request past the tier's hero cap, turned into a crowd item. */
-function demotedPullItem(pull: RankedPull): PullItem {
+function demotedPullItem(pull: RankedPull, now: string): PullItem {
   const form = crowdWorksForm(pull.form, pull.draft);
   const heat = pull.heat ?? heatOf(pull.comments, pull.reactions ?? 0);
   const state = openState(pull.state);
@@ -407,7 +409,7 @@ function demotedPullItem(pull: RankedPull): PullItem {
       form,
       heat,
       state,
-      reason: crowdPullReason(form, state, pull.review ?? null, pull.checks ?? null),
+      reason: crowdPullReason(form, state, pull.review ?? null, pull.checks ?? null, agesOf(pull, now)),
     },
   };
 }
@@ -484,15 +486,16 @@ function shuffled<T>(items: readonly T[], prng: Prng): T[] {
 export function placeCrowd(input: CrowdInput): CrowdResult {
   const { analysis, tier, index, buildings, prng } = input;
   const repoUrl = analysis.repo.url;
+  const now = analysis.generatedAt;
 
   // -- Items, most significant first ---------------------------------------
   const demoted: Item[] = [
-    ...input.demotedIssues.map(demotedIssueItem),
-    ...input.demotedPulls.filter((pull) => pull.state !== "completed").map(demotedPullItem),
+    ...input.demotedIssues.map((issue) => demotedIssueItem(issue, now)),
+    ...input.demotedPulls.filter((pull) => pull.state !== "completed").map((pull) => demotedPullItem(pull, now)),
   ];
   const backlog = interleave<Item>(
-    (analysis.metrics.issues.backlog ?? []).map((issue) => issueItem(issue, repoUrl)),
-    (analysis.metrics.pulls.backlog ?? []).map((pull) => pullItem(pull, repoUrl)),
+    (analysis.metrics.issues.backlog ?? []).map((issue) => issueItem(issue, repoUrl, now)),
+    (analysis.metrics.pulls.backlog ?? []).map((pull) => pullItem(pull, repoUrl, now)),
   );
   const items = [...demoted, ...backlog];
 

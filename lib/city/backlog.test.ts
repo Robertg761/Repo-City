@@ -358,6 +358,26 @@ describe("heroes per tier (76.5)", () => {
     }
   });
 
+  it("gives a demoted hero with no form the shape its state implies: a stale bug is still a collision", () => {
+    const old = structuredClone(react);
+    const template = old.metrics.issues.ranked[0];
+    old.metrics.issues.ranked = Array.from({ length: 20 }, (_, i): RankedIssue => {
+      const { form: _form, ...rest } = template;
+      void _form;
+      return { ...rest, number: 80_000 + i, state: i % 2 === 0 ? "stale" : "major" };
+    });
+    const small = generateCity(old, { tier: "village" });
+    const byNumber = new Map(small.backlog!.incidents.map((i) => [i.issue.number, i]));
+    let checked = 0;
+    for (const issue of old.metrics.issues.ranked.slice(SETTLEMENT_PARAMS.village.heroes.incidents)) {
+      const crowd = byNumber.get(issue.number);
+      if (!crowd) continue;
+      expect(crowd.form).toBe(issue.state === "stale" ? "collision" : "fire");
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
   it("slices heroes to each tier's cap", () => {
     const many = structuredClone(react);
     const template = many.metrics.issues.ranked[0];

@@ -155,6 +155,11 @@ export interface CityLayout {
    * highways out continue from here; with none, the overflow queue waits here.
    */
   exits?: RoadExit[];
+  /**
+   * Town only: the pinwheel cells beside the civic square that no district
+   * was dealt, each ringed by streets. The generator plants them as parks.
+   */
+  parks?: Rect[];
 }
 
 export interface LayoutDistrictInput {
@@ -1160,18 +1165,39 @@ export function planLayout(
     .map((d) => ({ id: d.id, weight: districtWeight(d.buildingCount) }))
     .sort((a, b) => b.weight - a.weight || (a.id < b.id ? -1 : 1));
 
+  // A town always cuts the pinwheel, whatever its district count. With two or
+  // three districts the city's carve turns the civic cell into a band the
+  // full width of the square, and at a town's scale that band was a 99 by 27
+  // expanse of setts with a hall in the middle: an empty car park, not a
+  // market square. The pinwheel keeps the square square; the cells beside it
+  // that no district is dealt become parks.
+  const regionCount = tier === "town" ? Math.max(4, districts.length) : districts.length;
+
   // Two passes: group the districts against a symmetric carve, then cut the
   // pinwheel again to what those groups actually weigh. Grouping first is what
   // lets the cuts be weight-aware at all, and because a heavier group was
   // already matched to a larger region the second carve preserves the pairing.
-  const symmetric = carveRegions(districtSide, civic, districts.length);
+  const symmetric = carveRegions(districtSide, civic, regionCount);
   const buckets = assignRegions(items, symmetric.regions);
   const loads = buckets.map((bucket) => bucket.reduce((sum, item) => sum + item.weight, 0));
-  const { civicRect, regions } = carveRegions(districtSide, civic, districts.length, loads);
+  // A park weighs what an average district does, so a light district across
+  // the square from it takes no more ground than it can fill, and the park
+  // takes the rest. A city never has an empty region, so its loads are as
+  // they were.
+  const filled = loads.filter((_, i) => buckets[i].length > 0);
+  const parkLoad = filled.length > 0 ? filled.reduce((a, b) => a + b, 0) / filled.length : 1;
+  const { civicRect, regions } = carveRegions(
+    districtSide,
+    civic,
+    regionCount,
+    loads.map((load, i) => (buckets[i].length > 0 ? load : parkLoad)),
+  );
 
   const rects = new Map<string, Rect>();
+  const parks: Rect[] = [];
   for (let i = 0; i < regions.length; i++) {
-    squarify(buckets[i], regions[i], rects);
+    if (buckets[i].length === 0) parks.push(regions[i]);
+    else squarify(buckets[i], regions[i], rects);
   }
 
   const roads = new RoadSet();
@@ -1196,6 +1222,8 @@ export function planLayout(
     if (!rect) continue;
     roads.addRectEdges(rect, spec.major);
   }
+  // A park is a block like any other, with a street on every side.
+  for (const park of parks) roads.addRectEdges(park, spec.major);
 
   // The town's high street: the seam along the civic square's south edge,
   // run on through the landmark band to the ring on both sides. With a single
@@ -1234,8 +1262,105 @@ export function planLayout(
     roads: built,
     tier,
     plaza: { rect: insetRect(civicRect, PLAZA_INSET), surface: spec.surface },
+    ...(parks.length > 0 ? { parks } : {}),
   };
+  if (tier === "town" || tier === "metropolis") {
+    // A metropolis keeps its band corners for the groves the generator
+    // plants there; a town's allotments run on round them.
+    const fields = planAllotments(districtSide, ringRadius, spec, built, tier === "town");
+    if (fields.length > 0) layout.fields = fields;
+  }
   return layout;
+}
+
+/** Shortest and longest allotment plot, and the path left between two. */
+const ALLOTMENT_MIN = 6;
+const ALLOTMENT_TARGET = 11;
+const ALLOTMENT_PATH = 1.4;
+/** Vegetables, turned earth, vegetables, a strip of wheat: an allotment's crops. */
+const ALLOTMENT_CROPS: readonly FieldPatch["crop"][] = [2, 1, 2, 0];
+
+/**
+ * Allotments for a town and a metropolis (PLAN.md 76.5, and the review that
+ * found their outer rings "empty grass"). The landmark band holds a landmark
+ * in the middle of each side, between the two spokes; outside the spokes it
+ * was bare grass all the way round to the corners. Each of those eight
+ * stretches becomes a row of hedged plots, the allotment gardens that line
+ * a ring road. With `corners`, the north and south rows run on round the
+ * corner (a town); without, every row stops short of it and the corner stays
+ * a grove (a metropolis). The east and west rows always stop at the corner,
+ * so no two rows meet. A plot that would touch a road is left out, and the
+ * plots grow with the settlement's slot pitch.
+ */
+function planAllotments(
+  districtSide: number,
+  ringRadius: number,
+  spec: GridSpec,
+  roads: readonly RoadSegment[],
+  corners: boolean,
+): FieldPatch[] {
+  const half = districtSide / 2;
+  const inner = half + spec.major.width / 2 + KERB;
+  const outer = ringRadius - spec.ring.width / 2 - KERB;
+  const depth = outer - inner;
+  if (depth < ALLOTMENT_MIN) return [];
+  const spoke = round3(districtSide / 3) + spec.major.width / 2 + KERB;
+  const target = ALLOTMENT_TARGET * (spec.pitch / SETTLEMENT_PARAMS.town.slotPitch);
+
+  /** Plots along [from, to] of one axis, at `across` (the band's centre line) on the other. */
+  const row = (from: number, to: number, alongX: boolean, across: number, turn: number): FieldPatch[] => {
+    const length = to - from;
+    if (length < ALLOTMENT_MIN) return [];
+    const count = Math.max(1, Math.round((length + ALLOTMENT_PATH) / (target + ALLOTMENT_PATH)));
+    const plot = (length - (count - 1) * ALLOTMENT_PATH) / count;
+    const out: FieldPatch[] = [];
+    for (let i = 0; i < count; i++) {
+      const centre = from + i * (plot + ALLOTMENT_PATH) + plot / 2;
+      out.push({
+        x: round3(alongX ? centre : across),
+        z: round3(alongX ? across : centre),
+        w: round3(alongX ? plot : depth),
+        d: round3(alongX ? depth : plot),
+        rotationY: 0,
+        crop: ALLOTMENT_CROPS[(i + turn) % ALLOTMENT_CROPS.length],
+      });
+    }
+    return out;
+  };
+
+  const band = (inner + outer) / 2;
+  const fields: FieldPatch[] = [];
+  let turn = 0;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const flip = <T extends FieldPatch>(f: T): T => ({ ...f, x: round3(sx * f.x), z: round3(sz * f.z) });
+      // North or south side, from the spoke round the corner or up to it.
+      fields.push(...row(spoke, corners ? outer : inner - ALLOTMENT_PATH, true, band, turn).map(flip));
+      // East or west side, from the spoke to the corner plot's edge.
+      fields.push(...row(spoke, inner - ALLOTMENT_PATH, false, band, turn + 1).map(flip));
+      turn += 1;
+    }
+  }
+  return fields.filter((field) => clearOfRoads(field, roads, KERB));
+}
+
+/** Whether an unturned field keeps `margin` clear of every road surface. */
+function clearOfRoads(field: FieldPatch, roads: readonly RoadSegment[], margin: number): boolean {
+  return roads.every((road) => {
+    const half = road.width / 2 + margin;
+    const minX = Math.min(road.from[0], road.to[0]) - half;
+    const maxX = Math.max(road.from[0], road.to[0]) + half;
+    const minZ = Math.min(road.from[2], road.to[2]) - half;
+    const maxZ = Math.max(road.from[2], road.to[2]) + half;
+    // A millimetre of slack: the plots are rounded to it, and the band's
+    // plots are cut to end exactly at the kerb margin.
+    return (
+      field.x + field.w / 2 <= minX + 1e-3 ||
+      field.x - field.w / 2 >= maxX - 1e-3 ||
+      field.z + field.d / 2 <= minZ + 1e-3 ||
+      field.z - field.d / 2 >= maxZ - 1e-3
+    );
+  });
 }
 
 /**

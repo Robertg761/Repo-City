@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import sample from "@/fixtures/sample.analysis.json";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import type { FieldPatch } from "@/types/city";
-import { generateCity, overlappingBuildings } from "./generator";
+import { COMPLETED_SITE, generateCity, overlappingBuildings } from "./generator";
 import type { CityLayout } from "./layout";
 import { SETTLEMENT_PARAMS } from "./settlement";
 
@@ -18,6 +18,8 @@ const extras = vi.hoisted(() => ({
   on: false,
   fields: [] as FieldPatch[],
   plaza: null as null | { rect: { x: number; z: number; w: number; d: number }; surface: "green" },
+  /** The last layout the generator asked for, whether or not the double changed it. */
+  last: null as CityLayout | null,
 }));
 
 vi.mock("./layout", async (importOriginal) => {
@@ -26,6 +28,7 @@ vi.mock("./layout", async (importOriginal) => {
     ...actual,
     planLayout: (...args: Parameters<typeof actual.planLayout>): CityLayout => {
       const layout = actual.planLayout(...args);
+      extras.last = layout;
       if (!extras.on) return layout;
       // What S3's village and town layouts add: every other slot turned to a
       // lane, the first slot of each district on the high street.
@@ -83,6 +86,74 @@ describe("per-tier numbers come from SETTLEMENT_PARAMS", () => {
     expect(tallest("metropolis")).toBeGreaterThan(tallest("city"));
     expect(tallest("city")).toBeGreaterThan(tallest("town"));
     expect(tallest("town")).toBeGreaterThan(tallest("village"));
+  });
+});
+
+describe("a merged pull request in a village or a town", () => {
+  const completed = (tier: SettlementTier) => {
+    const city = generateCity(fixture, { tier });
+    const site = city.constructionSites.find((s) => s.state === "completed");
+    if (!site?.size) throw new Error(`no completed site in the ${tier}`);
+    return { city, size: site.size };
+  };
+
+  it.each(["village", "town"] as const)("%s: is a house-sized plot with a house-height building", (tier) => {
+    const { city, size } = completed(tier);
+    const { plot, height } = COMPLETED_SITE[tier]!;
+    expect(size[0]).toBeLessThanOrEqual(plot + 1e-9);
+    expect(size[2]).toBe(size[0]);
+    // A squeezed plot keeps the proportions of a full one.
+    expect(size[1]).toBeCloseTo((height * size[0]) / plot, 3);
+    // Never taller than the settlement's own tallest buildings.
+    const tallest = Math.max(...city.buildings.map((b) => b.size[1]));
+    expect(size[1]).toBeLessThan(tallest);
+  });
+
+  it("keeps the crane-sized site in a city and a metropolis", () => {
+    for (const tier of ["city", "metropolis"] as const) {
+      const { size } = completed(tier);
+      expect(size[1]).toBeCloseTo((12.6 * size[0]) / 11, 3);
+    }
+  });
+});
+
+describe("a town's parks", () => {
+  it("plants the cells beside the square that no district was dealt", () => {
+    const few = { ...fixture, districts: fixture.districts.slice(0, 3) };
+    const city = generateCity(few, { tier: "town" });
+    const parks = extras.last?.parks ?? [];
+    expect(parks).toHaveLength(1);
+    const [park] = parks;
+    const inside = city.props.trees.filter(
+      ([x, , z]) => Math.abs(x - park.x) < park.w / 2 && Math.abs(z - park.z) < park.d / 2,
+    );
+    expect(inside.length).toBeGreaterThanOrEqual(10);
+    // Clear of the streets that ring it.
+    for (const [x, , z] of inside) {
+      expect(Math.abs(x - park.x)).toBeLessThan(park.w / 2 - 3);
+      expect(Math.abs(z - park.z)).toBeLessThan(park.d / 2 - 3);
+    }
+  });
+});
+
+describe("district names in the settlement's own words", () => {
+  it("renames a curated town district in a village and a village one in a town, but not in a city", () => {
+    const named = structuredClone(fixture);
+    named.districts[0] = { ...named.districts[0], name: "The Whole Town", purpose: "Everything the town runs on." };
+    named.districts[1] = { ...named.districts[1], name: "Village Green" };
+    const village = generateCity(named, { tier: "village" });
+    expect(village.districts[0].name).toBe("The Whole Village");
+    expect(village.districts[0].description).toBe("Everything the village runs on.");
+    expect(village.districts[1].name).toBe("Village Green");
+    const town = generateCity(named, { tier: "town" });
+    expect(town.districts[0].name).toBe("The Whole Town");
+    expect(town.districts[1].name).toBe("Town Green");
+    // A building's subtitle carries its district's name.
+    const building = town.buildings.find((b) => b.districtId === named.districts[1].id)!;
+    expect(building.subtitle.startsWith("Town Green")).toBe(true);
+    const city = generateCity(named, { tier: "city" });
+    expect(city.districts[0].name).toBe("The Whole Town");
+    expect(generateCity(named, { tier: "metropolis" }).districts[0].name).toBe("The Whole City");
   });
 });
 

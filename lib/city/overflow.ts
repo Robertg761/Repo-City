@@ -149,8 +149,20 @@ export function planOverflowSite(
 }
 
 /**
- * The sign stands on the verge beside the head of the first queue, facing the
- * road, on the side away from the centre where it can. The first clear
+ * The compass bearing the default overview camera looks from, as a yaw: the
+ * camera sits along `OVERVIEW_DIR = [1, 1.51, 1]` from its target
+ * (`components/city/entities.ts`), so from +x, +z. A yaw of this turns a
+ * sign's local +z, its face, towards it.
+ */
+export const OVERVIEW_BEARING = Math.atan2(1, 1);
+
+/**
+ * The sign stands on the verge beside the head of the first queue, on the
+ * side away from the centre where it can, and faces the overview camera
+ * rather than the road: turned to the road, a sign on a road that runs
+ * towards the camera shows it only its edge, and the one thing the sign is
+ * for is to be read from the opening shot. It is pushed back off the kerb by
+ * however far its turned board reaches towards the road. The first clear
  * position wins; if none is clear it stands at the first one anyway.
  */
 function placeSign(route: QueueRoute, blocked: (box: Box) => boolean): OwnedBox {
@@ -161,35 +173,37 @@ function placeSign(route: QueueRoute, blocked: (box: Box) => boolean): OwnedBox 
   const right: [number, number] = [uz, -ux];
   const normals: [number, number][] =
     right[0] * midX + right[1] * midZ >= 0 ? [right, [-uz, ux]] : [[-uz, ux], right];
-  const lateral = road.width / 2 + SIDEWALK_WIDTH + 0.5 + SIGN_SIZE[2] / 2;
-  const half = SIGN_SIZE[0] / 2;
+  const hw = SIGN_SIZE[0] / 2;
+  const hd = SIGN_SIZE[2] / 2;
+  const rot = normalizeAngle(OVERVIEW_BEARING);
+  // The turned board's half-extent along a direction: local x runs along
+  // (cos rot, -sin rot) and local z along (sin rot, cos rot).
+  const reach = (dx: number, dz: number): number =>
+    hw * Math.abs(dx * Math.cos(rot) - dz * Math.sin(rot)) +
+    hd * Math.abs(dx * Math.sin(rot) + dz * Math.cos(rot));
+  const alongReach = reach(ux, uz);
+
+  const signAt = (s: number, [nx, nz]: [number, number]): OwnedBox => {
+    const lateral = road.width / 2 + SIDEWALK_WIDTH + 0.5 + reach(nx, nz);
+    return {
+      x: round3(inner[0] + ux * s + nx * lateral),
+      z: round3(inner[1] + uz * s + nz * lateral),
+      hw,
+      hd,
+      rot,
+      owner: "overflow",
+    };
+  };
 
   let first: OwnedBox | null = null;
-  for (const [nx, nz] of normals) {
-    for (let s = head + half - CAR_HALF; s + half <= length - 1; s += 3) {
-      const box: OwnedBox = {
-        x: round3(inner[0] + ux * s + nx * lateral),
-        z: round3(inner[1] + uz * s + nz * lateral),
-        hw: half,
-        hd: SIGN_SIZE[2] / 2,
-        // Local +z faces the road; local x, the sign's width, runs along it.
-        rot: normalizeAngle(Math.atan2(-nx, -nz)),
-        owner: "overflow",
-      };
+  for (const normal of normals) {
+    for (let s = head + alongReach - CAR_HALF; s + alongReach <= length - 1; s += 3) {
+      const box = signAt(s, normal);
       first ??= box;
       if (!blocked(box)) return box;
     }
   }
-  return (
-    first ?? {
-      x: round3(inner[0] + normals[0][0] * lateral),
-      z: round3(inner[1] + normals[0][1] * lateral),
-      hw: half,
-      hd: SIGN_SIZE[2] / 2,
-      rot: normalizeAngle(Math.atan2(-normals[0][0], -normals[0][1])),
-      owner: "overflow",
-    }
-  );
+  return first ?? signAt(0, normals[0]);
 }
 
 export interface OverflowTotals {
@@ -233,13 +247,50 @@ export interface OverflowInput {
   prng: Prng;
 }
 
-/** The overflow entity, or null when nothing is hidden. */
+/** A remainder this small is never signposted, however large the totals. */
+export const TRIVIAL_HIDDEN = 2;
+/** With exact totals, neither is a remainder under this share of everything open. */
+export const TRIVIAL_SHARE = 0.005;
+
+/**
+ * Whether what is hidden is too little to put a sign and a queue up for.
+ *
+ * One issue of 962 left over is survey drift (an issue opened between two
+ * pages, a count read a second after the list), and a sign reading "+1 more
+ * open issue" with four cars behind it reads as a bug in the drawing, not a
+ * fact about the repository. The count stays true in the data; only the
+ * street furniture is left out. An estimated total is never trusted to be
+ * that close, so only the absolute floor applies to it.
+ */
+export function trivialOverflow(totals: OverflowTotals): boolean {
+  const hidden = totals.issues.hidden + totals.pulls.hidden;
+  if (hidden <= TRIVIAL_HIDDEN) return true;
+  const total = totals.issues.total + totals.pulls.total;
+  return totals.exact && hidden < TRIVIAL_SHARE * total;
+}
+
+/**
+ * Whether the renderer should stand the signboard: false for a trivial
+ * remainder, which keeps its counts for the HUD chip and the inspector but
+ * has no sign (`size` is all zeros) and no queue.
+ */
+export function signposted(overflow: Pick<Overflow, "size">): boolean {
+  return overflow.size[0] > 0 && overflow.size[1] > 0;
+}
+
+/**
+ * The overflow entity, or null when nothing is hidden. A trivial remainder
+ * (`trivialOverflow`) is still an entity, so `drawn + hidden = total` holds
+ * and the HUD can say "961 of 962 issues on the streets", but it stands no
+ * sign and queues no cars.
+ */
 export function buildOverflow(input: OverflowInput): Overflow | null {
   const { site, totals } = input;
   const hidden = totals.issues.hidden + totals.pulls.hidden;
   if (!site || hidden <= 0) return null;
 
-  const queue = fillQueue(site.routes, queueLength(hidden), input.prng);
+  const trivial = trivialOverflow(totals);
+  const queue = trivial ? [] : fillQueue(site.routes, queueLength(hidden), input.prng);
   const text = overflowText({
     issues: totals.issues,
     pulls: totals.pulls,
@@ -247,6 +298,7 @@ export function buildOverflow(input: OverflowInput): Overflow | null {
     surveyed: input.surveyed,
     tier: input.tier,
     repoUrl: input.repoUrl,
+    queued: !trivial,
   });
   return {
     id: "overflow",
@@ -258,7 +310,7 @@ export function buildOverflow(input: OverflowInput): Overflow | null {
     issues: totals.issues,
     pulls: totals.pulls,
     exact: totals.exact,
-    size: [...SIGN_SIZE] as Vec3,
+    size: trivial ? [0, 0, 0] : ([...SIGN_SIZE] as Vec3),
     queue,
   };
 }

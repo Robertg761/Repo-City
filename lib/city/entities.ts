@@ -24,7 +24,7 @@ import type {
   WorksForm,
 } from "@/types/analysis";
 import type { LandmarkDetail, LandmarkType, OverflowCount } from "@/types/city";
-import { pullModifiers, wantsVolunteer } from "../analysis/forms.ts";
+import { WRECK_IDLE_DAYS, issueForm, pullModifiers, titleForm, wantsVolunteer } from "../analysis/forms.ts";
 import type { RepositoryMeta } from "@/types/repository";
 
 /** The fields every `CityEntity` needs, before geometry is attached. */
@@ -108,18 +108,57 @@ const LANDMARK_FILE_REASON: Record<string, string> = {
   dockerfile: "the Dockerfile describes how the project is packaged",
 };
 
-const TIER_WORD: Record<number, string> = {
-  1: "a low-rise",
-  2: "a mid-rise",
-  3: "a tall block",
-  4: "a tower",
-  5: "a skyline tower",
+/**
+ * The height class a building's tier reads as, in the settlement's own
+ * buildings (`SETTLEMENT_PARAMS.tierHeight` and the archetype tables in
+ * `components/city/models/buildings/archetypes.ts`): a village tops out at a
+ * farmhouse, a town at a five-storey block, and only a city and a metropolis
+ * build towers. The city's words are the ones it always had.
+ */
+const TIER_WORD: Record<SettlementTier, Record<number, string>> = {
+  village: {
+    1: "a single-storey cottage",
+    2: "a two-storey cottage",
+    3: "a farmhouse",
+    4: "a large farmhouse",
+    5: "one of the village's biggest farmhouses",
+  },
+  town: {
+    1: "a single-storey house",
+    2: "a two-storey terrace",
+    3: "a three-storey block",
+    4: "a four-storey block",
+    5: "a five-storey block, as tall as the town builds",
+  },
+  city: {
+    1: "a low-rise",
+    2: "a mid-rise",
+    3: "a tall block",
+    4: "a tower",
+    5: "a skyline tower",
+  },
+  metropolis: {
+    1: "a low-rise",
+    2: "a mid-rise",
+    3: "a tall block",
+    4: "a tower",
+    5: "a skyline tower",
+  },
+};
+
+/** Where the root landmark files stand: the civic ground, named for the settlement. */
+const CIVIC_GROUND: Record<SettlementTier, string> = {
+  village: "on the village green",
+  town: "on the town square",
+  city: "in the civic centre",
+  metropolis: "in the civic centre",
 };
 
 export function buildingText(
   plan: BuildingPlan,
   district: DistrictPlan | undefined,
   repo: RepositoryMeta,
+  tier: SettlementTier = "city",
 ): EntityText {
   const isDirectory = plan.kind === "directory";
   const kindWord = isDirectory ? "Directory" : "File";
@@ -135,7 +174,7 @@ export function buildingText(
   const description = plan.role ? `${plan.role} ${plainDescription}` : plainDescription;
 
   const parts = [
-    `Its height is ${TIER_WORD[plan.tier]} because this path scores ${plan.score.toFixed(1)} on importance, which puts it in tier ${plan.tier} of 5.`,
+    `Its height is ${TIER_WORD[tier][plan.tier]} because this path scores ${plan.score.toFixed(1)} on importance, which puts it in tier ${plan.tier} of 5.`,
   ];
   if (isDirectory) {
     parts.push(`Its footprint follows the ${plural(plan.descendantCount, "file")} it contains.`);
@@ -145,7 +184,7 @@ export function buildingText(
   }
   if (plan.landmark) {
     parts.push(
-      `It stands in the civic centre because ${LANDMARK_FILE_REASON[plan.landmark] ?? "it is a root-level landmark file"}.`,
+      `It stands ${CIVIC_GROUND[tier]} because ${LANDMARK_FILE_REASON[plan.landmark] ?? "it is a root-level landmark file"}.`,
     );
   }
 
@@ -258,11 +297,14 @@ export const WORKS_FORM_LABEL: Record<WorksForm, string> = {
 
 /**
  * Why an issue has this shape: one sentence per form, naming the rule in
- * `lib/analysis/forms.ts` that chose it (PLAN.md 76.7).
+ * `lib/analysis/forms.ts` that chose it (PLAN.md 76.7). These are the label
+ * branches; `issueFormSentence` words the title branch, the wreck and the
+ * pothole that was kept from being one.
  */
 const ISSUE_FORM_RULE: Record<IncidentForm, string> = {
   fire: "A fire, because the issue is marked major or security-related, or it is a severe bug drawing heavy discussion.",
-  wreck: "An abandoned wreck, because the issue has gone stale or nobody has touched it for a year.",
+  wreck:
+    "An abandoned wreck: neither its labels nor its title say what it is, and nobody has touched it for two years or more.",
   collision: "A fender-bender, because the issue is an unresolved bug.",
   roadblock:
     "A roadblock, because the issue is blocked, on hold or waiting on an answer: the road stays closed until someone replies.",
@@ -270,6 +312,14 @@ const ISSUE_FORM_RULE: Record<IncidentForm, string> = {
   survey:
     "Survey pegs, because the issue proposes a feature: the ground is marked out and nothing is built yet.",
   pothole: "A pothole: routine upkeep that no other rule claimed.",
+};
+
+/** The same forms, when the labels said nothing and the title decided (76.7 rule 6). */
+const ISSUE_TITLE_RULE: Partial<Record<IncidentForm, string>> = {
+  collision: "A fender-bender: nobody has labelled it a bug, but its title reports something broken.",
+  roadblock: "A roadblock, because its title asks a question: the road stays closed until someone answers.",
+  signpost: "A signpost, because its title is about the documentation.",
+  survey: "Survey pegs, because its title proposes a change: the ground is marked out and nothing is built yet.",
 };
 
 /** The severity rule behind the state, as `classifyIssue` applies it. */
@@ -280,15 +330,92 @@ const ISSUE_STATE_RULE: Record<IncidentState, string> = {
   minor: "It carries no bug label.",
 };
 
+/** How old an issue or a pull request is, in whole days, against `generatedAt`. */
+export interface Ages {
+  /** Days since it was opened. */
+  open: number;
+  /** Days since it was last updated. */
+  idle: number;
+}
+
+/** `Ages` for an item, measured the way the description's facts are. */
+export function agesOf(item: { createdAt: string; updatedAt: string }, generatedAt: string): Ages {
+  return { open: daysBetween(item.createdAt, generatedAt), idle: daysBetween(item.updatedAt, generatedAt) };
+}
+
+/**
+ * The form sentence for this issue in particular: the branch of the rule that
+ * matched, not the whole rule. A fire says which of its reasons it has; a
+ * form the title decided says so, since its labels said nothing; a wreck and
+ * a pothole kept from being one say how long the issue has stood untouched.
+ * `quiet` is true when the sentence already says the labels were silent, so
+ * the state's "It carries no bug label" would only repeat it.
+ */
+function issueFormSentence(
+  form: IncidentForm,
+  state: IncidentState,
+  labels: string[],
+  title: string | undefined,
+  ages: Ages | undefined,
+): { text: string; quiet: boolean } {
+  // Whether the labels (or the state they set) decided anything: with the
+  // title and the age taken away, everything they leave is a pothole.
+  const labelsSpoke = issueForm({ state, labels, comments: 0, reactions: 0, idleDays: 0 }) !== "pothole";
+  const titleSaid = !labelsSpoke && title !== undefined ? titleForm(title) : null;
+
+  if (form === "fire") {
+    return {
+      text: /security|vulnerab|cve/i.test(labels.join(" "))
+        ? "A fire, because the issue is about security."
+        : "A fire, because the issue is a severe bug drawing heavy discussion.",
+      quiet: false,
+    };
+  }
+  if (titleSaid === form && ISSUE_TITLE_RULE[form]) {
+    return { text: ISSUE_TITLE_RULE[form]!, quiet: form === "collision" };
+  }
+  if (form === "wreck") {
+    return {
+      text: ages
+        ? `An abandoned wreck: neither its labels nor its title say what it is, and nobody has touched it for ${plural(ages.idle, "day")}.`
+        : ISSUE_FORM_RULE.wreck,
+      quiet: true,
+    };
+  }
+  if (form === "pothole" && ages && ages.idle >= WRECK_IDLE_DAYS && !labelsSpoke && titleSaid === null) {
+    // `capWrecks` kept it a pothole: the street already has its quarter of wrecks.
+    return {
+      text: `A pothole. Nobody has touched it for ${plural(ages.idle, "day")}, which would make it a wreck, but no more than a quarter of the street may be wrecks.`,
+      quiet: true,
+    };
+  }
+  return { text: ISSUE_FORM_RULE[form], quiet: false };
+}
+
 /**
  * The generated "why" of a crowd issue: its form rule, its state rule and,
- * for a "good first issue" or "help wanted", the volunteer flag.
+ * for a "good first issue" or "help wanted", the volunteer flag. With `ages`
+ * the sentences say how old this issue actually is rather than quoting the
+ * rule's threshold, and with `title` a form the title decided says so.
  */
-export function crowdIssueReason(form: IncidentForm, state: IncidentState, labels: string[]): string {
+export function crowdIssueReason(
+  form: IncidentForm,
+  state: IncidentState,
+  labels: string[],
+  ages?: Ages,
+  title?: string,
+): string {
   const volunteer = wantsVolunteer(labels)
     ? " It is marked for volunteers, so anyone can fill it in."
     : "";
-  return `${ISSUE_FORM_RULE[form]} ${ISSUE_STATE_RULE[state]}${volunteer}`;
+  const sentence = issueFormSentence(form, state, labels, title, ages);
+  const stateRule =
+    state === "minor" && sentence.quiet
+      ? ""
+      : state === "stale" && ages
+        ? ` It is a bug that has stayed open for ${plural(ages.open, "day")}.`
+        : ` ${ISSUE_STATE_RULE[state]}`;
+  return `${sentence.text}${stateRule}${volunteer}`;
 }
 
 const PULL_FORM_RULE: Record<WorksForm, string> = {
@@ -301,7 +428,10 @@ const PULL_FORM_RULE: Record<WorksForm, string> = {
   hoarding: "A hoarding round an empty plot, because the pull request is still a draft.",
 };
 
-/** The recency rule behind the state, as `classifyPull` applies it. */
+/**
+ * The recency rule behind the state, as `classifyPull` applies it: what the
+ * copy falls back to when the pull request's age is not known.
+ */
 const PULL_STATE_RULE: Record<ConstructionState, string> = {
   active: "It was updated in the last 14 days, so work is going on.",
   slow: "It was last updated 15 to 59 days ago, so the work is slow.",
@@ -310,20 +440,42 @@ const PULL_STATE_RULE: Record<ConstructionState, string> = {
 };
 
 /**
+ * The state sentence for this pull request, with the days since it was last
+ * updated when they are known: "It was last updated 32 days ago, so the work
+ * is slow", not the rule's "15 to 59 days".
+ */
+function pullStateSentence(state: ConstructionState, idle: number | undefined): string {
+  if (idle === undefined) return PULL_STATE_RULE[state];
+  const ago = idle === 0 ? "today" : `${plural(idle, "day")} ago`;
+  switch (state) {
+    case "active":
+      return `It was last updated ${ago}, so work is going on.`;
+    case "slow":
+      return `It was last updated ${ago}, so the work is slow.`;
+    case "abandoned":
+      return `Nobody has touched it for ${plural(idle, "day")}, so the works stand idle.`;
+    case "completed":
+      return PULL_STATE_RULE.completed;
+  }
+}
+
+/**
  * The generated "why" of a crowd pull request: form rule, state rule, then
  * the review and CI modifiers `pullModifiers` draws (the state ones, rust and
- * dimming, are already said by the state rule).
+ * dimming, are already said by the state rule). With `ages` the state rule
+ * says how long ago it was actually updated.
  */
 export function crowdPullReason(
   form: WorksForm,
   state: ConstructionState,
   review: RankedPull["review"],
   checks: RankedPull["checks"],
+  ages?: Ages,
 ): string {
   const signals = pullModifiers({ review, checks, state })
     .filter((modifier) => modifier.id !== "abandoned" && modifier.id !== "slow")
     .map((modifier) => modifier.sentence);
-  return [PULL_FORM_RULE[form], PULL_STATE_RULE[state], ...signals].join(" ");
+  return [PULL_FORM_RULE[form], pullStateSentence(state, ages?.idle), ...signals].join(" ");
 }
 
 /** How a crowd object found its place, for the last sentence of its "why". */
@@ -361,7 +513,7 @@ export function placementSentence(kind: "issue" | "pull", p: CrowdPlacement): st
         ? `It stands on ${p.host} because the pull request touches ${p.path ?? p.host}.`
         : p.near
           ? `It stands on ${p.host}, the nearest building with a free face to ${p.near}.`
-          : `It names no path the ${word} knows, so it stands on ${p.host}, where there was room.`,
+          : `No path it names has a building in the ${word}, so its scaffolding stands on ${p.host} only because that facade was free.`,
     );
     return parts.join(" ");
   }
@@ -459,6 +611,11 @@ export interface OverflowFacts {
   surveyed: { issues: number; pulls: number };
   tier: SettlementTier;
   repoUrl: string;
+  /**
+   * False for a remainder too small to queue (`trivialOverflow`): the counts
+   * stand, but nothing waits at the limits. Absent means queued.
+   */
+  queued?: boolean;
 }
 
 /**
@@ -468,13 +625,16 @@ export interface OverflowFacts {
  */
 export function overflowText(facts: OverflowFacts): EntityText {
   const { issues, pulls, exact, surveyed, tier, repoUrl } = facts;
+  const queued = facts.queued ?? true;
   const word = SETTLEMENT_WORD[tier];
   const about = exact ? "" : "about ";
 
   const line = (c: OverflowCount, one: string, many: string): string =>
     `${count(c.drawn)} of ${about}${count(c.total)} open ${c.total === 1 ? one : many} ${
       c.drawn === 1 ? "is" : "are"
-    } drawn in the ${word}; ${about}${count(c.hidden)} more ${c.hidden === 1 ? "waits" : "wait"} in the queue.`;
+    } drawn in the ${word}; ${about}${count(c.hidden)} more ${
+      queued ? (c.hidden === 1 ? "waits in the queue" : "wait in the queue") : c.hidden === 1 ? "is counted but not drawn" : "are counted but not drawn"
+    }.`;
 
   const sign =
     issues.hidden > 0
@@ -496,7 +656,9 @@ export function overflowText(facts: OverflowFacts): EntityText {
   };
 
   const reasons = [
-    "Every open issue and pull request is drawn as its own object until the survey or the ground runs out; everything past that waits here, counted but not drawn.",
+    queued
+      ? "Every open issue and pull request is drawn as its own object until the survey or the ground runs out; everything past that waits here, counted but not drawn."
+      : `Every open issue and pull request is drawn as its own object until the survey or the ground runs out. So few are left over that no queue forms at the ${word} limits; they are counted but not drawn.`,
     limits(issues, surveyed.issues, "issues"),
     limits(pulls, surveyed.pulls, "pull requests"),
     exact

@@ -198,3 +198,127 @@ describe("the metropolis's roads", () => {
     expect(planHighways(layoutOf([40, 20], "city"), 99)).toHaveLength(4);
   });
 });
+
+describe("the town square", () => {
+  const overlaps = (
+    a: { x: number; z: number; w: number; d: number },
+    b: { x: number; z: number; w: number; d: number },
+  ): boolean =>
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 1e-6 && Math.abs(a.z - b.z) < (a.d + b.d) / 2 - 1e-6;
+
+  it("stays a square sized to its hall whatever the district count, and the rest is parks", () => {
+    for (let count = 1; count <= 7; count++) {
+      const counts = split(40 + count * 8, count);
+      const layout = layoutOf(counts, "town");
+      const civic = layout.civic.rect;
+      // Square, and never the full-width band a city with three districts gets.
+      expect(civic.w, `count ${count}`).toBeCloseTo(civic.d, 6);
+      expect(civic.w).toBeLessThan(layout.districtSide * 0.5);
+      const parks = layout.parks ?? [];
+      expect(parks.length, `count ${count}`).toBe(Math.max(0, 4 - count));
+      // Districts, the square and the parks tile the district square exactly.
+      const cells = [...layout.districts.map((d) => d.rect), civic, ...parks];
+      for (let i = 0; i < cells.length; i++) {
+        for (let j = i + 1; j < cells.length; j++) expect(overlaps(cells[i], cells[j])).toBe(false);
+      }
+      const area = cells.reduce((total, r) => total + r.w * r.d, 0);
+      expect(area).toBeCloseTo(layout.districtSide ** 2, 3);
+    }
+  });
+
+  it("rings every park with streets", () => {
+    const layout = layoutOf([50, 30, 10], "town");
+    expect(layout.parks).toHaveLength(1);
+    const park = layout.parks![0];
+    const corners: [number, number][] = [
+      [park.x - park.w / 2, park.z - park.d / 2],
+      [park.x + park.w / 2, park.z - park.d / 2],
+      [park.x + park.w / 2, park.z + park.d / 2],
+      [park.x - park.w / 2, park.z + park.d / 2],
+    ];
+    for (let i = 0; i < 4; i++) {
+      const [ax, az] = corners[i];
+      const [bx, bz] = corners[(i + 1) % 4];
+      // Every point along the edge lies on some road centreline.
+      for (const t of [0.1, 0.5, 0.9]) {
+        const x = ax + (bx - ax) * t;
+        const z = az + (bz - az) * t;
+        const onRoad = layout.roads.some((road) => {
+          const minX = Math.min(road.from[0], road.to[0]) - 1e-3;
+          const maxX = Math.max(road.from[0], road.to[0]) + 1e-3;
+          const minZ = Math.min(road.from[2], road.to[2]) - 1e-3;
+          const maxZ = Math.max(road.from[2], road.to[2]) + 1e-3;
+          return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+        });
+        expect(onRoad, `edge ${i} at ${t}`).toBe(true);
+      }
+    }
+  });
+
+  it("lays allotments along the outer ring, clear of every road, landmark and each other", () => {
+    const cases: [number[], "town" | "metropolis"][] = [
+      [[78, 26, 6], "town"],
+      [[40, 20, 12, 6, 4], "town"],
+      [split(120, 6), "town"],
+      [split(30, 2), "town"],
+      [split(450, 5), "metropolis"],
+      [split(300, 9), "metropolis"],
+    ];
+    for (const [counts, tier] of cases) {
+      const layout = layoutOf(counts, tier);
+      const fields = layout.fields ?? [];
+      expect(fields.length, `counts ${counts.join(",")}`).toBeGreaterThanOrEqual(8);
+      const plots = Object.values(layout.landmarkPlots).map((p) => {
+        const quarter = Math.abs(Math.sin(p.rotationY)) > 0.5;
+        return { x: p.x, z: p.z, w: quarter ? p.d : p.w, d: quarter ? p.w : p.d };
+      });
+      for (const [i, field] of fields.entries()) {
+        expect(field.rotationY).toBe(0);
+        expect(Math.min(field.w, field.d)).toBeGreaterThanOrEqual(6);
+        // In the band: outside the district square, inside the ring road.
+        const reach = Math.max(Math.abs(field.x) + field.w / 2, Math.abs(field.z) + field.d / 2);
+        expect(reach).toBeLessThanOrEqual(layout.ringRadius);
+        expect(Math.max(Math.abs(field.x), Math.abs(field.z))).toBeGreaterThan(layout.districtSide / 2);
+        for (const road of layout.roads) {
+          const half = road.width / 2 + KERB - 1e-3;
+          const box = {
+            x: (road.from[0] + road.to[0]) / 2,
+            z: (road.from[2] + road.to[2]) / 2,
+            w: Math.abs(road.to[0] - road.from[0]) + 2 * half,
+            d: Math.abs(road.to[2] - road.from[2]) + 2 * half,
+          };
+          expect(overlaps(field, box), `field ${i} on ${road.id}`).toBe(false);
+        }
+        for (const plot of plots) expect(overlaps(field, plot)).toBe(false);
+        for (const other of fields.slice(i + 1)) expect(overlaps(field, other)).toBe(false);
+      }
+    }
+  });
+
+  it("gives a city no allotments, and leaves a metropolis's band corners to its groves", () => {
+    expect(layoutOf(split(300, 6), "city").fields).toBeUndefined();
+    const metro = layoutOf(split(400, 6), "metropolis");
+    // The corner square starts at the band's inner kerb.
+    const inner = metro.districtSide / 2 + SETTLEMENT_PARAMS.metropolis.roads.major.width / 2 + KERB;
+    for (const field of metro.fields ?? []) {
+      // Never in a corner square: one of its coordinates stays within the square's side.
+      const nearAxis = Math.min(Math.abs(field.x) + field.w / 2, Math.abs(field.z) + field.d / 2);
+      expect(nearAxis).toBeLessThanOrEqual(inner);
+    }
+    // A town's rows run round its corners.
+    const town = layoutOf([78, 26, 6], "town");
+    expect(
+      (town.fields ?? []).some(
+        (f) => Math.abs(f.x) + f.w / 2 > town.districtSide / 2 && Math.abs(f.z) + f.d / 2 > town.districtSide / 2,
+      ),
+    ).toBe(true);
+  });
+
+  it("never carves a park in a city or a metropolis", () => {
+    for (const tier of ["city", "metropolis"] as const) {
+      for (let count = 1; count <= 6; count++) {
+        expect(layoutOf(split(80 + count * 20, count), tier).parks).toBeUndefined();
+      }
+    }
+  });
+});
