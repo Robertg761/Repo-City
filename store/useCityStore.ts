@@ -21,6 +21,7 @@ import { constructedLine } from "@/lib/client/descriptors";
 import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
 import { DEFAULT_TIME_SETTING, isTimeSetting, type TimeSetting } from "@/lib/client/timeSetting";
+import { IDLE_TOUR, currentStop, reduceTour, type TourCommand, type TourState } from "@/lib/client/tourState";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
@@ -69,6 +70,8 @@ export interface CityStore {
    * this browser's memory, which should simply be there when the city is.
    */
   timeChange: "animate" | "cut";
+  /** The cinematic tour (`components/tour`); its rules live in `lib/client/tourState.ts`. */
+  tour: TourState;
   actions: {
     analyze(input: string): Promise<void>;
     select(id: string | null): void;
@@ -76,6 +79,8 @@ export interface CityStore {
     returnToOverview(): void;
     dismissError(): void;
     setTimeSetting(setting: TimeSetting, change?: "animate" | "cut"): void;
+    /** Play, pause, skip or leave the tour. The stop on screen is the selection. */
+    tour(command: TourCommand): void;
   };
 }
 
@@ -157,6 +162,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
   overviewNonce: 0,
   timeSetting: DEFAULT_TIME_SETTING,
   timeChange: "cut",
+  tour: IDLE_TOUR,
   actions: {
     async analyze(input: string) {
       const trimmed = input.trim();
@@ -197,6 +203,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
         hoveredId: null,
         error: null,
         lastInput: trimmed,
+        tour: IDLE_TOUR,
       });
 
       const markStage = (id: string, status: StageStatus, detail?: string) => {
@@ -281,6 +288,15 @@ export const useCityStore = create<CityStore>()((set, get) => ({
     setTimeSetting(setting: TimeSetting, change: "animate" | "cut" = "animate") {
       if (!isTimeSetting(setting)) return;
       set({ timeSetting: setting, timeChange: change });
+    },
+
+    tour(command: TourCommand) {
+      const before = get().tour;
+      const tour = reduceTour(before, command);
+      if (tour === before) return;
+      // The stop's subject wears the selection ring; the wide shots and the
+      // end of the tour clear it.
+      set({ tour, selectedId: currentStop(tour)?.subjectId ?? null, hoveredId: null });
     },
 
     dismissError() {
