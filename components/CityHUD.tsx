@@ -119,6 +119,9 @@ function Explained({
 
 function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
   const [showBreakdown, setShowBreakdown] = useState(false);
+  // On a phone the full card covered a third of the city, so it opens folded
+  // to its score, with its details one tap away.
+  const [details, setDetails] = useState(false);
   const inspecting = useCityStore((s) => s.selectedId !== null);
   const { health, confidence } = analysis.metrics;
   const population = cityPopulation(analysis.metrics);
@@ -130,7 +133,10 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
   const [sawInspecting, setSawInspecting] = useState(inspecting);
   if (sawInspecting !== inspecting) {
     setSawInspecting(inspecting);
-    if (inspecting) setShowBreakdown(false);
+    if (inspecting) {
+      setShowBreakdown(false);
+      setDetails(false);
+    }
   }
 
   return (
@@ -144,7 +150,18 @@ function HealthCard({ analysis }: { analysis: RepoAnalysis }) {
         <span className={`text-sm font-medium ${BAND_TONES[health.band]}`}>{health.band}</span>
       </div>
 
-      <div className={inspecting ? FOLDED_WHILE_INSPECTING : undefined}>
+      {inspecting ? null : (
+        <button
+          type="button"
+          onClick={() => setDetails((open) => !open)}
+          aria-expanded={details}
+          className="focus-ring mt-2 text-[11px] text-white/55 transition hover:text-white sm:hidden"
+        >
+          {details ? "Fewer details −" : "More details +"}
+        </button>
+      )}
+
+      <div className={inspecting ? FOLDED_WHILE_INSPECTING : details ? undefined : "max-sm:hidden"}>
         {/* Confidence with its reasons on hover or keyboard focus (section 25). */}
         <div className="group relative mt-1 flex justify-end">
           <button
