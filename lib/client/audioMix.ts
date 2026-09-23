@@ -164,8 +164,10 @@ export function mixFor(scene: MixScene, altitude: number): Mix {
   const busy = 0.3 * t.morning + 1 * t.afternoon + 0.65 * t.evening + 0.22 * t.night;
   const hum = clamp01(urban * busy * life * (0.6 + 0.4 * traffic) * bed);
 
-  // The low rumble of a big place, heard best from above.
-  const rumble = clamp01(urban ** 1.6 * (0.4 + 0.6 * (t.afternoon + 0.6 * t.evening)) * life * (0.55 + 0.45 * alt));
+  // The low rumble of a big place, heard best from above. Nothing at all in
+  // a village, so the engine can stop rendering it there.
+  const bigness = clamp01((urban - 0.3) / 0.7) ** 1.3;
+  const rumble = clamp01(bigness * (0.4 + 0.6 * (t.afternoon + 0.6 * t.evening)) * life * (0.55 + 0.45 * alt));
 
   // Birdsong: the morning chorus, a few in the afternoon and evening, none at
   // night. Fewer in a big city, and hardly any around an archived one.

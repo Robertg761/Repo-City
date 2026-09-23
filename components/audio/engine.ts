@@ -124,6 +124,8 @@ export interface EngineStats {
   oneShots: number;
   locals: number;
   localIds: string[];
+  /** The beds being rendered; a silent one is taken off the bus. */
+  bedsOnBus: BedLayer[];
   /** Events fired since the engine started, by layer, and the local ones by sound. */
   events: Record<string, number>;
 }
@@ -150,6 +152,25 @@ interface LocalVoice {
   sources: AudioScheduledSourceNode[];
 }
 
+/**
+ * Asks for one value per 128-sample block rather than one per sample. Every
+ * parameter the engine moves moves slowly (glides of a second, swells of
+ * ten), so nothing is heard, and a filter whose frequency is modulated no
+ * longer recomputes its coefficients 44,100 times a second.
+ */
+function blockRate(param: AudioParam): void {
+  if (!("automationRate" in param)) return;
+  try {
+    param.automationRate = "k-rate";
+  } catch {
+    /* a browser that will not */
+  }
+}
+
+/** Below this a bed is silent, and after a few seconds it is taken off the bus. */
+const BED_FLOOR = 0.003;
+const BED_IDLE_SECONDS = 3;
+
 /** A gap drawn from an exponential with mean `1 / rate`, never below `min`. */
 function gap(rng: Prng, rate: number, min: number): number {
   const mean = Math.max(min, 1 / rate);
@@ -166,6 +187,9 @@ export class Soundscape implements Ledger {
   private readonly volume: GainNode;
   private readonly fader: GainNode;
   private readonly beds: Record<BedLayer, GainNode>;
+  /** Whether each bed is on the bus, and since when it has been silent. */
+  private readonly bedOnBus: Record<BedLayer, boolean> = { wind: true, hum: true, rumble: true };
+  private readonly bedQuietSince: Partial<Record<BedLayer, number>> = {};
   private readonly eventBus: Record<EventLayer, GainNode>;
   private readonly localBus: GainNode;
 
@@ -198,6 +222,8 @@ export class Soundscape implements Ledger {
     this.volume = this.keep(ctx.createGain());
     this.fader = this.keep(ctx.createGain());
     this.fader.gain.value = 0;
+    blockRate(this.volume.gain);
+    blockRate(this.fader.gain);
     const shaper = this.keep(ctx.createWaveShaper());
     shaper.curve = safetyCurve();
     this.bus.connect(this.volume).connect(this.fader).connect(shaper).connect(destination ?? ctx.destination);
@@ -211,12 +237,14 @@ export class Soundscape implements Ledger {
       EVENT_LAYERS.map((layer) => {
         const node = this.keep(ctx.createGain());
         node.gain.value = 0;
+        blockRate(node.gain);
         node.connect(this.bus);
         return [layer, node];
       }),
     ) as Record<EventLayer, GainNode>;
     this.localBus = this.keep(ctx.createGain());
     this.localBus.gain.value = 0;
+    blockRate(this.localBus.gain);
     this.localBus.connect(this.bus);
   }
 
@@ -269,6 +297,7 @@ export class Soundscape implements Ledger {
     osc.frequency.value = frequency;
     const amount = this.keep(this.ctx.createGain());
     amount.gain.value = depth;
+    blockRate(target);
     osc.connect(amount).connect(target);
     osc.start(0);
     this.persistentSources.push(osc);
@@ -285,6 +314,7 @@ export class Soundscape implements Ledger {
   private bedGain(): GainNode {
     const node = this.keep(this.ctx.createGain());
     node.gain.value = 0;
+    blockRate(node.gain);
     node.connect(this.bus);
     return node;
   }
@@ -334,6 +364,34 @@ export class Soundscape implements Ledger {
     }
   }
 
+  /**
+   * Glides a bed to `level`. A bed that has sat silent for a few seconds is
+   * taken off the bus, and Chrome stops rendering everything behind it (the
+   * noise, its filters and its swells) until it is wanted again.
+   */
+  private bed(layer: BedLayer, level: number, immediate: boolean): void {
+    const out = this.beds[layer];
+    const now = this.ctx.currentTime;
+    if (level >= BED_FLOOR) {
+      delete this.bedQuietSince[layer];
+      if (!this.bedOnBus[layer]) {
+        out.gain.cancelScheduledValues(now);
+        out.gain.setValueAtTime(0, now);
+        out.connect(this.bus);
+        this.bedOnBus[layer] = true;
+      }
+      this.glide(out.gain, level, immediate);
+      return;
+    }
+    if (!this.bedOnBus[layer]) return;
+    this.glide(out.gain, 0, immediate);
+    const since = (this.bedQuietSince[layer] ??= now);
+    if (immediate || now - since >= BED_IDLE_SECONDS) {
+      out.disconnect();
+      this.bedOnBus[layer] = false;
+    }
+  }
+
   /** Master volume, 0..1, on a gentle curve (half the slider is about -12 dB). */
   setVolume(volume: number, immediate = false): void {
     const v = Math.max(0, Math.min(1, volume));
@@ -353,7 +411,7 @@ export class Soundscape implements Ledger {
   update(frame: Frame, immediate = false): void {
     if (this.disposed) return;
     const { mix } = frame;
-    for (const layer of BED_LAYERS) this.glide(this.beds[layer].gain, mix.beds[layer] * LEVELS[layer], immediate);
+    for (const layer of BED_LAYERS) this.bed(layer, mix.beds[layer] * LEVELS[layer], immediate);
     for (const layer of EVENT_LAYERS) {
       this.glide(this.eventBus[layer].gain, mix.events[layer].gain * LEVELS[layer], immediate);
       const rate = Math.min(MAX_EVENT_RATE, mix.events[layer].rate);
@@ -622,6 +680,7 @@ export class Soundscape implements Ledger {
       oneShots: this.oneShots,
       locals: this.locals.size,
       localIds: [...this.locals.keys()],
+      bedsOnBus: BED_LAYERS.filter((layer) => this.bedOnBus[layer]),
       events: { ...this.fired },
     };
   }

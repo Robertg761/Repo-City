@@ -222,6 +222,16 @@ describe("Soundscape", () => {
     expect(engine.stats().liveNodes).toBe(baseline);
   });
 
+  it("takes a silent bed off the bus, and puts it back when it is wanted", () => {
+    const { ctx, engine } = setup();
+    // A village has no rumble to speak of.
+    run(ctx, engine, frame(mixFor(scene({ tier: "village" }), 1)), 0, 5);
+    expect(engine.stats().bedsOnBus).not.toContain("rumble");
+    expect(engine.stats().bedsOnBus).toContain("wind");
+    run(ctx, engine, frame(mixFor(scene({ tier: "metropolis" }), 1)), 5, 1);
+    expect(engine.stats().bedsOnBus).toEqual(["wind", "hum", "rumble"]);
+  });
+
   it("clanks at a crane", () => {
     const { ctx, engine } = setup();
     run(ctx, engine, frame(mixFor(scene(), 0), [source("crane", "crane", 4)]), 0, 20);
