@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GitHubClient } from "./client";
 import { GitHubError } from "./errors";
 import {
@@ -148,10 +148,12 @@ describe("fetchPages", () => {
 
   it("fetches every page in parallel and keeps page order", async () => {
     const seen: number[] = [];
-    const result = await fetchPages<{ n: number }>(
+    // Each page waits until the test releases it, so the order is fixed by the
+    // test rather than by timers racing on a loaded machine.
+    const release = new Map<number, () => void>();
+    const pending = fetchPages<{ n: number }>(
       client(async (page) => {
-        // Later pages answer first.
-        await new Promise((resolve) => setTimeout(resolve, (4 - page) * 5));
+        await new Promise<void>((resolve) => release.set(page, resolve));
         return json([{ n: page * 10 }, { n: page * 10 + 1 }]);
       }),
       "/x",
@@ -159,6 +161,14 @@ describe("fetchPages", () => {
       [1, 2, 3],
       { onPage: (page) => seen.push(page) },
     );
+    // All three requests are in flight before any answers: they run in parallel.
+    await vi.waitFor(() => expect(release.size).toBe(3));
+    // Later pages answer first.
+    for (const page of [3, 2, 1]) {
+      release.get(page)!();
+      await vi.waitFor(() => expect(seen).toContain(page));
+    }
+    const result = await pending;
     expect(result.items.map((item) => item.n)).toEqual([10, 11, 20, 21, 30, 31]);
     expect(result).toMatchObject({ received: 3, failed: 0, stoppedBy: null });
     expect(seen).toEqual([3, 2, 1]);
