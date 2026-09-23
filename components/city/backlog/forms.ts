@@ -125,6 +125,11 @@ export const PART = {
   amber: 6,
   /** Always on: quick hazard lamps. */
   hazard: 7,
+  /**
+   * Weeds that come up round a long-neglected issue: flat on the ground
+   * while it is fresh, grown to full height by its wear (`instanceWear`).
+   */
+  weed: 8,
 } as const;
 
 export type PartId = (typeof PART)[keyof typeof PART];
@@ -560,9 +565,21 @@ function pothole(tone: (hex: string) => string): Built {
           box([0.2, 0.06, 0.2], [0.5, 0.27, 0.68], tone("#f2efe6")),
         ],
       },
+      // A hole nobody fixed grows grass round its rim.
+      { part: PART.weed, parts: weeds(tone, [[-0.52, -0.3, 0.2], [0.46, 0.2, 0.17]]) },
     ],
     spec: { lamps: [], smoke: null },
   };
+}
+
+/** Tufts of weed at `[x, z, radius]`, for the overgrowth part: 10 triangles each. */
+function weeds(tone: (hex: string) => string, tufts: [number, number, number][]): Part[] {
+  const weed = tone(mix(TREE_LEAF, "#9aa36a", 0.35));
+  return tufts.map(([x, z, r]) => ({
+    geometry: new ConeGeometry(r, r * 2.6, 5),
+    color: weed,
+    position: [x, r * 1.3, z],
+  }));
 }
 
 function roadblock(tone: (hex: string) => string): Built {
@@ -616,6 +633,8 @@ function survey(tone: (hex: string) => string): Built {
           ...peg(0.0, -0.5),
         ],
       },
+      // A survey nobody came back for: grass up round the pegs.
+      { part: PART.weed, parts: weeds(tone, [[-0.36, 0.36, 0.16]]) },
     ],
     spec: { lamps: [], smoke: null },
   };

@@ -8,7 +8,8 @@
  *   - a pose: position, heading, and a scale: its `size` over its model's
  *     base size, which is its heat (PLAN.md 76.7, `0.9 + 0.35 * heat`), a
  *     plot hoarding's plot, or a scaffold's fit to its facade;
- *   - a tint for the instance colour: state and age, before hover;
+ *   - a tint for the instance colour: state and age, before hover, and for
+ *     issues a wear the shader turns into rust or a bleached fade;
  *   - a phase, so no two neighbours flicker or blink in step;
  *   - two paint colours for the form's painted panels, and for the cars a
  *     heading turned end for end or knocked a little askew, so a street of
@@ -66,6 +67,8 @@ export interface CrowdItem {
   phase: number;
   /** The colours its painted panels take, slots 1 and 2 (`FORM_PAINT`). */
   paint: [string, string];
+  /** How weathered it is, -1..1 (`issueWear`); 0 for pull requests. */
+  wear: number;
   /** Optional parts switched on (`MASK`). */
   mask: number;
   appearAt: number;
@@ -213,12 +216,50 @@ const DUST = "#c9b79c";
 
 const WHITE = "#ffffff";
 
-/** State and age, as an instance colour multiplied over the form's paint. */
-export function issueTint(state: IncidentState, idleDays: number): string {
-  let tint = state === "stale" ? mix(WHITE, mix(RUST, "#ffffff", 0.35), 0.45) : WHITE;
+/**
+ * Age, as an instance colour multiplied over the form's paint: a little dust.
+ * The rust and the bleaching are the shader's, from `issueWear`, so they
+ * land on the metal and the paint and not on the glass and the tyres.
+ */
+export function issueTint(_state: IncidentState, idleDays: number): string {
   const age = Math.min(1, Math.max(0, idleDays / 540));
-  tint = mix(tint, DUST, age * AGE_TINT);
-  return tint;
+  return mix(WHITE, DUST, age * AGE_TINT * 0.6);
+}
+
+/**
+ * How issues of each form weather (PLAN.md 76.7: content decides the form,
+ * age decides the weathering). Metal and paint rust: cars, barriers, posts,
+ * a skip. A hole in the road and a survey's pegs bleach and gather dust, and
+ * both grow weeds. Pull requests weather through their state instead
+ * (`pullTint`): rust when abandoned, grey when slow.
+ */
+export const WEAR_STYLE: Partial<Record<CrowdMesh, "rust" | "fade">> = {
+  collision: "rust",
+  wreck: "rust",
+  roadblock: "rust",
+  signpost: "rust",
+  fire: "rust",
+  pothole: "fade",
+  survey: "fade",
+};
+
+/** Idle days before an issue starts to weather, and by when it is fully weathered. */
+export const WEAR_FROM = 45;
+export const WEAR_FULL = 540;
+/** A stale issue (long-standing, per the analysis) is at least this weathered. */
+export const STALE_WEAR = 0.6;
+
+/**
+ * An issue's weathering, -1..1, for the `instanceWear` attribute: how old and
+ * idle it is, signed by its form's style (positive rusts, negative fades).
+ * 0 for forms that do not weather this way.
+ */
+export function issueWear(form: CrowdMesh, state: IncidentState, idleDays: number): number {
+  const style = WEAR_STYLE[form];
+  if (!style) return 0;
+  const age = Math.min(1, Math.max(0, (idleDays - WEAR_FROM) / (WEAR_FULL - WEAR_FROM)));
+  const wear = Math.max(age, state === "stale" ? STALE_WEAR : 0);
+  return style === "rust" ? wear : -wear;
 }
 
 export function pullTint(state: ConstructionState, idleDays: number): string {
@@ -422,6 +463,7 @@ export function planCrowd(city: CityModel): CrowdPlan {
     const scale = instanceScale(form, incident.size, heat);
     const [x, , z] = incident.position;
     const variant = variantFor(form, incident.id);
+    const idle = idleDays(incident.issue.updatedAt, newest);
     add({
       id: incident.id,
       form,
@@ -430,9 +472,10 @@ export function planCrowd(city: CityModel): CrowdPlan {
       z,
       rotationY: incident.rotationY + variant.turn,
       scale,
-      tint: issueTint(incident.state, idleDays(incident.issue.updatedAt, newest)),
+      tint: issueTint(incident.state, idle),
       phase: phaseFor(incident.id),
       paint: variant.paint,
+      wear: issueWear(form, incident.state, idle),
       mask: 0,
       appearAt: incident.appearAt,
       glow: heat ?? DEFAULT_HEAT,
@@ -460,6 +503,7 @@ export function planCrowd(city: CityModel): CrowdPlan {
       tint: pullTint(site.state, idleDays(site.pull.updatedAt, newest)),
       phase: phaseFor(site.id),
       paint: variant.paint,
+      wear: 0,
       mask: pullMask(site),
       appearAt: site.appearAt,
       glow: heat ?? DEFAULT_HEAT,

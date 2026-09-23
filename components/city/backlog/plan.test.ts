@@ -18,6 +18,9 @@ import {
   planCrowd,
   pullMask,
   scaffoldScale,
+  STALE_WEAR,
+  WEAR_STYLE,
+  issueWear,
   variantFor,
 } from "./plan";
 import { SCAFFOLD_BAY, SCAFFOLD_REACH } from "./constants";
@@ -202,6 +205,49 @@ describe("crowd scale and meshes", () => {
       expect(p).toBeGreaterThanOrEqual(0);
       expect(p).toBeLessThan(1);
     }
+  });
+});
+
+describe("weathering by age (content decides the form, age the weathering)", () => {
+  it("rusts metal forms and fades the rest, more the longer an issue sits", () => {
+    for (const form of ["collision", "wreck", "roadblock", "signpost", "fire"] as const) {
+      expect(WEAR_STYLE[form], form).toBe("rust");
+      expect(issueWear(form, "minor", 0), form).toBe(0);
+      expect(issueWear(form, "minor", 300), form).toBeGreaterThan(0);
+      expect(issueWear(form, "minor", 2000), form).toBe(1);
+    }
+    for (const form of ["pothole", "survey"] as const) {
+      expect(WEAR_STYLE[form], form).toBe("fade");
+      expect(issueWear(form, "minor", 300), form).toBeLessThan(0);
+      expect(issueWear(form, "minor", 2000), form).toBe(-1);
+    }
+    expect(issueWear("collision", "minor", 200)).toBeLessThan(issueWear("collision", "minor", 400));
+  });
+
+  it("weathers a stale issue at least visibly, whatever its form", () => {
+    for (const form of ["collision", "pothole", "signpost", "survey"] as const) {
+      expect(Math.abs(issueWear(form, "stale", 0)), form).toBeGreaterThanOrEqual(STALE_WEAR);
+    }
+  });
+
+  it("leaves pull requests to their state tint: rust when abandoned, grey when slow", () => {
+    const plan = planCrowd(metropolis);
+    const incidents = new Map(metropolis.backlog!.incidents.map((i) => [i.id, i]));
+    let weathered = 0;
+    for (const group of plan.groups) {
+      for (const item of group.items) {
+        const incident = incidents.get(item.id);
+        if (!incident) {
+          expect(item.wear, item.id).toBe(0);
+          continue;
+        }
+        if (item.wear !== 0) weathered++;
+        expect(Math.abs(item.wear)).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(weathered).toBeGreaterThan(0);
+    // No draw calls: one mesh per form, as before.
+    expect(plan.groups.length).toBeLessThanOrEqual(CROWD_MESHES.length);
   });
 });
 

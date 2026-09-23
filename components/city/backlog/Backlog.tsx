@@ -54,6 +54,7 @@ import {
   PAINT_A_ATTRIBUTE,
   PAINT_B_ATTRIBUTE,
   PHASE_ATTRIBUTE,
+  WEAR_ATTRIBUTE,
   crowdMaterial,
   haloMaterial,
   linearRgb,
@@ -115,6 +116,7 @@ function FormInstances({
     const data = new Float32Array(count * 3);
     const paintA = new Float32Array(count * 3);
     const paintB = new Float32Array(count * 3);
+    const wear = new Float32Array(count);
     // Paint is toned with the city, like every colour baked into the forms.
     const toned = new Map<string, [number, number, number]>();
     const linear = (hex: string) => {
@@ -132,11 +134,13 @@ function FormInstances({
       data[i * 3 + 2] = item.glow;
       paintA.set(linear(item.paint[0]), i * 3);
       paintB.set(linear(item.paint[1]), i * 3);
+      wear[i] = item.wear;
     });
     own.setAttribute(PHASE_ATTRIBUTE, new InstancedBufferAttribute(phase, 1));
     own.setAttribute(DATA_ATTRIBUTE, new InstancedBufferAttribute(data, 3));
     own.setAttribute(PAINT_A_ATTRIBUTE, new InstancedBufferAttribute(paintA, 3));
     own.setAttribute(PAINT_B_ATTRIBUTE, new InstancedBufferAttribute(paintB, 3));
+    own.setAttribute(WEAR_ATTRIBUTE, new InstancedBufferAttribute(wear, 1));
     return own;
   }, [group, count, atmosphere.desaturation]);
   useEffect(() => () => geometry.dispose(), [geometry]);

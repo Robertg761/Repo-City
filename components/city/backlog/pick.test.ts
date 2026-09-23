@@ -17,6 +17,7 @@ const item = (i: number, x: number, z: number, rotationY: number, pick: LocalBox
   id: `crowd-${i}`,
   form: "pothole",
   paint: ["#ffffff", "#ffffff"],
+  wear: 0,
   x,
   y: 0.1,
   z,
