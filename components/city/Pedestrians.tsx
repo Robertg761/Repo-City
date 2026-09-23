@@ -30,6 +30,7 @@ import { Color, Object3D, type InstancedMesh } from "three";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { desaturate, type SceneAtmosphere } from "./palette";
+import { createCrowdMotion, followPose, keepApart, laneOffset, standStill } from "./pedestrianMotion";
 import {
   PERSON_COLORS,
   SKIN_TONES,
@@ -70,7 +71,7 @@ export default function Pedestrians({
   const headRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
 
-  const { graph, blocks, walkers, idle, prng, total } = useMemo(() => {
+  const { graph, blocks, walkers, idle, prng, total, motion, lanes } = useMemo(() => {
     const rng = prngFor(city.seed, "pedestrians");
     // Nobody walks the motorway. Every road a city has is a street, so a
     // city's crowd walks exactly the graph it always did.
@@ -92,6 +93,10 @@ export default function Pedestrians({
       idle: standing,
       prng: rng,
       total: crowd.length + standing.length,
+      // Where each figure is drawn, which follows the simulation rather than
+      // sitting on it (`pedestrianMotion.ts`), and each walker's own line.
+      motion: createCrowdMotion(crowd.length + standing.length),
+      lanes: crowd.map((walker) => laneOffset(walker.phase)),
     };
   }, [city]);
 
@@ -109,6 +114,18 @@ export default function Pedestrians({
       const walker = walkers[i];
       if (step > 0) advanceWalker(graph, walker, step, prng, blocks);
       const pose = walkerPose(graph, walker);
+      followPose(motion, i, pose.x, pose.z, pose.angle, lanes[i], walker.speed, step);
+    }
+    // The idle groups stand where they stand; walkers step round them and
+    // round each other.
+    standStill(motion, walkers.length, idle);
+    if (step > 0) keepApart(motion, total, walkers.length);
+
+    for (let i = 0; i < walkers.length; i++) {
+      const walker = walkers[i];
+      const x = motion.x[i];
+      const z = motion.z[i];
+      const angle = motion.angle[i];
       // One bob per stride, and a small sway with it: two sine terms are
       // enough to read as walking at the scale a person is drawn here.
       const stride = time * walker.speed * 5.2 + walker.phase;
@@ -116,15 +133,15 @@ export default function Pedestrians({
       const sway = Math.sin(stride) * 0.06;
 
       const tall = walker.height;
-      scratch.position.set(pose.x, PAVEMENT_Y + BODY_Y * tall + bob, pose.z);
-      scratch.rotation.set(0, pose.angle, sway);
+      scratch.position.set(x, PAVEMENT_Y + BODY_Y * tall + bob, z);
+      scratch.rotation.set(0, angle, sway);
       scratch.scale.set(visible, visible * tall, visible);
       scratch.updateMatrix();
       body.setMatrixAt(i, scratch.matrix);
 
       scratch.scale.setScalar(visible);
-      scratch.position.set(pose.x, PAVEMENT_Y + HEAD_Y * tall + bob, pose.z);
-      scratch.rotation.set(0, pose.angle, 0);
+      scratch.position.set(x, PAVEMENT_Y + HEAD_Y * tall + bob, z);
+      scratch.rotation.set(0, angle, 0);
       scratch.updateMatrix();
       head.setMatrixAt(i, scratch.matrix);
     }
