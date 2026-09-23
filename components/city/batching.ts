@@ -121,6 +121,45 @@ export class BatchRegistry {
   }
 }
 
+/**
+ * Writes instance `i`'s matrix into `array` if it differs, and says whether
+ * it did: the pool uploads a buffer only when something in it changed.
+ */
+export function writeMatrix(array: Float32Array, i: number, elements: ArrayLike<number>): boolean {
+  const o = i * 16;
+  let changed = false;
+  for (let k = 0; k < 16; k++) {
+    // Compared as stored: a float32 never equals the float64 it came from.
+    const value = Math.fround(elements[k]);
+    if (array[o + k] !== value) {
+      array[o + k] = value;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** The same for an instance colour. */
+export function writeColor(array: Float32Array, i: number, color: { r: number; g: number; b: number }): boolean {
+  const o = i * 3;
+  const r = Math.fround(color.r);
+  const g = Math.fround(color.g);
+  const b = Math.fround(color.b);
+  if (array[o] === r && array[o + 1] === g && array[o + 2] === b) return false;
+  array[o] = r;
+  array[o + 1] = g;
+  array[o + 2] = b;
+  return true;
+}
+
+/** The same for one float per instance. */
+export function writeScalar(array: Float32Array, i: number, value: number): boolean {
+  const stored = Math.fround(value);
+  if (array[i] === stored) return false;
+  array[i] = stored;
+  return true;
+}
+
 /** Per-instance attribute names the patched materials read. */
 export const OPACITY_ATTRIBUTE = "instanceOpacity";
 export const GLOW_ATTRIBUTE = "instanceGlow";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, MeshBasicMaterial, MeshStandardMaterial, ShaderLib } from "three";
+import { BoxGeometry, Color, Matrix4, MeshBasicMaterial, MeshStandardMaterial, ShaderLib } from "three";
 import {
   BatchRegistry,
   GLOW_ATTRIBUTE,
@@ -9,6 +9,9 @@ import {
   createHandle,
   patchExtras,
   withExtras,
+  writeColor,
+  writeMatrix,
+  writeScalar,
   type BatchKind,
 } from "./batching";
 
@@ -65,6 +68,33 @@ describe("BatchRegistry", () => {
     registry.add(kind("ring"), createHandle());
     registry.remove(kind("ring"), createHandle());
     expect(registry.pools.get("ring")?.parts).toHaveLength(1);
+  });
+});
+
+describe("writing instances only when they change", () => {
+  it("reports a matrix as changed once, then not again", () => {
+    const array = new Float32Array(32);
+    const m = new Matrix4().makeRotationY(0.3).setPosition(1.1, 2.2, 3.3);
+    expect(writeMatrix(array, 1, m.elements)).toBe(true);
+    expect(Array.from(array.slice(16))).toEqual(m.elements.map(Math.fround));
+    // The same numbers again, float64 as they come from three: no upload.
+    expect(writeMatrix(array, 1, m.elements)).toBe(false);
+    expect(Array.from(array.slice(0, 16)).every((v) => v === 0)).toBe(true);
+    m.setPosition(1.1, 2.2, 3.4);
+    expect(writeMatrix(array, 1, m.elements)).toBe(true);
+  });
+
+  it("does the same for colours and scalars", () => {
+    const colors = new Float32Array(6);
+    const color = new Color("#4f8bff");
+    expect(writeColor(colors, 1, color)).toBe(true);
+    expect(writeColor(colors, 1, color)).toBe(false);
+    expect(writeColor(colors, 1, color.setRGB(0.1, 0.2, 0.3))).toBe(true);
+
+    const values = new Float32Array(2).fill(1);
+    expect(writeScalar(values, 0, 1)).toBe(false);
+    expect(writeScalar(values, 0, 0.42)).toBe(true);
+    expect(writeScalar(values, 0, 0.42)).toBe(false);
   });
 });
 

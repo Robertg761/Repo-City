@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The React side of `batch.ts`: the pools, and the parts heroes place into
+ * The React side of `batching.ts`: the pools, and the parts heroes place into
  * them (PLAN.md 76.13, S9 tuning pass).
  *
  *   <BatchProvider>      once, round the city. Renders one instanced mesh
@@ -35,6 +35,7 @@ import {
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import {
   BufferGeometry,
+  DynamicDrawUsage,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
@@ -49,6 +50,9 @@ import {
   type BatchHandle,
   type BatchKind,
   type Pool,
+  writeColor,
+  writeMatrix,
+  writeScalar,
 } from "./batching";
 import { useInstanceHandlers } from "./useEntity";
 
@@ -172,6 +176,10 @@ function PoolMesh({ pool }: { pool: Pool }) {
     if (!source.boundingSphere) source.computeBoundingSphere();
     const instanced = new InstancedMesh(poolGeometry(source, capacity), kind.material(), capacity);
     instanced.count = 0;
+    instanced.instanceMatrix.setUsage(DynamicDrawUsage);
+    for (const name of [OPACITY_ATTRIBUTE, GLOW_ATTRIBUTE]) {
+      (instanced.geometry.getAttribute(name) as InstancedBufferAttribute).setUsage(DynamicDrawUsage);
+    }
     instanced.frustumCulled = false;
     instanced.castShadow = kind.castShadow ?? false;
     instanced.receiveShadow = kind.receiveShadow ?? false;
@@ -179,6 +187,7 @@ function PoolMesh({ pool }: { pool: Pool }) {
     // `instanceColor` has to exist before the first compile, or the program
     // is built without it.
     for (let i = 0; i < capacity; i++) instanced.setColorAt(i, pool.parts[i]?.color ?? WHITE);
+    instanced.instanceColor?.setUsage(DynamicDrawUsage);
     if (kind.pickable === false) instanced.raycast = () => {};
     return instanced;
   }, [kind, capacity, pool]);
@@ -203,31 +212,42 @@ function PoolMesh({ pool }: { pool: Pool }) {
     const count = Math.min(parts.length, capacity);
     const opacity = mesh.geometry.getAttribute(OPACITY_ATTRIBUTE) as InstancedBufferAttribute;
     const glow = mesh.geometry.getAttribute(GLOW_ATTRIBUTE) as InstancedBufferAttribute;
+    const matrices = mesh.instanceMatrix.array as Float32Array;
+    const colors = mesh.instanceColor?.array as Float32Array;
+    // Only what changed goes back to the GPU: once the reveal has settled
+    // most pools -- the scenes, the patches, the shells -- stand still, and a
+    // re-upload of every instance buffer every frame is a stall for nothing.
+    let moved = false;
+    let painted = false;
+    let faded = false;
+    let glowed = false;
     ids.current.length = count;
     for (let i = 0; i < count; i++) {
       const part = parts[i];
       const object = part.object;
-      if (object && part.visible && shown(object)) {
+      let matrix = HIDDEN;
+      if (object) {
         object.updateWorldMatrix(true, false);
-        mesh.setMatrixAt(i, object.matrixWorld);
-      } else if (object) {
-        object.updateWorldMatrix(true, false);
-        mesh.setMatrixAt(i, scratch.multiplyMatrices(object.matrixWorld, HIDDEN));
-      } else {
-        mesh.setMatrixAt(i, HIDDEN);
+        matrix =
+          part.visible && shown(object)
+            ? object.matrixWorld
+            : scratch.multiplyMatrices(object.matrixWorld, HIDDEN);
       }
-      mesh.setColorAt(i, part.color);
-      opacity.setX(i, part.opacity);
-      glow.setX(i, part.glow);
+      if (writeMatrix(matrices, i, matrix.elements)) moved = true;
+      if (colors && writeColor(colors, i, part.color)) painted = true;
+      if (writeScalar(opacity.array as Float32Array, i, part.opacity)) faded = true;
+      if (writeScalar(glow.array as Float32Array, i, part.glow)) glowed = true;
       ids.current[i] = part.id ?? "";
     }
     mesh.count = count;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    opacity.needsUpdate = true;
-    glow.needsUpdate = true;
-    // Recomputed lazily, on the next raycast: the instances move.
-    mesh.boundingSphere = null;
+    if (moved) {
+      mesh.instanceMatrix.needsUpdate = true;
+      // Recomputed lazily, on the next raycast.
+      mesh.boundingSphere = null;
+    }
+    if (painted && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (faded) opacity.needsUpdate = true;
+    if (glowed) glow.needsUpdate = true;
   });
 
   return kind.pickable === false ? (
