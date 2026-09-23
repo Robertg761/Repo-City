@@ -21,6 +21,7 @@ import { constructedLine } from "@/lib/client/descriptors";
 import { ERROR_COPY, canonicalErrorCode, errorCopyFor } from "@/lib/client/errorCopy";
 import { parseRepoInput } from "@/lib/client/repoInput";
 import { DEFAULT_TIME_SETTING, isTimeSetting, type TimeSetting } from "@/lib/client/timeSetting";
+import { DEFAULT_SOUND, clampVolume, type SoundSetting } from "@/lib/client/audioSettings";
 import type { RepoAnalysis, SettlementTier } from "@/types/analysis";
 import { generateCity } from "@/lib/city/generator";
 import type { CityModel } from "@/types/city";
@@ -69,6 +70,11 @@ export interface CityStore {
    * this browser's memory, which should simply be there when the city is.
    */
   timeChange: "animate" | "cut";
+  /**
+   * The ambient soundscape (`components/audio/`): off until the viewer turns
+   * it on, and the master volume. It belongs to the viewer, like the hour.
+   */
+  sound: SoundSetting;
   actions: {
     analyze(input: string): Promise<void>;
     select(id: string | null): void;
@@ -76,6 +82,7 @@ export interface CityStore {
     returnToOverview(): void;
     dismissError(): void;
     setTimeSetting(setting: TimeSetting, change?: "animate" | "cut"): void;
+    setSound(change: Partial<SoundSetting>): void;
   };
 }
 
@@ -157,6 +164,7 @@ export const useCityStore = create<CityStore>()((set, get) => ({
   overviewNonce: 0,
   timeSetting: DEFAULT_TIME_SETTING,
   timeChange: "cut",
+  sound: DEFAULT_SOUND,
   actions: {
     async analyze(input: string) {
       const trimmed = input.trim();
@@ -281,6 +289,13 @@ export const useCityStore = create<CityStore>()((set, get) => ({
     setTimeSetting(setting: TimeSetting, change: "animate" | "cut" = "animate") {
       if (!isTimeSetting(setting)) return;
       set({ timeSetting: setting, timeChange: change });
+    },
+
+    setSound(change: Partial<SoundSetting>) {
+      const sound = get().sound;
+      const on = typeof change.on === "boolean" ? change.on : sound.on;
+      const volume = change.volume === undefined ? sound.volume : clampVolume(change.volume);
+      if (on !== sound.on || volume !== sound.volume) set({ sound: { on, volume } });
     },
 
     dismissError() {
