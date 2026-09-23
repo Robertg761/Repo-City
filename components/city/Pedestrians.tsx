@@ -13,6 +13,11 @@
  * fewer people than a city's streets, a metropolis's more, and nobody walks
  * along the metropolis motorway ring.
  *
+ * Nobody walks through what stands on the pavement: every hero, every crowd
+ * object (kerb hoardings, scaffolds, vans up on the kerb) and the queue at
+ * the city limits are blockers (`pavementObstacles`), and a walker who
+ * reaches one turns back (`models/props/pedestrians.ts`).
+ *
  * COST. Two instanced meshes, whatever the crowd size, and a frame loop that
  * allocates nothing. Section 63 lists pedestrians third among the things to
  * cut if the frame rate drops: they are cheap here precisely so that step is
@@ -29,11 +34,14 @@ import {
   PERSON_COLORS,
   SKIN_TONES,
   advanceWalker,
+  clearOfBlocks,
   idleGroups,
+  pavementBlocks,
   spawnWalkers,
   walkerCount,
   walkerPose,
 } from "./models/props/pedestrians";
+import { pavementObstacles } from "./blockages";
 import { roadStyle } from "./groundwork";
 import { crowdScale, tierOf } from "./scale";
 import { roadGraph } from "./traffic";
@@ -62,7 +70,7 @@ export default function Pedestrians({
   const headRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
 
-  const { graph, walkers, idle, prng, total } = useMemo(() => {
+  const { graph, blocks, walkers, idle, prng, total } = useMemo(() => {
     const rng = prngFor(city.seed, "pedestrians");
     // Nobody walks the motorway. Every road a city has is a street, so a
     // city's crowd walks exactly the graph it always did.
@@ -74,8 +82,12 @@ export default function Pedestrians({
     );
     const crowd = spawnWalkers(streets, wanted, rng);
     const standing = city.repository.archived ? [] : idleGroups(city.landmarks, rng);
+    const streetGraph = roadGraph(streets);
+    const blocked = pavementBlocks(streetGraph, pavementObstacles(city));
+    for (const walker of crowd) clearOfBlocks(streetGraph, walker, blocked);
     return {
-      graph: roadGraph(streets),
+      graph: streetGraph,
+      blocks: blocked,
       walkers: crowd,
       idle: standing,
       prng: rng,
@@ -95,7 +107,7 @@ export default function Pedestrians({
 
     for (let i = 0; i < walkers.length; i++) {
       const walker = walkers[i];
-      if (step > 0) advanceWalker(graph, walker, step, prng);
+      if (step > 0) advanceWalker(graph, walker, step, prng, blocks);
       const pose = walkerPose(graph, walker);
       // One bob per stride, and a small sway with it: two sine terms are
       // enough to read as walking at the scale a person is drawn here.

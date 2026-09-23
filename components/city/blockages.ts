@@ -251,6 +251,39 @@ export function cityObstacles(
   return obstacles;
 }
 
+/**
+ * Everything a pedestrian must walk round (PLAN.md 76.15): what traffic
+ * avoids, plus the crowd objects that stand on the kerb rather than in a
+ * lane -- the hoardings, scaffolds and works vans up on the pavement.
+ */
+export function pavementObstacles(
+  city: Pick<CityModel, "incidents" | "constructionSites"> &
+    Partial<Pick<CityModel, "backlog" | "overflow">>,
+): Obstacle[] {
+  const obstacles = cityObstacles(city);
+  for (const incident of city.backlog?.incidents ?? []) {
+    if (incident.lane) continue;
+    obstacles.push({
+      id: incident.id,
+      x: incident.position[0],
+      z: incident.position[2],
+      rotationY: incident.rotationY,
+      ...crowdRect({ size: incident.size, heat: incident.heat ?? incident.issue.heat }, incidentForm(incident)),
+    });
+  }
+  for (const site of city.backlog?.constructionSites ?? []) {
+    if (site.lane) continue;
+    obstacles.push({
+      id: site.id,
+      x: site.position[0],
+      z: site.position[2],
+      rotationY: site.rotationY,
+      ...crowdRect({ size: site.size, heat: site.heat ?? site.pull.heat }, worksForm(site)),
+    });
+  }
+  return obstacles;
+}
+
 /** A point in a segment's frame: distance along it, offset across it. */
 type Point = [number, number];
 

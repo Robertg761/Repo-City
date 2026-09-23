@@ -1,17 +1,26 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MAX_WALKERS,
   PAVEMENT_MARGIN,
   PERSON_COLORS,
   SKIN_TONES,
+  WALKER_CLEARANCE,
   advanceWalker,
+  clearOfBlocks,
   idleGroups,
+  pavementBlocks,
   spawnWalkers,
   walkerCount,
   walkerPose,
 } from "./pedestrians";
+import { pavementObstacles, type Obstacle } from "../../blockages";
+import { roadStyle } from "../../groundwork";
 import { roadGraph } from "../../traffic";
+import { generateCity } from "@/lib/city/generator";
 import { prngFor } from "@/lib/city/seed";
+import type { RepoAnalysis } from "@/types/analysis";
 import type { Landmark, RoadSegment } from "@/types/city";
 import { devCity } from "@/fixtures/dev.city";
 
@@ -180,5 +189,137 @@ describe("spawnWalkers looks", () => {
     expect(new Set(crowd.map((w) => w.height.toFixed(2))).size).toBeGreaterThan(20);
     expect(new Set(crowd.map((w) => w.skinIndex)).size).toBe(SKIN_TONES.length);
     for (const walker of crowd) expect(PERSON_COLORS[walker.colorIndex]).toBeDefined();
+  });
+});
+
+describe("walkers and what stands on the pavement (PLAN.md 76.15)", () => {
+  // Road "s" runs north to south along x = 0, 7 wide: its pavements are the
+  // lines x = +4.5 (index 0, left of from -> to) and x = -4.5 (index 1).
+  const hoarding: Obstacle = {
+    id: "hoarding",
+    x: 4.5,
+    z: 10,
+    rotationY: 0,
+    minX: -1,
+    maxX: 1,
+    minZ: -1,
+    maxZ: 1,
+  };
+  const s = CROSS.findIndex((road) => road.id === "s");
+  const southbound = (t: number) => ({
+    segment: s,
+    forward: true,
+    t,
+    speed: 1,
+    side: -1 as const,
+    phase: 0,
+    colorIndex: 0,
+    height: 1,
+    skinIndex: 0,
+  });
+
+  it("finds the stretch of pavement an obstacle stands on, and only that one", () => {
+    const blocks = pavementBlocks(roadGraph(CROSS), [hoarding]);
+    const [left, right] = blocks[s];
+    expect(left).toHaveLength(2);
+    expect(left[0]).toBeCloseTo(10 - 1 - WALKER_CLEARANCE, 5);
+    expect(left[1]).toBeCloseTo(10 + 1 + WALKER_CLEARANCE, 5);
+    expect(right).toEqual([]);
+    blocks.forEach(([l, r], i) => {
+      if (i !== s) expect([...l, ...r]).toEqual([]);
+    });
+  });
+
+  it("follows the obstacle's rotation", () => {
+    const graph = roadGraph(CROSS);
+    // Long and thin: along the kerb it blocks 6 units, turned across it only 2.
+    const long = { ...hoarding, minZ: -3, maxZ: 3 };
+    const [along] = pavementBlocks(graph, [long])[s];
+    const [across] = pavementBlocks(graph, [{ ...long, rotationY: Math.PI / 2 }])[s];
+    expect(along[1] - along[0]).toBeCloseTo(6 + 2 * WALKER_CLEARANCE, 5);
+    expect(across[1] - across[0]).toBeCloseTo(2 + 2 * WALKER_CLEARANCE, 5);
+  });
+
+  it("turns a walker back short of it, on the same pavement", () => {
+    const graph = roadGraph(CROSS);
+    const blocks = pavementBlocks(graph, [hoarding]);
+    const walker = southbound(0.1);
+    expect(walkerPose(graph, walker).x).toBeCloseTo(4.5, 5);
+    const prng = prngFor("seed", "pedestrians");
+    let turned = false;
+    for (let frame = 0; frame < 60 * 10 && !turned; frame++) {
+      advanceWalker(graph, walker, 1 / 60, prng, blocks);
+      expect(walkerPose(graph, walker).z).toBeLessThan(10 - 1 - WALKER_CLEARANCE);
+      turned = !walker.forward;
+    }
+    expect(turned).toBe(true);
+    // Still on the same side of the street, now walking north.
+    const pose = walkerPose(graph, walker);
+    expect(pose.x).toBeCloseTo(4.5, 5);
+    expect(Math.abs(pose.angle)).toBeCloseTo(Math.PI, 5);
+  });
+
+  it("moves a walker who starts inside a blocked stretch out of it", () => {
+    const graph = roadGraph(CROSS);
+    const walker = southbound(0.49);
+    clearOfBlocks(graph, walker, pavementBlocks(graph, [hoarding]));
+    const z = walkerPose(graph, walker).z;
+    expect(z < 10 - 1 - WALKER_CLEARANCE || z > 10 + 1 + WALKER_CLEARANCE).toBe(true);
+  });
+
+  it("keeps the stress city's crowd out of its hoardings, scaffolds and scenes", () => {
+    const stress = JSON.parse(
+      readFileSync(path.join(process.cwd(), "fixtures", "stress.analysis.json"), "utf8"),
+    ) as RepoAnalysis;
+    const city = generateCity(stress);
+    const streets = city.roads.filter((road) => roadStyle(road) !== "motorway");
+    const graph = roadGraph(streets);
+    const obstacles = pavementObstacles(city);
+    const blocks = pavementBlocks(graph, obstacles);
+
+    // Obstacles binned by 8-unit cell, so each pose tests only its neighbours.
+    const CELL = 8;
+    const cellKey = (cx: number, cz: number) => `${cx}:${cz}`;
+    const grid = new Map<string, Obstacle[]>();
+    for (const o of obstacles) {
+      const reach = Math.hypot(Math.max(-o.minX, o.maxX), Math.max(-o.minZ, o.maxZ));
+      for (let cx = Math.floor((o.x - reach) / CELL); cx <= Math.floor((o.x + reach) / CELL); cx++) {
+        for (let cz = Math.floor((o.z - reach) / CELL); cz <= Math.floor((o.z + reach) / CELL); cz++) {
+          const list = grid.get(cellKey(cx, cz)) ?? [];
+          list.push(o);
+          grid.set(cellKey(cx, cz), list);
+        }
+      }
+    }
+    const inside = (x: number, z: number) =>
+      (grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? []).some((o) => {
+        const px = x - o.x;
+        const pz = z - o.z;
+        const cos = Math.cos(o.rotationY);
+        const sin = Math.sin(o.rotationY);
+        // World to the obstacle's frame: undo `rotation.y`.
+        const lx = px * cos - pz * sin;
+        const lz = px * sin + pz * cos;
+        return lx > o.minX && lx < o.maxX && lz > o.minZ && lz < o.maxZ;
+      });
+
+    const walk = (withBlocks: boolean) => {
+      const prng = prngFor(city.seed, "pedestrians");
+      const walkers = spawnWalkers(streets, MAX_WALKERS, prng);
+      if (withBlocks) for (const walker of walkers) clearOfBlocks(graph, walker, blocks);
+      let hits = 0;
+      for (let frame = 0; frame < 60 * 60; frame += 4) {
+        for (const walker of walkers) {
+          advanceWalker(graph, walker, 4 / 60, prng, withBlocks ? blocks : undefined);
+          const pose = walkerPose(graph, walker);
+          if (inside(pose.x, pose.z)) hits++;
+        }
+      }
+      return hits;
+    };
+
+    // Without the blocks the crowd walks through something all the time.
+    expect(walk(false)).toBeGreaterThan(100);
+    expect(walk(true)).toBe(0);
   });
 });
