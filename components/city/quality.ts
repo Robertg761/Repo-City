@@ -467,8 +467,13 @@ type Watch = "landing" | "city" | "guard";
  * the end of the generation animation. Measuring during the reveal would time
  * three hundred buildings growing out of the ground and condemn a fast machine
  * to the low tier for the rest of the session. `null` is the empty stage.
+ *
+ * `surveying` holds the empty stage's look off while a survey is in flight:
+ * parsing a large analysis and generating its city are long main-thread
+ * tasks, and timed as frames they sent a laptop to a lower tier before its
+ * first city had even arrived.
  */
-export function useQualityProbe(afterMs: number | null): void {
+export function useQualityProbe(afterMs: number | null, surveying = false): void {
   useEffect(() => {
     if (typeof window === "undefined") return;
     ensure();
@@ -479,7 +484,7 @@ export function useQualityProbe(afterMs: number | null): void {
     let watch: Watch;
     let waitMs: number;
     if (afterMs === null) {
-      if (landingProbed) return;
+      if (landingProbed || surveying) return;
       watch = "landing";
       waitMs = LANDING_WAIT_MS;
     } else {
@@ -572,5 +577,5 @@ export function useQualityProbe(afterMs: number | null): void {
       cancelAnimationFrame(frame);
       document.removeEventListener("visibilitychange", restart);
     };
-  }, [afterMs]);
+  }, [afterMs, surveying]);
 }

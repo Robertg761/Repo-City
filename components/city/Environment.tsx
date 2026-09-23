@@ -40,6 +40,7 @@ import {
   Vector2,
   Vector3,
 } from "three";
+import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "./entities";
 import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
@@ -528,7 +529,8 @@ export default function Environment({
   // three hundred buildings growing out of the ground (PLAN.md section 43),
   // and now the backlog's ripple and the queue behind them (76.8).
   const settleMs = useMemo(() => (city ? cityRevealEnd(city) + 250 : null), [city]);
-  useQualityProbe(settleMs);
+  const surveying = useCityStore((s) => s.phase === "analyzing" || s.phase === "building");
+  useQualityProbe(settleMs, surveying);
 
   // Whether the composer is mounted, not merely wanted: until its module has
   // loaded the renderer keeps the tone mapping.
