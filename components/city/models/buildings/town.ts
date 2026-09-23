@@ -95,13 +95,14 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
   // The fascia, with a pale band of lettering on it.
   wallBox(draft, { facing: "+z", plane, u: 0, v: shopTop, w: halfW * 2, h: fasciaH, depth: 0.035 }, M.accent);
   // The moulding on top stands clear of the fascia's top and ends, and the
-  // lettering a full layer proud of its face.
+  // lettering a full layer proud of its face. The letters are flat panels:
+  // as blocks a layer deep, the top of each was a ledge a layer wide.
   wallBox(draft, { facing: "+z", plane, u: 0, v: top - 0.008, w: halfW * 2 + LAYER * 4, h: 0.014, depth: 0.05 }, M.frame);
   for (let i = 0; i < 6; i++) {
     const w = 0.04 + ((i * 7) % 3) * 0.012;
-    wallBox(
+    panel(
       draft,
-      { facing: "+z", plane: plane + 0.035, u: -0.24 + i * 0.075, v: shopTop + fasciaH * 0.3, w, h: fasciaH * 0.4, depth: LAYER },
+      { facing: "+z", plane: plane + 0.035, u: -0.24 + i * 0.075, v: shopTop + fasciaH * 0.5, w, h: fasciaH * 0.4 },
       M.cream,
     );
   }
@@ -172,8 +173,11 @@ export function shopfront(storeys: 2 | 3): ArchetypeModel {
 
   // Cornice and roof.
   // The cornice stands well back from the eave above it: at 0.015 proud its
-  // face and the edge of the slates were a hair apart.
-  box(draft, { y: wallTop - 0.02, w: halfW * 2 + 0.016, h: 0.028, d: halfD * 2 + 0.016, skipBottom: true }, M.frame);
+  // face and the edge of the slates were a hair apart. It shows only on the
+  // gable ends, two layers proud of them; front and back it stays inside the
+  // wall, under the slates, where proud it came up through the eave in a
+  // thread.
+  box(draft, { y: wallTop - 0.02, w: halfW * 2 + LAYER * 4, h: 0.028, d: halfD * 2 - 0.004, skipBottom: true }, M.frame);
   gableRoof(draft, {
     y: wallTop + 0.008,
     w: halfW * 2,
@@ -214,15 +218,20 @@ export function terrace(): ArchetypeModel {
   const walls = [M.wall, M.brick, M.wallShade];
   const doors = [M.accent, M.door, M.accentDark];
 
-  box(draft, { y: 0, w: halfW * 2 + 0.02, h: 0.035, d: halfD * 2 + 0.02 }, M.stoneDark);
+  // The plinth runs out as far as the string course: at 0.01 its top was a
+  // thread along the foot of the walls.
+  box(draft, { y: 0, w: halfW * 2 + LAYER * 6, h: 0.035, d: halfD * 2 + LAYER * 6 }, M.stoneDark);
   for (let i = 0; i < houses; i++) {
     const x = -halfW + houseW * (i + 0.5);
     box(draft, { x, y: 0.035, w: houseW, h: wallTop - 0.035, d: halfD * 2, skipBottom: true }, walls[i]);
   }
-  // Party-wall pilasters between the houses, and a string course.
+  // Party-wall pilasters between the houses, a layer proud, and a string
+  // course three: at 0.014 the pilasters stopped a hair behind the course's
+  // face and its top showed as a thread across them. Any further out and
+  // they would meet the eave's edge.
   for (let i = 1; i < houses; i++) {
     const u = -halfW + houseW * i;
-    wallBox(draft, { facing: "+z", plane: halfD, u, v: 0.035, w: 0.024, h: wallTop - 0.035, depth: 0.014 }, M.frame);
+    wallBox(draft, { facing: "+z", plane: halfD, u, v: 0.035, w: 0.024, h: wallTop - 0.035, depth: LAYER }, M.frame);
   }
   // Three layers proud: the doors' surrounds and fanlights reach up behind it.
   box(draft, { y: 0.34, w: halfW * 2 + LAYER * 6, h: 0.014, d: halfD * 2 + LAYER * 6, skipBottom: true }, M.frame);
@@ -250,13 +259,17 @@ export function terrace(): ArchetypeModel {
   }
 
   const windows: Panel[] = [];
+  const doorV = 0.06;
+  const doorW = 0.075;
+  const steps: [number, number][] = [];
   for (let i = 0; i < houses; i++) {
     const centre = -halfW + houseW * (i + 0.5);
     // Doors alternate sides, so neighbours share a pair of steps.
     const doorSide = i % 2 === 0 ? -1 : 1;
     const doorU = centre + doorSide * houseW * 0.24;
     const winU = centre - doorSide * houseW * 0.18;
-    door(draft, { facing: "+z", plane: halfD, u: doorU, v: 0.06, w: 0.075, h: 0.24, mat: doors[i], fanlight: true });
+    door(draft, { facing: "+z", plane: halfD, u: doorU, v: doorV, w: doorW, h: 0.24, mat: doors[i], fanlight: true, step: false });
+    steps.push([doorU - doorW / 2 - 0.04, doorU + doorW / 2 + 0.04]);
     // A shallow bay at the ground floor: a stone base, glass on its face and
     // a little lead roof.
     wallBox(draft, { facing: "+z", plane: halfD, u: winU, v: 0.035, w: 0.13, h: 0.075, depth: 0.05 }, M.stone);
@@ -275,6 +288,19 @@ export function terrace(): ArchetypeModel {
   }
   windows.push(framedWindow(draft, { facing: "+x", plane: halfW, u: 0, v: 0.5, w: 0.1, h: 0.13, bars: "sash" }));
   windows.push(framedWindow(draft, { facing: "-x", plane: halfW, u: 0, v: 0.5, w: 0.1, h: 0.13, bars: "sash" }));
+  // The steps, a layer above the thresholds as `door` lays them. A pair that
+  // nearly meet is one flight: two, they left a slot of plinth between them
+  // too narrow to draw.
+  steps.sort((a, b) => a[0] - b[0]);
+  const flights: [number, number][] = [];
+  for (const step of steps) {
+    const last = flights[flights.length - 1];
+    if (last && step[0] - last[1] < LAYER * 2) last[1] = Math.max(last[1], step[1]);
+    else flights.push([...step]);
+  }
+  for (const [u0, u1] of flights) {
+    wallBox(draft, { facing: "+z", plane: halfD, u: (u0 + u1) / 2, v: 0, w: u1 - u0, h: doorV + LAYER, depth: 0.06 }, M.stone);
+  }
 
   return { id: "terrace", draft, windows, roofPads: [], maxProps: 0 };
 }
@@ -294,15 +320,22 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
   const base = retail ? 0.24 : 0.2;
   const floorH = (roofY - base) / (floors - 1 + 0.001);
 
-  box(draft, { y: 0, w: halfW * 2 + 0.01, h: base, d: halfD * 2 + 0.01 }, retail ? M.wallDeep : M.stone);
+  // The base stands two layers proud, so its top is a ledge and not a
+  // thread; everything at street level is laid on its face.
+  const street = halfD + LAYER * 2;
+  box(draft, { y: 0, w: halfW * 2 + LAYER * 4, h: base, d: halfD * 2 + LAYER * 4 }, retail ? M.wallDeep : M.stone);
   // The wall stops inside the cornice, the roof deck stands a layer above
   // the cornice's top, the parapet is flush with the cornice's face and the
   // string courses stand two layers proud: nothing on this block lies a hair
   // off another face of it.
   box(draft, { y: base, w: halfW * 2, h: roofY - base - LAYER, d: halfD * 2, skipBottom: true }, M.wall);
-  box(draft, { y: roofY - 0.004, w: halfW * 2 - 0.04, h: 0.004 + LAYER, d: halfD * 2 - 0.04, skipBottom: true }, M.concreteDark);
+  // The deck runs right up to the parapet's inner face: stopped short, a
+  // thread of the cornice's top showed between them.
+  const parapetT = 0.03;
+  const deckIn = 0.012 - parapetT;
+  box(draft, { y: roofY - 0.004, w: (halfW + deckIn) * 2, h: 0.004 + LAYER, d: (halfD + deckIn) * 2, skipBottom: true }, M.concreteDark);
   box(draft, { y: roofY - 0.02, w: halfW * 2 + 0.024, h: 0.02, d: halfD * 2 + 0.024, skipBottom: true }, M.frame);
-  parapet(draft, roofY, halfW + 0.012, halfD + 0.012, 0.045);
+  parapet(draft, roofY, halfW + 0.012, halfD + 0.012, 0.045, parapetT);
   // String courses at each floor line.
   for (let f = 1; f < floors - 1; f++) {
     box(draft, { y: base + f * floorH - 0.006, w: halfW * 2 + LAYER * 4, h: 0.01, d: halfD * 2 + LAYER * 4, skipBottom: true }, M.wallShade);
@@ -337,14 +370,15 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
   }
 
   if (retail) {
-    windows.push(...shopFront(draft, { plane: halfD + 0.005, halfW, top: base }));
-    door(draft, { facing: "-z", plane: halfD + 0.005, u: 0, v: 0, w: 0.14, h: base * 0.8, mat: M.accent });
+    windows.push(...shopFront(draft, { plane: street, halfW, top: base }));
+    door(draft, { facing: "-z", plane: street, u: 0, v: 0, w: 0.14, h: base * 0.8, mat: M.accent });
   } else {
-    // The entrance under a canopy, with glass either side.
-    door(draft, { facing: "+z", plane: halfD + 0.005, u: 0, v: 0.02, w: 0.14, h: 0.15, mat: M.accent, surround: M.frame });
-    wallBox(draft, { facing: "+z", plane: halfD, u: 0, v: 0.18, w: 0.3, h: 0.014, depth: 0.1 }, M.frame);
+    // The entrance under a canopy, with glass either side. The door's
+    // surround stops inside the canopy rather than a hair above its top.
+    door(draft, { facing: "+z", plane: street, u: 0, v: 0.02, w: 0.14, h: 0.14, mat: M.accent, surround: M.frame });
+    wallBox(draft, { facing: "+z", plane: halfD, u: 0, v: 0.175, w: 0.3, h: 0.014, depth: 0.1 }, M.frame);
     for (const u of [-0.32, -0.16, 0.16, 0.32]) {
-      windows.push(framedWindow(draft, { facing: "+z", plane: halfD + 0.005, u, v: 0.1, w: 0.1, h: 0.08, bars: "none" }));
+      windows.push(framedWindow(draft, { facing: "+z", plane: street, u, v: 0.1, w: 0.1, h: 0.08, bars: "none" }));
     }
   }
 
