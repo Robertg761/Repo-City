@@ -272,7 +272,8 @@ narration is local text to speech, and the edit is automated. The whole pipeline
 Theme: **One Screen**. Solo build by [Robert](https://github.com/Robertg761). Build window:
 21 September 2026 18:00 UTC to 25 September 2026 18:00 UTC, and all project code was written
 inside it. The project's own rule, from PLAN.md section 0.2: you can go anywhere, but you never
-leave the city screen. Submission material and the demo script are in [docs/](./docs).
+leave the city screen. Submission material, including what's left to do, is in
+[docs/SUBMISSION.md](./docs/SUBMISSION.md), and the demo script is in [docs/](./docs).
 
 ## License
 

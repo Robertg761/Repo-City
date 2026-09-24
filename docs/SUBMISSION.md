@@ -1,5 +1,52 @@
 # Hackyard Yard #3 submission material
 
+## Status: what's left (updated 2026-09-24)
+
+**Everything is built, deployed, recorded and documented. The only thing left is filling in
+and submitting the Hackyard form.** This file holds every value the form needs, so you can
+finish from any machine with a checkout of this repository.
+
+### Left to do: only Robert can do these
+
+1. [ ] **Confirm the Yard spot is still held** on the Hackyard site (see the checklist below).
+2. [ ] **Fill in the Hackyard form**, top to bottom:
+   - repository URL, [section 1](#1-repository-url)
+   - demo URL, [section 2](#2-demo-url)
+   - writeup, [section 3](#3-writeup-500-character-maximum)
+   - AI model declaration, [section 4](#4-ai-model-declaration)
+   - screenshot upload `docs/screenshot.jpg`, [section 5](#5-screenshot)
+   - demo video URL, [section 6](#6-demo-video)
+3. [ ] **Play the video back on the submission page** and check it embeds.
+4. [ ] **Submit early: Friday 25 September, 12:30-13:30 NDT.** The hard deadline is 18:00 UTC
+   (15:30 NDT). You can edit the submission until voting opens, and the earliest submission
+   wins an exact tie.
+5. [ ] **Optional, after submitting:** on the morning of voting, open the live demo in a private
+   window and survey one repository, to confirm the GitHub token hasn't expired.
+
+### Done, and how it was checked
+
+- [x] **Live demo** at <https://repo-city-five.vercel.app>, on v0.7.1. Production serves the
+      latest code commit. Commits after `7436adf` touch only docs and don't need a deploy.
+- [x] **Demo video**: <https://youtu.be/dU3AJCfMiNs>, 77 s, Unlisted. It embeds, and it plays
+      without signing in (checked with YouTube oEmbed).
+- [x] **Repository** is public, visible logged out, with the MIT license, a description,
+      the homepage link and topics set on GitHub.
+- [x] **Model declaration** complete, with no open entries. Section 4 matches
+      [AI_MODELS.md](../AI_MODELS.md).
+- [x] **Writeup** is 491 of 500 characters, pure ASCII.
+- [x] **Checks on `main`**: typecheck, lint, 2,243 tests and the production build pass.
+- [x] **Secret scan** of the whole history is clean. `.env.local` is untracked, and the only
+      `NEXT_PUBLIC_` variables are the version and the build SHA.
+- [x] **Vercel env**: `FIXTURE_FALLBACK` and `GITHUB_TOKEN` are set, and `AI_PROVIDER` is
+      unset, so the runtime is none.
+- [x] **Link preview**: `og:image` resolves to the React metropolis shot, with a large Twitter card.
+
+A copy-paste sheet with the same values, the video file, its captions and its thumbnail also
+exists at `~/Repo-City-Submission/` on the build machine. It's a convenience only. Nothing in
+it is missing from this file.
+
+---
+
 Everything the submission form needs, in the order the form asks for it.
 Refreshed 2026-09-24 against `main` at v0.7.1 (`f5e9972` and later): settlement tiers, every
 open issue and PR drawn, time of day, the tour, ambient sound and the low-end hardening.
@@ -149,12 +196,12 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 
 - [ ] **Confirm the Yard spot is still held.** Section 0.12: check-in closed at kickoff. If it
       was released, rejoin before 2026-09-23 18:00 UTC, which counts as check-in.
-- [ ] **Repository is public.** `https://github.com/Robertg761/Repo-City`. Check in a logged-out
+- [x] **Repository is public.** `https://github.com/Robertg761/Repo-City`. Check in a logged-out
       browser, not just your own.
 - [ ] **Repository URL field** <- section 1.
 - [ ] **Writeup field** <- the block in section 3. Confirm the form's own counter agrees with 491
       and does not show it over 500.
-- [ ] **AI model declaration field** <- the block in section 4, with the bracketed line replaced.
+- [ ] **AI model declaration field** <- the block in section 4.
 - [ ] **Screenshot upload** <- `docs/screenshot.jpg`. Check the preview renders and is not
       cropped into unreadability on the project card.
 - [ ] **Demo video URL** <- `https://youtu.be/dU3AJCfMiNs` (section 6). Play it back from the submission
@@ -166,27 +213,30 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 
 ### Pre-submission checks that are not form fields
 
-- [ ] **Production is on the latest `main`.** The HUD's top-left corner shows the version and
-      short SHA. It must be v0.7.0 or later.
-- [ ] **Walk the live demo once, as a voter would**, in a private window at 1600 x 1000:
+- [x] **Production is on the latest `main`.** The HUD's top-left corner shows the version and
+      short SHA. It must be v0.7.1 or later.
+- [x] **Walk the live demo once, as a voter would**, in a private window at 1600 x 1000:
       type `honojs/hono`, click a crowd object, switch to night and back, press Tour and let it
       finish, then Analyze another repo with `sindresorhus/p-limit` (village) and
       `facebook/react` (metropolis). Then load `/?tour=1`, survey a repository and check the
       tour starts on its own once the city stands. Repeat the survey and a click on a phone.
-- [ ] `FIXTURE_FALLBACK` is set to `true` in the Vercel project's environment variables.
+      *Done 2026-09-24:* the demo video walks this path on production, and v0.7.1 was checked
+      at 1600 x 1000 and 390 x 844.
+- [x] `FIXTURE_FALLBACK` is set to `true` in the Vercel project's environment variables.
       **It is opt-in: unset means off.** If it is unset, the fixture fallback that keeps the
       demo alive through a GitHub rate limit during voting is silently disabled. See
       [QA-2026-09-21.md](./QA-2026-09-21.md), bug 1.
-- [ ] `AI_PROVIDER` is `none` (or unset) in Vercel, so the declaration in section 4 stays true.
-- [ ] `GITHUB_TOKEN` in Vercel is a fine-grained token with public-repository read only, and
+- [x] `AI_PROVIDER` is `none` (or unset) in Vercel, so the declaration in section 4 stays true.
+- [~] `GITHUB_TOKEN` in Vercel is a fine-grained token with public-repository read only, and
       has not expired. The whole demo dies without it. The settlement-era survey pages through
       up to 1,000 issues and 500 PRs, so it spends more of the token's hourly budget per
       uncached repository than v0.3 did; the 15-minute cache and the fixture fallback absorb
-      repeat visits.
-- [ ] `pnpm typecheck && pnpm lint && pnpm test && pnpm build` all pass on `main`.
-- [ ] Secret scan is clean (`git grep -nIE 'ghp_|github_pat_|sk-ant-'`), `.env.local` is not
+      repeat visits. *Status 2026-09-24:* the token works, because live surveys succeed. Its
+      expiry date can't be seen from the CLI; check it in GitHub > Settings > Developer settings.
+- [x] `pnpm typecheck && pnpm lint && pnpm test && pnpm build` all pass on `main`.
+- [x] Secret scan is clean (`git grep -nIE 'ghp_|github_pat_|sk-ant-'`), `.env.local` is not
       tracked, and no `NEXT_PUBLIC_` variable holds a credential.
-- [ ] The link preview works. `app/layout.tsx` points `og:image` at
+- [x] The link preview works. `app/layout.tsx` points `og:image` at
       `https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png`, which
       shows the new shot only once this work is merged to `main` and pushed. Open that URL
       after pushing and check it is the React metropolis, not the old hono shot.
