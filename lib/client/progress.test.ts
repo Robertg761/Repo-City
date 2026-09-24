@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { splitStageDetail, stageLine } from "./progress";
+import { progressPanelState, splitStageDetail, stageLine } from "./progress";
+
+describe("progressPanelState", () => {
+  const stopped = [
+    { id: "repo", status: "done" },
+    { id: "tree", status: "failed" },
+    { id: "done", status: "pending" },
+  ];
+  const finished = [
+    { id: "ai", status: "failed" },
+    { id: "done", status: "done" },
+  ];
+
+  it("shows while a survey runs", () => {
+    expect(progressPanelState("analyzing", stopped.slice(0, 1))).toEqual({ showing: true, outcome: "surveying" });
+    expect(progressPanelState("building", finished).showing).toBe(true);
+  });
+
+  it("goes away once a survey has stopped with an error, leaving the toast", () => {
+    expect(progressPanelState("error", stopped)).toEqual({ showing: false, outcome: "stopped" });
+    expect(progressPanelState("error", [])).toEqual({ showing: false, outcome: "stopped" });
+  });
+
+  it("fades a finished survey, a skipped architecture pass included", () => {
+    expect(progressPanelState("ready", finished)).toEqual({ showing: false, outcome: "complete" });
+  });
+});
 
 describe("splitStageDetail", () => {
   it("leaves a running count whole", () => {

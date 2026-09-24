@@ -7,13 +7,18 @@
  *
  * Three short tabs rather than one long list: the city's buildings and
  * landmarks, the seven shapes an open issue takes, and the shapes and signals
- * of a pull request. Collapsed by default on small screens, where the city
- * needs the room: a narrow phone, or one held sideways, where the open
- * legend is taller than the screen leaves under the identity block.
+ * of a pull request. Folded by default on every screen, so the first look
+ * at a city is the city: folded, it is a small "Legend +" chip with the
+ * camera controls under it (the controls only where there is a mouse-sized
+ * screen). Opening it is remembered in this browser; on a phone, or one held
+ * sideways, it still starts folded, since open it is taller than the screen
+ * leaves under the identity block.
  */
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { LEGEND_CONTROLS, LEGEND_SECTIONS, type LegendEntry } from "@/lib/client/legend";
+import { readStoredLegendOpen, writeStoredLegendOpen } from "@/lib/client/legendSetting";
+import { browserStorage } from "@/lib/client/timeSetting";
 import { useCityStore } from "@/store/useCityStore";
 
 const SMALL_SCREEN = "(max-width: 640px), (max-height: 600px)";
@@ -36,6 +41,30 @@ function useSmallScreen(): boolean {
   );
 }
 
+/** Only this component writes the key, and its own state covers that change, so nothing to subscribe to. */
+const noSubscription = () => () => {};
+
+/** The remembered choice; `false` on the server, so hydration agrees. */
+function useStoredOpen(): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => readStoredLegendOpen(browserStorage()),
+    () => false,
+  );
+}
+
+function Controls({ className }: { className: string }) {
+  return (
+    <ul className={`flex gap-x-3 gap-y-1 text-[11px] text-white/50 ${className}`}>
+      {LEGEND_CONTROLS.map(([input, action]) => (
+        <li key={input}>
+          <span className="text-white/80">{input}</span> {action}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Entries({ entries }: { entries: readonly LegendEntry[] }) {
   return (
     <ul className="space-y-1">
@@ -51,10 +80,14 @@ function Entries({ entries }: { entries: readonly LegendEntry[] }) {
 
 export default function Legend() {
   const smallScreen = useSmallScreen();
+  const storedOpen = useStoredOpen();
   const [override, setOverride] = useState<boolean | null>(null);
   const [tab, setTab] = useState<(typeof LEGEND_SECTIONS)[number]["id"]>("city");
-  const open = override ?? !smallScreen;
-  const setOpen = (next: (value: boolean) => boolean) => setOverride(next(open));
+  const open = override ?? (storedOpen && !smallScreen);
+  const toggle = () => {
+    setOverride(!open);
+    writeStoredLegendOpen(browserStorage(), !open);
+  };
 
   // On a phone the inspector is a bottom sheet over the same corner, so
   // selecting something folds the legend away. Adjusted during render, the
@@ -75,24 +108,34 @@ export default function Legend() {
       // `peer` and `data-open`: on a phone the open legend spans the bottom
       // edge, and the time-of-day control beside it steps aside.
       data-open={open ? "true" : "false"}
-      className={`peer pointer-events-none absolute bottom-3 left-3 max-w-[min(18.5rem,calc(100vw-1.5rem))] ${
+      className={`peer pointer-events-none absolute bottom-3 left-3 ${
+        open ? "max-w-[min(18.5rem,calc(100vw-1.5rem))]" : "max-w-[calc(100vw-1.5rem)]"
+      } ${
         open && smallScreen ? "z-[24]" : "z-20"
       }`}
     >
       {/* Never taller than the room under the identity block; the tabs
           scroll inside it instead. */}
-      <div className="glass pointer-events-auto max-h-[calc(100dvh-11rem)] overflow-y-auto overscroll-contain p-3 text-[12px] text-white/70">
+      {/* Folded, one short row: the chip, then the camera controls beside
+          it, which a first-time visitor needs before anything else. */}
+      <div
+        className={`glass pointer-events-auto max-h-[calc(100dvh-11rem)] overflow-y-auto overscroll-contain text-[12px] text-white/70 ${
+          open ? "p-3" : "flex items-center gap-4 px-3 py-2"
+        }`}
+      >
         <button
           type="button"
-          onClick={() => setOpen((value) => !value)}
+          onClick={toggle}
           aria-expanded={open}
-          className="focus-ring flex w-full items-center justify-between gap-6 text-left"
+          className={`focus-ring flex items-center text-left ${open ? "w-full justify-between gap-6" : "shrink-0 gap-2"}`}
         >
           <span className="eyebrow">Legend</span>
-          <span aria-hidden className="text-white/45">
+          <span aria-hidden className={open ? "text-white/45" : "text-white/80"}>
             {open ? "−" : "+"}
           </span>
         </button>
+
+        {!open && !smallScreen ? <Controls className="whitespace-nowrap border-l border-white/10 pl-4" /> : null}
 
         {open ? (
           <div className="mt-2.5">
@@ -128,13 +171,7 @@ export default function Legend() {
               ) : null}
             </div>
 
-            <ul className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-[11px] text-white/50">
-              {LEGEND_CONTROLS.map(([input, action]) => (
-                <li key={input}>
-                  <span className="text-white/80">{input}</span> {action}
-                </li>
-              ))}
-            </ul>
+            <Controls className="mt-2.5 flex-wrap border-t border-white/10 pt-2.5" />
           </div>
         ) : null}
       </div>

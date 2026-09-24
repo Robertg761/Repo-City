@@ -41,3 +41,31 @@ export function stageLine(stage: { id: string; label: string; status: string; de
   }
   return stage.detail ?? stage.label;
 }
+
+export interface ProgressPanelState {
+  /** Whether the panel is showing (it fades rather than unmounts). */
+  showing: boolean;
+  /** Which title it carries, and which fade it takes on the way out. */
+  outcome: "surveying" | "complete" | "stopped";
+}
+
+/**
+ * What the survey panel shows for a phase and its stages. It shows only
+ * while a survey runs. A finished survey holds its last tick for a moment
+ * and fades. A failed one fades too, after a short beat that shows where it
+ * stopped: the error toast already says why and carries the retry, and a
+ * panel left over the middle of the previous city only repeated it.
+ */
+export function progressPanelState(
+  phase: "idle" | "analyzing" | "building" | "ready" | "error",
+  stages: readonly { id: string; status: string }[],
+): ProgressPanelState {
+  // A skipped architecture pass is a failed row in a finished survey; only a
+  // survey that never reached its last row stopped.
+  const complete = stages.some((stage) => stage.id === "done" && stage.status === "done");
+  const stopped = !complete && (phase === "error" || stages.some((stage) => stage.status === "failed"));
+  return {
+    showing: phase === "analyzing" || phase === "building",
+    outcome: stopped ? "stopped" : complete ? "complete" : "surveying",
+  };
+}
