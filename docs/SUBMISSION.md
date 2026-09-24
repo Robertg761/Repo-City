@@ -1,7 +1,7 @@
 # Hackyard Yard #3 submission material
 
 Everything the submission form needs, in the order the form asks for it.
-Refreshed 2026-09-23 against `main` at v0.7.0 (`3dca27a` and later): settlement tiers, every
+Refreshed 2026-09-24 against `main` at v0.7.1 (`f5e9972` and later): settlement tiers, every
 open issue and PR drawn, time of day, the tour, ambient sound and the low-end hardening.
 
 ---
