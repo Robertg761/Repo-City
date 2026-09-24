@@ -6,7 +6,7 @@
  * a step forward, and no completed stage is ever invented.
  */
 
-import { splitStageDetail, stageLine } from "@/lib/client/progress";
+import { progressPanelState, splitStageDetail, stageLine } from "@/lib/client/progress";
 import { useCityStore, type StageStatus } from "@/store/useCityStore";
 
 const MARKS: Record<StageStatus, string> = {
@@ -36,22 +36,27 @@ export default function AnalysisProgress() {
 
   if (stages.length === 0 || phase === "idle") return null;
 
-  // A failed survey keeps its panel: the ✕ marks exactly how far it got.
-  const surveying = phase === "analyzing" || phase === "building" || phase === "error";
-  // A skipped architecture pass is a failed row in a finished survey; only a
-  // survey that never reached its last row stopped.
-  const complete = stages.some((stage) => stage.id === "done" && stage.status === "done");
-  const stopped = !complete && (phase === "error" || stages.some((stage) => stage.status === "failed"));
+  const { showing, outcome } = progressPanelState(phase, stages);
+  const stopped = outcome === "stopped";
+  const complete = outcome === "complete";
 
   return (
     <div
-      aria-hidden={!surveying}
+      aria-hidden={!showing}
       aria-live="polite"
       // Finished, the panel holds its last tick ("Town constructed") for a
       // moment while the city starts to rise, then fades: it used to fade
       // out in the same instant the city mounted, so nobody saw it finish.
+      // Stopped, it holds the ✕ for a shorter beat and fades, leaving the
+      // error toast (which carries the reason and any retry) and the city.
       className={`glass pointer-events-none absolute left-1/2 top-[45%] z-[21] sm:top-24 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 p-4 transition-opacity ${
-        surveying ? "opacity-100 duration-200" : complete ? "opacity-0 delay-1000 duration-700" : "opacity-0 duration-300"
+        showing
+          ? "opacity-100 duration-200"
+          : complete
+            ? "opacity-0 delay-1000 duration-700"
+            : stopped
+              ? "opacity-0 delay-700 duration-500"
+              : "opacity-0 duration-300"
       }`}
     >
       <p className={`eyebrow mb-3 ${stopped ? "text-rose-200/80" : ""}`}>
