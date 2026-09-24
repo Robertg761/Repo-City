@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_DISTRICTS, MIN_DISTRICTS, districtForPath, planDistricts } from "./districts";
+import {
+  MAX_DISTRICTS,
+  MIN_DISTRICTS,
+  districtForPath,
+  districtNameFor,
+  planDistricts,
+} from "./districts";
 import { pruneTree } from "./tree";
 import { archivedSnapshot } from "./__fixtures__/archived.snapshot";
 import { treeFromPaths } from "./__fixtures__/helpers";
@@ -36,7 +42,7 @@ describe("planDistricts (PLAN.md section 8)", () => {
       "/examples",
       "/scripts",
     ]);
-    expect(districts[0]).toMatchObject({ id: "d-src", name: "Core District", weight: 1 });
+    expect(districts[0]).toMatchObject({ id: "d-src", name: "The Foundry", weight: 1 });
     expect(districts[1].fileCount).toBe(25);
   });
 
@@ -196,5 +202,45 @@ describe("districtForPath", () => {
     ]);
     const outskirts = withOutskirts.find((d) => d.sourcePath === "/");
     expect(districtForPath("a00/f0.ts", withOutskirts).id).toBe(outskirts?.id);
+  });
+});
+
+describe("district names", () => {
+  it("gives common folders place names", () => {
+    expect(districtNameFor("src")).toBe("The Foundry");
+    expect(districtNameFor("tests")).toBe("Proving Grounds");
+    expect(districtNameFor("docs")).toBe("The Library");
+    expect(districtNameFor("src/components")).toBe("The Assembly Halls");
+    expect(districtNameFor("")).toBe("Outskirts");
+  });
+
+  it("names unknown folders with a stable place word, in one to three words", () => {
+    const name = districtNameFor("widgetry");
+    expect(name).toMatch(/^Widgetry (Quarter|Works|Yard|Row|Heights|Commons|Wharf|Lane)$/);
+    expect(districtNameFor("widgetry")).toBe(name);
+    expect(districtNameFor(".vscode").startsWith("Vscode ")).toBe(true);
+    expect(districtNameFor("one-two-three-four")).toBe("One Two Three");
+    for (const path of ["foo.bar", "a_b", "x-y-z", "some/deep/Folder", "___"]) {
+      const words = districtNameFor(path).split(" ");
+      expect(words.length).toBeGreaterThanOrEqual(1);
+      expect(words.length).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("never gives two districts in one plan the same name", () => {
+    const paths = [
+      "src/a.ts",
+      "src/b.ts",
+      "src/c.ts",
+      "source/a.ts",
+      "source/b.ts",
+      "sources/a.ts",
+      "docs/a.md",
+    ];
+    const names = plan(paths).map((d) => d.name);
+    expect(names[0]).toBe("The Foundry");
+    expect(names[1]).toMatch(/^Source /);
+    expect(new Set(names).size).toBe(names.length);
+    expect(plan(paths).map((d) => d.name)).toEqual(names);
   });
 });
