@@ -2,6 +2,8 @@
 
 **Live demo: <https://repo-city-five.vercel.app>**
 
+**Demo video (77 s): <https://youtu.be/dU3AJCfMiNs>**
+
 ![facebook/react drawn as Greater react, a metropolis at evening: towers in five labelled districts, avenues, a highway ring, farmland at the edges and a health score of 85 in the corner](docs/screenshot.jpg)
 
 Type the name of any public GitHub repository and it becomes a 3D city you can fly around.

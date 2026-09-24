@@ -125,6 +125,12 @@ inspector. Use any of them if the form takes more than one image.
 
 ## 6. Demo video
 
+```
+https://youtu.be/dU3AJCfMiNs
+```
+
+Uploaded to YouTube as Unlisted on 2026-09-24. It embeds, which Hackyard's player needs.
+
 Done: 77 seconds, 1920 x 1080 at 60 fps, with narration, captions burned in, the city's own
 sound and a music bed. Every frame is the live production site, recorded frame by frame on a
 real GPU by [scripts/video](../scripts/video), which also narrates and edits it. The finished
@@ -151,7 +157,7 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 - [ ] **AI model declaration field** <- the block in section 4, with the bracketed line replaced.
 - [ ] **Screenshot upload** <- `docs/screenshot.jpg`. Check the preview renders and is not
       cropped into unreadability on the project card.
-- [ ] **Demo video URL** <- the YouTube / Vimeo / Loom link. Play it back from the submission
+- [ ] **Demo video URL** <- `https://youtu.be/dU3AJCfMiNs` (section 6). Play it back from the submission
       page to confirm it embeds.
 - [ ] **Demo URL field** (if the form has one separate from the repo) <- section 2.
 - [ ] **Submit early.** Target 12:30-13:30 Newfoundland time on Friday 25 September. The
