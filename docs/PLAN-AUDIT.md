@@ -1,6 +1,6 @@
 # Plan audit — 2026-09-21
 
-Audit of `docs/PLAN.original.md`. The working plan with every change applied is `PLAN.md` at the repo root. `diff docs/PLAN.original.md PLAN.md` shows the exact edits.
+Audit of `docs/PLAN.original.md`. The working plan with every change applied is `docs/PLAN.md`. `diff docs/PLAN.original.md docs/PLAN.md` shows the exact edits.
 
 Verdict: the original plan is strong on product thinking, scope discipline, and Hackyard compliance. Its gaps are almost all in the layer between "what" and "how": it does not define the data contracts, the streaming mechanism, the concrete formulas, or the caching that a set of parallel agents needs to build without inventing incompatible answers. Those are now filled in.
 
