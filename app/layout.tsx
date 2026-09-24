@@ -26,7 +26,12 @@ const PROMISE =
  */
 const OG_IMAGE = "https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png";
 
+/** Alt text describes the actual committed shot: `facebook/react` as the metropolis "Greater react" at evening. */
+const OG_ALT =
+  "The facebook/react repository rendered as the metropolis \"Greater react\" at evening: a tower skyline, labelled districts, a motorway ring and highways out to farmland.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL("https://repo-city-five.vercel.app"),
   title: "Repo City",
   description: PROMISE,
   openGraph: {
@@ -38,11 +43,17 @@ export const metadata: Metadata = {
     images: [
       {
         url: OG_IMAGE,
-        width: 1600,
-        height: 1000,
-        alt: "A GitHub repository rendered as a 3D city: districts named after directories, construction cranes over open pull requests, and a power plant for CI.",
+        width: 1200,
+        height: 750,
+        alt: OG_ALT,
       },
     ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Repo City",
+    description: PROMISE,
+    images: [OG_IMAGE],
   },
 };
 
