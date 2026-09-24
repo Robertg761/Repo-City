@@ -138,8 +138,8 @@ teaser or for the last shot of the main video, recorded separately.
 - Clean window: no bookmarks bar, no extension icons, no second tab, notifications off. A
   private window gets most of that.
 - Keep the cursor visible. The demo is about clicking things.
-- Leave the legend open on the first city: a new viewer reads it once and then understands
-  the rest of the video. Fold it before the metropolis to give the towers the room.
+- The legend starts folded (v0.7.1), with the controls on one line in the corner. Leave it
+  folded: the narration explains what the objects mean, and the city keeps the whole frame.
 
 ## Rehearsal notes
 
