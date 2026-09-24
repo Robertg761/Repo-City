@@ -77,7 +77,8 @@ Development:
   sub-agents from the enhancement round onward: settlement tiers, every issue and PR drawn,
   time of day, the tour, ambient sound, low-end hardening and the submission material.
 - Claude Sonnet 5 (claude-sonnet-5) - one repository-hygiene sub-agent in v0.7.1.
-- [Robert: name the model used to draft the original plan before kickoff, or say "none".]
+- Original plan, drafted before kickoff: several models helped, Claude Fable 5.1
+  (claude-fable-5-1) among them.
 
 Demo video: scripted, recorded, narrated and edited by Claude Opus 5.5, driving the live site.
 Narration voice: Kokoro-82M text to speech (local). Caption timing: Whisper small.en (local).
@@ -93,8 +94,7 @@ Every commit names its model in a Co-Authored-By trailer. No AI receipts are bei
 beyond this declaration and the git history; Yard #3 lists receipts as optional.
 ```
 
-**Before pasting:** replace the bracketed line. AI_MODELS.md still carries a `[TO CONFIRM]`
-entry for the model that drafted the plan before kickoff, and only Robert can resolve it.
+The block matches AI_MODELS.md, which has no open entries left.
 
 ---
 
