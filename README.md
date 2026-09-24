@@ -261,6 +261,10 @@ Every commit names the model that wrote it in a `Co-Authored-By` trailer. The fu
 declaration is in [AI_MODELS.md](./AI_MODELS.md). No model runs at request time on the hosted
 demo.
 
+A script recorded the demo video from the live site, frame by frame on a real GPU. The
+narration is local text to speech, and the edit is automated. The whole pipeline is in
+[scripts/video](./scripts/video).
+
 ## Hackyard Yard #3
 
 Theme: **One Screen**. Solo build by [Robert](https://github.com/Robertg761). Build window:

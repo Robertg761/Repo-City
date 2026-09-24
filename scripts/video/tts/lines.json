@@ -1,0 +1,12 @@
+[
+ ["v01", "Every GitHub repository is a city. You just haven't seen it yet."],
+ ["v02", "Paste in any public repo."],
+ ["v03", "Repo City surveys it live. Folders become districts, and files become buildings. The tallest towers are the files that matter most."],
+ ["v04", "Every open issue is out on the street. Bugs are crashes, blocked work is a roadblock. Click one, and you get the real issue, and why it looks the way it does."],
+ ["v05", "Open pull requests are building sites, with scaffolding on the files they change."],
+ ["v06", "It even works the night shift."],
+ ["v07", "Size comes from the code. A small library is a village."],
+ ["v08", "And React is a metropolis, with five hundred open pull requests on its streets."],
+ ["v09", "Press Tour, and the city tells you its own story."],
+ ["v10", "Repo City. One repository. One city. One screen."]
+]

@@ -125,9 +125,15 @@ inspector. Use any of them if the form takes more than one image.
 
 ## 6. Demo video
 
-Optional per Hackyard, strongly recommended, and treated as required here. Shot list,
-narration and recording settings: [DEMO-SCRIPT.md](./DEMO-SCRIPT.md). 60-90 seconds.
-Upload to YouTube, Vimeo or Loom, the sources Hackyard embeds inline.
+Done: 77 seconds, 1920 x 1080 at 60 fps, with narration, captions burned in, the city's own
+sound and a music bed. Every frame is the live production site, recorded frame by frame on a
+real GPU by [scripts/video](../scripts/video), which also narrates and edits it. The finished
+file, a caption track, a thumbnail, the YouTube title and description, and a copy-paste
+sheet of every form field are packaged outside the repository, in `~/Repo-City-Submission/`.
+The MP4 is 208 MB, too large to commit.
+
+Upload it to YouTube, Vimeo or Loom, the sources Hackyard embeds inline. The shot list the
+video follows is [DEMO-SCRIPT.md](./DEMO-SCRIPT.md).
 
 ---
 

@@ -1,0 +1,141 @@
+{
+ "v01": {
+  "dur": 3.8,
+  "chunks": [
+   {
+    "text": "Every GitHub repository is a city.",
+    "start": 0.0,
+    "end": 2.02
+   },
+   {
+    "text": "You just haven't seen it yet.",
+    "start": 2.5,
+    "end": 3.6
+   }
+  ]
+ },
+ "v02": {
+  "dur": 1.75,
+  "chunks": [
+   {
+    "text": "Paste in any public repo.",
+    "start": 0.0,
+    "end": 1.44
+   }
+  ]
+ },
+ "v03": {
+  "dur": 8.23,
+  "chunks": [
+   {
+    "text": "Repo City surveys it live.",
+    "start": 0.0,
+    "end": 1.54
+   },
+   {
+    "text": "Folders become districts, and files become buildings.",
+    "start": 2.44,
+    "end": 4.8
+   },
+   {
+    "text": "The tallest towers are the files that matter most.",
+    "start": 5.54,
+    "end": 7.96
+   }
+  ]
+ },
+ "v04": {
+  "dur": 9.54,
+  "chunks": [
+   {
+    "text": "Every open issue is out on the street.",
+    "start": 0.0,
+    "end": 1.94
+   },
+   {
+    "text": "Bugs are crashes, blocked work is a roadblock.",
+    "start": 2.78,
+    "end": 5.28
+   },
+   {
+    "text": "Click one, and you get the real issue,",
+    "start": 5.84,
+    "end": 7.58
+   },
+   {
+    "text": "and why it looks the way it does.",
+    "start": 7.58,
+    "end": 9.32
+   }
+  ]
+ },
+ "v05": {
+  "dur": 4.69,
+  "chunks": [
+   {
+    "text": "Open pull requests are building sites,",
+    "start": 0.0,
+    "end": 2.08
+   },
+   {
+    "text": "with scaffolding on the files they change.",
+    "start": 2.38,
+    "end": 4.46
+   }
+  ]
+ },
+ "v06": {
+  "dur": 1.64,
+  "chunks": [
+   {
+    "text": "It even works the night shift.",
+    "start": 0.0,
+    "end": 1.34
+   }
+  ]
+ },
+ "v07": {
+  "dur": 3.35,
+  "chunks": [
+   {
+    "text": "Size comes from the code.",
+    "start": 0.0,
+    "end": 1.2
+   },
+   {
+    "text": "A small library is a village.",
+    "start": 1.64,
+    "end": 3.04
+   }
+  ]
+ },
+ "v08": {
+  "dur": 4.67,
+  "chunks": [
+   {
+    "text": "And React is a metropolis,",
+    "start": 0.0,
+    "end": 1.56
+   },
+   {
+    "text": "with five hundred open pull requests on its streets.",
+    "start": 1.56,
+    "end": 4.4
+   }
+  ]
+ },
+ "v09": {
+  "dur": 2.47,
+  "chunks": [
+   {
+    "text": "Press Tour, and the city tells you its own story.",
+    "start": 0.0,
+    "end": 2.2
+   }
+  ]
+ },
+ "v10": {
+  "dur": 3.58,
+  "chunks": []
+ }
+}

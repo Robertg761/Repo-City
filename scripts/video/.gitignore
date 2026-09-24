@@ -1,0 +1,10 @@
+# Everything the pipeline downloads or produces. Only the scripts are tracked.
+browsers/
+takes/
+out/
+overlays/
+tts/*.onnx
+tts/*.bin
+tts/*.wav
+audio/*.wav
+audio/*.s16le
