@@ -62,4 +62,13 @@ describe("legend (PLAN.md 76.10)", () => {
       expect(new Set(list).size).toBe(list.length);
     }
   });
+
+  it("pictures every term, and never two terms in a tab the same way", () => {
+    for (const section of LEGEND_SECTIONS) {
+      const entries = [...section.entries, ...(section.extra?.entries ?? [])];
+      const glyphs = entries.map(([, , glyph]) => glyph);
+      expect(glyphs.every(Boolean)).toBe(true);
+      expect(new Set(glyphs).size).toBe(glyphs.length);
+    }
+  });
 });

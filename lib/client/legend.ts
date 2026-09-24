@@ -10,7 +10,28 @@
 import { INCIDENT_FORM_LABEL, WORKS_FORM_LABEL } from "@/lib/city/entities";
 import type { IncidentForm, WorksForm } from "@/types/analysis";
 
-export type LegendEntry = readonly [term: string, meaning: string];
+/**
+ * The little picture beside a term (`components/LegendGlyphs.tsx`), tinted
+ * with the colour the thing wears in the city.
+ */
+export type LegendGlyph =
+  | "building"
+  | "district"
+  | "power"
+  | "fireStation"
+  | "info"
+  | "transit"
+  | "highway"
+  | "queue"
+  | "incident"
+  | IncidentForm
+  | "crane"
+  | Exclude<WorksForm, "site">
+  | "beacon"
+  | "stopBoard"
+  | "flag";
+
+export type LegendEntry = readonly [term: string, meaning: string, glyph?: LegendGlyph];
 
 export interface LegendSection {
   id: "city" | "issues" | "pulls";
@@ -72,26 +93,26 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
     id: "city",
     title: "City",
     entries: [
-      ["Building", "a file or module, height follows importance"],
-      ["District", "a top-level area of the codebase"],
-      ["Power plant", "continuous integration"],
-      ["Fire station", "test infrastructure"],
-      ["Information centre", "documentation"],
-      ["Transit station", "releases"],
+      ["Building", "a file or module, height follows importance", "building"],
+      ["District", "a top-level area of the codebase", "district"],
+      ["Power plant", "continuous integration", "power"],
+      ["Fire station", "test infrastructure", "fireStation"],
+      ["Information centre", "documentation", "info"],
+      ["Transit station", "releases", "transit"],
       // Attention, not quality: the legend says so in as many words, because
       // the whole point of PLAN.md sections 21 and 22 is that a popular
       // repository is not thereby a healthy one.
-      ["Highway", "forks leaving for the wider ecosystem"],
-      ["Queue", "open issues and PRs counted but not drawn"],
+      ["Highway", "forks leaving for the wider ecosystem", "highway"],
+      ["Queue", "open issues and PRs counted but not drawn", "queue"],
     ],
   },
   {
     id: "issues",
     title: "Issues",
     entries: [
-      ["Incident", "one of the most pressing open issues, with crews"],
+      ["Incident", "one of the most pressing open issues, with crews", "incident"],
       ...ISSUE_FORM_ORDER.map(
-        (form): LegendEntry => [INCIDENT_FORM_LABEL[form], ISSUE_MEANING[form]],
+        (form): LegendEntry => [INCIDENT_FORM_LABEL[form], ISSUE_MEANING[form], form],
       ),
     ],
     note: "Every other open issue is one of these. Bigger and brighter means more discussion, and old issues of every form show rust.",
@@ -100,17 +121,17 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
     id: "pulls",
     title: "Pull requests",
     entries: [
-      ["Crane", "one of the leading pull requests, drawn in full"],
+      ["Crane", "one of the leading pull requests, drawn in full", "crane"],
       ...WORKS_FORM_ORDER.map(
-        (form): LegendEntry => [WORKS_FORM_LABEL[form], WORKS_MEANING[form]],
+        (form): LegendEntry => [WORKS_FORM_LABEL[form], WORKS_MEANING[form], form],
       ),
     ],
     extra: {
       title: "Signals",
       entries: [
-        ["Red beacon", "checks are failing"],
-        ["Stop board", "a reviewer asked for changes"],
-        ["Green flag", "approved"],
+        ["Red beacon", "checks are failing", "beacon"],
+        ["Stop board", "a reviewer asked for changes", "stopBoard"],
+        ["Green flag", "approved", "flag"],
       ],
     },
     note: "Rust means nobody is working on it; grey means the work is slow.",

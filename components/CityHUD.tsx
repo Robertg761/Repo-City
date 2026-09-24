@@ -40,7 +40,7 @@ const BAND_TONES: Record<RepoMetrics["health"]["band"], string> = {
 
 const CONFIDENCE_LABELS = { low: "Low", medium: "Medium", high: "High" } as const;
 
-const SHADOW = "drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]";
+const SHADOW = "hud-text";
 
 /**
  * While something is inspected on a phone, or on a screen too short for the
@@ -399,7 +399,7 @@ export default function CityHUD() {
           note can open over the card on a narrow screen instead of sliding
           underneath. */}
       <div className="pointer-events-none absolute left-4 top-[7rem] z-[23] max-w-[min(18rem,calc(48vw-2.5rem))] select-none sm:top-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white hud-text">
           Repo City
           <span
             className="ml-2 align-middle text-[9px] font-medium normal-case tracking-[0.12em] text-white/55"
@@ -418,18 +418,18 @@ export default function CityHUD() {
             rel="noreferrer noopener"
             /* An external link out to GitHub, not in-app navigation: the city
                screen stays exactly where it is (PLAN.md section 0.2). */
-            className="pointer-events-auto mt-1 inline-block truncate text-sm text-white/85 underline decoration-white/25 underline-offset-4 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] transition hover:text-white hover:decoration-white/60"
+            className="pointer-events-auto mt-1 inline-block truncate text-sm text-white/85 underline decoration-white/25 underline-offset-4 hud-text transition hover:text-white hover:decoration-white/60"
           >
             {analysis.repo.fullName}
           </a>
         ) : (
-          <p className="mt-1 text-sm text-white/70 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+          <p className="mt-1 text-sm text-white/70 hud-text">
             {phase === "analyzing" ? "surveying repository" : "no repository surveyed"}
           </p>
         )}
         {analysis && settlement ? <SettlementLine settlement={settlement} /> : null}
         {analysis?.repo.archived ? (
-          <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-accent drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+          <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-accent hud-text">
             Archived repository
           </p>
         ) : null}

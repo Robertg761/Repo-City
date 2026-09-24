@@ -37,6 +37,16 @@ canvas {
     @apply text-[10px] font-semibold uppercase tracking-[0.28em] text-white/55;
   }
 
+  /* Text drawn straight over the city, with no card behind it: the
+     identity block and the landing hints. A tight shadow for the letter
+     edges and a wide soft one, so it reads over bright towers and pale
+     grass alike. */
+  .hud-text {
+    text-shadow:
+      0 1px 2px rgb(0 0 0 / 0.85),
+      0 0 14px rgb(0 0 0 / 0.45);
+  }
+
   .chip {
     @apply rounded-full bg-white/10 px-2 py-0.5 text-[11px] leading-5 text-white/75;
   }

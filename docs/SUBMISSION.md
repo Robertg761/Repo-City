@@ -25,8 +25,9 @@ finish from any machine with a checkout of this repository.
 
 ### Done, and how it was checked
 
-- [x] **Live demo** at <https://repo-city-five.vercel.app>, on v0.7.1. Production serves the
-      latest code commit. Commits after `7436adf` touch only docs and don't need a deploy.
+- [x] **Live demo** at <https://repo-city-five.vercel.app>, on v0.7.1 plus the legend polish
+      of 2026-09-24 (icons in the legend, clearer text over the city). Production serves the
+      latest code commit.
 - [x] **Demo video**: <https://youtu.be/dU3AJCfMiNs>, 77 s, Unlisted. It embeds, and it plays
       without signing in (checked with YouTube oEmbed).
 - [x] **Repository** is public, visible logged out, with the MIT license, a description,

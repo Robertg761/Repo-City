@@ -120,14 +120,14 @@ export default function RepoInput() {
             </button>
           </form>
 
-          <p className="mt-2 text-center text-xs text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-            <span className="text-white/55">Example </span>
+          <p className="hud-text mt-2 text-center text-xs text-white/80">
+            <span className="text-white/70">Example </span>
             <button
               type="button"
               onClick={() => survey(EXAMPLE)}
               disabled={busy}
               title="Survey this repository"
-              className="focus-ring font-mono text-white/80 underline decoration-white/25 underline-offset-4 transition hover:text-white hover:decoration-white/70 disabled:no-underline"
+              className="focus-ring font-mono text-white/90 underline decoration-white/35 underline-offset-4 transition hover:text-white hover:decoration-white/70 disabled:no-underline"
             >
               {EXAMPLE}
             </button>
@@ -136,13 +136,13 @@ export default function RepoInput() {
           {/* Empty state, PLAN.md section 3. */}
           {!hasCity && phase === "idle" ? (
             <>
-              <p className="mt-1 text-center text-xs text-white/65 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+              <p className="hud-text mt-1 text-center text-xs text-white/80">
                 Paste any public GitHub repository and watch it become a city.
               </p>
               {/* Not on a phone: the identity block sits right under the box
                   there, and the example above is already a tap away. */}
-              <p className="mt-2 hidden flex-wrap items-center justify-center gap-1.5 text-[11px] sm:flex text-white/60 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-                <span>Or visit a</span>
+              <p className="mt-2 hidden flex-wrap items-center justify-center gap-1.5 text-[11px] sm:flex text-white/75">
+                <span className="hud-text">Or visit a</span>
                 {SAMPLES.map(({ tier, repo }) => (
                   <button
                     key={tier}
