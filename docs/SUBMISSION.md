@@ -76,7 +76,11 @@ Development:
 - Claude Opus 5.5 (claude-opus-5-5) - orchestration, review, integration and implementation
   sub-agents from the enhancement round onward: settlement tiers, every issue and PR drawn,
   time of day, the tour, ambient sound, low-end hardening and the submission material.
+- Claude Sonnet 5 (claude-sonnet-5) - one repository-hygiene sub-agent in v0.7.1.
 - [Robert: name the model used to draft the original plan before kickoff, or say "none".]
+
+Demo video: scripted, recorded, narrated and edited by Claude Opus 5.5, driving the live site.
+Narration voice: Kokoro-82M text to speech (local). Caption timing: Whisper small.en (local).
 
 Runtime, inside the shipped product:
 - None. The hosted demo runs with AI_PROVIDER=none. Every number in the city is computed
