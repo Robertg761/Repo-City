@@ -1,0 +1,2 @@
+# Local agent files, including the rendered demo video, never go to Vercel.
+.claude/
