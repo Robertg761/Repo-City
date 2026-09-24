@@ -1,6 +1,6 @@
 # Demo video script
 
-Target length **75 seconds**, inside a hard band of 60-90. Built for v0.6.0 and checked on
+Target length **75 seconds**, inside a hard band of 60-90. Built for v0.7.0 and checked on
 2026-09-23 against a local build of `main` on a real GPU. Voters judge theme fit, whether it
 works and whether it sticks (PLAN.md section 0.16), so the video shows one screen the whole
 time, real data on every click, and ends on the tour.
@@ -121,7 +121,7 @@ teaser or for the last shot of the main video, recorded separately.
 ## Recording settings
 
 - **Record the production URL**, not `localhost`. `next dev` draws a development badge in the
-  corner; production does not. Check the HUD's corner reads `v0.6.0` or later.
+  corner; production does not. Check the HUD's corner reads `v0.7.0` or later.
 - **Browser window 1600 x 1000** (or 1920 x 1080), browser zoom exactly 100%. The HUD is sized
   in `rem`, so 110% zoom makes the panels eat the skyline.
 - **Reduced motion off.** With the OS setting "reduce motion" on, the tour cuts between stops

@@ -1,7 +1,7 @@
 # Hackyard Yard #3 submission material
 
 Everything the submission form needs, in the order the form asks for it.
-Refreshed 2026-09-23 against `main` at v0.6.0 (`3dca27a` and later): settlement tiers, every
+Refreshed 2026-09-23 against `main` at v0.7.0 (`3dca27a` and later): settlement tiers, every
 open issue and PR drawn, time of day, the tour, ambient sound and the low-end hardening.
 
 ---
@@ -24,7 +24,7 @@ https://repo-city-five.vercel.app
 ```
 
 Before submitting, open it in a private window and check that the version in the top-left
-corner of the HUD reads `v0.6.0` or later. An older deployment has no villages, no tour and no
+corner of the HUD reads `v0.7.0` or later. An older deployment has no villages, no tour and no
 time-of-day pill, and the writeup below would describe features voters cannot find.
 
 ---
@@ -151,7 +151,7 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 ### Pre-submission checks that are not form fields
 
 - [ ] **Production is on the latest `main`.** The HUD's top-left corner shows the version and
-      short SHA. It must be v0.6.0 or later.
+      short SHA. It must be v0.7.0 or later.
 - [ ] **Walk the live demo once, as a voter would**, in a private window at 1600 x 1000:
       type `honojs/hono`, click a crowd object, switch to night and back, press Tour and let it
       finish, then Analyze another repo with `sindresorhus/p-limit` (village) and

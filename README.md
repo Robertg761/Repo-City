@@ -256,7 +256,7 @@ Every credential stays on the server. Nothing uses `NEXT_PUBLIC_`.
 ## AI usage
 
 Yard #3 is open-model. Repo City was built by Claude agents working in parallel git worktrees
-against a written specification ([PLAN.md](./PLAN.md)), with Robert directing and reviewing.
+against a written specification ([PLAN.md](./docs/PLAN.md)), with Robert directing and reviewing.
 Every commit names the model that wrote it in a `Co-Authored-By` trailer. The full
 declaration is in [AI_MODELS.md](./AI_MODELS.md). No model runs at request time on the hosted
 demo.
@@ -267,3 +267,7 @@ Theme: **One Screen**. Solo build by [Robert](https://github.com/Robertg761). Bu
 21 September 2026 18:00 UTC to 25 September 2026 18:00 UTC, and all project code was written
 inside it. The project's own rule, from PLAN.md section 0.2: you can go anywhere, but you never
 leave the city screen. Submission material and the demo script are in [docs/](./docs).
+
+## License
+
+[MIT](./LICENSE)

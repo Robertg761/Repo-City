@@ -2,6 +2,13 @@
   "name": "repo-city",
   "version": "0.7.0",
   "private": true,
+  "license": "MIT",
+  "description": "Turn any public GitHub repository into an explorable 3D city on one screen.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Robertg761/Repo-City"
+  },
+  "homepage": "https://repo-city-five.vercel.app",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
