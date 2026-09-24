@@ -70,11 +70,11 @@ describe("analyzeSnapshot without an interpreter", () => {
     expect(analysis.metrics.health.band).toBe("Thriving");
     expect(analysis.metrics.confidence.level).toBe("high");
     expect(analysis.districts.map((d) => d.name)).toEqual([
-      "Core District",
-      "Safety District",
-      "Knowledge District",
-      "Demo District",
-      "Operations District",
+      "The Foundry",
+      "Proving Grounds",
+      "The Library",
+      "The Showrooms",
+      "Maintenance Depot",
     ]);
     // 136 files make a town (footprint 224), whose budget is 30 to 120: the
     // file level is too many, so the depth-3 folders stand instead.

@@ -31,71 +31,237 @@ export const OUTSKIRTS_NAME = "Outskirts";
 export const ROOT_NAME = "Root";
 
 /**
- * Deterministic names for the directory conventions the plan calls out
- * (PLAN.md section 8). Anything unlisted falls back to Title Case + District,
- * which is also the AI-unavailable fallback required by section 27.
+ * Deterministic names for common directory conventions (PLAN.md section 8),
+ * written as places in the same register as the curated interpretations in
+ * `fixtures/interpretations`. The folder path is shown under every name, so the
+ * name can be flavourful while the path keeps it honest. This is also the
+ * AI-unavailable fallback required by section 27.
+ *
+ * Keys are lowercase folder names, matched against a district's last segment.
  */
 const KNOWN_NAMES: Record<string, string> = {
-  src: "Core District",
-  source: "Core District",
-  lib: "Core District",
-  app: "Application District",
-  apps: "Application District",
-  packages: "Packages District",
-  package: "Packages District",
-  crates: "Packages District",
-  modules: "Packages District",
-  plugins: "Plugins District",
-  docs: "Knowledge District",
-  doc: "Knowledge District",
-  documentation: "Knowledge District",
-  website: "Knowledge District",
-  test: "Safety District",
-  tests: "Safety District",
-  __tests__: "Safety District",
-  spec: "Safety District",
-  e2e: "Safety District",
-  examples: "Demo District",
-  example: "Demo District",
-  samples: "Demo District",
-  demo: "Demo District",
-  demos: "Demo District",
-  scripts: "Operations District",
-  script: "Operations District",
-  tools: "Operations District",
-  tooling: "Operations District",
-  build: "Operations District",
-  ci: "Operations District",
-  infra: "Operations District",
-  infrastructure: "Operations District",
-  deploy: "Operations District",
-  config: "Civic District",
-  configs: "Civic District",
-  assets: "Assets District",
-  static: "Assets District",
-  public: "Assets District",
-  resources: "Assets District",
-  benchmarks: "Proving Grounds",
-  bench: "Proving Grounds",
+  // Core source
+  src: "The Foundry",
+  source: "The Foundry",
+  sources: "The Foundry",
+  lib: "The Mill",
+  libs: "The Mill",
+  core: "The Old Town",
+  pkg: "The Works",
+  internal: "The Inner Works",
+  cmd: "The Command Post",
+  cli: "The Command Post",
+  backend: "The Engine Room",
+  frontend: "The Storefronts",
+  client: "The Storefronts",
+  web: "The Boulevard",
+  app: "Main Street",
+  // Interface
+  components: "The Assembly Halls",
+  component: "The Assembly Halls",
+  ui: "The Façade",
+  widgets: "Fittings Row",
+  views: "The Galleries",
+  pages: "The Promenade",
+  routes: "The Crossroads",
+  screens: "The Picture House",
+  layouts: "The Floor Plans",
+  templates: "The Pattern Shop",
+  hooks: "The Rigging Loft",
+  // Shared helpers
+  utils: "The Tool Shed",
+  util: "The Tool Shed",
+  helpers: "The Tool Shed",
+  common: "The Commons",
+  shared: "The Commons",
+  // Types
+  types: "The Drafting Office",
+  typings: "The Drafting Office",
+  "@types": "The Drafting Office",
+  interfaces: "The Blueprint Office",
+  include: "The Index Office",
+  proto: "The Treaty Office",
+  protos: "The Treaty Office",
+  // State and data
+  store: "The Storehouse",
+  stores: "The Storehouse",
+  state: "The Counting House",
+  models: "The Model Village",
+  model: "The Model Village",
+  db: "The Vaults",
+  database: "The Vaults",
+  migrations: "The Removals Yard",
+  schema: "The Land Registry",
+  schemas: "The Land Registry",
+  data: "The Archives",
+  // Services
+  api: "The Exchange",
+  server: "The Power Station",
+  services: "The Utilities",
+  service: "The Utilities",
+  handlers: "The Switchboard",
+  controllers: "The Signal Box",
+  middleware: "The Toll Gates",
+  // Tests
+  test: "Proving Grounds",
+  tests: "Proving Grounds",
+  __tests__: "Proving Grounds",
+  spec: "The Inspectorate",
+  specs: "The Inspectorate",
+  e2e: "The Test Track",
+  integration: "The Junction Yard",
+  bench: "Speed Trials",
+  benchmark: "Speed Trials",
+  benchmarks: "Speed Trials",
+  fixtures: "The Prop Store",
+  mocks: "The Stage Sets",
+  __mocks__: "The Stage Sets",
+  testdata: "The Specimen Store",
+  "test-data": "The Specimen Store",
+  // Examples
+  examples: "The Showrooms",
+  example: "The Showrooms",
+  demos: "The Exhibition Hall",
+  demo: "The Exhibition Hall",
+  samples: "The Sample Shop",
+  sample: "The Sample Shop",
+  playground: "The Playground",
+  // Docs
+  docs: "The Library",
+  doc: "The Library",
+  documentation: "The Library",
+  guides: "The Library",
+  website: "The Visitor Centre",
+  site: "The Visitor Centre",
+  // Operations
+  scripts: "Maintenance Depot",
+  script: "Maintenance Depot",
+  tools: "The Machine Shop",
+  tooling: "The Machine Shop",
+  bin: "The Engine Sheds",
+  ci: "The Control Tower",
+  ".github": "The Harbour Office",
+  infra: "The Waterworks",
+  infrastructure: "The Waterworks",
+  terraform: "The Waterworks",
+  deploy: "The Shipyard",
+  deployment: "The Shipyard",
+  build: "The Kilns",
+  docker: "The Container Yard",
+  config: "Civic Offices",
+  configs: "Civic Offices",
+  conf: "Civic Offices",
+  settings: "Civic Offices",
+  // Assets
+  assets: "The Depot",
+  static: "The Stockrooms",
+  resources: "The Stockrooms",
+  public: "The Town Square",
+  images: "The Gallery",
+  img: "The Gallery",
+  icons: "The Sign Works",
+  fonts: "The Type Foundry",
+  styles: "The Paint Shop",
+  css: "The Paint Shop",
+  scss: "The Paint Shop",
+  theme: "The Paint Shop",
+  // Packages and extensions
+  packages: "The Warehouses",
+  package: "The Warehouses",
+  apps: "The Boroughs",
+  modules: "The Boroughs",
+  crates: "The Crate Yard",
+  plugins: "The Annexes",
+  addons: "The Annexes",
+  extensions: "The Extension Quarter",
+  // Languages
+  i18n: "The Embassy",
+  l10n: "The Embassy",
+  locales: "The Embassy",
+  locale: "The Embassy",
+  lang: "The Embassy",
+  translations: "The Embassy",
+  // Borrowed code
+  vendor: "The Import Docks",
+  third_party: "The Import Docks",
+  "third-party": "The Import Docks",
+  external: "The Import Docks",
+  deps: "The Import Docks",
 };
+
+/**
+ * Place words for folders with no known name. One is picked per path by a
+ * stable hash, so the same folder is always the same place.
+ */
+const PLACE_SUFFIXES = [
+  "Quarter",
+  "Works",
+  "Yard",
+  "Row",
+  "Heights",
+  "Commons",
+  "Wharf",
+  "Lane",
+] as const;
+
+/** FNV-1a, 32-bit. Stable across runtimes, which is all this needs. */
+function stableHash(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
 
 function titleCase(name: string): string {
   return name
-    .replace(/[_-]+/g, " ")
+    .replace(/^[._@]+/, "")
+    .replace(/[_.\s-]+/g, " ")
     .split(" ")
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
 
+/**
+ * Title Case folder name plus a place word: the one the path hashes to, moved
+ * on by `offset`. Names stay within three words, so a folder name that already
+ * needs three keeps them and takes no suffix, and one that needs more is cut.
+ */
+function placeNameFor(sourcePath: string, offset = 0): string {
+  const parts = segments(sourcePath);
+  const words = titleCase(parts[parts.length - 1]).split(" ").filter(Boolean);
+  if (words.length === 0) words.push("Nameless");
+  if (words.length >= 3 && offset === 0) return words.slice(0, 3).join(" ");
+  const base = words.slice(0, 2).join(" ");
+  const index = (stableHash(parts.join("/").toLowerCase()) + offset) % PLACE_SUFFIXES.length;
+  return `${base} ${PLACE_SUFFIXES[index]}`;
+}
+
 /** Deterministic district name for a source directory. */
 export function districtNameFor(sourcePath: string): string {
   const parts = segments(sourcePath);
   if (parts.length === 0) return OUTSKIRTS_NAME;
-  const key = parts[parts.length - 1].toLowerCase();
-  const known = KNOWN_NAMES[key];
-  if (known && parts.length === 1) return known;
-  return `${titleCase(parts[parts.length - 1])} District`;
+  const known = KNOWN_NAMES[parts[parts.length - 1].toLowerCase()];
+  return known ?? placeNameFor(sourcePath);
+}
+
+/**
+ * `districtNameFor`, made unique within one plan. When the name is taken
+ * (`src` and `source` are both The Foundry), the later district is named for its
+ * own folder with a place word instead, walking the place words until one is
+ * free. `planDistricts` calls this in plan order, so the result is deterministic.
+ */
+export function uniqueDistrictNameFor(sourcePath: string, taken: Set<string>): string {
+  let name = districtNameFor(sourcePath);
+  for (let offset = 0; taken.has(name) && offset < PLACE_SUFFIXES.length; offset++) {
+    name = placeNameFor(sourcePath, offset);
+  }
+  const base = name;
+  for (let n = 2; taken.has(name); n++) name = `${base} ${n}`;
+  taken.add(name);
+  return name;
 }
 
 /** `src/core` -> `d-src-core`. Slugs are lowercase and collision-free. */
@@ -180,12 +346,14 @@ export function planDistricts(entries: readonly TreeEntry[]): DistrictPlan[] {
   const catchAllFiles = uncoveredFiles + (rootNeedsDistrict ? rootFiles : 0);
 
   const taken = new Set<string>();
+  // Outskirts and Root are reserved: no directory district may take them.
+  const takenNames = new Set<string>([OUTSKIRTS_NAME, ROOT_NAME]);
   const maxCount = Math.max(1, ...chosen.map((c) => c.fileCount), catchAllFiles);
 
   const districts: DistrictPlan[] = chosen.map((c) => ({
     id: districtIdFor(c.path, taken),
     sourcePath: `/${c.path}`,
-    name: districtNameFor(c.path),
+    name: uniqueDistrictNameFor(c.path, takenNames),
     purpose: null,
     fileCount: c.fileCount,
     weight: round(c.fileCount / maxCount, 3),
