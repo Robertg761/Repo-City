@@ -259,9 +259,9 @@ Every credential stays on the server. Nothing uses `NEXT_PUBLIC_`.
 
 Yard #3 is open-model. Repo City was built by Claude agents working in parallel git worktrees
 against a written specification ([PLAN.md](./docs/PLAN.md)), with Robert directing and reviewing.
-Every commit names the model that wrote it in a `Co-Authored-By` trailer. The full
-declaration is in [AI_MODELS.md](./AI_MODELS.md). No model runs at request time on the hosted
-demo.
+Robert also used GPT-6 Astra a little. Every commit by a Claude model names it in a
+`Co-Authored-By` trailer. The full declaration is in [AI_MODELS.md](./AI_MODELS.md). No model
+runs at request time on the hosted demo.
 
 A script recorded the demo video from the live site, frame by frame on a real GPU. The
 narration is local text to speech, and the edit is automated. The whole pipeline is in

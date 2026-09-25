@@ -109,8 +109,19 @@ blank line and the URL are part of what gets pasted, so they are counted;
 
 ## 4. AI model declaration
 
-Yard #3 is open-model. Paste this into the model declaration field. It matches
-[AI_MODELS.md](../AI_MODELS.md), which is the source of truth.
+Yard #3 is open-model. The live form has no long declaration field. It asks for the model
+in a 60-character box, then where it was used and an attestation that the named model was
+the primary code generator. The entry is:
+
+```
+Opus 5.5 (primary), Fable 5.1, Opus 5, Sonnet 5, GPT-6 Astra
+```
+
+Where used: "an editor or coding agent". The form also has no separate demo URL field, so the
+live demo reaches voters through the last line of the writeup.
+
+The full declaration below matches [AI_MODELS.md](../AI_MODELS.md), which is the source of
+truth.
 
 ```
 Built with AI coding agents throughout, which Yard #3 permits.
@@ -125,6 +136,7 @@ Development:
   sub-agents from the enhancement round onward: settlement tiers, every issue and PR drawn,
   time of day, the tour, ambient sound, low-end hardening and the submission material.
 - Claude Sonnet 5 (claude-sonnet-5) - one repository-hygiene sub-agent in v0.7.1.
+- GPT-6 Astra - used a little during the build. No commit names it in a trailer.
 - Original plan, drafted before kickoff: several models helped, Claude Fable 5.1
   (claude-fable-5-1) among them.
 
@@ -138,8 +150,9 @@ Runtime, inside the shipped product:
   anyone who deploys their own copy, but it ships disabled, and the demo serves committed
   curated interpretations for the reference repositories instead.
 
-Every commit names its model in a Co-Authored-By trailer. No AI receipts are being submitted
-beyond this declaration and the git history; Yard #3 lists receipts as optional.
+Every commit by a Claude model names it in a Co-Authored-By trailer. No AI receipts are
+being submitted beyond this declaration and the git history; Yard #3 lists receipts as
+optional.
 ```
 
 The block matches AI_MODELS.md, which has no open entries left.
