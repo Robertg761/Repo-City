@@ -35,7 +35,7 @@ finish from any machine with a checkout of this repository.
 - [x] **Model declaration** complete, with no open entries. Section 4 matches
       [AI_MODELS.md](../AI_MODELS.md).
 - [x] **Writeup** is 491 of 500 characters, pure ASCII.
-- [x] **Checks on `main`**: typecheck, lint, 2,243 tests and the production build pass.
+- [x] **Checks on `main`**: typecheck, lint, 2,244 tests and the production build pass.
 - [x] **Secret scan** of the whole history is clean. `.env.local` is untracked, and the only
       `NEXT_PUBLIC_` variables are the version and the build SHA.
 - [x] **Vercel env**: `FIXTURE_FALLBACK` and `GITHUB_TOKEN` are set, and `AI_PROVIDER` is
