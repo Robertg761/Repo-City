@@ -26,9 +26,9 @@ const PROMISE =
  */
 const OG_IMAGE = "https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png";
 
-/** Alt text describes the actual committed shot: `facebook/react` as the metropolis "Greater react" at evening. */
+/** Alt text describes the actual committed image: the cover, with `facebook/react` as a floating city at dusk. */
 const OG_ALT =
-  "The facebook/react repository rendered as the metropolis \"Greater react\" at evening: a tower skyline, labelled districts, a motorway ring and highways out to farmland.";
+  "Repo City cover: the facebook/react repository rendered as a city on a floating block of earth at dusk, with the title Repo City and the line \"Live in your GitHub repo.\"";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://repo-city-five.vercel.app"),
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
       {
         url: OG_IMAGE,
         width: 1200,
-        height: 750,
+        height: 675,
         alt: OG_ALT,
       },
     ],

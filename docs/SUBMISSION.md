@@ -1,27 +1,25 @@
 # Hackyard Yard #3 submission material
 
-## Status: what's left (updated 2026-09-24)
+## Status: submitted (updated 2026-09-25)
 
-**Everything is built, deployed, recorded and documented. The only thing left is filling in
-and submitting the Hackyard form.** This file holds every value the form needs, so you can
-finish from any machine with a checkout of this repository.
+**Submitted to Yard #3 on 2026-09-25 at about 02:20 UTC**, well before the 18:00 UTC deadline.
+The submission page is
+<https://hackyard.tech/yards/yard-3/85f688cb-e177-4c7b-a0ec-a3abd2ed8e8b>. It shows the
+cover image, the writeup, the embedded video, the model line from section 4 and a repo timing
+panel reading "Repo created during the build window".
 
-### Left to do: only Robert can do these
+### What the rules allow from here
 
-1. [ ] **Confirm the Yard spot is still held** on the Hackyard site (see the checklist below).
-2. [ ] **Fill in the Hackyard form**, top to bottom:
-   - repository URL, [section 1](#1-repository-url)
-   - demo URL, [section 2](#2-demo-url)
-   - writeup, [section 3](#3-writeup-500-character-maximum)
-   - AI model declaration, [section 4](#4-ai-model-declaration)
-   - screenshot upload `docs/screenshot.jpg`, [section 5](#5-screenshot)
-   - demo video URL, [section 6](#6-demo-video)
-3. [ ] **Play the video back on the submission page** and check it embeds.
-4. [ ] **Submit early: Friday 25 September, 12:30-13:30 NDT.** The hard deadline is 18:00 UTC
-   (15:30 NDT). You can edit the submission until voting opens, and the earliest submission
-   wins an exact tie.
-5. [ ] **Optional, after submitting:** on the morning of voting, open the live demo in a private
-   window and survey one repository, to confirm the GitHub token hasn't expired.
+- The submission stays editable until voting opens at 18:00 UTC on Friday 25 September.
+  Resubmitting replaces the old entry, so change it only if something is wrong.
+- The repository is not locked, but every submission page shows the span from first to last
+  commit next to the build window. Commit nothing after 18:00 UTC on 25 September, or the last
+  commit lands outside the window in public.
+
+### Left to do
+
+1. [ ] **Optional:** on the morning of voting, open the live demo in a private window and
+   survey one repository, to confirm the GitHub token hasn't expired.
 
 ### Done, and how it was checked
 
@@ -40,7 +38,7 @@ finish from any machine with a checkout of this repository.
       `NEXT_PUBLIC_` variables are the version and the build SHA.
 - [x] **Vercel env**: `FIXTURE_FALLBACK` and `GITHUB_TOKEN` are set, and `AI_PROVIDER` is
       unset, so the runtime is none.
-- [x] **Link preview**: `og:image` resolves to the React metropolis shot, with a large Twitter card.
+- [x] **Link preview**: `og:image` resolves to the cover (1200 x 675), with a large Twitter card.
 
 A copy-paste sheet with the same values, the video file, its captions and its thumbnail also
 exists at `~/Repo-City-Submission/` on the build machine. It's a convenience only. Nothing in
@@ -111,7 +109,7 @@ blank line and the URL are part of what gets pasted, so they are counted;
 
 Yard #3 is open-model. The live form has no long declaration field. It asks for the model
 in a 60-character box, then where it was used and an attestation that the named model was
-the primary code generator. The entry is:
+the primary code generator. The submitted entry is:
 
 ```
 Opus 5.5 (primary), Fable 5.1, Opus 5, Sonnet 5, GPT-6 Astra
@@ -165,22 +163,22 @@ The block matches AI_MODELS.md, which has no open entries left.
 docs/screenshot.jpg
 ```
 
-1600 x 1000 JPEG, 350 KB, captured on a real GPU (ANGLE Vulkan) from v0.6.0: `facebook/react`
-surveyed live, drawn as the metropolis "Greater react" at evening, legend folded, camera
-lowered to a three-quarter aerial.
+The cover image: 1600 x 900 JPEG. The upload itself was the 2560 x 1440 version from
+`~/Repo-City-Submission/cover-final.jpg`. Hackyard shows card images at 16:9, so the cover is
+16:9 and nothing gets cropped.
 
-In one frame it shows the settlement tier, five labelled districts with their real folder
-paths, the tower skyline, the motorway ring and highways out, farmland at the edges,
-construction cranes, the civic centre, the fire station and the transit station, the chip
-"500 of 514 pull requests on the streets" and the health card reading `85 Thriving`.
+`facebook/react` was surveyed live and rendered at 4K on a real GPU, at evening, from `main`.
+The city was then lifted off its ground plane and composed as a floating block over a dusk sky
+and a faint perspective grid, with the title "Repo City" and the line "Live in your GitHub
+repo." The city is the real render. The earth block, the sky, the grid and the type are
+artwork around it; the app itself does not draw an earth block.
 
-This is the image Hackyard puts on the project card, so it does most of the explaining. Upload
-this file. `docs/screenshot.png` is the same shot at 1200 x 750 for the link preview
-(`og:image` in `app/layout.tsx`); do not upload that one.
+`docs/screenshot.png` is the same cover at 1200 x 675 for the link preview (`og:image` in
+`app/layout.tsx`).
 
-A second set in `docs/screenshots/` shows the tiers side by side (village, town, city), the
-metropolis at night, a crowd object with the inspector open, a tour frame and the phone
-inspector. Use any of them if the form takes more than one image.
+The screenshots in `docs/screenshots/` show the app itself: the tiers side by side (village,
+town, city), the metropolis at night, a crowd object with the inspector open, a tour frame and
+the phone inspector.
 
 ---
 
@@ -253,4 +251,4 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
 - [x] The link preview works. `app/layout.tsx` points `og:image` at
       `https://raw.githubusercontent.com/Robertg761/Repo-City/main/docs/screenshot.png`, which
       shows the new shot only once this work is merged to `main` and pushed. Open that URL
-      after pushing and check it is the React metropolis, not the old hono shot.
+      after pushing and check it is the cover, not the older metropolis shot.

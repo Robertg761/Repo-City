@@ -4,7 +4,7 @@
 
 **Demo video (77 s): <https://youtu.be/dU3AJCfMiNs>**
 
-![facebook/react drawn as Greater react, a metropolis at evening: towers in five labelled districts, avenues, a highway ring, farmland at the edges and a health score of 85 in the corner](docs/screenshot.jpg)
+![Repo City cover: facebook/react rendered as a city on a floating block of earth at dusk, over a faint grid floor, with the title Repo City and the line "Live in your GitHub repo."](docs/screenshot.jpg)
 
 Type the name of any public GitHub repository and it becomes a 3D city you can fly around.
 Files are buildings and top-level folders are districts. Every open issue is something wrong
