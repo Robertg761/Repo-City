@@ -228,12 +228,12 @@ Mirrors PLAN.md section 0.13. Work top to bottom.
       demo alive through a GitHub rate limit during voting is silently disabled. See
       [QA-2026-09-21.md](./QA-2026-09-21.md), bug 1.
 - [x] `AI_PROVIDER` is `none` (or unset) in Vercel, so the declaration in section 4 stays true.
-- [~] `GITHUB_TOKEN` in Vercel is a fine-grained token with public-repository read only, and
+- [x] `GITHUB_TOKEN` in Vercel is a fine-grained token with public-repository read only, and
       has not expired. The whole demo dies without it. The settlement-era survey pages through
       up to 1,000 issues and 500 PRs, so it spends more of the token's hourly budget per
       uncached repository than v0.3 did; the 15-minute cache and the fixture fallback absorb
-      repeat visits. *Status 2026-09-24:* the token works, because live surveys succeed. Its
-      expiry date can't be seen from the CLI; check it in GitHub > Settings > Developer settings.
+      repeat visits. *Status 2026-09-24:* the token works, because live surveys succeed, and
+      Robert confirmed its expiry falls after voting ends.
 - [x] `pnpm typecheck && pnpm lint && pnpm test && pnpm build` all pass on `main`.
 - [x] Secret scan is clean (`git grep -nIE 'ghp_|github_pat_|sk-ant-'`), `.env.local` is not
       tracked, and no `NEXT_PUBLIC_` variable holds a credential.
