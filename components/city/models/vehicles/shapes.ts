@@ -818,12 +818,17 @@ const UNLIT: Record<string, string> = {
 };
 const unlit = (hex: string) => UNLIT[hex] ?? hex;
 
-/** The Blender wheel (`blender/vehicles2/parts.py`) standing at a wheel position of a body. */
-function blenderWheelParts(x: number, z: number, radius: number): Part[] {
+/**
+ * The Blender wheel (`blender/vehicles2/parts.py`) standing at a wheel
+ * position of a body, narrowed to the procedural parked tyre's width
+ * (`halfWidth` either side of the position, hub included) so a parked vehicle
+ * keeps its lane and footprint.
+ */
+function blenderWheelParts(x: number, z: number, radius: number, halfWidth = 0.11): Part[] {
   return importedParts(PARTS_MODEL, "Wheel", (hex) => hex).map((part) => ({
     ...part,
     position: [x, radius, z] as Triple,
-    scale: radius,
+    scale: [halfWidth / 0.51, radius, radius] as Triple,
   }));
 }
 
@@ -1101,7 +1106,7 @@ function tractorWheelParts(): Part[] {
 function blenderTractorParkedParts(): Part[] {
   return [
     ...tractorParts(),
-    ...TRACTOR_SPEC.wheels.flatMap(([x, z], i) => blenderWheelParts(x, z, TRACTOR_SPEC.wheelRadii[i])),
+    ...TRACTOR_SPEC.wheels.flatMap(([x, z], i) => blenderWheelParts(x, z, TRACTOR_SPEC.wheelRadii[i], TRACTOR_SPEC.wheelWidths[i] / 2 + 0.012)),
     ...importedParts(PARTS_MODEL, "LampsTractor", unlit).map(vehicleSurface),
   ];
 }

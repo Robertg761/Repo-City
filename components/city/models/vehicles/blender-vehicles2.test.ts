@@ -16,15 +16,19 @@ import {
   BODY_SPECS,
   HEADLIGHT,
   TAILLIGHT,
+  MAX_BODY_WIDTH,
   TRACTOR_SPEC,
   TRUCK_BODIES,
   VEHICLE_BODIES,
   blenderBodyParts,
   blenderLightsGeometry,
+  blenderTractorParts,
   blenderTractorLightsGeometry,
   blenderWheelGeometry,
   lightsGeometry,
+  parkedGeometry,
   tractorLightsGeometry,
+  tractorParkedGeometry,
   truckParts,
   wheelGeometry,
   type VehicleBody,
@@ -418,5 +422,83 @@ describe("the switch", () => {
     expect(triangleCount(overflow.faceGeometry())).toBe(triangleCount(faceGeometry()));
     // The default test run sees the procedural parts.
     expect(triangleCount(frameGeometry())).toBe(72);
+  });
+});
+
+describe("parked vehicles with the Blender parts", () => {
+  let shapes: typeof import("./shapes");
+  const procedural = { parked: new Map<VehicleBody, BufferGeometry>(), tractor: null as BufferGeometry | null };
+
+  beforeAll(async () => {
+    for (const kind of VEHICLE_BODIES) procedural.parked.set(kind, parkedGeometry(kind));
+    procedural.tractor = tractorParkedGeometry();
+    vi.resetModules();
+    vi.doMock("../modelSource", () => ({ BLENDER_MODELS: true }));
+    shapes = await import("./shapes");
+  });
+  afterAll(() => {
+    vi.doUnmock("../modelSource");
+    vi.resetModules();
+  });
+
+  it("bake the body, the Blender wheels and unlit lamps into one cached geometry", () => {
+    for (const kind of VEHICLE_BODIES) {
+      const parked = shapes.parkedGeometry(kind);
+      expect(shapes.parkedGeometry(kind)).toBe(parked);
+      const expected = triangleCount(body(kind)) + 4 * triangleCount(blenderWheelGeometry()) + triangleCount(blenderLightsGeometry(kind));
+      expect(triangleCount(parked), kind).toBe(expected);
+      // Within the fleet's per-car budget, like a moving car, and no fatter than the procedural one.
+      expect(triangleCount(parked), kind).toBeLessThan(520);
+      const box = boxOf(parked);
+      const proc = boxOf(procedural.parked.get(kind)!);
+      expect(box.max.x - box.min.x, kind).toBeLessThanOrEqual(proc.max.x - proc.min.x + 0.01);
+      expect(box.min.y, kind).toBeGreaterThanOrEqual(-1e-3);
+      expect(box.min.y, kind).toBeLessThan(0.03);
+      expect(box.max.z, kind).toBeCloseTo(proc.max.z, 1);
+      expect(attributes(parked)).toEqual(attributes(procedural.parked.get(kind)!));
+    }
+  });
+
+  it("stand each wheel at its spec position and radius, and keep the lamps dark", () => {
+    for (const kind of VEHICLE_BODIES) {
+      const spec = BODY_SPECS[kind];
+      const tris = triangles(shapes.parkedGeometry(kind));
+      for (const [x, z] of spec.wheels) {
+        const wheel = tris.filter((tri) => tri.every((p) => Math.abs(p.z - z) < spec.wheelRadius * 1.01 && Math.abs(p.y - spec.wheelRadius) < spec.wheelRadius * 1.01 && Math.abs(p.x - x) < 0.3 * spec.wheelRadius + 0.3 * 1 && Math.sign(p.x) === Math.sign(x)
+          && Math.hypot(p.y - spec.wheelRadius, p.z - z) > spec.wheelRadius * 0.999));
+        expect(wheel.length, `${kind} wheel ${x},${z}`).toBeGreaterThan(0);
+        const outer = boxAround(wheel);
+        expect(outer.min.y).toBeCloseTo(0, 3);
+        expect(outer.max.y).toBeCloseTo(spec.wheelRadius * 2, 3);
+      }
+      // No lit colour survives: the lenses are switched off.
+      const colour = shapes.parkedGeometry(kind).getAttribute("color");
+      for (const lit of [new Color(HEADLIGHT), new Color(TAILLIGHT)]) {
+        for (let i = 0; i < colour.count; i++) {
+          const d = Math.abs(colour.getX(i) - lit.r) + Math.abs(colour.getY(i) - lit.g) + Math.abs(colour.getZ(i) - lit.b);
+          expect(d).toBeGreaterThan(1e-3);
+        }
+      }
+    }
+  });
+
+  it("park the tractor on its Blender wheels, in its lane and under its budget", () => {
+    const parked = shapes.tractorParkedGeometry();
+    expect(shapes.tractorParkedGeometry()).toBe(parked);
+    const expected = triangleCount(mergeParts(blenderTractorParts())) + 2 * 2 * triangleCount(blenderWheelGeometry()) + triangleCount(blenderTractorLightsGeometry());
+    expect(triangleCount(parked)).toBe(expected);
+    expect(triangleCount(parked)).toBeLessThan(700);
+    const box = boxOf(parked);
+    expect(box.max.x - box.min.x).toBeLessThanOrEqual(MAX_BODY_WIDTH + 1e-6);
+    expect(box.max.z - box.min.z).toBeLessThanOrEqual(TRACTOR_SPEC.length + 0.02);
+    expect(box.min.y).toBeGreaterThanOrEqual(-1e-3);
+    expect(attributes(parked)).toEqual(attributes(procedural.tractor!));
+    // Big wheels behind reach the rear radius, small ones ahead the front's.
+    TRACTOR_SPEC.wheels.forEach(([x, z], i) => {
+      const r = TRACTOR_SPEC.wheelRadii[i];
+      const at = triangles(parked).filter((tri) => tri.every((p) => Math.abs(p.z - z) < r * 1.01 && Math.abs(Math.hypot(p.y - r, p.z - z) - r) < 1e-3 && Math.sign(p.x) === Math.sign(x)));
+      expect(at.length, `wheel ${x},${z}`).toBeGreaterThan(0);
+      expect(boxAround(at).max.y).toBeCloseTo(2 * r, 3);
+    });
   });
 });
