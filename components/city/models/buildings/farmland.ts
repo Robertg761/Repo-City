@@ -26,6 +26,9 @@ import { geometryCache, mergeParts, prismGeometry, type Part } from "../props/ge
 import { addQuad, emptyDraft } from "./mesh";
 import { toGeometry } from "./geometry";
 import { SURFACE, type SurfaceId } from "../../textures/surface-types";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as STREET2_MODEL } from "../props/street2.model";
 
 export type Crop = FieldPatch["crop"];
 
@@ -233,19 +236,42 @@ export function groundGeometry(): BufferGeometry {
   return cache("ground");
 }
 
+/** The Blender node that stands in for a cache key (`blender/street2/street2.py`). */
+const blenderNode = (key: string): string | null => {
+  if (key === "hedge") return "Hedge";
+  if (key === "bale") return "Bale";
+  if (key.startsWith("row:")) return `Row${key.slice(4)}`;
+  return null;
+};
+
+/**
+ * The farmland the Blender models draw: hedge, bales and crop rows come from
+ * the street2 set, authored at a real run length with their occlusion baked
+ * there and squeezed to the unit the instances stretch. The ground stays two
+ * triangles: nothing beats that.
+ */
+const blenderCache = geometryCache<string>((key) => {
+  const node = blenderNode(key);
+  if (!node) return cache(key);
+  return mergeParts(importedParts(STREET2_MODEL, node, (hex) => hex));
+});
+
+/** The Blender farmland whatever the flag says, for its tests and renders. */
+export const blenderFarmGeometry = (key: "hedge" | "bale" | `row:${Crop}`): BufferGeometry => blenderCache(key);
+
 /** A unit-long ridge along x, one wide and one high: a crop row. */
 export function rowGeometry(crop: Crop): BufferGeometry {
-  return cache(`row:${crop}`);
+  return (BLENDER_MODELS ? blenderCache : cache)(`row:${crop}`);
 }
 
 /** A unit-long hedge along x, `HEDGE_WIDTH` by `HEDGE_HEIGHT` in section. */
 export function hedgeGeometry(): BufferGeometry {
-  return cache("hedge");
+  return (BLENDER_MODELS ? blenderCache : cache)("hedge");
 }
 
 /** A round bale lying on its side, about 1.1 across. */
 export function baleGeometry(): BufferGeometry {
-  return cache("bale");
+  return (BLENDER_MODELS ? blenderCache : cache)("bale");
 }
 
 /** A few uneven crowns along a row, with one shared mesh and no added instances. */

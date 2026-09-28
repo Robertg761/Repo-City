@@ -27,6 +27,7 @@ import { crowdRect, type LocalRect } from "../../blockages";
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as FURNITURE_MODEL } from "./streetFurniture.model";
+import { MODEL as STREET2_MODEL } from "./street2.model";
 
 /** Section 37's "tiny props" allowance, over and above the trees and lamps. */
 export const SMALL_PROP_BUDGET = 150;
@@ -449,22 +450,22 @@ const furnitureBuilder = geometryCache<string>((key) => {
 });
 
 /**
- * The kinds modelled in Blender (`blender/props/street_furniture.py`), for
- * the Blender models (the default). The bus stop stays procedural: its Blender version did
- * not beat it within the budget.
+ * The kinds modelled in Blender, for the Blender models (the default): the
+ * bench, bin, bushes and beds from `blender/props/street_furniture.py`, and
+ * the bus stop from `blender/street2/street2.py`.
  */
-const FURNITURE_NODE: Partial<Record<FurnitureKind, string>> = {
-  bench: "Bench",
-  bin: "Bin",
-  bush: "Bush",
-  bed: "Bed",
+const FURNITURE_NODE: Record<FurnitureKind, { model: typeof FURNITURE_MODEL; node: string }> = {
+  bench: { model: FURNITURE_MODEL, node: "Bench" },
+  bin: { model: FURNITURE_MODEL, node: "Bin" },
+  stop: { model: STREET2_MODEL, node: "BusStop" },
+  bush: { model: FURNITURE_MODEL, node: "Bush" },
+  bed: { model: FURNITURE_MODEL, node: "Bed" },
 };
 
 const blenderFurnitureBuilder = geometryCache<string>((key) => {
   const [kind, tone] = key.split(":");
-  const node = FURNITURE_NODE[kind as FurnitureKind];
-  if (!node) return furnitureBuilder(key);
-  return mergeParts(importedParts(FURNITURE_MODEL, node, (hex) => desaturate(hex, Number(tone))));
+  const { model, node } = FURNITURE_NODE[kind as FurnitureKind];
+  return mergeParts(importedParts(model, node, (hex) => desaturate(hex, Number(tone))));
 });
 
 /** The merged geometry for one kind of prop at the city's current tone. */

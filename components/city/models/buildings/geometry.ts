@@ -13,6 +13,10 @@ import { FACINGS, LAYER, addBox, addCylinder, addPanel, addQuad, emptyDraft, typ
 import { archetypeModel } from "./models";
 import type { PropKind } from "./placement";
 import { SURFACE } from "../../textures/surface-types";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { mergeParts } from "../props/geometry";
+import { MODEL as STREET2_MODEL } from "../props/street2.model";
 
 export function toGeometry(draft: MeshDraft): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -64,6 +68,7 @@ let panelGeometry: BufferGeometry | null = null;
  * it is a skylight, thin and tall it is an antenna mast with a tip.
  */
 export function propBlockGeometry(): BufferGeometry {
+  if (BLENDER_MODELS) return blenderPropBlockGeometry();
   if (blockGeometry) return blockGeometry;
   const draft = emptyDraft();
   draft.surfaceValue = SURFACE.metal;
@@ -87,6 +92,7 @@ export function propBlockGeometry(): BufferGeometry {
 
 /** A water tank on legs, with the pipe that makes it read as plumbing. */
 export function propTankGeometry(): BufferGeometry {
+  if (BLENDER_MODELS) return blenderPropTankGeometry();
   if (tankGeometry) return tankGeometry;
   const draft = emptyDraft();
   draft.surfaceValue = SURFACE.metal;
@@ -114,6 +120,23 @@ export function propTankGeometry(): BufferGeometry {
   addCylinder(draft, { x: -0.17, y: 0.9, z: 0.03, radius: 0.105, h: 0.018, segments: 8, color: [0.64, 0.66, 0.69] });
   tankGeometry = toGeometry(draft);
   return tankGeometry;
+}
+
+let blenderBlock: BufferGeometry | null = null;
+let blenderTank: BufferGeometry | null = null;
+
+/**
+ * The Blender rooftop unit (`blender/street2/street2.py`, node `Block`): the
+ * same unit box, louvred on every side with a fan well on top. Its vertex
+ * colours are the same multipliers on the roof prop's instance colour.
+ */
+export function blenderPropBlockGeometry(): BufferGeometry {
+  return (blenderBlock ??= mergeParts(importedParts(STREET2_MODEL, "Block", (hex) => hex)));
+}
+
+/** The Blender water tank (node `Tank`): a drum on braced legs with hoops and a hatch. */
+export function blenderPropTankGeometry(): BufferGeometry {
+  return (blenderTank ??= mergeParts(importedParts(STREET2_MODEL, "Tank", (hex) => hex)));
 }
 
 /** A single quad facing +z: one lit window (PLAN.md section 19). */
