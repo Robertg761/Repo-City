@@ -28,9 +28,11 @@ import {
   addPanel,
   addQuad,
   emptyDraft,
+  surfaceColor,
   type MeshDraft,
   type Rgb3,
 } from "./mesh";
+import { SURFACE } from "../../textures/surface-types";
 
 export interface CivicPalette {
   wall: Rgb3;
@@ -91,10 +93,19 @@ function addWindow(
   },
 ): void {
   addPanel(drafts.body, { ...spec, plane: spec.plane + CIVIC_LAYER }, palette.window);
+  const frame = Math.min(0.075, spec.w * 0.08, spec.h * 0.08);
+  const plane = spec.plane + CIVIC_LAYER * 3;
+  for (const side of [-1, 1]) {
+    addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
+    addPanel(drafts.body, { ...spec, v: spec.v + side * (spec.h + frame) / 2, w: spec.w, h: frame, plane }, palette.trim);
+  }
+  // Proud glazing bars remain visible in front of the warm glass at night.
+  addPanel(drafts.body, { ...spec, w: frame * 0.7, plane }, palette.trim);
+  addPanel(drafts.body, { ...spec, h: frame * 0.7, plane }, palette.trim);
   if (spec.lit !== false) {
     addPanel(
       drafts.glow,
-      { ...spec, plane: spec.plane + CIVIC_LAYER * 2, w: spec.w * 0.82, h: spec.h * 0.82 },
+      { ...spec, plane: spec.plane + CIVIC_LAYER * 2, w: spec.w * 0.82, h: spec.h * 0.82, surface: SURFACE.glass },
       [1, 1, 1],
     );
   }
@@ -199,6 +210,11 @@ function addClock(
   addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER * 2, radius: r }, palette.stone);
   addPanel(draft, { ...at, u: 0, v: spec.v + r * 0.35, w: r * 0.16, h: r * 0.9, plane: spec.plane + CIVIC_LAYER * 3 }, palette.door);
   addPanel(draft, { ...at, u: r * 0.3, v: spec.v, w: r * 0.7, h: r * 0.14, plane: spec.plane + CIVIC_LAYER * 3 }, palette.door);
+  for (let hour = 0; hour < 12; hour++) {
+    const angle = (hour * Math.PI) / 6;
+    addPanel(draft, { ...at, u: Math.sin(angle) * r * 0.78, v: spec.v + Math.cos(angle) * r * 0.78, w: r * 0.065, h: r * 0.065, plane: spec.plane + CIVIC_LAYER * 3 }, palette.door);
+  }
+  addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER * 4, radius: r * 0.075, segments: 8 }, palette.metal);
 }
 
 /** A flag on a pole, with the halyard cleat that sells the scale. */
@@ -340,7 +356,7 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   });
 
   // A flat roof with a cornice and a lantern over the reading room.
-  addBox(body, { y: base + h, w: w + 0.5, h: 0.3, d: d + 0.5, color: p.roof });
+  addBox(body, { y: base + h, w: w + 0.5, h: 0.3, d: d + 0.5, color: p.roof, surface: SURFACE.concrete });
   addBalustrade(body, p, { y: base + h + 0.3, h: h * 0.07, w: w * 0.92, d: d * 0.92, posts: 7 });
   addBox(body, { y: base + h + 0.3, z: -d * 0.06, w: w * 0.34, h: h * 0.16, d: d * 0.3, color: p.wall });
   for (const facing of ["+z", "-z"] as const) {
@@ -425,7 +441,7 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   addBox(body, { y: base, z: porchZ, w: w * 0.2, h: h * 0.4, d: 0.16, color: p.door });
 
   // Hipped roof and balustrade.
-  addBox(body, { y: base + h, w: w + 0.44, h: 0.28, d: d + 0.44, color: p.roof });
+  addBox(body, { y: base + h, w: w + 0.44, h: 0.28, d: d + 0.44, color: p.roof, surface: SURFACE.concrete });
   addBalustrade(body, p, { y: base + h + 0.28, h: h * 0.06, w: w * 0.94, d: d * 0.94, posts: 6 });
 
   // The clock tower: shaft, clock stage, belfry, spire.
@@ -556,7 +572,7 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 
   // A heavy cornice and a low roof with vents.
   addBox(body, { y: base + h * 0.92, w: w + 0.4, h: h * 0.08, d: d + 0.4, color: p.trim });
-  addBox(body, { y: base + h, w: w * 0.96, h: 0.16, d: d * 0.96, color: p.roof });
+  addBox(body, { y: base + h, w: w * 0.96, h: 0.16, d: d * 0.96, color: p.roof, surface: SURFACE.concrete });
   for (const x of [-w * 0.26, w * 0.26]) {
     addCylinder(body, { x, y: base + h + 0.16, z: -d * 0.2, radius: w * 0.05, h: h * 0.1, segments: 6, color: p.metal });
   }
@@ -622,7 +638,7 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   // A reading annex with its own door, tucked against the main block.
   const annexW = w * 0.5;
   addBox(body, { x: w * 0.3, y: base, z: d * 0.62, w: annexW, h: h * 0.4, d: d * 0.3, color: p.wall });
-  addBox(body, { x: w * 0.3, y: base + h * 0.4, z: d * 0.62, w: annexW + 0.26, h: 0.18, d: d * 0.3 + 0.26, color: p.roof });
+  addBox(body, { x: w * 0.3, y: base + h * 0.4, z: d * 0.62, w: annexW + 0.26, h: 0.18, d: d * 0.3 + 0.26, color: p.roof, surface: SURFACE.concrete });
   addBox(body, { x: w * 0.3, y: base, z: d * 0.77, w: annexW * 0.3, h: h * 0.26, d: 0.14, color: p.door });
 
   return drafts;
@@ -659,6 +675,7 @@ function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
       [x1, top + y1, -shedD / 2],
       [x0, top + y0, -shedD / 2],
       p.roof,
+      SURFACE.metal,
     );
     // End caps, so the barrel is not hollow from the street.
     addQuad(body, [0, top, shedD / 2], [x0, top + y0, shedD / 2], [x1, top + y1, shedD / 2], [x1, top + y1, shedD / 2], p.wall);
@@ -824,7 +841,7 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   for (const x of [-w * 0.24, w * 0.24]) {
     addBox(body, { x, y: base + porchH * 0.34, z: porchZ + porchD * 0.36, w: w * 0.2, h: 0.1, d: w * 0.04, color: p.stone });
   }
-  addBox(body, { y: base + porchH, z: porchZ, w: w * 0.92, h: 0.16, d: porchD + 0.3, color: p.roof });
+  addBox(body, { y: base + porchH, z: porchZ, w: w * 0.92, h: 0.16, d: porchD + 0.3, color: p.roof, surface: SURFACE.concrete });
   addBox(body, { y: base, z: d / 2, w: w * 0.2, h: wallH * 0.52, d: 0.16, color: p.door });
   addWindow(drafts, p, {
     facing: "+z",
@@ -859,7 +876,7 @@ const BUILDERS: Record<LandmarkFile, (plot: CivicPlot, palette: CivicPalette) =>
 
 /** The plinth every civic building stands on: it reads as important. */
 function addPlinth(draft: MeshDraft, plot: CivicPlot, p: CivicPalette): void {
-  addBox(draft, { y: 0, w: plot.w * 1.3, h: PLINTH_H * 0.7, d: plot.d * 1.3, color: p.roof });
+  addBox(draft, { y: 0, w: plot.w * 1.3, h: PLINTH_H * 0.7, d: plot.d * 1.3, color: p.roof, surface: SURFACE.concrete });
   addBox(draft, { y: PLINTH_H * 0.7, w: plot.w * 1.24, h: PLINTH_H * 0.3, d: plot.d * 1.24, color: p.stone });
 }
 
@@ -869,7 +886,19 @@ export function buildCivic(
   plot: CivicPlot,
   palette: CivicPalette,
 ): CivicDrafts {
-  const drafts = BUILDERS[kind](plot, palette);
-  addPlinth(drafts.body, plot, palette);
+  const authored: CivicPalette = {
+    wall: surfaceColor(palette.wall, SURFACE.plaster),
+    stone: surfaceColor(palette.stone, SURFACE.stone),
+    roof: surfaceColor(palette.roof, SURFACE.slate),
+    accent: surfaceColor(palette.accent, SURFACE.plaster),
+    trim: surfaceColor(palette.trim, SURFACE.stone),
+    door: surfaceColor(palette.door, SURFACE.timber),
+    window: surfaceColor(palette.window, SURFACE.glass),
+    metal: surfaceColor(palette.metal, SURFACE.metal),
+    flag: surfaceColor(palette.flag, SURFACE.fabric),
+    containers: palette.containers.map((color) => surfaceColor(color, SURFACE.metal)) as [Rgb3, Rgb3, Rgb3],
+  };
+  const drafts = BUILDERS[kind](plot, authored);
+  addPlinth(drafts.body, plot, authored);
   return drafts;
 }

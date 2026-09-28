@@ -34,9 +34,11 @@
  * keeps the city's models; its hall is the town hall.
  */
 
-import { useCallback, useMemo, useRef, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Plane, Vector3, type BufferGeometry, type Group, type MeshStandardMaterial } from "three";
+import { MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group } from "three";
+import { buildingDetailMaterial } from "./models/buildings/material";
+import { useQuality } from "./quality";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import type { SettlementTier } from "@/types/analysis";
 import type { Landmark } from "@/types/city";
@@ -134,20 +136,24 @@ function Part({
   /** World-space clipping planes, shadows included. */
   clip?: Plane[];
 }) {
+  const { textureSize, anisotropy } = useQuality();
+  const material = useMemo(() => {
+    const parameters = {
+      color, roughness, metalness,
+      emissive: emissive ?? "#000000", emissiveIntensity,
+      toneMapped: emissive === undefined,
+      clippingPlanes: clip ?? null, clipShadows: clip !== undefined,
+      vertexColors: false,
+    };
+    return buildingDetailMaterial(parameters, {
+      textureSize, anisotropy, surfaceAttribute: geometry?.hasAttribute("surface") ?? false,
+    });
+  }, [geometry, color, roughness, metalness, emissive, emissiveIntensity, clip, textureSize, anisotropy]);
+  useEffect(() => () => material.dispose(), [material]);
   if (!geometry) return null;
   return (
     <mesh geometry={geometry} castShadow={cast} receiveShadow={receive}>
-      <meshStandardMaterial
-        ref={materialRef}
-        color={color}
-        roughness={roughness}
-        metalness={metalness}
-        emissive={emissive ?? "#000000"}
-        emissiveIntensity={emissiveIntensity}
-        toneMapped={emissive === undefined}
-        clippingPlanes={clip ?? null}
-        clipShadows={clip !== undefined}
-      />
+      <primitive ref={materialRef} object={material} attach="material" />
     </mesh>
   );
 }

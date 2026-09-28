@@ -30,12 +30,14 @@ import {
   Float32BufferAttribute,
   LatheGeometry,
   Matrix4,
+  PlaneGeometry,
   Quaternion,
   SphereGeometry,
   Vector2,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { SURFACE_ATTRIBUTE, type SurfaceId } from "../../textures/surface-types";
 
 export type V3 = [number, number, number];
 
@@ -116,6 +118,7 @@ function gablePrism(halfWidth: number, height: number, depth: number): BufferGeo
  */
 export class Assembly<S extends string> {
   private readonly groups = new Map<S, BufferGeometry[]>();
+  constructor(private readonly surfaces: Partial<Record<S, SurfaceId>> = {}) {}
 
   /** Adds an already-built geometry. The geometry is consumed, not copied. */
   add(slot: S, geometry: BufferGeometry, place: Place = {}): this {
@@ -125,6 +128,11 @@ export class Assembly<S extends string> {
   }
 
   private push(slot: S, geometry: BufferGeometry): void {
+    if (!geometry.hasAttribute(SURFACE_ATTRIBUTE)) {
+      const values = new Float32Array(geometry.getAttribute("position").count);
+      values.fill(this.surfaces[slot] ?? 0);
+      geometry.setAttribute(SURFACE_ATTRIBUTE, new Float32BufferAttribute(values, 1));
+    }
     const list = this.groups.get(slot);
     if (list) list.push(geometry);
     else this.groups.set(slot, [geometry]);
@@ -132,6 +140,17 @@ export class Assembly<S extends string> {
 
   box(slot: S, size: V3, place?: Place): this {
     return this.add(slot, new BoxGeometry(size[0], size[1], size[2]), place);
+  }
+
+  /** A marking facing +z, held clear of its host at overview depth precision. */
+  panel(slot: S, width: number, height: number, place: Place = {}): this {
+    const rot = place.rot ?? [0, 0, 0];
+    const offset = new Vector3(0, 0, 0.024).applyEuler(new Euler(...rot));
+    const at = place.at ?? [0, 0, 0];
+    return this.add(slot, new PlaneGeometry(width, height), {
+      ...place,
+      at: [at[0] + offset.x, at[1] + offset.y, at[2] + offset.z],
+    });
   }
 
   /** A cylinder or truncated cone, standing on +y by default. */

@@ -148,7 +148,8 @@ function FormInstances({
   }, [group, count, atmosphere.desaturation]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
-  const material = useMemo(() => crowdMaterial(), []);
+  const { textureSize, anisotropy } = useQuality();
+  const material = useMemo(() => crowdMaterial({}, { textureSize, anisotropy }), [textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
 
   const pick = useMemo(() => pickTable(group.items), [group]);

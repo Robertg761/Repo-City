@@ -47,7 +47,8 @@ import {
   propTankGeometry,
   windowPanelGeometry,
 } from "./models/buildings/geometry";
-import { ACCENT_ATTRIBUTE, settlementMaterial } from "./models/buildings/material";
+import { ACCENT_ATTRIBUTE, buildingDetailMaterial, settlementMaterial } from "./models/buildings/material";
+import { useQuality } from "./quality";
 import {
   litWindowCount,
   planBuildings,
@@ -89,6 +90,7 @@ function ArchetypeInstances({
   const handlers = useInstanceHandlers(group.ids);
   const hoveredId = useCityStore((s) => s.hoveredId);
   const selectedId = useCityStore((s) => s.selectedId);
+  const { textureSize, anisotropy } = useQuality();
 
   const instances = useMemo(
     () => plan.instances.slice(group.offset, group.offset + group.count),
@@ -110,16 +112,18 @@ function ArchetypeInstances({
     return own;
   }, [group.model, painted, instances.length]);
   const material = useMemo(
-    () => (painted ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }) : null),
-    [painted],
+    () => painted
+      ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
+      : buildingDetailMaterial({ flatShading: true, roughness: 0.82, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true }),
+    [painted, textureSize, anisotropy],
   );
   useEffect(
     () => () => {
       if (painted) geometry.dispose();
-      material?.dispose();
     },
-    [geometry, material, painted],
+    [geometry, painted],
   );
+  useEffect(() => () => material.dispose(), [material]);
   const baseColors = useMemo(
     () =>
       instances.map((instance) =>
@@ -138,9 +142,12 @@ function ArchetypeInstances({
     [instances, atmosphere.desaturation],
   );
 
+  // A new geometry or material -- the quality tier changing the texture size
+  // -- remounts the mesh with fresh instance matrices, so it has to be laid
+  // out again or every building sits at the origin at unit scale.
   useEffect(() => {
     settled.current = false;
-  }, [clock, plan, group]);
+  }, [clock, plan, group, geometry, material]);
 
   useFrame(() => {
     const mesh = meshRef.current;
@@ -196,12 +203,13 @@ function ArchetypeInstances({
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (accent) accent.needsUpdate = true;
-  }, [instances, baseColors, accentColors, geometry, hoveredId, selectedId]);
+    // `material` too: a new one remounts the mesh without its colours.
+  }, [instances, baseColors, accentColors, geometry, material, hoveredId, selectedId]);
 
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, material ?? undefined, instances.length]}
+      args={[geometry, material, instances.length]}
       castShadow
       receiveShadow
       frustumCulled={false}
@@ -209,7 +217,6 @@ function ArchetypeInstances({
     >
       {/* Vertex colours carry the roof, cornice, door and window shading; the
           instance colour carries the district. One material, one draw call. */}
-      {!material && <meshStandardMaterial vertexColors flatShading roughness={0.82} metalness={0} />}
     </instancedMesh>
   );
 }
@@ -364,6 +371,14 @@ function RoofProps({
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
+  const { textureSize, anisotropy } = useQuality();
+  const material = useMemo(
+    () => buildingDetailMaterial({ flatShading: true, roughness: 0.7, metalness: 0.1 }, {
+      textureSize, anisotropy, surfaceAttribute: geometry.hasAttribute("surface"), surface: 7,
+    }),
+    [geometry, textureSize, anisotropy],
+  );
+  useEffect(() => () => material.dispose(), [material]);
 
   const colors = useMemo(
     () =>
@@ -377,7 +392,8 @@ function RoofProps({
 
   useEffect(() => {
     settled.current = false;
-  }, [clock, plan, props]);
+    // The material follows the quality tier; a new one remounts the mesh.
+  }, [clock, plan, props, material]);
 
   useEffect(() => {
     const mesh = meshRef.current;
@@ -387,7 +403,7 @@ function RoofProps({
       mesh.setColorAt(i, scratchColor);
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [props, colors]);
+  }, [props, colors, material]);
 
   useFrame(() => {
     const mesh = meshRef.current;
@@ -438,7 +454,7 @@ function RoofProps({
       castShadow
       frustumCulled={false}
     >
-      <meshStandardMaterial vertexColors flatShading roughness={0.7} metalness={0.1} />
+      <primitive object={material} attach="material" />
     </instancedMesh>
   );
 }

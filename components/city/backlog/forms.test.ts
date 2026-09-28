@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ShaderChunk } from "three";
 import { triangleCount } from "../models/props/geometry";
+import { SURFACE, SURFACE_ATTRIBUTE } from "../textures/surface-types";
 import {
   CROWD_ATTRIBUTE,
   CROWD_FORMS,
@@ -33,6 +34,22 @@ const partsOf = (form: (typeof CROWD_FORMS)[number]): Set<number> => {
 };
 
 describe("crowd forms", () => {
+  it("keeps authored finishes aligned with every vertex after crowd groups merge", () => {
+    const finishes = new Set<number>(Object.values(SURFACE));
+    const used = new Set<number>();
+    for (const form of CROWD_MESHES) {
+      const geometry = formGeometry(form, 0.4);
+      const surface = geometry.getAttribute(SURFACE_ATTRIBUTE);
+      expect(surface.count).toBe(geometry.getAttribute("position").count);
+      for (let i = 0; i < surface.count; i++) {
+        expect(finishes.has(surface.getX(i))).toBe(true);
+        used.add(surface.getX(i));
+      }
+    }
+    for (const finish of [SURFACE.timber, SURFACE.glass, SURFACE.fabric, SURFACE.metal, SURFACE.foliage]) {
+      expect([...used]).toContain(finish);
+    }
+  });
   it("has seven issue forms and four pull request forms", () => {
     expect(ISSUE_FORMS).toHaveLength(7);
     expect(PULL_FORMS).toHaveLength(4);

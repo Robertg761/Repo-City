@@ -191,8 +191,8 @@ The renderer measures itself and never guesses from the GPU name.
 
 | Tier | Gives up |
 | --- | --- |
-| High | Nothing: ambient occlusion, bloom, antialiasing, a 2,048 shadow map, up to 2x resolution |
-| Medium | Ambient occlusion; resolution capped at 1.5x. Phones start here |
+| High | Ambient occlusion, bloom, antialiasing, a 2,048 shadow map, 512-pixel surface textures with 8x filtering, up to 2x resolution |
+| Medium | Ambient occlusion; 256-pixel textures with 4x filtering and resolution capped at 1.5x. Phones start here |
 | Low | The post-processing composer, half the shadow map and textures, smoke and halos; resolution capped at 1.25x |
 
 It probes once on the empty stage and once after the first city is built, and keeps a frame
@@ -206,6 +206,19 @@ does not freeze the page. If WebGL is missing or the context is lost, the page s
 plain words.
 
 `?quality=low|medium|high` pins a tier for testing.
+
+Models have roof courses, window surrounds, door panels, vehicle fittings,
+crew clothing and landmark equipment. Each authored part names its finish:
+plaster, brick, stone, timber, clay tile, slate, thatch, metal, glass, foliage,
+fabric or concrete. Those tags survive geometry merges and instancing, so a
+window and its masonry surround keep different textures and reflections.
+
+Procedural maps supply grain, joints, wear, roughness and shallow surface relief.
+Model finishes share one cached texture array per resolution and use one sampler.
+District paving keeps its scale and aligns across plot boundaries. The same
+finishes reach vehicles, pedestrians, furniture, fields, construction and crowd
+objects. Details stay in the existing instanced groups; utility covers and kerb
+drains add two street meshes.
 
 ## Local development
 

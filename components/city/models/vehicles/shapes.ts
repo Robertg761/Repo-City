@@ -37,9 +37,11 @@
 
 import { BoxGeometry, CylinderGeometry, type BufferGeometry } from "three";
 import type { Prng } from "@/lib/city/prng";
+import { SURFACE } from "../../textures/surface-types";
 import {
   mergeParts,
   prismGeometry,
+  surfacePanel,
   type Part,
   type ProfilePoint,
   type Triple,
@@ -79,6 +81,15 @@ const TRIM = "#3d4045";
 const ARCH = "#232427";
 const TYRE = "#26282b";
 const HUB = "#b9bcc0";
+
+function vehicleSurface(part: Part): Part {
+  return {
+    ...part,
+    surface: part.surface ?? (part.color === GLASS || part.color === HEADLIGHT || part.color === TAILLIGHT ? SURFACE.glass : part.color === TYRE ? SURFACE.fabric : SURFACE.metal),
+  };
+}
+
+const mergeVehicleParts = (parts: readonly Part[]): BufferGeometry => mergeParts(parts.map(vehicleSurface));
 
 /** Lamp colours. `Traffic.tsx` scales them with the city's lit windows. */
 export const HEADLIGHT = "#fff2cf";
@@ -173,6 +184,7 @@ const box = (size: Triple, position: Triple, color: string): Part => ({
   geometry: new BoxGeometry(size[0], size[1], size[2]),
   color,
   paint: PAINTWORK.has(color),
+  surface: color === GLASS ? SURFACE.glass : SURFACE.metal,
   position,
 });
 
@@ -180,6 +192,7 @@ const prism = (profile: readonly ProfilePoint[], width: number, color: string): 
   geometry: prismGeometry(profile, width),
   color,
   paint: PAINTWORK.has(color),
+  surface: color === GLASS ? SURFACE.glass : SURFACE.metal,
 });
 
 /**
@@ -220,7 +233,7 @@ function running(spec: BodySpec, bottom: number, bumperY: number, sill = true): 
       box([w * 1.01, 0.07, front - rear - r * 2.4], [0, bottom + 0.04, (front + rear) / 2], TRIM),
     );
   }
-  return parts;
+  return parts.map(vehicleSurface);
 }
 
 /**
@@ -228,7 +241,7 @@ function running(spec: BodySpec, bottom: number, bumperY: number, sill = true): 
  * services can build a police car on the sedan and an ambulance on the van
  * and have them look like members of the same fleet.
  */
-export function bodyParts(kind: VehicleBody): Part[] {
+function baseBodyParts(kind: VehicleBody): Part[] {
   const spec = BODY_SPECS[kind];
   const w = spec.width;
   const h = spec.length / 2;
@@ -261,7 +274,7 @@ export function bodyParts(kind: VehicleBody): Part[] {
       ),
       box([w * 0.9, 0.07, 0.98], [0, 1.08, -0.41], ROOF),
       box([w * 0.88, 0.4, 0.09], [0, 0.86, -0.32], PAINT),
-      box([w * 0.4, 0.08, 0.04], [0, 0.38, h + 0.005], ARCH),
+      surfacePanel(w * 0.4, 0.08, [0, 0.38, h + 0.026], ARCH),
       ...running(spec, 0.18, 0.27),
     ];
   }
@@ -295,7 +308,7 @@ export function bodyParts(kind: VehicleBody): Part[] {
       ),
       box([w * 0.9, 0.07, 0.84], [0, 1.03, -0.23], ROOF),
       box([w * 0.88, 0.36, 0.09], [0, 0.82, -0.2], PAINT),
-      box([w * 0.4, 0.08, 0.04], [0, 0.37, h + 0.005], ARCH),
+      surfacePanel(w * 0.4, 0.08, [0, 0.37, h + 0.026], ARCH),
       ...running(spec, 0.18, 0.26),
     ];
     if (kind === "taxi") {
@@ -338,7 +351,7 @@ export function bodyParts(kind: VehicleBody): Part[] {
       box([w * 1.01, 0.1, 1.9], [0, 1.02, -0.54], PANEL),
       // The seam between the rear doors.
       box([0.04, 0.66, 0.02], [0, 1.14, -h - 0.005], TRIM),
-      box([w * 0.5, 0.14, 0.04], [0, 0.44, h + 0.005], ARCH),
+      surfacePanel(w * 0.5, 0.14, [0, 0.44, h + 0.026], ARCH),
       ...running(spec, 0.2, 0.3),
     ];
   }
@@ -375,7 +388,7 @@ export function bodyParts(kind: VehicleBody): Part[] {
       box([0.07, 0.3, 1.1], [-w / 2 + 0.035, 0.87, -0.95], PAINT),
       box([w, 0.3, 0.07], [0, 0.87, -h + 0.035], PAINT),
       box([w * 0.86, 0.02, 1.06], [0, 0.73, -0.93], TRIM),
-      box([w * 0.5, 0.1, 0.04], [0, 0.42, h + 0.005], ARCH),
+      surfacePanel(w * 0.5, 0.1, [0, 0.42, h + 0.026], ARCH),
       ...running(spec, 0.22, 0.32),
     ];
   }
@@ -389,16 +402,71 @@ export function bodyParts(kind: VehicleBody): Part[] {
     // between, so the two never share a plane.
     box([w + 0.012, 0.2, spec.length * 0.97], [0, 0.34, 0], PANEL),
     box([w * 0.97, 0.56, spec.length * 0.995], [0, 1.32, 0], GLASS),
-    ...pillars.map((z) => box([w, 0.56, 0.1], [0, 1.32, z], PAINT)),
+    ...pillars.flatMap((z) => [-1, 1].map((side) =>
+      surfacePanel(0.1, 0.56, [side * (w * 0.485 + 0.008), 1.32, z], PAINT, [0, side * Math.PI / 2, 0], true),
+    )),
     // The windscreen runs down over the front of the skirt, as a bus's does.
     box([w * 0.9, 0.34, 0.03], [0, 0.94, h + 0.005], GLASS),
     box([w, 0.26, spec.length], [0, 1.73, 0], ROOF),
     box([w * 0.62, 0.14, 1.1], [0, 1.93, -0.9], PANEL),
     // The door, on the kerb side (`-x`), just behind the front axle.
     box([0.03, 0.9, 0.62], [-w / 2 - 0.005, 0.78, 0.8], GLASS),
-    box([w * 0.44, 0.1, 0.04], [0, 0.52, h + 0.005], ARCH),
+    surfacePanel(w * 0.44, 0.1, [0, 0.52, h + 0.026], ARCH),
     ...running(spec, 0.24, 0.34, false),
   ];
+}
+
+/** Panel joins, handles and grille bars stay in the body's single draw call. */
+export function bodyParts(kind: VehicleBody): Part[] {
+  const spec = BODY_SPECS[kind];
+  const w = spec.width;
+  const h = spec.length / 2;
+  const parts = baseBodyParts(kind);
+  const belt = kind === "bus" ? 0.88 : kind === "van" ? 0.72 : kind === "pickup" ? 0.64 : 0.55;
+  const doorZ = kind === "bus" ? 0.8 : kind === "van" ? 0.76 : 0.05;
+  for (const side of [-1, 1]) {
+    const turn: Triple = [0, side * Math.PI / 2, 0];
+    const x = side * (spec.width / 2 + 0.016);
+    parts.push(
+      surfacePanel(0.14, 0.035, [x, belt, doorZ], HUB, turn),
+      surfacePanel(0.018, 0.28, [x, belt - 0.13, doorZ - 0.25], TRIM, turn),
+    );
+    if (kind !== "bus") {
+      parts.push(surfacePanel(0.16, 0.08, [side * Math.min(0.59, spec.width / 2 + 0.028), belt + 0.2, doorZ + 0.27], TRIM, turn));
+    }
+  }
+  for (const side of [-1, 1]) {
+    parts.push(surfacePanel(0.22, 0.065, [0, kind === "bus" ? 0.43 : 0.29, side * (spec.length / 2 + 0.04)], "#d5d0bc", [0, side < 0 ? Math.PI : 0, 0]));
+  }
+  const grilleY = kind === "bus" ? 0.52 : kind === "van" ? 0.44 : kind === "pickup" ? 0.42 : kind === "hatchback" ? 0.38 : 0.37;
+  for (const dy of [-0.024, 0.024]) {
+    parts.push(surfacePanel(spec.width * 0.35, 0.012, [0, grilleY + dy, spec.length / 2 + 0.034], HUB));
+  }
+  if (kind === "bus") {
+    for (const side of [-1, 1]) {
+      for (const z of [-1.84, -1.68, -1.52]) {
+        parts.push(surfacePanel(0.035, 0.25, [side * (spec.width / 2 + 0.009), 0.77, z], TRIM, [0, side * Math.PI / 2, 0]));
+      }
+    }
+  }
+  const screenFoot: ProfilePoint = kind === "van" ? [1.36, 0.76] : kind === "pickup" ? [0.62, 0.7] : kind === "hatchback" ? [0.53, 0.64] : [0.64, 0.61];
+  const screenTop: ProfilePoint = kind === "van" ? [0.95, 1.38] : kind === "pickup" ? [0.24, 1.18] : kind === "hatchback" ? [0.04, 1.05] : [0.14, 1.0];
+  const screenTilt = kind === "bus" ? 0 : -Math.atan2(screenFoot[0] - screenTop[0], screenTop[1] - screenFoot[1]);
+  const screenY = kind === "bus" ? 0.93 : screenFoot[1] + (screenTop[1] - screenFoot[1]) * 0.38 - Math.sin(screenTilt) * 0.014;
+  const screenZ = kind === "bus" ? h + 0.029 : screenFoot[0] + (screenTop[0] - screenFoot[0]) * 0.38 + Math.cos(screenTilt) * 0.014;
+  for (const side of [-1, 1]) {
+    parts.push(surfacePanel(0.29, 0.018, [side * spec.width * 0.22, screenY, screenZ], TRIM, [screenTilt, 0, side * 0.16], false, SURFACE.metal));
+    parts.push(surfacePanel(0.09, 0.035, [side * (spec.width / 2 + 0.017), belt + 0.08, kind === "bus" ? 1.42 : doorZ + 0.15], "#c98e42", [0, side * Math.PI / 2, 0], false, SURFACE.glass));
+    parts.push(surfacePanel(0.08, 0.025, [side * spec.width * 0.35, 0.29, -spec.length / 2 - 0.041], "#ac4438", [0, Math.PI, 0], false, SURFACE.glass));
+  }
+  if (kind === "pickup") {
+    for (const x of [-0.35, -0.18, 0, 0.18, 0.35]) parts.push(surfacePanel(0.02, 0.95, [x, 0.745, -0.93], HUB, [-Math.PI / 2, 0, 0], false, SURFACE.metal));
+  } else if (kind === "van") {
+    for (const z of [-1.05, -0.3]) parts.push(box([w * 0.9, 0.035, 0.07], [0, 1.553, z], TRIM));
+  } else if (kind !== "bus") {
+    parts.push(surfacePanel(0.15, 0.11, [-w / 2 - 0.019, 0.53, -0.98], PANEL, [0, -Math.PI / 2, 0], true, SURFACE.metal));
+  }
+  return parts.map(vehicleSurface);
 }
 
 /**
@@ -595,7 +663,7 @@ export function truckParts(kind: TruckBody): Part[] {
       color: TAILLIGHT,
       position: [...position] as Triple,
     })),
-  ];
+  ].map(vehicleSurface);
 }
 
 const bodyCache = new Map<VehicleBody, BufferGeometry>();
@@ -604,7 +672,7 @@ const bodyCache = new Map<VehicleBody, BufferGeometry>();
 export function bodyGeometry(kind: VehicleBody): BufferGeometry {
   const hit = bodyCache.get(kind);
   if (hit) return hit;
-  const made = mergeParts(bodyParts(kind));
+  const made = mergeVehicleParts(bodyParts(kind));
   bodyCache.set(kind, made);
   return made;
 }
@@ -624,9 +692,12 @@ export function wheelGeometry(): BufferGeometry {
   if (wheelCache) return wheelCache;
   const tyre = new CylinderGeometry(1, 1, 0.9, 8);
   const hub = new CylinderGeometry(0.5, 0.5, 1.0, 6);
-  wheelCache = mergeParts([
+  wheelCache = mergeVehicleParts([
     { geometry: tyre, color: TYRE, rotation: [0, 0, Math.PI / 2] },
     { geometry: hub, color: HUB, rotation: [0, 0, Math.PI / 2] },
+    ...[-1, 1].flatMap((side) => [-0.2, 0.2].map((y) =>
+      surfacePanel(0.44, 0.08, [side * 0.514, y, 0], TRIM, [0, side * Math.PI / 2, 0]),
+    )),
   ]);
   return wheelCache;
 }
@@ -662,7 +733,7 @@ export function lightsGeometry(kind: VehicleBody): BufferGeometry {
   if (kind === "bus") {
     parts.push(box([spec.width * 0.66, 0.14, 0.03], [0, 1.73, spec.length / 2 + 0.01], SIGN));
   }
-  const made = mergeParts(parts);
+  const made = mergeVehicleParts(parts);
   lightsCache.set(kind, made);
   return made;
 }
@@ -699,7 +770,7 @@ export function parkedGeometry(kind: VehicleBody): BufferGeometry {
       position: [...position] as Triple,
     })),
   ];
-  const made = mergeParts(parts);
+  const made = mergeVehicleParts(parts);
   parkedCache.set(kind, made);
   return made;
 }
@@ -881,6 +952,11 @@ export function tractorParts(): Part[] {
     box([0.36, 0.3, 0.3], [0, 1.2, cabZ - 0.2], TRIM),
     mudguard(w / 2 - 0.16),
     mudguard(-(w / 2 - 0.16)),
+    ...[0.73, 0.81, 0.89, 0.97].map((y) => surfacePanel(0.39, 0.022, [0, y, 1.343], HUB)),
+    ...[-1, 1].flatMap((side) => [0.35, 0.55, 0.75].map((z) =>
+      surfacePanel(0.025, 0.25, [side * 0.29, 0.86, z], TRIM, [0, side * Math.PI / 2, 0]),
+    )),
+    ...[-1, 1].map((side) => box([0.24, 0.07, 0.4], [side * 0.38, 0.61, -0.02], TRIM)),
     // The hitch behind.
     box([0.2, 0.12, 0.3], [0, 0.5, -1.2], TRIM),
   ];
@@ -911,13 +987,13 @@ let tractorLightsCache: BufferGeometry | null = null;
 
 /** The merged tractor body, without wheels. One instanced draw for every tractor. */
 export function tractorGeometry(): BufferGeometry {
-  if (!tractorCache) tractorCache = mergeParts(tractorParts());
+  if (!tractorCache) tractorCache = mergeVehicleParts(tractorParts());
   return tractorCache;
 }
 
 /** A tractor with its wheels baked in: parked in a yard, or queued at the village edge. */
 export function tractorParkedGeometry(): BufferGeometry {
-  if (!tractorParkedCache) tractorParkedCache = mergeParts([...tractorParts(), ...tractorWheelParts()]);
+  if (!tractorParkedCache) tractorParkedCache = mergeVehicleParts([...tractorParts(), ...tractorWheelParts()]);
   return tractorParkedCache;
 }
 
@@ -925,7 +1001,7 @@ export function tractorParkedGeometry(): BufferGeometry {
 export function tractorLightsGeometry(): BufferGeometry {
   if (tractorLightsCache) return tractorLightsCache;
   const lamp = new BoxGeometry(TRACTOR_SPEC.lamp[0], TRACTOR_SPEC.lamp[1], 0.05);
-  tractorLightsCache = mergeParts([
+  tractorLightsCache = mergeVehicleParts([
     ...TRACTOR_SPEC.headlights.map((position) => ({ geometry: lamp, color: HEADLIGHT, position: [...position] as Triple })),
     ...TRACTOR_SPEC.taillights.map((position) => ({ geometry: lamp, color: TAILLIGHT, position: [...position] as Triple })),
     { geometry: new BoxGeometry(0.14, 0.1, 0.14), color: "#ffb347", position: [0.3, 1.92, -0.45] as Triple },

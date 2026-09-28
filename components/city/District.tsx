@@ -33,7 +33,7 @@
 import { useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { PerspectiveCamera, Vector3 } from "three";
+import { BufferAttribute, PerspectiveCamera, Vector3 } from "three";
 import type { SettlementTier } from "@/types/analysis";
 import type { District } from "@/types/city";
 import { districtCenter } from "./entities";
@@ -50,6 +50,8 @@ import { desaturate, districtColor, stateTint, type SceneAtmosphere } from "./pa
 import { useRevealClock, useRevealGroup } from "./useReveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useCityStore } from "@/store/useCityStore";
+import { useTiledSurfaceDetail } from "./textures/surfaces";
+import { districtSurfaceUvs, districtSurfaceKind, DISTRICT_SURFACE_TILE } from "./districtSurface";
 
 interface DistrictGroundProps {
   district: District;
@@ -73,6 +75,11 @@ export default function DistrictGround({ district, atmosphere, settlement }: Dis
   const storedTier = useCityStore((s) => s.city?.settlement?.tier);
   const tier = settlement ?? storedTier;
   const village = tier === "village";
+  const surface = useTiledSurfaceDetail(districtSurfaceKind(tier), DISTRICT_SURFACE_TILE, DISTRICT_SURFACE_TILE);
+  const surfaceUv = useMemo(
+    () => new BufferAttribute(districtSurfaceUvs(district.rect), 2),
+    [district.rect],
+  );
   const { hovered, selected } = useEntityState(district.id);
   const handlers = useEntityHandlers(district.id);
   // The generator schedules every reveal, districts included (section 43).
@@ -88,7 +95,9 @@ export default function DistrictGround({ district, atmosphere, settlement }: Dis
   return (
     <group ref={reveal} position={[x, 0, z]}>
       <mesh rotation-x={-Math.PI / 2} position-y={0.01} receiveShadow {...handlers}>
-        <planeGeometry args={[district.rect.w, district.rect.d]} />
+        <planeGeometry args={[district.rect.w, district.rect.d]}>
+          <primitive object={surfaceUv} attach="attributes-uv" />
+        </planeGeometry>
         {village ? (
           <meshStandardMaterial
             color={color}
@@ -99,7 +108,7 @@ export default function DistrictGround({ district, atmosphere, settlement }: Dis
             depthWrite={false}
           />
         ) : (
-          <meshStandardMaterial color={color} roughness={1} metalness={0} />
+          <meshStandardMaterial color={color} {...surface} roughness={0.96} metalness={0} />
         )}
       </mesh>
     </group>

@@ -28,6 +28,7 @@
  * lets it drive into a hillside that is not there.
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 export type StationSlot = "deck" | "wall" | "roof" | "steel" | "glass" | "accent" | "dark";
@@ -69,6 +70,9 @@ function track(a: A, cz: number): void {
     a.box("deck", [0.28, 0.14, 2.3], {
       at: [TRACK_X - TRACK_HALF + 0.4 + i * ((TRACK_HALF * 2 - 0.8) / 23), 0.32, cz],
     });
+    for (const side of [-1, 1]) {
+      a.panel("steel", 0.11, 0.27, { at: [TRACK_X - TRACK_HALF + 0.4 + i * ((TRACK_HALF * 2 - 0.8) / 23), 0.399, cz + side * 0.79], rot: [-Math.PI / 2, 0, 0] });
+    }
   }
   for (const s of [-1, 1]) {
     a.box("steel", [TRACK_HALF * 2, 0.16, 0.14], { at: [TRACK_X, 0.42, cz + s * 0.72] });
@@ -114,6 +118,13 @@ function concourse(a: A): void {
   a.box("steel", [0.07, 0.34, 0.04], { at: [x, 4.1, 2.84] });
   a.box("steel", [0.26, 0.07, 0.04], { at: [x + 0.11, 3.95, 2.84] });
   a.box("accent", [3.4, 0.62, 0.14], { at: [x, 4.98, 2.5] });
+  for (let i = 0; i < 12; i++) {
+    const angle = i * Math.PI / 6;
+    a.panel("steel", 0.035, 0.085, { at: [x + Math.sin(angle) * 0.47, 3.95 + Math.cos(angle) * 0.47, 2.829], rot: [0, 0, -angle] });
+  }
+  a.panel("roof", 4.5, 0.045, { at: [x, 2.0, 2.729] });
+  a.panel("roof", 0.055, 2.75, { at: [x, 1.95, 2.73] });
+  for (const dx of [-0.11, 0.11]) a.box("steel", [0.04, 0.4, 0.05], { at: [x + dx, 1.6, 2.76] });
 }
 
 /**
@@ -143,7 +154,7 @@ function portal(a: A): void {
 }
 
 function buildStation(level: number): StationLayout {
-  const a = new Assembly<StationSlot>();
+  const a = new Assembly<StationSlot>({ deck: SURFACE.stone, wall: SURFACE.brick, roof: SURFACE.metal, steel: SURFACE.metal, glass: SURFACE.glass, accent: SURFACE.metal, dark: SURFACE.concrete });
   const lamps: V3[] = [];
   const tracks: 1 | 2 = level >= 3 ? 2 : 1;
 
@@ -156,6 +167,9 @@ function buildStation(level: number): StationLayout {
   // The edge strips stop short of the platform's ends and sides.
   for (const s of [-1, 1]) {
     a.box("accent", [18.7, 0.07, 0.34], { at: [TRACK_X, PLATFORM_Y + 0.02, s * 1.27] });
+    for (let i = 0; i < 35; i++) {
+      a.panel("dark", 0.035, 0.25, { at: [TRACK_X - 9.1 + i * 0.535, PLATFORM_Y + 0.063, s * 1.27], rot: [-Math.PI / 2, 0, 0] });
+    }
   }
 
   const columns = level >= 2 ? 5 : 3;
@@ -165,12 +179,17 @@ function buildStation(level: number): StationLayout {
     const cx = canopyX - canopyLength / 2 + 1.2 + i * ((canopyLength - 2.4) / (columns - 1));
     a.cylinder("steel", 0.14, 0.18, 3.1, 8, { at: [cx, PLATFORM_Y + 1.55, 0] });
     a.box("steel", [0.12, 0.12, 2.6], { at: [cx, PLATFORM_Y + 2.95, 0] });
+    for (const side of [-1, 1]) a.strut("steel", [cx, PLATFORM_Y + 2.2, 0], [cx, PLATFORM_Y + 2.95, side * 1.15], 0.065, 5);
   }
   // A ridged canopy: a flat slab this size reads as a lid from the overview
   // camera, and the clerestory is what makes it read as a train shed.
   a.box("roof", [canopyLength, 0.28, 3.6], { at: [canopyX, PLATFORM_Y + 3.3, 0] });
   a.box("roof", [canopyLength - 1.6, 0.5, 1.2], { at: [canopyX, PLATFORM_Y + 3.65, 0] });
   a.box("glass", [canopyLength - 1.7, 0.3, 1.25], { at: [canopyX, PLATFORM_Y + 3.6, 0] });
+  for (let i = 0; i < 9; i++) {
+    const x = canopyX - canopyLength / 2 + 0.8 + i * (canopyLength - 1.6) / 8;
+    a.panel("steel", 0.03, 3.4, { at: [x, PLATFORM_Y + 3.448, 0], rot: [-Math.PI / 2, 0, 0] });
+  }
   for (const s of [-1, 1]) {
     a.box("accent", [canopyLength - 0.1, 0.32, 0.14], {
       at: [canopyX, PLATFORM_Y + 3.06, s * 1.8],
@@ -183,6 +202,10 @@ function buildStation(level: number): StationLayout {
   }
   a.box("steel", [0.14, 1.3, 0.14], { at: [TRACK_X - 2.0, PLATFORM_Y + 0.65, 0.6] });
   a.box("accent", [1.9, 0.9, 0.2], { at: [TRACK_X - 2.0, PLATFORM_Y + 1.6, 0.6] });
+  for (let i = 0; i < 4; i++) {
+    a.panel("wall", 1.35 - i * 0.13, 0.035, { at: [TRACK_X - 2.1, PLATFORM_Y + 1.87 - i * 0.17, 0.711] });
+    a.panel("glass", 0.17, 0.07, { at: [TRACK_X - 1.3, PLATFORM_Y + 1.87 - i * 0.17, 0.713] });
+  }
   for (const lx of [TRACK_X - 6.2, TRACK_X + 6.6]) {
     a.cylinder("steel", 0.08, 0.11, 2.6, 6, { at: [lx, PLATFORM_Y + 1.3, 0] });
     a.box("steel", [0.44, 0.14, 0.44], { at: [lx, PLATFORM_Y + 2.68, 0] });
@@ -239,7 +262,7 @@ function buildStation(level: number): StationLayout {
  * towards +x. Cached once and drawn by every station.
  */
 function buildTrain(): Slots<TrainSlot> {
-  const a = new Assembly<TrainSlot>();
+  const a = new Assembly<TrainSlot>({ body: SURFACE.metal, glass: SURFACE.glass, gear: SURFACE.metal });
   const railTop = 0.5;
 
   const bogies = (cx: number, reach: number) => {
@@ -264,6 +287,10 @@ function buildTrain(): Slots<TrainSlot> {
   for (const s of [-1, 1]) {
     a.box("glass", [1.1, 0.52, 0.1], { at: [loco - 0.4, railTop + 1.72, s * 0.96] });
     a.box("glass", [0.14, 0.2, 0.2], { at: [loco + 2.24, railTop + 0.95, s * 0.52] });
+    for (let rib = 0; rib < 6; rib++) {
+      a.panel("gear", 0.045, 0.72, { at: [loco - 1.45 + rib * 0.13, railTop + 1.45, s * 0.969], rot: [0, s < 0 ? Math.PI : 0, 0] });
+    }
+    a.panel("gear", 0.04, 0.51, { at: [loco - 0.4, railTop + 1.72, s * 1.018], rot: [0, s < 0 ? Math.PI : 0, 0] });
   }
 
   // Two cars behind it.
@@ -274,6 +301,11 @@ function buildTrain(): Slots<TrainSlot> {
     for (const s of [-1, 1]) {
       a.box("glass", [2.7, 0.56, 0.1], { at: [cx, railTop + 1.62, s * 0.94] });
       a.box("gear", [0.14, 1.2, 0.1], { at: [cx + 1.5, railTop + 1.35, s * 0.94] });
+      for (const dx of [-0.9, -0.3, 0.3, 0.9]) {
+        a.panel("body", 0.055, 0.56, { at: [cx + dx, railTop + 1.62, s * 0.999], rot: [0, s < 0 ? Math.PI : 0, 0] });
+      }
+      a.panel("gear", 0.42, 0.83, { at: [cx - 1.43, railTop + 1.24, s * 0.996], rot: [0, s < 0 ? Math.PI : 0, 0] });
+      a.panel("glass", 0.28, 0.36, { at: [cx - 1.43, railTop + 1.4, s * 1.019], rot: [0, s < 0 ? Math.PI : 0, 0] });
     }
   }
   // The last car is a driving trailer, so the set leads with a cab whichever
@@ -289,6 +321,11 @@ function buildTrain(): Slots<TrainSlot> {
   // Couplers, so the set reads as one train rather than three blocks.
   for (const gx of [1.8, -1.85]) {
     a.box("gear", [0.35, 0.3, 0.4], { at: [gx, railTop + 0.75, 0] });
+  }
+  for (const cx of [loco, -0.05, -3.7]) {
+    for (let i = 0; i < 6; i++) {
+      a.panel("gear", 0.55, 0.025, { at: [cx, railTop + (cx === loco ? 2.42 : 2.32), -0.35 + i * 0.14], rot: [-Math.PI / 2, 0, 0] });
+    }
   }
 
   return a.build();

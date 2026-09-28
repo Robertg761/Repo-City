@@ -22,12 +22,14 @@ import {
   ExtrudeGeometry,
   Float32BufferAttribute,
   Matrix4,
+  PlaneGeometry,
   Quaternion,
   Shape,
   Vector2,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { SURFACE_ATTRIBUTE, type SurfaceId } from "../../textures/surface-types";
 
 export type Triple = [number, number, number];
 
@@ -49,10 +51,25 @@ export interface Part {
    * material the flag is carried and ignored.
    */
   paint?: boolean;
+  /** Authored surface finish. Nested merged models retain their own IDs. */
+  surface?: SurfaceId;
   position?: Triple;
   /** Euler angles in radians, XYZ order. */
   rotation?: Triple;
   scale?: number | Triple;
+}
+
+/** A surface marking, facing +z before rotation. Two triangles, no hidden sides. */
+export function surfacePanel(
+  width: number,
+  height: number,
+  position: Triple,
+  color: string,
+  rotation: Triple = [0, 0, 0],
+  paint = false,
+  surface?: SurfaceId,
+): Part {
+  return { geometry: new PlaneGeometry(width, height), position, color, rotation, paint, surface };
 }
 
 const scratchMatrix = new Matrix4();
@@ -66,7 +83,7 @@ const scratchColor = new Color();
 export const PAINT_ATTRIBUTE = "paint";
 
 /** Attributes every merged geometry carries; merging needs identical sets. */
-const KEPT = new Set(["position", "normal", "uv", "color", PAINT_ATTRIBUTE]);
+const KEPT = new Set(["position", "normal", "uv", "color", PAINT_ATTRIBUTE, SURFACE_ATTRIBUTE]);
 
 /**
  * A clone of `part`, transformed into the assembly frame and coloured.
@@ -77,7 +94,7 @@ const KEPT = new Set(["position", "normal", "uv", "color", PAINT_ATTRIBUTE]);
  * drawn with one instanced call; triangles, which are what the budget is
  * written in, are unchanged.
  */
-function preparePart(part: Part): BufferGeometry {
+function preparePart(part: Part, carrySurface: boolean): BufferGeometry {
   const source = part.geometry;
   const geometry = source.getIndex() ? source.toNonIndexed() : source.clone();
 
@@ -113,6 +130,12 @@ function preparePart(part: Part): BufferGeometry {
     paint[i] = existingPaint ? existingPaint.getX(i) : part.paint ? 1 : 0;
   }
   geometry.setAttribute(PAINT_ATTRIBUTE, new Float32BufferAttribute(paint, 1));
+  if (carrySurface) {
+    const existingSurface = geometry.getAttribute(SURFACE_ATTRIBUTE);
+    const surface = new Float32Array(count);
+    for (let i = 0; i < count; i++) surface[i] = existingSurface ? existingSurface.getX(i) : part.surface ?? 0;
+    geometry.setAttribute(SURFACE_ATTRIBUTE, new Float32BufferAttribute(surface, 1));
+  }
 
   for (const name of Object.keys(geometry.attributes)) {
     if (!KEPT.has(name)) geometry.deleteAttribute(name);
@@ -125,7 +148,8 @@ function preparePart(part: Part): BufferGeometry {
  * the way out; nothing else ever references them.
  */
 export function mergeParts(parts: readonly Part[]): BufferGeometry {
-  const prepared = parts.map(preparePart);
+  const carrySurface = parts.some((part) => part.surface !== undefined || part.geometry.hasAttribute(SURFACE_ATTRIBUTE));
+  const prepared = parts.map((part) => preparePart(part, carrySurface));
   const merged = mergeGeometries(prepared, false);
   for (const geometry of prepared) geometry.dispose();
   if (!merged) throw new Error("mergeParts: geometries could not be merged");

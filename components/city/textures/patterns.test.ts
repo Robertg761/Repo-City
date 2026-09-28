@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { prngFromString } from "@/lib/city/prng";
 import {
   asphaltPattern,
+  barkPattern,
+  brickPattern,
+  concretePattern,
+  facadePattern,
+  foliagePattern,
+  fabricPattern,
+  glassPattern,
   grainField,
   grassPattern,
   gravelPattern,
@@ -11,8 +18,16 @@ import {
   paverCentre,
   paverPattern,
   patternSize,
+  plasterPattern,
+  roofPattern,
   settCentre,
   settsPattern,
+  soilPattern,
+  slatePattern,
+  stonePattern,
+  thatchPattern,
+  metalPattern,
+  woodPattern,
   type Pattern,
 } from "./patterns";
 
@@ -26,6 +41,21 @@ const ALL: Record<string, (size: number) => Pattern> = {
   gravel: (size) => gravelPattern(size),
   ground: (size) => groundDetailPattern(size),
   setts: (size) => settsPattern(size),
+  facade: facadePattern,
+  roof: roofPattern,
+  concrete: concretePattern,
+  soil: (size) => soilPattern(size),
+  wood: woodPattern,
+  bark: barkPattern,
+  foliage: foliagePattern,
+  plaster: plasterPattern,
+  brick: brickPattern,
+  stone: stonePattern,
+  slate: slatePattern,
+  thatch: thatchPattern,
+  metal: metalPattern,
+  glass: glassPattern,
+  fabric: fabricPattern,
 };
 
 /** Mean and extremes of one channel. */
@@ -122,6 +152,17 @@ describe.each(Object.entries(ALL))("the %s pattern", (_name, make) => {
     const inner = stepAcross(pattern, SIZE / 2);
     // Pavers have joints, which make any single column spiky; compare with slack.
     expect(seam).toBeLessThan(inner * 2.5 + 0.02);
+  });
+
+  it("wraps vertically without a larger discontinuity than its internal courses", () => {
+    const rowStep = (row: number) => {
+      let sum = 0;
+      for (let x = 0; x < SIZE; x++) sum += Math.abs(levelAt(pattern, x, row) - levelAt(pattern, x, row + 1));
+      return sum / SIZE;
+    };
+    let strongestInterior = 0;
+    for (let row = 0; row < SIZE - 1; row++) strongestInterior = Math.max(strongestInterior, rowStep(row));
+    expect(rowStep(SIZE - 1)).toBeLessThanOrEqual(strongestInterior * 1.3 + 0.006);
   });
 });
 
@@ -254,5 +295,28 @@ describe("the setts", () => {
     const crown = levelAt(pattern, u * size, v * size);
     const rim = levelAt(pattern, u * size + (0.36 / columns) * size, v * size);
     expect(rim).toBeLessThan(crown);
+  });
+});
+
+describe("model and garden surfaces", () => {
+  it("separates masonry mortar and roof overlap from raised tile centres", () => {
+    const facade = facadePattern(256);
+    expect(levelAt(facade, 0, 16)).toBeLessThan(levelAt(facade, 32, 16) - 0.055);
+    const roof = roofPattern(256);
+    expect(levelAt(roof, 21, 0)).toBeLessThan(levelAt(roof, 21, 20) - 0.06);
+  });
+
+  it("changes the grain with the seed while keeping a reproducible surface", () => {
+    for (const make of [facadePattern, roofPattern, concretePattern, woodPattern, barkPattern, foliagePattern]) {
+      expect(make(64, "first").data).not.toEqual(make(64, "second").data);
+      expect(make(64, "first").data).toEqual(make(64, "first").data);
+    }
+  });
+
+  it("keeps furrows optional and draws them as depressions in the field", () => {
+    const loose = soilPattern(128);
+    const furrowed = soilPattern(128, { furrows: 8 });
+    expect(stats(furrowed).mean).toBeLessThan(stats(loose).mean);
+    expect(levelAt(furrowed, 0, 64)).toBeLessThan(levelAt(loose, 0, 64) - 0.04);
   });
 });

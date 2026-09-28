@@ -35,7 +35,7 @@ import {
   type SceneAtmosphere,
 } from "./palette";
 import { useSkyFrame } from "./sky";
-import { useTiledSurface } from "./textures/surfaces";
+import { useTiledSurfaceDetail } from "./textures/surfaces";
 
 interface TerrainProps {
   size: number;
@@ -110,8 +110,8 @@ const RIM_SEGMENTS = 32;
 export default function Terrain({ size, atmosphere, aspect = REFERENCE_ASPECT }: TerrainProps) {
   const actions = useCityStore((s) => s.actions);
   const reach = size * LANDSCAPE * aspectWiden(aspect);
-  const landscape = useTiledSurface("meadow", reach, GRASS_TILE.landscape);
-  const plate = useTiledSurface("lawn", size * 1.04, GRASS_TILE.plate);
+  const landscape = useTiledSurfaceDetail("meadow", reach, GRASS_TILE.landscape);
+  const plate = useTiledSurfaceDetail("lawn", size * 1.04, GRASS_TILE.plate);
   const rim = useMemo(
     () => rimColors(RIM_SEGMENTS, atmosphere.terrainColor, atmosphere.skyGroundColor),
     [atmosphere.terrainColor, atmosphere.skyGroundColor],
@@ -151,14 +151,14 @@ export default function Terrain({ size, atmosphere, aspect = REFERENCE_ASPECT }:
         </planeGeometry>
         {/* White, because the colour is in the vertices: the rim fade has to
             multiply the grass, not be multiplied by a second base colour. */}
-        <meshStandardMaterial color="#ffffff" vertexColors map={landscape} roughness={1} metalness={0} />
+        <meshStandardMaterial color="#ffffff" vertexColors {...landscape} roughness={1} metalness={0} />
       </mesh>
 
       <mesh rotation-x={-Math.PI / 2} position-y={-0.02} receiveShadow onClick={clearSelection}>
         <planeGeometry args={[size * 1.04, size * 1.04]} />
         <meshStandardMaterial
           color={mix(atmosphere.terrainColor, "#ffffff", 0.18)}
-          map={plate}
+          {...plate}
           roughness={1}
           metalness={0}
         />
@@ -191,7 +191,10 @@ const nothing = () => null;
  */
 export function StagePlate({ size, atmosphere }: TerrainProps) {
   const side = size * 1.04;
-  const turf = useTiledSurface("turf", side, GRASS_TILE.stage);
+  const turf = useTiledSurfaceDetail("turf", side, GRASS_TILE.stage);
+  const earth = useTiledSurfaceDetail("soil", side, 8);
+  const stone = useTiledSurfaceDetail("concrete", 1, 1);
+  const timber = useTiledSurfaceDetail("wood", 1, 1);
   const depth = STAGE_TOP + 0.06;
   const kerbY = STAGE_TOP + KERB_HEIGHT / 2 - 0.02;
   const edge = side / 2 - KERB_WIDTH / 2;
@@ -220,14 +223,14 @@ export function StagePlate({ size, atmosphere }: TerrainProps) {
     <group>
       <mesh position-y={STAGE_TOP - depth / 2 - 0.01} castShadow receiveShadow raycast={nothing}>
         <boxGeometry args={[side, depth, side]} />
-        <meshStandardMaterial color={STAGE_SOIL} roughness={1} metalness={0} />
+        <meshStandardMaterial color={STAGE_SOIL} {...earth} roughness={1} metalness={0} />
       </mesh>
 
       <mesh rotation-x={-Math.PI / 2} position-y={STAGE_TOP} receiveShadow raycast={nothing}>
         <planeGeometry args={[side, side]} />
         <meshStandardMaterial
           color={mix(atmosphere.terrainColor, "#ffffff", 0.08)}
-          map={turf}
+          {...turf}
           roughness={1}
           metalness={0}
         />
@@ -242,7 +245,7 @@ export function StagePlate({ size, atmosphere }: TerrainProps) {
           raycast={nothing}
         >
           <boxGeometry args={[w, KERB_HEIGHT, d]} />
-          <meshStandardMaterial color={STAGE_KERB} roughness={0.95} metalness={0} />
+          <meshStandardMaterial color={STAGE_KERB} {...stone} roughness={0.95} metalness={0} />
         </mesh>
       ))}
 
@@ -262,7 +265,7 @@ export function StagePlate({ size, atmosphere }: TerrainProps) {
         <group key={`peg:${x}:${z}`} position={[x, STAGE_TOP, z]}>
           <mesh position-y={PEG_HEIGHT / 2} castShadow raycast={nothing}>
             <boxGeometry args={[0.28, PEG_HEIGHT, 0.28]} />
-            <meshStandardMaterial color={TREE_TRUNK} roughness={0.9} metalness={0} />
+            <meshStandardMaterial color={TREE_TRUNK} {...timber} roughness={0.9} metalness={0} />
           </mesh>
           <mesh position-y={PEG_HEIGHT - 0.25} castShadow raycast={nothing}>
             <boxGeometry args={[0.46, 0.5, 0.46]} />

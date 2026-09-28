@@ -130,6 +130,18 @@ describe("planFarmland (PLAN.md 76.5, village step 7)", () => {
     expect(triangleCount(hedgeGeometry())).toBeLessThanOrEqual(24);
     expect(triangleCount(baleGeometry())).toBeLessThanOrEqual(64);
   });
+
+  it("keeps detailed crop crowns inside the headland footprint", () => {
+    for (const crop of [0, 1, 2, 3] as const) {
+      const position = rowGeometry(crop).getAttribute("position");
+      for (let i = 0; i < position.count; i++) {
+        expect(Math.abs(position.getX(i))).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(position.getZ(i))).toBeLessThanOrEqual(0.5);
+        expect(position.getY(i)).toBeGreaterThanOrEqual(0);
+        expect(position.getY(i)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
 });
 
 /**

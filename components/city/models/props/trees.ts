@@ -33,11 +33,12 @@ import {
   type BufferGeometry,
 } from "three";
 import type { SettlementTier } from "@/types/analysis";
+import { SURFACE } from "../../textures/surface-types";
 import type { Prng } from "@/lib/city/prng";
 import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import type { District, Vec3 } from "@/types/city";
 import { TREE_LEAF, TREE_TRUNK, desaturate, mix } from "../../palette";
-import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
+import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
 
 export type TreeSpecies = "broadleaf" | "conifer" | "poplar" | "birch";
 
@@ -189,13 +190,20 @@ export function planTrees(
 }
 
 /** A blob of foliage: a twenty-face ball, the unit of every broadleaf crown. */
-const blob = (radius: number, position: Triple, color: string, squash: Triple = [1, 1, 1]): Part => ({
-  geometry: new IcosahedronGeometry(radius, 0),
-  color,
-  paint: true,
-  position,
-  scale: squash,
-});
+const blob = (radius: number, position: Triple, color: string, squash: Triple = [1, 1, 1]): Part => {
+  const geometry = new IcosahedronGeometry(radius, 0);
+  const vertices = geometry.getAttribute("position");
+  for (let i = 0; i < vertices.count; i++) {
+    const x = vertices.getX(i);
+    const y = vertices.getY(i);
+    const z = vertices.getZ(i);
+    // The same coordinate gets the same displacement on adjacent faces.
+    const lobe = 0.97 + Math.sin(x * 5.3 + y * 7.1 + z * 4.7 + position[1]) * 0.055;
+    vertices.setXYZ(i, x * lobe, y * lobe, z * lobe);
+  }
+  geometry.computeVertexNormals();
+  return { geometry, color, paint: true, position, scale: squash };
+};
 
 /** A tapering trunk. Open ended: nobody sees the bottom of a tree. */
 const trunk = (bottom: number, top: number, height: number, color: string, sides = 6): Part => ({
@@ -204,12 +212,22 @@ const trunk = (bottom: number, top: number, height: number, color: string, sides
   position: [0, height / 2, 0],
 });
 
+function rootFlare(color: string, radius: number): Part[] {
+  return [0.3, 2.4, 4.5].map((angle) => ({
+    geometry: new CylinderGeometry(0.045, 0.1, 0.32, 5, 1, true),
+    color,
+    position: [Math.cos(angle) * radius, 0.2, -Math.sin(angle) * radius] as Triple,
+    rotation: [0, angle, 0.95] as Triple,
+  }));
+}
+
 function speciesParts(species: TreeSpecies, tone: number): Part[] {
   const bark = desaturate(TREE_TRUNK, tone);
 
   if (species === "broadleaf") {
     return [
       trunk(0.21, 0.13, 1.8, bark),
+      ...rootFlare(bark, 0.15),
       // One limb forking off, which is what says "tree" rather than "lollipop".
       {
         geometry: new CylinderGeometry(0.05, 0.08, 0.8, 5, 1, true),
@@ -217,6 +235,7 @@ function speciesParts(species: TreeSpecies, tone: number): Part[] {
         position: [0.24, 1.55, 0.05],
         rotation: [0, 0, -0.75],
       },
+      { geometry: new CylinderGeometry(0.045, 0.08, 0.75, 5, 1, true), color: bark, position: [-0.24, 1.7, -0.13], rotation: [0.2, 0, 0.7] },
       blob(1.15, [0, 2.5, 0], MID, [1, 0.88, 1]),
       blob(0.82, [-0.72, 2.15, 0.28], SHADE),
       blob(0.78, [0.66, 2.2, -0.34], SHADE),
@@ -236,22 +255,32 @@ function speciesParts(species: TreeSpecies, tone: number): Part[] {
     ];
     return [
       trunk(0.17, 0.12, 1.0, bark),
-      ...tiers.map(([radius, height, y, color], i) => ({
-        geometry: new ConeGeometry(radius, height, 8, 1, false),
-        color,
-        paint: true,
-        position: [0, y, 0] as Triple,
-        rotation: [0, i * 0.39, 0] as Triple,
-      })),
+      ...rootFlare(bark, 0.11),
+      ...tiers.map(([radius, height, y, color], i) => {
+        const geometry = new ConeGeometry(radius, height, 8, 1, false);
+        const vertices = geometry.getAttribute("position");
+        for (let v = 0; v < vertices.count; v++) {
+          if (vertices.getY(v) > -height / 2 + 0.01) continue;
+          const angle = Math.atan2(vertices.getZ(v), vertices.getX(v));
+          const edge = Math.sin(angle * 3 + i * 0.71) * 0.055;
+          vertices.setY(v, vertices.getY(v) + edge);
+        }
+        geometry.computeVertexNormals();
+        return { geometry, color, paint: true, position: [0, y, 0] as Triple, rotation: [0, i * 0.39, 0] as Triple };
+      }),
+      ...[-1, 1].map((side) => ({ geometry: new CylinderGeometry(0.025, 0.035, 0.65, 5, 1, true), color: bark, position: [side * 0.3, 0.92, 0.12] as Triple, rotation: [0, 0, side * 1.05] as Triple })),
     ];
   }
 
   if (species === "poplar") {
     return [
       trunk(0.15, 0.1, 1.3, bark, 5),
+      ...rootFlare(bark, 0.1),
       blob(1, [-0.04, 1.95, 0.06], SHADE, [0.58, 0.95, 0.58]),
       blob(1, [0, 3.05, 0], MID, [0.64, 1.75, 0.64]),
       blob(1, [0.07, 4.4, 0.04], LIT, [0.46, 1.15, 0.46]),
+      blob(0.5, [-0.28, 2.8, 0.16], SHADE, [0.68, 1.1, 0.68]),
+      blob(0.43, [0.25, 3.9, -0.13], MID, [0.7, 1.25, 0.7]),
     ];
   }
 
@@ -260,8 +289,12 @@ function speciesParts(species: TreeSpecies, tone: number): Part[] {
   const mark = desaturate(BIRCH_MARK, tone);
   return [
     trunk(0.12, 0.08, 2.7, pale, 5),
+    ...rootFlare(pale, 0.065),
     { geometry: new BoxGeometry(0.26, 0.05, 0.06), color: mark, position: [0, 0.75, 0] },
     { geometry: new BoxGeometry(0.06, 0.05, 0.22), color: mark, position: [0, 1.35, 0], rotation: [0, 0.5, 0] },
+    surfacePanel(0.09, 0.035, [0.01, 1.82, 0.093], mark),
+    surfacePanel(0.06, 0.035, [-0.025, 2.15, -0.083], mark, [0, Math.PI, 0]),
+    { geometry: new CylinderGeometry(0.035, 0.06, 0.9, 5, 1, true), color: pale, position: [0.25, 2.23, 0.03], rotation: [0, 0, -0.65] },
     blob(0.7, [0.2, 2.6, 0.1], SHADE),
     blob(0.76, [-0.24, 3.2, -0.12], MID),
     blob(0.5, [0.46, 3.15, -0.36], MID),
@@ -271,7 +304,9 @@ function speciesParts(species: TreeSpecies, tone: number): Part[] {
 
 const builder = geometryCache<string>((key) => {
   const [species, tone] = key.split(":");
-  return mergeParts(speciesParts(species as TreeSpecies, Number(tone)));
+  return mergeParts(speciesParts(species as TreeSpecies, Number(tone)).map((part) => ({
+    ...part, surface: part.paint ? SURFACE.foliage : SURFACE.timber,
+  })));
 });
 
 /**

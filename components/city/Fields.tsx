@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type Group, type InstancedMesh, type BufferGeometry } from "three";
+import { Color, Object3D, type Group, type InstancedMesh, type BufferGeometry, type Material } from "three";
 import type { CityModel } from "@/types/city";
 import {
   CROP_GROUND,
@@ -36,6 +36,9 @@ import { SPECIES_LEAF, treeGeometry } from "./models/props/trees";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import { revealScale } from "./reveal";
 import { useRevealClock } from "./useReveal";
+import { useStreetMaterial } from "./textures/surfaces";
+import { useQuality } from "./quality";
+import { buildingDetailMaterial } from "./models/buildings/material";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -54,6 +57,7 @@ function Instances({
   y = 0,
   roughness = 1,
   tinted = false,
+  surfaceMaterial,
 }: {
   geometry: BufferGeometry;
   instances: readonly Instance[];
@@ -62,11 +66,17 @@ function Instances({
   roughness?: number;
   /** Paint only the masked part (a tree's crown), not the whole instance. */
   tinted?: boolean;
+  surfaceMaterial?: Material;
 }) {
   const meshRef = useRef<InstancedMesh>(null);
+  const { textureSize, anisotropy } = useQuality();
   const material = useMemo(
-    () => (tinted ? tintedMaterial({ roughness, flatShading: true }) : null),
-    [tinted, roughness],
+    () => surfaceMaterial ? null : tinted
+      ? tintedMaterial({ roughness, flatShading: true }, undefined, { textureSize, anisotropy, profile: "organic" })
+      : buildingDetailMaterial({ roughness, flatShading: true }, {
+        textureSize, anisotropy, surfaceAttribute: geometry.hasAttribute("surface"), surface: 9,
+      }),
+    [tinted, roughness, geometry, surfaceMaterial, textureSize, anisotropy],
   );
   useEffect(() => () => material?.dispose(), [material]);
 
@@ -85,18 +95,18 @@ function Instances({
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
-  }, [instances, y]);
+    // A new material (the quality tier) remounts the mesh: lay it out again.
+  }, [instances, y, material, surfaceMaterial]);
 
   if (instances.length === 0) return null;
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, material ?? undefined, instances.length]}
+      args={[geometry, material ?? surfaceMaterial, instances.length]}
       castShadow={shadows}
       receiveShadow
       raycast={() => null}
     >
-      {!material && <meshStandardMaterial vertexColors flatShading roughness={roughness} metalness={0} />}
     </instancedMesh>
   );
 }
@@ -112,6 +122,7 @@ export default function Fields({
   const plan = useMemo(() => planFarmland(fields ?? []), [fields]);
   const desaturation = atmosphere.desaturation;
   const districts = city.districts;
+  const soilMaterial = useStreetMaterial("soil", "#ffffff", 1, 0, true);
 
   const layers = useMemo(() => {
     const ground: Instance[] = plan.ground.map((g) => ({
@@ -171,7 +182,7 @@ export default function Fields({
 
   return (
     <group ref={group} visible={false}>
-      <Instances geometry={groundGeometry()} instances={layers.ground} y={-0.012} />
+      <Instances geometry={groundGeometry()} instances={layers.ground} y={-0.012} surfaceMaterial={soilMaterial} />
       {[...layers.rows.entries()].map(([crop, list]) => (
         <Instances key={crop} geometry={rowGeometry(crop)} instances={list} y={0.005} roughness={crop === 0 ? 0.9 : 1} />
       ))}

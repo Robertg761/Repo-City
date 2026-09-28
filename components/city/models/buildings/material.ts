@@ -17,6 +17,8 @@
  */
 
 import { MeshStandardMaterial, ShaderChunk, type MeshStandardMaterialParameters } from "three";
+import { configureSurfaceMaterial, patchModelDetail } from "../../textures/model-detail";
+import type { ModelDetailOptions } from "../../textures/texture-data";
 
 /** The per-instance accent colour, a `vec3` `InstancedBufferAttribute`. */
 export const ACCENT_ATTRIBUTE = "instanceAccent";
@@ -35,8 +37,12 @@ export function paintSwitchChunk(): string {
   return chunk.replace(INSTANCE_TINT, PAINT_TINT);
 }
 
-export function settlementMaterial(parameters: MeshStandardMaterialParameters = {}): MeshStandardMaterial {
+export function settlementMaterial(
+  parameters: MeshStandardMaterialParameters = {},
+  detail: ModelDetailOptions = {},
+): MeshStandardMaterial {
   const material = new MeshStandardMaterial({ vertexColors: true, ...parameters });
+  configureSurfaceMaterial(material, detail);
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -44,7 +50,20 @@ export function settlementMaterial(parameters: MeshStandardMaterialParameters = 
         `#include <common>\nattribute float paint;\nattribute vec3 ${ACCENT_ATTRIBUTE};`,
       )
       .replace("#include <color_vertex>", paintSwitchChunk());
+    patchModelDetail(shader, "settlement", detail);
   };
-  material.customProgramCacheKey = () => "settlement-paint";
+  material.customProgramCacheKey = () => `settlement-paint-surface-${detail.surfaceAttribute ? "authored" : "uniform"}`;
+  return material;
+}
+
+/** The city archetypes have vertex colours but no settlement paint attribute. */
+export function buildingDetailMaterial(
+  parameters: MeshStandardMaterialParameters = {},
+  detail: ModelDetailOptions = {},
+): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ vertexColors: true, ...parameters });
+  configureSurfaceMaterial(material, detail);
+  material.onBeforeCompile = (shader) => patchModelDetail(shader, "building", detail);
+  material.customProgramCacheKey = () => `city-building-surface-${detail.surfaceAttribute ? "authored" : "uniform"}`;
   return material;
 }

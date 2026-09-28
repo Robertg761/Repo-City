@@ -1,3 +1,4 @@
+import { SURFACE } from "../../textures/surface-types";
 /**
  * The metropolis towers (PLAN.md 76.1 decision 7 and 76.5): the glass tower,
  * the twin towers and the spire. A metropolis is today's city scaled up, and
@@ -39,11 +40,13 @@
 import {
   FACINGS,
   LAYER,
+  PANEL_LIFT,
   addBox,
   addCylinder,
   addPanel,
   addQuad,
   emptyDraft,
+  surfaceColor,
   type Facing,
   type MeshDraft,
   type Panel,
@@ -60,21 +63,21 @@ export const METROPOLIS_ARCHETYPE_IDS: readonly MetropolisArchetypeId[] = [
 ];
 
 // Multipliers on the district colour, as in `models.ts`.
-const WALL: Rgb3 = [1, 1, 1];
-const TRIM: Rgb3 = [1.06, 1.06, 1.05];
-const ROOF: Rgb3 = [0.6, 0.62, 0.66];
-const MECH: Rgb3 = [0.68, 0.69, 0.71];
-const PLINTH: Rgb3 = [0.8, 0.8, 0.81];
-const DOOR: Rgb3 = [0.4, 0.36, 0.34];
+const WALL: Rgb3 = surfaceColor([1, 1, 1], SURFACE.plaster);
+const TRIM: Rgb3 = surfaceColor([1.06, 1.06, 1.05], SURFACE.stone);
+const ROOF: Rgb3 = surfaceColor([0.6, 0.62, 0.66], SURFACE.concrete);
+const MECH: Rgb3 = surfaceColor([0.68, 0.69, 0.71], SURFACE.metal);
+const PLINTH: Rgb3 = surfaceColor([0.8, 0.8, 0.81], SURFACE.concrete);
+const DOOR: Rgb3 = surfaceColor([0.4, 0.36, 0.34], SURFACE.metal);
 /** Street-level glazing: the dark of a lobby seen from outside. */
-const LOBBY: Rgb3 = [0.42, 0.49, 0.58];
+const LOBBY: Rgb3 = surfaceColor([0.42, 0.49, 0.58], SURFACE.glass);
 /** Curtain wall at the foot and at the top of a shaft. */
-const GLASS_LOW: Rgb3 = [0.5, 0.64, 0.8];
-const GLASS_HIGH: Rgb3 = [0.72, 0.88, 1.08];
+const GLASS_LOW: Rgb3 = surfaceColor([0.5, 0.64, 0.8], SURFACE.glass);
+const GLASS_HIGH: Rgb3 = surfaceColor([0.72, 0.88, 1.08], SURFACE.glass);
 /** The spandrel and mullion frame: the wall colour, a shade lighter. */
-const FRAME: Rgb3 = [1.02, 1.02, 1.02];
+const FRAME: Rgb3 = surfaceColor([1.02, 1.02, 1.02], SURFACE.metal);
 /** The spire's metal. */
-const METAL: Rgb3 = [0.82, 0.84, 0.88];
+const METAL: Rgb3 = surfaceColor([0.82, 0.84, 0.88], SURFACE.metal);
 
 /**
  * Optional finish for a renderer that gives the tower shapes their own
@@ -92,7 +95,7 @@ const lerp3 = (a: Rgb3, b: Rgb3, t: number): Rgb3 => [
 /** The glass tone at a height fraction of the whole tower. */
 export function glassAt(y: number): Rgb3 {
   const t = Math.max(0, Math.min(1, y));
-  return lerp3(GLASS_LOW, GLASS_HIGH, t * t * (3 - 2 * t));
+  return surfaceColor(lerp3(GLASS_LOW, GLASS_HIGH, t * t * (3 - 2 * t)), SURFACE.glass);
 }
 
 interface CurtainSpec {
@@ -164,7 +167,30 @@ function addCurtainWall(draft: MeshDraft, spec: CurtainSpec): Panel[] {
   // the top band is capped, since every other lid would be buried.
   for (let i = 0; i < spec.bands; i++) {
     const tone = glassAt(from + ((to - from) * (i + 0.5)) / spec.bands);
-    addSides(draft, { x, z, y: spec.y0 + band * i, h: band, hx: spec.hx, hz: spec.hz, color: tone });
+    // Adjacent panes reflect different patches of sky. Split the core at
+    // its mullions instead of overlaying reflection decals on the glass.
+    for (const [faceIndex, facing] of FACINGS.entries()) {
+      const alongX = facing === "+z" || facing === "-z";
+      const half = alongX ? spec.hx : spec.hz;
+      const plane = alongX ? spec.hz : spec.hx;
+      // Stone ribbon towers shade their narrower returns as one sky patch.
+      const panes = spec.spandrelColor === WALL && !alongX ? 1 : spec.mullions + 1;
+      const cell = (2 * half) / panes;
+      for (let k = 0; k < panes; k++) {
+        const shade = 0.94 + ((i * 7 + k * 3 + faceIndex * 5) % 7) * 0.016;
+        addPanel(draft, {
+          facing,
+          u: -half + cell * (k + 0.5),
+          v: spec.y0 + band * (i + 0.5),
+          w: cell,
+          h: band,
+          plane: plane - PANEL_LIFT,
+          surface: SURFACE.glass,
+          cx: x,
+          cz: z,
+        }, [tone[0] * shade, tone[1] * shade, tone[2] * shade]);
+      }
+    }
   }
   const { hx, hz, y1 } = spec;
   addQuad(draft, [x - hx, y1, z + hz], [x + hx, y1, z + hz], [x + hx, y1, z - hz], [x - hx, y1, z - hz], ROOF);
@@ -459,6 +485,11 @@ export function towerTwin(): ArchetypeModel {
   addBox(draft, { y: bridgeY, w: 0.16, h: 0.035, d: 0.2, color: glassAt(0.6), topColor: ROOF });
   addBox(draft, { y: bridgeY - 0.008, w: 0.16, h: 0.008, d: 0.22, color: FRAME });
   addBox(draft, { y: bridgeY + 0.035, w: 0.16, h: 0.006, d: 0.22, color: FRAME, skipBottom: true });
+  for (const facing of ["+z", "-z"] as const) {
+    for (const u of [-0.045, 0, 0.045]) {
+      addPanel(draft, { facing, u, v: bridgeY + 0.0175, w: 0.007, h: 0.035, plane: 0.1 + LAYER }, FRAME);
+    }
+  }
 
   return {
     id: "tower-twin",

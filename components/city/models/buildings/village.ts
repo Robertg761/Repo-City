@@ -316,6 +316,7 @@ export function barn(): ArchetypeModel {
   box(draft, { x: cx, y: 0.035, w: halfW * 2, h: atWall - 0.035, d: halfD * 2, skipBottom: true }, M.wall);
 
   const roofZ = halfD + 0.03;
+  const roofSeam: Mat = { color: [M.barnRoof.color[0] * 1.18, M.barnRoof.color[1] * 1.18, M.barnRoof.color[2] * 1.18], paint: M.barnRoof.paint, surface: M.barnRoof.surface };
   for (const side of [1, -1]) {
     slab(
       draft,
@@ -339,6 +340,18 @@ export function barn(): ArchetypeModel {
       0.028,
       M.barnRoof,
     );
+    // Folded sheet seams follow both pitches of the gambrel and finish
+    // below the ridge, clear of the ventilation cupola.
+    for (const z of [-0.32, -0.16, 0.16, 0.32]) {
+      for (const [outer, inner] of [[eave, knee], [knee, { x: 0.02, y: ridgeY - 0.014 }]]) {
+        face(draft, [
+          [cx + side * outer.x, outer.y + 0.024, z - 0.006],
+          [cx + side * inner.x, inner.y + 0.024, z - 0.006],
+          [cx + side * inner.x, inner.y + 0.024, z + 0.006],
+          [cx + side * outer.x, outer.y + 0.024, z + 0.006],
+        ], [cx, 0.4, 0], roofSeam);
+      }
+    }
   }
   // Gable ends, as a pentagon of two quads.
   for (const end of [1, -1]) {

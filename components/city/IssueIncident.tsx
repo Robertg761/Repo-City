@@ -46,7 +46,8 @@ import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
 import { Beacon, BlinkLight, Smoke } from "./effects";
 import { FIRE_AT, glowTexture, incidentDecor, variantFor } from "./models/props/incidentDecor";
-import { useQuality } from "./quality";
+import { qualitySettings, useQuality } from "./quality";
+import { buildingDetailMaterial } from "./models/buildings/material";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 import { useSkyValue } from "./sky";
@@ -105,7 +106,7 @@ function HazardRing({
 function patchKind(name: string, geometry: () => BufferGeometry): BatchKind {
   return batchKind(`incident:patch:${name}`, () => ({
     geometry,
-    material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 1 }),
+    material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 1 }, { ...qualitySettings(), surface: 11 }),
   }));
 }
 
@@ -115,9 +116,12 @@ const PATCH_WIDE = patchKind("wide", () => new CircleGeometry(3.1, 22));
 
 /** One pool per merged scene: every incident in the same state, variant and tone shares it. */
 function decorKind(geometry: BufferGeometry): BatchKind {
-  return batchKind(`incident:decor:${geometry.uuid}`, () => ({
+  const { textureSize, anisotropy } = qualitySettings();
+  return batchKind(`incident:decor:${geometry.uuid}:${textureSize}`, () => ({
     geometry: () => geometry,
-    material: () => new MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
+    material: () => buildingDetailMaterial({ vertexColors: true, roughness: 0.8 }, {
+      textureSize, anisotropy, surfaceAttribute: geometry.hasAttribute("surface"), surface: 7,
+    }),
     castShadow: true,
     receiveShadow: true,
   }));

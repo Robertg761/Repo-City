@@ -19,10 +19,13 @@
  * planning plus cached geometry; the planning is unit tested.
  */
 
-import { BoxGeometry, CylinderGeometry, type BufferGeometry } from "three";
+import { BoxGeometry, CylinderGeometry, Float32BufferAttribute, type BufferGeometry } from "three";
 import type { FieldPatch } from "@/types/city";
 import { hash32 } from "./archetypes";
 import { geometryCache, mergeParts, prismGeometry, type Part } from "../props/geometry";
+import { addQuad, emptyDraft } from "./mesh";
+import { toGeometry } from "./geometry";
+import { SURFACE, type SurfaceId } from "../../textures/surface-types";
 
 export type Crop = FieldPatch["crop"];
 
@@ -113,6 +116,12 @@ export interface FarmPlan {
 }
 
 const unit = (seed: string, channel: number): number => (hash32(`${seed}#${channel}`) % 10000) / 10000;
+
+function finish(geometry: BufferGeometry, surface: SurfaceId): BufferGeometry {
+  const count = geometry.getAttribute("position").count;
+  geometry.setAttribute("surface", new Float32BufferAttribute(new Float32Array(count).fill(surface), 1));
+  return geometry;
+}
 
 /** A point in the field's own frame, turned into the world. */
 function toWorld(field: FieldPatch, lx: number, lz: number): { x: number; z: number } {
@@ -239,10 +248,34 @@ export function baleGeometry(): BufferGeometry {
   return cache("bale");
 }
 
+/** A few uneven crowns along a row, with one shared mesh and no added instances. */
+function brokenRow(crop: Crop): BufferGeometry {
+  const draft = emptyDraft();
+  const stations = [-0.5, -0.18, 0.17, 0.5];
+  const heights = crop === 0 ? [0.82, 1, 0.88, 0.96] : crop === 1 ? [0.85, 1, 0.78, 0.94] : [0.72, 0.95, 1, 0.8];
+  const halfTop = [0, 0, 0, 0];
+  type Point = readonly [number, number, number];
+  for (let s = 0; s < stations.length - 1; s++) {
+    const a = stations[s];
+    const b = stations[s + 1];
+    const left0: Point = [a, heights[s], -halfTop[s]];
+    const left1: Point = [b, heights[s + 1], -halfTop[s + 1]];
+    const right0: Point = [a, heights[s], halfTop[s]];
+    const right1: Point = [b, heights[s + 1], halfTop[s + 1]];
+    const shade = 0.89 + (s % 2) * 0.1;
+    addQuad(draft, [a, 0, 0.5], [b, 0, 0.5], right1, right0, [shade, shade, shade]);
+    addQuad(draft, [b, 0, -0.5], [a, 0, -0.5], left0, left1, [shade * 0.92, shade * 0.92, shade * 0.92]);
+  }
+  addQuad(draft, [-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5], [0.7, 0.7, 0.7]);
+  addQuad(draft, [0.5, 0, 0.5], [0.5, 0, -0.5], [0.5, heights[3], -halfTop[3]], [0.5, heights[3], halfTop[3]], [0.9, 0.9, 0.9]);
+  addQuad(draft, [-0.5, 0, -0.5], [-0.5, 0, 0.5], [-0.5, heights[0], halfTop[0]], [-0.5, heights[0], -halfTop[0]], [0.9, 0.9, 0.9]);
+  return finish(mergeParts([{ geometry: toGeometry(draft), color: "#ffffff", paint: true }]), SURFACE.foliage);
+}
+
 const cache = geometryCache<string>((key) => {
   if (key === "ground") {
     const box = new BoxGeometry(1, 0.02, 1);
-    return mergeParts([{ geometry: box, color: "#ffffff", paint: true, position: [0, 0.01, 0] }]);
+    return finish(mergeParts([{ geometry: box, color: "#ffffff", paint: true, position: [0, 0.01, 0] }]), SURFACE.concrete);
   }
   if (key === "hedge") {
     // A rounded section, lighter on top where the sun catches it.
@@ -253,8 +286,9 @@ const cache = geometryCache<string>((key) => {
         [-w, 0],
         [w, 0],
         [w, h * 0.72],
-        [w * 0.62, h],
-        [-w * 0.62, h],
+        [w * 0.62, h * 0.94],
+        [0, h],
+        [-w * 0.62, h * 0.91],
         [-w, h * 0.72],
       ],
       1,
@@ -262,42 +296,36 @@ const cache = geometryCache<string>((key) => {
     // `prismGeometry` profiles are [z, y] and extrude across x: exactly a
     // hedge running along x.
     const parts: Part[] = [{ geometry: body, color: "#ffffff", paint: true }];
-    return mergeParts(parts);
+    const hedge = mergeParts(parts);
+    const position = hedge.getAttribute("position");
+    const colors = hedge.getAttribute("color");
+    for (let i = 0; i < position.count; i++) {
+      const shade = 0.72 + (position.getY(i) / h) * 0.34 + (position.getX(i) > 0 ? 0.025 : 0);
+      colors.setXYZ(i, shade * 0.98, shade, shade * 0.93);
+    }
+    return finish(hedge, SURFACE.foliage);
   }
   if (key === "bale") {
-    const bale = new CylinderGeometry(0.55, 0.55, 0.9, 10);
-    return mergeParts([
+    const bale = new CylinderGeometry(0.55, 0.55, 0.9, 8);
+    const position = bale.getAttribute("position");
+    const normals = bale.getAttribute("normal");
+    const tones = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const end = Math.abs(normals.getY(i)) > 0.99;
+      const radius = Math.hypot(position.getX(i), position.getZ(i)) / 0.55;
+      const shade = end ? 0.73 + radius * 0.27 : 0.94 + (position.getX(i) > 0 ? 0.05 : 0);
+      tones.set([shade, shade, end ? shade * 0.91 : shade], i * 3);
+    }
+    bale.setAttribute("color", new Float32BufferAttribute(tones, 3));
+    return finish(mergeParts([
       { geometry: bale, color: "#d9bd68", position: [0, 0.55, 0], rotation: [Math.PI / 2, 0, 0] },
-    ]);
+      ...[-0.27, 0.27].map((z): Part => ({ geometry: new CylinderGeometry(0.565, 0.565, 0.045, 8, 1, true), color: "#a48942", position: [0, 0.55, z], rotation: [Math.PI / 2, 0, 0] })),
+    ]), SURFACE.thatch);
   }
   const crop = Number(key.split(":")[1]) as Crop;
-  let profile: [number, number][];
-  if (crop === 2) {
-    // Round heads: a fat, blunt section.
-    profile = [
-      [-0.5, 0],
-      [0.5, 0],
-      [0.5, 0.45],
-      [0.3, 1],
-      [-0.3, 1],
-      [-0.5, 0.45],
-    ];
-  } else if (crop === 0) {
-    // Standing wheat: a flat-topped band, full height.
-    profile = [
-      [-0.5, 0],
-      [0.5, 0],
-      [0.42, 1],
-      [-0.42, 1],
-    ];
-  } else {
-    // A furrow or a windrow: a low triangle.
-    profile = [
-      [-0.5, 0],
-      [0.5, 0],
-      [0, 1],
-    ];
-  }
+  if (crop !== 2) return brokenRow(crop);
+  // Two rounded vegetable crowns with a shallow valley between them.
+  const profile: [number, number][] = [[-0.5, 0], [0.5, 0], [0.5, 0.45], [0.3, 1], [0, 0.88], [-0.3, 1], [-0.5, 0.45]];
   const row = prismGeometry(profile, 1);
-  return mergeParts([{ geometry: row, color: "#ffffff", paint: true }]);
+  return finish(mergeParts([{ geometry: row, color: "#ffffff", paint: true }]), SURFACE.foliage);
 });

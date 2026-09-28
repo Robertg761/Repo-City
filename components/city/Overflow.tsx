@@ -41,6 +41,10 @@ import { HIGHLIGHT, desaturate, mix, stateTint, type SceneAtmosphere } from "./p
 import { revealScale } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
+import { useQuality } from "./quality";
+import { SURFACE } from "./textures/surface-types";
+import { buildingDetailMaterial } from "./models/buildings/material";
+import { useTiledSurfaceDetail } from "./textures/surfaces";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -82,6 +86,7 @@ function frameGeometry(): BufferGeometry {
   const post = (x: number): Part => ({
     geometry: new BoxGeometry(0.26, BOARD.y + BOARD.height / 2 + 0.1, 0.26),
     color: "#6f7270",
+    surface: SURFACE.metal,
     position: [x, (BOARD.y + BOARD.height / 2 + 0.1) / 2, 0],
   });
   return mergeParts([
@@ -90,16 +95,18 @@ function frameGeometry(): BufferGeometry {
     {
       geometry: new BoxGeometry(BOARD.width + 0.24, BOARD.height + 0.24, BOARD.depth),
       color: "#e9e5d8",
+      surface: SURFACE.metal,
       position: [0, BOARD.y, 0],
     },
     // Hazard stripes along the foot of the board.
     {
       geometry: new BoxGeometry(BOARD.width, 0.2, BOARD.depth + 0.04),
       color: "#e8853c",
+      surface: SURFACE.metal,
       position: [0, BOARD.y - BOARD.height / 2 - 0.2, 0],
     },
-    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", position: [-POST_X, 0.15, 0] },
-    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", position: [POST_X, 0.15, 0] },
+    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", surface: SURFACE.concrete, position: [-POST_X, 0.15, 0] },
+    { geometry: new BoxGeometry(0.4, 0.3, 1.1), color: "#8f8b80", surface: SURFACE.concrete, position: [POST_X, 0.15, 0] },
   ]);
 }
 
@@ -131,6 +138,22 @@ function signTexture(lines: readonly string[]): CanvasTexture | null {
   ctx.strokeStyle = "#f2efe6";
   ctx.lineWidth = 10;
   ctx.strokeRect(18, 18, width - 36, height - 36);
+  // A folded metal border and four fixings, outside the lettering's clear area.
+  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(27, 27, width - 54, height - 54);
+  for (const x of [44, width - 44]) for (const y of [44, height - 44]) {
+    ctx.fillStyle = "#a6b0ad";
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#354640";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 3, y - 1);
+    ctx.lineTo(x + 3, y + 1);
+    ctx.stroke();
+  }
   ctx.fillStyle = "#f2efe6";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -175,6 +198,12 @@ function Signboard({ overflow, atmosphere }: { overflow: OverflowEntity; atmosph
   const tint = stateTint(desaturate("#ffffff", atmosphere.desaturation), hovered, selected);
   // The face lifts a little under the pointer, the way a lit sign would.
   const glow = hovered || selected ? mix("#000000", HIGHLIGHT, 0.18) : "#000000";
+  const { textureSize, anisotropy } = useQuality();
+  const frameMaterial = useMemo(() => buildingDetailMaterial({ color: tint, roughness: 0.7, flatShading: true }, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [tint, textureSize, anisotropy]);
+  useEffect(() => () => frameMaterial.dispose(), [frameMaterial]);
+  const finish = useTiledSurfaceDetail("metal", 1, 1);
 
   return (
     <group
@@ -184,10 +213,11 @@ function Signboard({ overflow, atmosphere }: { overflow: OverflowEntity; atmosph
       {...handlers}
     >
       <mesh geometry={frame} castShadow receiveShadow>
-        <meshStandardMaterial vertexColors color={tint} roughness={0.7} flatShading />
+        <primitive object={frameMaterial} attach="material" />
       </mesh>
       <mesh geometry={faces}>
-        <meshStandardMaterial map={texture} color={tint} emissive={glow} roughness={0.55} />
+        <meshStandardMaterial map={texture} bumpMap={finish.bumpMap} bumpScale={finish.bumpScale}
+          roughnessMap={finish.roughnessMap} color={tint} emissive={glow} roughness={0.55} metalness={0.25} />
       </mesh>
     </group>
   );
@@ -230,7 +260,10 @@ function QueueBody({
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
-  const material = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }), []);
+  const { textureSize, anisotropy } = useQuality();
+  const material = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
 
   useEffect(() => {
@@ -239,7 +272,8 @@ function QueueBody({
     if (!mesh) return;
     group.colors.forEach((color, i) => mesh.setColorAt(i, scratchColor.set(color)));
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [group, clock]);
+    // The material follows the quality tier; a new one remounts the mesh.
+  }, [group, clock, material]);
 
   useFrame(() => {
     const mesh = meshRef.current;

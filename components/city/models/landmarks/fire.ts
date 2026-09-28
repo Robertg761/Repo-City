@@ -12,6 +12,7 @@
  * when test infrastructure was actually detected.
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 export type FireSlot = "deck" | "wall" | "red" | "trim" | "steel" | "glass";
@@ -60,11 +61,15 @@ function engine(a: A, cx: number, cz: number): void {
         at: [cx + s * 0.95, DECK + 0.42, cz + wz],
         rot: [0, 0, Math.PI / 2],
       });
+      a.cylinder("trim", 0.2, 0.2, 0.31, 8, { at: [cx + s * 0.95, DECK + 0.42, cz + wz], rot: [0, 0, Math.PI / 2] });
     }
+    a.box("glass", [0.09, 0.16, 0.16], { at: [cx + s * 1.025, DECK + 1.88, cz + 2.04] });
+    a.panel("trim", 0.12, 0.07, { at: [cx + s * 0.72, DECK + 0.88, cz + 2.325] });
   }
-  for (let i = 0; i < 5; i++) {
-    a.box("trim", [0.82, 0.07, 0.07], { at: [cx, DECK + 1.78, cz - 2.15 + i * 0.72] });
+  for (let i = 0; i < 11; i++) {
+    a.box("trim", [0.82, 0.055, 0.055], { at: [cx, DECK + 1.78, cz - 2.15 + i * 0.35] });
   }
+  for (const y of [0.59, 0.67, 0.75]) a.panel("steel", 1.1, 0.025, { at: [cx, DECK + y, cz + 2.335] });
   a.box("red", [1.2, 0.16, 0.5], { at: [cx, DECK + 2.32, cz + 1.4] });
 }
 
@@ -106,10 +111,11 @@ function trainingYard(a: A): void {
     rot: [0, 0, Math.PI / 2],
   });
   a.box("steel", [0.14, 1.0, 0.14], { at: [8.0, DECK + 0.5, 6.4] });
+  a.cylinder("steel", 0.31, 0.31, 0.07, 10, { at: [8.34, DECK + 0.5, 6.4], rot: [0, 0, Math.PI / 2] });
 }
 
 function buildFire(level: number): FireLayout {
-  const a = new Assembly<FireSlot>();
+  const a = new Assembly<FireSlot>({ deck: SURFACE.concrete, wall: SURFACE.brick, red: SURFACE.metal, trim: SURFACE.concrete, steel: SURFACE.metal, glass: SURFACE.glass });
   const width = hallWidth(level);
   const x = hallCentre(level);
   const depth = HALL_Z1 - HALL_Z0;
@@ -135,6 +141,10 @@ function buildFire(level: number): FireLayout {
     for (let i = 0; i < 4; i++) {
       a.box("trim", [2.84, 0.06, 0.04], { at: [bx, DECK + 0.6 + i * 0.7, HALL_Z1 + 0.16] });
     }
+    for (const dx of [-0.85, 0, 0.85]) {
+      a.panel("glass", 0.58, 0.38, { at: [bx + dx, DECK + 2.42, HALL_Z1 + 0.161] });
+    }
+    a.panel("steel", 0.38, 0.045, { at: [bx, DECK + 0.42, HALL_Z1 + 0.162] });
   }
 
   a.box("glass", [width - 1.4, 0.55, 0.1], { at: [x, DECK + 3.95, HALL_Z1 + 0.05] });
@@ -163,6 +173,24 @@ function buildFire(level: number): FireLayout {
   }
   for (let i = 0; i < 2; i++) {
     a.box("steel", [1.1, 0.42, 0.9], { at: [x - 1.4 + i * 2.8, DECK + HALL_H + 0.63, midZ - 1.6] });
+    for (let rib = 0; rib < 5; rib++) {
+      a.panel("trim", 0.85, 0.035, { at: [x - 1.4 + i * 2.8, DECK + HALL_H + 0.845, midZ - 1.92 + rib * 0.15], rot: [-Math.PI / 2, 0, 0] });
+    }
+  }
+  const solarY = DECK + HALL_H + 0.6;
+  for (const dx of level >= 2 ? [-2.3, 0, 2.3] : [-0.95, 0.95]) {
+    const px = x + dx;
+    a.box("steel", [1.7, 0.08, 1.3], { at: [px, solarY, midZ + 1.45] });
+    a.panel("glass", 1.55, 1.15, { at: [px, solarY + 0.065, midZ + 1.45], rot: [-Math.PI / 2, 0, 0] });
+    for (const gx of [-0.48, 0, 0.48]) a.panel("steel", 0.015, 1.1, { at: [px + gx, solarY + 0.095, midZ + 1.45], rot: [-Math.PI / 2, 0, 0] });
+    for (const gz of [-0.3, 0.3]) a.panel("steel", 1.5, 0.015, { at: [px, solarY + 0.095, midZ + 1.45 + gz], rot: [-Math.PI / 2, 0, 0] });
+  }
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < 7; row++) {
+      if (row === 4 || row === 5) continue;
+      a.panel("trim", depth - 0.2, 0.025, { at: [x + side * (width / 2 + 0.008), DECK + 0.35 + row * 0.67, midZ], rot: [0, side * Math.PI / 2, 0] });
+    }
+    a.box("steel", [0.1, HALL_H - 0.2, 0.1], { at: [x + side * (width / 2 + 0.09), DECK + (HALL_H - 0.2) / 2, HALL_Z0 + 0.25] });
   }
 
   // Bay approach markings on the forecourt.

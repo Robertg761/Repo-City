@@ -24,7 +24,8 @@
 
 import { BoxGeometry, ConeGeometry, CylinderGeometry, type BufferGeometry } from "three";
 import { desaturate } from "../../palette";
-import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "../props/geometry";
+import { SURFACE } from "../../textures/surface-types";
+import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "../props/geometry";
 import {
   BODY_SPECS,
   PANEL_SHADE,
@@ -128,6 +129,7 @@ function wheels(radius: number, x: number, front: number, rear: number, color = 
   ] as [number, number][]).map(([wx, wz]) => ({
     geometry: tyre,
     color,
+    surface: SURFACE.fabric,
     position: [wx, radius, wz] as Triple,
     rotation: [0, 0, Math.PI / 2] as Triple,
   }));
@@ -217,6 +219,12 @@ function fireParts(shade: (hex: string) => string, ladderYaw: number): Part[] {
     position: LADDER_PIVOT,
     rotation: [0, ladderYaw, 0],
   });
+  for (const side of [-1, 1]) {
+    for (const z of [0.33, -0.49, -2.15]) {
+      parts.push(surfacePanel(0.2, 0.035, [side * (w / 2 + 0.018), 0.57, z], steel, [0, side * Math.PI / 2, 0]));
+      parts.push(surfacePanel(0.4, 0.02, [side * (w / 2 + 0.02), 0.91, z], steel, [0, side * Math.PI / 2, 0]));
+    }
+  }
   return parts;
 }
 
@@ -268,6 +276,10 @@ function towParts(shade: (hex: string) => string): Part[] {
     box([0.12, 0.08, 0.34], [-0.42, 0.3, -h - 0.62], dark),
     // The light bar; its lamp is `EMERGENCY_LIGHTS`.
     box([0.72, 0.1, 0.24], [0, spec.roof + 0.13, 0.36], dark),
+    ...[-1, 1].flatMap((side) => [
+      surfacePanel(length - 0.3, 0.035, [side * (w / 2 + 0.024), 0.73, mid], steel, [0, side * Math.PI / 2, 0]),
+      surfacePanel(0.18, 0.04, [side * (w / 2 + 0.025), 0.9, mid], steel, [0, side * Math.PI / 2, 0]),
+    ]),
   ];
 }
 
@@ -296,6 +308,9 @@ function worksParts(shade: (hex: string) => string): Part[] {
     box([w, 0.28, 0.06], [0, floor + 0.14, -h + 0.03], side),
     // The light bar; its lamp is `EMERGENCY_LIGHTS`.
     box([0.64, 0.1, 0.22], [0, spec.roof + 0.13, 0.44], dark),
+    ...[-1, 1].flatMap((side) => [-0.4, -0.95, -1.5].map((z) =>
+      surfacePanel(0.035, 0.2, [side * (w / 2 + 0.008), floor + 0.14, z], dark, [0, side * Math.PI / 2, 0]),
+    )),
   ];
   // Three stacks of cones. Each is two cones nested one into the other and a
   // square foot: the upper cone's rim over the lower is what says "stack".
@@ -318,7 +333,7 @@ function worksParts(shade: (hex: string) => string): Part[] {
   return parts;
 }
 
-function partsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
+function basePartsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
   const shade = (hex: string) => desaturate(hex, tone);
 
   if (kind === "police") {
@@ -351,6 +366,10 @@ function partsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
   if (kind === "fire") return fireParts(shade, ladderYaw);
   if (kind === "tow") return towParts(shade);
   return worksParts(shade);
+}
+
+function partsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
+  return basePartsFor(kind, tone, ladderYaw).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal }));
 }
 
 /** Where each vehicle's lamps sit, in its own frame: on its light bar. */

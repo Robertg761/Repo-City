@@ -9,9 +9,10 @@
 
 import { BufferGeometry, Float32BufferAttribute } from "three";
 import type { ModelKey } from "./archetypes";
-import { addBox, addCylinder, addQuad, emptyDraft, type MeshDraft } from "./mesh";
+import { FACINGS, LAYER, addBox, addCylinder, addPanel, addQuad, emptyDraft, type MeshDraft } from "./mesh";
 import { archetypeModel } from "./models";
 import type { PropKind } from "./placement";
+import { SURFACE } from "../../textures/surface-types";
 
 export function toGeometry(draft: MeshDraft): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -19,6 +20,7 @@ export function toGeometry(draft: MeshDraft): BufferGeometry {
   geometry.setAttribute("normal", new Float32BufferAttribute(draft.normals, 3));
   geometry.setAttribute("color", new Float32BufferAttribute(draft.colors, 3));
   if (draft.paint) geometry.setAttribute("paint", new Float32BufferAttribute(draft.paint, 1));
+  if (draft.surface) geometry.setAttribute("surface", new Float32BufferAttribute(draft.surface, 1));
   geometry.setIndex(draft.indices);
   geometry.computeBoundingSphere();
   return geometry;
@@ -64,8 +66,21 @@ let panelGeometry: BufferGeometry | null = null;
 export function propBlockGeometry(): BufferGeometry {
   if (blockGeometry) return blockGeometry;
   const draft = emptyDraft();
+  draft.surfaceValue = SURFACE.metal;
   addBox(draft, { y: 0, w: 1, h: 0.84, d: 1, color: [0.82, 0.83, 0.84] });
   addBox(draft, { y: 0.84, w: 0.74, h: 0.16, d: 0.74, color: [0.95, 0.96, 0.97], skipBottom: true });
+  for (const facing of FACINGS) {
+    for (let row = 0; row < 4; row++) {
+      addPanel(draft, { facing, u: 0, v: 0.28 + row * 0.13, w: 0.72, h: 0.035, plane: 0.5 }, [0.47, 0.5, 0.54]);
+    }
+  }
+  // The top grille also reads as framed glazing when scaled into a skylight.
+  for (const x of [-0.145, 0.145]) {
+    for (const z of [-0.145, 0.145]) {
+      addQuad(draft, [x - 0.125, 1 + LAYER, z + 0.125], [x + 0.125, 1 + LAYER, z + 0.125], [x + 0.125, 1 + LAYER, z - 0.125], [x - 0.125, 1 + LAYER, z - 0.125], [0.53, 0.62, 0.7], SURFACE.glass);
+    }
+  }
+  addPanel(draft, { facing: "+z", u: 0.25, v: 0.12, w: 0.13, h: 0.06, plane: 0.5 }, [1.02, 0.9, 0.58]);
   blockGeometry = toGeometry(draft);
   return blockGeometry;
 }
@@ -74,11 +89,12 @@ export function propBlockGeometry(): BufferGeometry {
 export function propTankGeometry(): BufferGeometry {
   if (tankGeometry) return tankGeometry;
   const draft = emptyDraft();
+  draft.surfaceValue = SURFACE.metal;
   for (const [x, z] of [
-    [0.3, 0.3],
-    [-0.3, 0.3],
-    [0.3, -0.3],
-    [-0.3, -0.3],
+    [0.25, 0.25],
+    [-0.25, 0.25],
+    [0.25, -0.25],
+    [-0.25, -0.25],
   ]) {
     addBox(draft, { x, y: 0, z, w: 0.08, h: 0.34, d: 0.08, color: [0.62, 0.63, 0.65] });
   }
@@ -91,6 +107,11 @@ export function propTankGeometry(): BufferGeometry {
     topColor: [0.7, 0.71, 0.72],
   });
   addCylinder(draft, { x: 0.3, y: 0.9, radius: 0.05, h: 0.12, segments: 5, color: [0.6, 0.61, 0.63] });
+  for (const y of [0.42, 0.76]) {
+    addCylinder(draft, { y, radius: 0.478, h: 0.032, segments: 9, color: [0.62, 0.63, 0.65] });
+  }
+  // Inspection hatch on the lid, set well inside the rolled rim.
+  addCylinder(draft, { x: -0.17, y: 0.9, z: 0.03, radius: 0.105, h: 0.018, segments: 8, color: [0.64, 0.66, 0.69] });
   tankGeometry = toGeometry(draft);
   return tankGeometry;
 }
@@ -99,6 +120,7 @@ export function propTankGeometry(): BufferGeometry {
 export function windowPanelGeometry(): BufferGeometry {
   if (panelGeometry) return panelGeometry;
   const draft = emptyDraft();
+  draft.surfaceValue = SURFACE.glass;
   addQuad(draft, [-0.5, -0.5, 0], [0.5, -0.5, 0], [0.5, 0.5, 0], [-0.5, 0.5, 0], [1, 1, 1]);
   panelGeometry = toGeometry(draft);
   return panelGeometry;

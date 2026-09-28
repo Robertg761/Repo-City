@@ -22,13 +22,17 @@ import {
   ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
+  Matrix4,
+  Quaternion,
+  Vector3,
   type BufferGeometry,
 } from "three";
 import type { ConstructionState } from "@/types/analysis";
+import { SURFACE } from "../../textures/surface-types";
 import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
-import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
+import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
 
 /** The site is drawn on an eleven unit square; see `ConstructionSite.tsx`. */
 export const SITE = 11;
@@ -48,6 +52,20 @@ export const SHELL_HEIGHT: Record<ConstructionState, number> = {
 
 const STEEL = "#9aa0a6";
 const TIMBER = "#b59a6f";
+const mergeDecorParts = (parts: Part[]) => mergeParts(parts.map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
+
+function brace(from: Triple, to: Triple, color: string, radius = 0.04): Part {
+  const start = new Vector3(...from);
+  const end = new Vector3(...to);
+  const direction = end.clone().sub(start);
+  const geometry = new CylinderGeometry(radius, radius, direction.length(), 4, 1, true);
+  geometry.applyMatrix4(new Matrix4().compose(
+    start.add(end).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), direction.normalize()),
+    new Vector3(1, 1, 1),
+  ));
+  return { geometry, color, surface: SURFACE.metal };
+}
 
 /** The site hoarding: four runs of boarding with a warning rail on top. */
 function fence(color: string, rail: string): Part[] {
@@ -63,9 +81,15 @@ function fence(color: string, rail: string): Part[] {
     parts.push({
       geometry: new BoxGeometry(SITE, 1.5, 0.12),
       color,
+      surface: SURFACE.timber,
       position: [x, 0.95, z],
       rotation: [0, rotation, 0],
     });
+    const turn = z !== 0 ? (z > 0 ? 0 : Math.PI) : x > 0 ? Math.PI / 2 : -Math.PI / 2;
+    for (let i = 0; i < 7; i++) {
+      const along = -4.5 + i * 1.5;
+      parts.push(surfacePanel(0.025, 1.35, [x + Math.cos(turn) * along + Math.sin(turn) * 0.073, 0.95, z - Math.sin(turn) * along + Math.cos(turn) * 0.073], mix(color, "#000000", 0.18), [0, turn, 0]));
+    }
     parts.push({
       geometry: new BoxGeometry(SITE, 0.16, 0.16),
       color: rail,
@@ -117,9 +141,13 @@ function scaffold(height: number, color: string, plank: string): Part[] {
       parts.push({
         geometry: new BoxGeometry(reach * 2, 0.08, 0.7),
         color: plank,
+        surface: SURFACE.timber,
         position: [SHELL_X, y + 0.1, SHELL_Z + reach],
       });
     }
+  }
+  for (const side of [-1, 1]) {
+    parts.push(brace([SHELL_X - reach, 0.25, SHELL_Z + side * reach], [SHELL_X + reach, top - 0.3, SHELL_Z + side * reach], color));
   }
   return parts;
 }
@@ -185,6 +213,10 @@ function excavator(at: Triple, rotationY: number, body: string, metal: string): 
       position: local(-0.1, 1.28, -0.3),
       rotation: [0, rotationY, 0],
     },
+    surfacePanel(0.9, 0.55, local(-0.1, 1.42, 0.311), "#536c7a", [0, rotationY, 0], false, SURFACE.glass),
+    surfacePanel(0.9, 0.55, local(-0.1, 1.42, -0.911), "#536c7a", [0, rotationY + Math.PI, 0], false, SURFACE.glass),
+    ...[-1, 1].map((side) => surfacePanel(0.85, 0.6, local(-0.1 + side * 0.611, 1.42, -0.3), "#536c7a", [0, rotationY + side * Math.PI / 2, 0], false, SURFACE.glass)),
+    ...[-1, 1].flatMap((side) => Array.from({ length: 7 }, (_, i) => surfacePanel(0.055, 0.35, local(side * 0.841, 0.21, -0.98 + i * 0.326), "#5c6263", [0, rotationY + side * Math.PI / 2, 0]))),
     // Boom and dipper, folded the way a parked machine leaves them.
     {
       geometry: new BoxGeometry(0.28, 0.28, 2),
@@ -211,10 +243,16 @@ function excavator(at: Triple, rotationY: number, body: string, metal: string): 
 function materials(at: Triple, timber: string, pipe: string, sand: string): Part[] {
   const [x, y, z] = at;
   const parts: Part[] = [
-    { geometry: new BoxGeometry(2.2, 0.7, 1.3), color: timber, position: [x, y + 0.35, z] },
-    { geometry: new BoxGeometry(1.9, 0.5, 1.1), color: timber, position: [x, y + 0.98, z + 0.06] },
-    { geometry: new ConeGeometry(1.15, 1.1, 9), color: sand, position: [x + 2.6, y + 0.55, z - 0.6] },
+    { geometry: new BoxGeometry(2.2, 0.7, 1.3), color: timber, surface: SURFACE.timber, position: [x, y + 0.35, z] },
+    { geometry: new BoxGeometry(1.9, 0.5, 1.1), color: timber, surface: SURFACE.timber, position: [x, y + 0.98, z + 0.06] },
+    { geometry: new ConeGeometry(1.15, 1.1, 9), color: sand, surface: SURFACE.concrete, position: [x + 2.6, y + 0.55, z - 0.6] },
   ];
+  for (const dx of [-0.65, 0, 0.65]) {
+    parts.push(surfacePanel(0.025, 0.62, [x + dx, y + 0.35, z + 0.662], mix(timber, "#000000", 0.23)));
+  }
+  for (const dy of [0.22, 0.46]) {
+    parts.push(surfacePanel(2.12, 0.02, [x, y + dy, z + 0.663], mix(timber, "#000000", 0.23)));
+  }
   for (let i = 0; i < 3; i++) {
     parts.push({
       geometry: new CylinderGeometry(0.22, 0.22, 2.6, 8),
@@ -229,6 +267,7 @@ function materials(at: Triple, timber: string, pipe: string, sand: string): Part
 /** The site hut: where the kettle is. */
 function hut(at: Triple, rotationY: number, body: string, roof: string): Part[] {
   const [x, y, z] = at;
+  const local = (lx: number, ly: number, lz: number): Triple => [x + lx * Math.cos(rotationY) + lz * Math.sin(rotationY), y + ly, z - lx * Math.sin(rotationY) + lz * Math.cos(rotationY)];
   return [
     {
       geometry: new BoxGeometry(2.6, 1.6, 1.8),
@@ -245,9 +284,13 @@ function hut(at: Triple, rotationY: number, body: string, roof: string): Part[] 
     {
       geometry: new BoxGeometry(0.62, 1.1, 0.08),
       color: roof,
-      position: [x + 0.7 * Math.cos(rotationY), y + 0.55, z + 0.92 - 0.7 * Math.sin(rotationY)],
+      position: local(0.7, 0.55, 0.94),
       rotation: [0, rotationY, 0],
     },
+    surfacePanel(0.75, 0.56, local(-0.55, 1.02, 0.912), "#526875", [0, rotationY, 0], false, SURFACE.glass),
+    surfacePanel(0.035, 0.53, local(-0.55, 1.02, 0.92), roof, [0, rotationY, 0]),
+    surfacePanel(0.2, 0.025, local(0.91, 0.6, 0.99), "#d0d3cd", [0, rotationY, 0]),
+    ...Array.from({ length: 8 }, (_, i) => surfacePanel(0.024, 1.4, local(-1.15 + i * 0.32, 0.8, -0.914), roof, [0, rotationY + Math.PI, 0])),
   ];
 }
 
@@ -260,6 +303,7 @@ function weeds(color: string, count: number, spread: number): Part[] {
     parts.push({
       geometry: new ConeGeometry(0.28 * size, 0.85 * size, 5),
       color,
+      surface: SURFACE.foliage,
       position: [Math.sin(angle) * distance, 0.42 * size, Math.cos(angle) * distance],
       rotation: [0, angle, 0],
     });
@@ -402,7 +446,7 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
 
 const builder = geometryCache<string>((key) => {
   const [state, tone] = key.split(":");
-  return mergeParts(partsFor(state as ConstructionState, Number(tone)));
+  return mergeParts(partsFor(state as ConstructionState, Number(tone)).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
 });
 
 /** The crane's mast colour: rusted on a site nobody has visited for months. */
@@ -412,19 +456,21 @@ const mastColor = (state: ConstructionState, tone: number): string =>
 const mastBuilder = geometryCache<string>((key) => {
   const [state, tone] = key.split(":");
   const mast = mastColor(state as ConstructionState, Number(tone));
-  return mergeParts([
+  return mergeDecorParts([
     {
       geometry: new BoxGeometry(2.4, 0.6, 2.4),
       color: desaturate(CONCRETE, Number(tone)),
+      surface: SURFACE.concrete,
       position: [0, 0.3, 0],
     },
-    { geometry: new BoxGeometry(0.55, 12, 0.55), color: mast, position: [0, 6.6, 0] },
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ geometry: new BoxGeometry(0.11, 12, 0.11), color: mast, position: [sx * 0.275, 6.6, sz * 0.275] as Triple }))),
     // A lattice, so the mast is a tower rather than a stick.
     ...[2.4, 5.2, 8, 10.8].map((y) => ({
       geometry: new BoxGeometry(0.8, 0.12, 0.8),
       color: mast,
       position: [0, y, 0] as Triple,
     })),
+    ...[-1, 1].flatMap((side) => [2.4, 5.2, 8].map((y) => brace([-0.275, y, side * 0.275], [0.275, y + 2.8, side * 0.275], mast, 0.035))),
   ]);
 });
 
@@ -432,8 +478,11 @@ const jibBuilder = geometryCache<string>((key) => {
   const [state, tone] = key.split(":");
   const mast = mastColor(state as ConstructionState, Number(tone));
   const hook = desaturate(state === "abandoned" ? RUST : WARNING_ORANGE, Number(tone));
-  return mergeParts([
-    { geometry: new BoxGeometry(9, 0.42, 0.42), color: mast, position: [2.6, 0, 0] },
+  return mergeDecorParts([
+    ...[-1, 1].map((side) => ({ geometry: new BoxGeometry(9, 0.06, 0.14), color: mast, position: [2.6, side * 0.18, 0] as Triple })),
+    ...Array.from({ length: 8 }, (_, i) => brace([-1.9 + i * 1.125, i % 2 ? 0.18 : -0.18, 0], [-1.9 + (i + 1) * 1.125, i % 2 ? -0.18 : 0.18, 0], mast, 0.035)),
+    { geometry: new BoxGeometry(0.65, 0.55, 0.62), color: mast, position: [0.1, -0.44, 0.12] },
+    surfacePanel(0.43, 0.3, [0.1, -0.4, 0.441], "#516779", [0, 0, 0], false, SURFACE.glass),
     {
       geometry: new BoxGeometry(2.4, 0.7, 0.7),
       color: mix(mast, "#000000", 0.35),

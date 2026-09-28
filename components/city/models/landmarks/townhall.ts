@@ -12,6 +12,7 @@
  * steps, the clock and the forecourt fountain, which all face the front.
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 export type CivicSlot = "stone" | "wall" | "accent" | "metal" | "glass";
@@ -55,7 +56,7 @@ function fountain(a: A): void {
 }
 
 function buildCivic(): CivicLayout {
-  const a = new Assembly<CivicSlot>();
+  const a = new Assembly<CivicSlot>({ stone: SURFACE.stone, wall: SURFACE.stone, accent: SURFACE.metal, metal: SURFACE.metal, glass: SURFACE.glass });
 
   // Plaza, then three steps up to the hall.
   a.box("stone", [13.2, 0.3, 13.2], { at: [0, 0.15, 0] });
@@ -73,6 +74,13 @@ function buildCivic(): CivicLayout {
   // The architrave the columns carry, then the cornice over the whole block.
   a.box("stone", [8.0, 0.5, 0.95], { at: [0, CORNICE_Y - 0.25, 3.85] });
   a.box("stone", [8.4, 0.55, 8.4], { at: [0, CORNICE_Y + 0.275, 0] });
+  for (const side of [-1, 1]) {
+    a.box("metal", [0.11, 4.7, 0.11], { at: [side * 3.72, PODIUM_TOP + 2.35, -3.35] });
+    for (let i = 0; i < 7; i++) {
+      a.box("stone", [0.25, 0.15, 0.25], { at: [side * 4.23, CORNICE_Y + 0.07, -3.6 + i * 1.18] });
+    }
+    a.box("stone", [8.0, 0.22, 0.24], { at: [0, PODIUM_TOP + 0.45, side * 3.72] });
+  }
 
   // The pediment over the portico, with the town clock in its tympanum.
   const pedimentBase = CORNICE_Y + 0.55;
@@ -95,11 +103,24 @@ function buildCivic(): CivicLayout {
       a.box("glass", [0.92, 1.95, 0.1], { at: [o, PODIUM_TOP + 2.5, s * 3.66] });
       a.box("stone", [0.1, 2.3, 1.2], { at: [s * 3.61, PODIUM_TOP + 2.5, o] });
       a.box("glass", [0.1, 1.95, 0.92], { at: [s * 3.66, PODIUM_TOP + 2.5, o] });
+      a.panel("metal", 0.045, 1.93, { at: [o, PODIUM_TOP + 2.5, s * 3.72], rot: [0, s < 0 ? Math.PI : 0, 0] });
+      a.panel("metal", 0.9, 0.045, { at: [o, PODIUM_TOP + 2.6, s * 3.722], rot: [0, s < 0 ? Math.PI : 0, 0] });
+      a.panel("metal", 0.045, 1.93, { at: [s * 3.72, PODIUM_TOP + 2.5, o], rot: [0, s * Math.PI / 2, 0] });
+      a.panel("metal", 0.9, 0.045, { at: [s * 3.722, PODIUM_TOP + 2.6, o], rot: [0, s * Math.PI / 2, 0] });
     }
   }
   // The doorway under the portico.
   a.box("stone", [2.0, 3.0, 0.14], { at: [0, PODIUM_TOP + 1.5, 3.62] });
   a.box("glass", [1.6, 2.6, 0.1], { at: [0, PODIUM_TOP + 1.4, 3.68] });
+  a.box("metal", [0.06, 2.5, 0.05], { at: [0, PODIUM_TOP + 1.4, 3.75] });
+  for (const x of [-0.12, 0.12]) a.box("metal", [0.035, 0.38, 0.035], { at: [x, PODIUM_TOP + 1.3, 3.79] });
+  for (let i = 0; i < 12; i++) {
+    const angle = i * Math.PI / 6;
+    a.panel("metal", 0.035, 0.085, { at: [Math.sin(angle) * 0.4, pedimentBase + 0.52 + Math.cos(angle) * 0.4, 4.778], rot: [0, 0, -angle] });
+  }
+  for (let i = 0; i < 13; i++) {
+    a.box("wall", [0.22, 0.22, 0.2], { at: [-3.7 + i * 0.62, CORNICE_Y + 0.08, 4.26] });
+  }
 
   // Drum, dome, lantern, spire.
   const drumY = CORNICE_Y + 0.55 + 0.75;
@@ -114,7 +135,21 @@ function buildCivic(): CivicLayout {
   a.cylinder("stone", 3.0, 3.0, 0.22, 16, { at: [0, drumY + 0.86, 0] });
   const domeY = drumY + 0.97;
   a.dome("accent", 2.55, { at: [0, domeY, 0] }, 16, 8);
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    for (let segment = 0; segment < 4; segment++) {
+      const point = (step: number): V3 => {
+        const tilt = step * Math.PI / 8;
+        return [Math.cos(angle) * 2.565 * Math.cos(tilt), domeY + 2.565 * Math.sin(tilt), Math.sin(angle) * 2.565 * Math.cos(tilt)];
+      };
+      a.strut("metal", point(segment), point(segment + 1), 0.035, 4);
+    }
+  }
   a.cylinder("wall", 0.75, 0.9, 1.1, 10, { at: [0, domeY + 2.75, 0] });
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    a.box("glass", [0.24, 0.55, 0.055], { at: [Math.sin(angle) * 0.815, domeY + 2.8, Math.cos(angle) * 0.815], rot: [0, angle, 0] });
+  }
   a.dome("accent", 0.82, { at: [0, domeY + 3.3, 0] }, 10, 5);
   a.cylinder("metal", 0.05, 0.08, 1.9, 6, { at: [0, domeY + 4.35, 0] });
   a.sphere("accent", 0.17, { at: [0, domeY + 5.34, 0] }, 8, 6);
@@ -130,6 +165,13 @@ function buildCivic(): CivicLayout {
   // Bollards round the forecourt: the plaza has an edge.
   for (const bx of [-4.6, -2.3, 2.3, 4.6]) {
     a.cylinder("stone", 0.16, 0.2, 0.72, 8, { at: [bx, 0.66, 6.4] });
+    a.cylinder("metal", 0.175, 0.175, 0.11, 8, { at: [bx, 0.95, 6.4] });
+  }
+  for (const x of [-5.7, -4.2, 4.2, 5.7]) {
+    a.panel("metal", 0.018, 12.7, { at: [x, 0.307, 0], rot: [-Math.PI / 2, 0, 0] });
+  }
+  for (const z of [-5.6, -4.1, 4.7, 6.1]) {
+    a.panel("metal", 12.7, 0.018, { at: [0, 0.308, z], rot: [-Math.PI / 2, 0, 0] });
   }
 
   return { slots: a.build(), lantern: [0, domeY + 2.75, 0] };

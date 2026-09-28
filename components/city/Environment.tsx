@@ -36,7 +36,6 @@ import {
   ShaderMaterial,
   Shape,
   ShapeGeometry,
-  type Texture,
   Vector2,
   Vector3,
 } from "three";
@@ -60,9 +59,10 @@ import { useSky, useSkyFrame } from "./sky";
 import {
   surfaceTexture,
   tiledSurface,
-  useTiledSurface,
+  useTiledSurfaceDetail,
   type SurfaceKind,
 } from "./textures/surfaces";
+import { SURFACE_BUMP } from "./textures/texture-data";
 
 /**
  * The dome sits on its own layer so that drei's `<ContactShadows>`, which
@@ -304,14 +304,17 @@ function Plaza({ city, atmosphere }: { city: CityModel; atmosphere: SceneAtmosph
 }
 
 /** A surface texture tiled in world units on both axes of a rect. */
-function useRectSurface(kind: SurfaceKind, rect: PlazaRect, tile: number): Texture {
+function useRectSurface(kind: SurfaceKind, rect: PlazaRect, tile: number) {
   const { textureSize, anisotropy } = useQuality();
   const texture = useMemo(() => {
-    const next = tiledSurface(kind, textureSize, 1, anisotropy);
-    next.repeat.set(Math.max(1, Math.round(rect.w / tile)), Math.max(1, Math.round(rect.d / tile)));
-    return next;
+    const map = tiledSurface(kind, textureSize, 1, anisotropy);
+    const relief = tiledSurface(kind, textureSize, 1, anisotropy, true);
+    const repeats = [Math.max(1, Math.round(rect.w / tile)), Math.max(1, Math.round(rect.d / tile))] as const;
+    map.repeat.set(...repeats);
+    relief.repeat.set(...repeats);
+    return { map, bumpMap: relief, roughnessMap: relief, bumpScale: SURFACE_BUMP[kind] };
   }, [kind, rect.w, rect.d, tile, textureSize, anisotropy]);
-  useEffect(() => () => texture.dispose(), [texture]);
+  useEffect(() => () => { texture.map.dispose(); texture.bumpMap.dispose(); }, [texture]);
   return texture;
 }
 
@@ -323,7 +326,7 @@ function Setts({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosph
       <planeGeometry args={[rect.w, rect.d]} />
       <meshStandardMaterial
         color={desaturate(SETTS_COLOR, atmosphere.desaturation)}
-        map={setts}
+        {...setts}
         roughness={0.95}
         metalness={0}
       />
@@ -362,7 +365,7 @@ function VillageGreen({ rect, atmosphere }: { rect: PlazaRect; atmosphere: Scene
     >
       <meshStandardMaterial
         color={desaturate(mix(atmosphere.terrainColor, GREEN_GRASS, 0.55), atmosphere.desaturation)}
-        map={lawn}
+        {...lawn}
         roughness={1}
         metalness={0}
       />
@@ -375,7 +378,7 @@ function VillageGreen({ rect, atmosphere }: { rect: PlazaRect; atmosphere: Scene
  * rather than on the same lawn as everything else (PLAN.md section 36).
  */
 function Gravel({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosphere }) {
-  const gravel = useTiledSurface("gravel", Math.max(rect.w, rect.d), GRAVEL_TILE);
+  const gravel = useTiledSurfaceDetail("gravel", Math.max(rect.w, rect.d), GRAVEL_TILE);
 
   return (
     <mesh
@@ -387,7 +390,7 @@ function Gravel({ rect, atmosphere }: { rect: PlazaRect; atmosphere: SceneAtmosp
       <planeGeometry args={[rect.w, rect.d]} />
       <meshStandardMaterial
         color={desaturate(PLAZA_COLOR, atmosphere.desaturation)}
-        map={gravel}
+        {...gravel}
         roughness={1}
         metalness={0}
       />

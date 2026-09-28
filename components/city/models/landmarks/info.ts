@@ -13,6 +13,7 @@
  * is the part of this landmark that reads from the overview camera.
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 export type InfoSlot = "deck" | "wall" | "roof" | "glass" | "sign" | "green";
@@ -62,6 +63,14 @@ function mapBoard(a: A, x: number, z: number, width: number, height: number): vo
     at: [x, DECK + 1.75 + 0.02, z + 0.1],
     rot: [-0.16, 0, 0],
   });
+  const face = (dx: number, dy: number): V3 => [x + dx, DECK + 1.77 + dy * Math.cos(0.16), z + 0.145 - dy * Math.sin(0.16)];
+  for (const dx of [-0.25, 0.26]) {
+    a.panel("sign", 0.035, height - 0.6, { at: face(dx * width, 0), rot: [-0.16, 0, 0] });
+  }
+  for (const dy of [-0.23, 0.08, 0.28]) {
+    a.panel("sign", width - 0.65, 0.035, { at: face(0, dy * height), rot: [-0.16, 0, 0] });
+  }
+  a.panel("glass", width * 0.22, height * 0.19, { at: face(-width * 0.07, -height * 0.12), rot: [-0.16, 0, 0] });
 }
 
 /** A garden lamp. Returns the point where its glow belongs. */
@@ -84,7 +93,7 @@ function bench(a: A, x: number, z: number, turn: number): void {
 }
 
 function buildInfo(level: number): InfoLayout {
-  const a = new Assembly<InfoSlot>();
+  const a = new Assembly<InfoSlot>({ deck: SURFACE.stone, wall: SURFACE.plaster, roof: SURFACE.metal, glass: SURFACE.glass, sign: SURFACE.metal, green: SURFACE.foliage });
   const lamps: V3[] = [];
 
   a.box("deck", [17.4, DECK, 11.4], { at: [0, DECK / 2, 0] });
@@ -179,6 +188,15 @@ function buildInfo(level: number): InfoLayout {
 
   fingerpost(a, -7.9, 4.6, level >= 2 ? 3 : 2, 1);
   fingerpost(a, 7.9, 4.6, level >= 3 ? 3 : 2, -1);
+  const front = level === 1 ? 1.318 : level === 2 ? 2.139 : 2.727;
+  const centre = level === 1 ? -1 : level === 2 ? -1.8 : -2.6;
+  const span = level === 1 ? 2.8 : level === 2 ? 8.8 : 8.4;
+  a.panel("roof", span, 0.045, { at: [centre, DECK + (level === 1 ? 1.5 : level === 2 ? 1.65 : 2.5), front] });
+  a.panel("roof", 0.04, level === 1 ? 1.6 : level === 2 ? 2.3 : 3.0, { at: [centre, DECK + (level === 1 ? 1.55 : level === 2 ? 1.6 : 2.3), front + 0.002] });
+  for (const dx of [-0.12, 0.12]) a.box("roof", [0.04, 0.32, 0.06], { at: [centre + dx, DECK + 1.2, front + 0.04] });
+  for (const x of [-6.4, -4.6, -2.8, -1, 0.8]) {
+    a.panel("roof", 0.016, 1.25, { at: [x, DECK + 0.009, 4.8], rot: [-Math.PI / 2, 0, 0] });
+  }
 
   return { slots: a.build(), lamps };
 }

@@ -150,7 +150,7 @@ describe("the query override", () => {
 });
 
 describe("the tiers themselves", () => {
-  it("leaves the high tier exactly as it was", () => {
+  it("reserves the sharpest close-up textures and filtering for high quality", () => {
     expect(QUALITY_SETTINGS.high).toEqual({
       tier: "high",
       postProcessing: true,
@@ -160,8 +160,8 @@ describe("the tiers themselves", () => {
       shadowMapSize: 2048,
       contactShadows: false,
       maxDpr: 2,
-      textureSize: 256,
-      anisotropy: 4,
+      textureSize: 512,
+      anisotropy: 8,
       groundDetail: true,
       crowdEffects: true,
     });

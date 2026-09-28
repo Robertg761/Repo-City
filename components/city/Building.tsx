@@ -45,6 +45,8 @@ import {
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 import { useSkyValue } from "./sky";
+import { useQuality } from "./quality";
+import { buildingDetailMaterial } from "./models/buildings/material";
 
 interface CivicBuildingProps {
   building: Building;
@@ -102,6 +104,12 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
   const { hovered, selected } = useEntityState(building.id);
   const handlers = useEntityHandlers(building.id);
   const reveal = useRevealGroup(building.appearAt);
+  const { textureSize, anisotropy } = useQuality();
+  const bodyMaterial = useMemo(
+    () => buildingDetailMaterial({ flatShading: true, roughness: 0.8, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true }),
+    [textureSize, anisotropy],
+  );
+  useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
   // The windows follow the live hour, brightest at night (`sky.tsx`).
   const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
   const [width, height, depth] = building.size;
@@ -146,7 +154,7 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
       {...handlers}
     >
       <mesh geometry={model.body} castShadow receiveShadow>
-        <meshStandardMaterial vertexColors flatShading roughness={0.8} metalness={0} />
+        <primitive object={bodyMaterial} attach="material" />
       </mesh>
       {model.glow.getAttribute("position").count > 0 && (
         <mesh geometry={model.glow}>

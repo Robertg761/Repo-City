@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BoxGeometry } from "three";
 import { mergeParts, prismGeometry, triangleCount } from "./geometry";
+import { SURFACE, SURFACE_ATTRIBUTE } from "../../textures/surface-types";
 
 describe("prismGeometry", () => {
   it("extrudes a side profile across x, centred on the axis", () => {
@@ -65,5 +66,27 @@ describe("prismGeometry", () => {
     ]);
     expect(merged.getAttribute("color").count).toBe(merged.getAttribute("position").count);
     expect(triangleCount(merged)).toBe(2 + 6 + 12);
+  });
+});
+
+describe("authored prop surfaces", () => {
+  it("omits the optional attribute on untagged primitive assemblies", () => {
+    const geometry = mergeParts([{ geometry: new BoxGeometry(1, 1, 1), color: "#ffffff" }]);
+    expect(geometry.hasAttribute(SURFACE_ATTRIBUTE)).toBe(false);
+  });
+
+  it("preserves nested surface IDs and fills untagged neighbours with the default", () => {
+    const nested = mergeParts([
+      { geometry: new BoxGeometry(1, 1, 1), color: "#ffffff", surface: SURFACE.timber, paint: true },
+      { geometry: new BoxGeometry(1, 1, 1), color: "#ffffff", surface: SURFACE.glass },
+    ]);
+    const combined = mergeParts([
+      { geometry: nested, color: "#ffffff", surface: SURFACE.metal },
+      { geometry: new BoxGeometry(1, 1, 1), color: "#ffffff" },
+    ]);
+    const surfaces = combined.getAttribute(SURFACE_ATTRIBUTE);
+    expect(surfaces.count).toBe(combined.getAttribute("position").count);
+    expect(new Set(Array.from(surfaces.array))).toEqual(new Set([SURFACE.timber, SURFACE.glass, SURFACE.plaster]));
+    expect(Array.from(combined.getAttribute("paint").array).filter((value) => value === 1)).toHaveLength(36);
   });
 });

@@ -10,9 +10,9 @@
  * own `repeat` take a clone, which shares the uploaded image with the
  * original (three keys the GPU texture on the source, not the wrapper).
  *
- * SIZE. The quality tier picks the side: 256 on the high tier, 128 on the low
- * one. Anything larger would be detail no one can see from the overview, and
- * the joints and stripes are drawn soft enough to survive the halving.
+ * SIZE. The quality tier chooses the resolution and filtering. Mipmaps
+ * soften close-up detail in the overview, while the low tier keeps the
+ * same material patterns at a smaller side length.
  *
  * WHY A SHADER PATCH FOR THE ROADS. The carriageways and pavements are unit
  * boxes scaled per instance, so their own UVs run 0..1 across a slab whatever
@@ -25,14 +25,7 @@
 
 import { useEffect, useMemo } from "react";
 import {
-  DataTexture,
-  LinearFilter,
-  LinearMipmapLinearFilter,
   MeshStandardMaterial,
-  NoColorSpace,
-  RGBAFormat,
-  RepeatWrapping,
-  UnsignedByteType,
   Vector2,
   type Texture,
   type WebGLProgramParametersWithUniforms,
@@ -40,89 +33,17 @@ import {
 import { JUNCTION_INSET } from "../groundwork";
 import { useQuality } from "../quality";
 import {
-  asphaltPattern,
-  grassPattern,
-  gravelPattern,
-  groundDetailPattern,
-  paverPattern,
-  settsPattern,
-  type Pattern,
-} from "./patterns";
+  SURFACE_BUMP,
+  surfaceTexture,
+  surfaceReliefTexture,
+  tiledSurface,
+  type ModelDetailOptions,
+  type SurfaceKind,
+} from "./texture-data";
+import { RELIEF_GLSL } from "./model-detail";
 
-export type SurfaceKind =
-  | "lawn"
-  | "turf"
-  | "meadow"
-  | "asphalt"
-  | "pavers"
-  | "gravel"
-  | "ground"
-  | "setts";
-
-/** Mowing stripe pairs across one lawn tile. */
-const LAWN_STRIPES = 4;
-/** Slabs across one pavers tile, and along it. */
-const PAVER_COLUMNS = 4;
-const PAVER_ROWS = 8;
-
-const MAKERS: Record<SurfaceKind, (size: number) => Pattern> = {
-  lawn: (size) => grassPattern(size, { stripes: LAWN_STRIPES, seed: "lawn" }),
-  // The empty stage: an even, fresh green with no mower stripes. Across a
-  // whole bare plate the stripes were the only thing in frame, and read as a
-  // blurred weave rather than as grass.
-  turf: (size) => grassPattern(size, { seed: "turf", mottle: 0.15 }),
-  meadow: (size) => grassPattern(size, { seed: "meadow", mottle: 0.35 }),
-  asphalt: (size) => asphaltPattern(size),
-  pavers: (size) => paverPattern(size, { columns: PAVER_COLUMNS, rows: PAVER_ROWS }),
-  gravel: (size) => gravelPattern(size),
-  ground: (size) => groundDetailPattern(size),
-  setts: (size) => settsPattern(size),
-};
-
-const cache = new Map<string, DataTexture>();
-
-/** The shared texture for a surface at a side length. Built once. */
-export function surfaceTexture(kind: SurfaceKind, size: number, anisotropy = 1): DataTexture {
-  const key = `${kind}:${size}`;
-  let texture = cache.get(key);
-  if (!texture) {
-    const pattern = MAKERS[kind](size);
-    texture = new DataTexture(
-      pattern.data,
-      pattern.size,
-      pattern.size,
-      RGBAFormat,
-      UnsignedByteType,
-    );
-    // Linear data: every pattern is a multiplier, not a colour.
-    texture.colorSpace = NoColorSpace;
-    texture.wrapS = RepeatWrapping;
-    texture.wrapT = RepeatWrapping;
-    texture.magFilter = LinearFilter;
-    texture.minFilter = LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
-    texture.needsUpdate = true;
-    cache.set(key, texture);
-  }
-  if (texture.anisotropy !== anisotropy) {
-    texture.anisotropy = anisotropy;
-    texture.needsUpdate = true;
-  }
-  return texture;
-}
-
-/** A private wrapper around the shared texture, tiled `repeat` times. */
-export function tiledSurface(
-  kind: SurfaceKind,
-  size: number,
-  repeat: number,
-  anisotropy = 1,
-): Texture {
-  const texture = surfaceTexture(kind, size, anisotropy).clone();
-  texture.repeat.set(repeat, repeat);
-  texture.needsUpdate = true;
-  return texture;
-}
+export { surfaceTexture, surfaceReliefTexture, tiledSurface } from "./texture-data";
+export type { SurfaceKind, ModelDetailOptions } from "./texture-data";
 
 // ---------------------------------------------------------------------------
 // The instanced street shader patch
@@ -132,7 +53,7 @@ export function tiledSurface(
  * `patch` is asphalt without the oil line down each lane: the joint discs and
  * corner squares at a bend (`groundwork.ts` `jointLays`), which have no lanes.
  */
-export type StreetSurface = "asphalt" | "patch" | "pavers" | "paint";
+export type StreetSurface = "asphalt" | "patch" | "pavers" | "paint" | "concrete" | "gravel" | "lawn" | "soil";
 
 /**
  * World units per pattern tile, across (u) and along (v).
@@ -150,6 +71,10 @@ const TILE: Record<StreetSurface, [number, number]> = {
   patch: [9, 9],
   pavers: [1.2, 3.6],
   paint: [9, 9],
+  concrete: [3.6, 3.6],
+  gravel: [3.6, 3.6],
+  lawn: [9, 9],
+  soil: [4, 4],
 };
 
 /**
@@ -197,10 +122,13 @@ const FRAGMENT_HEAD = /* glsl */ `
 uniform sampler2D rcPattern;
 uniform float rcLaneWear;
 uniform float rcPaintWear;
+uniform sampler2D rcRelief;
+uniform float rcBumpScale;
 varying vec2 rcUv;
 varying vec3 rcFrame;
 varying float rcUp;
 varying float rcHalfWidth;
+${RELIEF_GLSL}
 `;
 
 const FRAGMENT_BODY = /* glsl */ `
@@ -234,12 +162,15 @@ export function patchStreetMaterial(
   material: MeshStandardMaterial,
   surface: StreetSurface,
   texture: Texture,
+  relief?: Texture,
 ): void {
   const uniforms = {
     rcPattern: { value: texture },
     rcTile: { value: new Vector2(...TILE[surface]) },
     rcLaneWear: { value: LANE_WEAR },
     rcPaintWear: { value: PAINT_WEAR },
+    rcRelief: { value: relief ?? texture },
+    rcBumpScale: { value: surface === "paint" || !relief ? 0 : SURFACE_BUMP[STREET_PATTERN[surface]] },
   };
   material.userData.rcUniforms = uniforms;
 
@@ -257,16 +188,22 @@ export function patchStreetMaterial(
       .replace("#include <fog_vertex>", `#include <fog_vertex>\n${VERTEX_BODY}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${FRAGMENT_HEAD}`)
-      .replace("#include <map_fragment>", `#include <map_fragment>\n${FRAGMENT_BODY}`);
+      .replace("#include <map_fragment>", `#include <map_fragment>\n${FRAGMENT_BODY}\nvec4 rcSurfaceRelief = texture2D(rcRelief, rcUv);`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>\nroughnessFactor *= mix(1.0, rcSurfaceRelief.g, smoothstep(0.3, 0.7, rcUp));`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>\nnormal = rcReliefNormal(normal, rcSurfaceRelief.r, rcBumpScale * smoothstep(0.3, 0.7, rcUp));`);
   };
   material.customProgramCacheKey = () => `repo-city-street-${surface}`;
   material.needsUpdate = true;
 }
 
 /** Points an already patched material at another texture, e.g. on a tier change. */
-export function setStreetTexture(material: MeshStandardMaterial, texture: Texture): void {
-  const uniforms = material.userData.rcUniforms as { rcPattern: { value: Texture } } | undefined;
+export function setStreetTexture(material: MeshStandardMaterial, texture: Texture, relief?: Texture): void {
+  const uniforms = material.userData.rcUniforms as {
+    rcPattern: { value: Texture };
+    rcRelief: { value: Texture };
+  } | undefined;
   if (uniforms) uniforms.rcPattern.value = texture;
+  if (uniforms && relief) uniforms.rcRelief.value = relief;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +215,10 @@ const STREET_PATTERN: Record<StreetSurface, SurfaceKind> = {
   patch: "asphalt",
   pavers: "pavers",
   paint: "asphalt",
+  concrete: "concrete",
+  gravel: "gravel",
+  lawn: "lawn",
+  soil: "soil",
 };
 
 /**
@@ -295,19 +236,37 @@ export function useStreetMaterial(
   color: string,
   roughness: number,
   behind = 0,
+  vertexColors = false,
 ): MeshStandardMaterial {
   const { textureSize, anisotropy } = useQuality();
-  const material = useMemo(() => {
-    const next = new MeshStandardMaterial({ color, roughness, metalness: 0 });
-    if (behind > 0) {
-      next.polygonOffset = true;
-      next.polygonOffsetFactor = behind;
-      next.polygonOffsetUnits = behind;
-    }
-    patchStreetMaterial(next, surface, surfaceTexture(STREET_PATTERN[surface], textureSize, anisotropy));
-    return next;
-  }, [surface, color, roughness, behind, textureSize, anisotropy]);
+  const material = useMemo(
+    () => streetMaterial(surface, color, roughness, behind, vertexColors, { textureSize, anisotropy }),
+    [surface, color, roughness, behind, vertexColors, textureSize, anisotropy],
+  );
   useEffect(() => () => material.dispose(), [material]);
+  return material;
+}
+
+/** Factory form also supports vertex-coloured field patches and material tests. */
+export function streetMaterial(
+  surface: StreetSurface,
+  color: string,
+  roughness: number,
+  behind = 0,
+  vertexColors = false,
+  { textureSize = 256, anisotropy = 4 }: ModelDetailOptions = {},
+): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ color, roughness, metalness: 0, vertexColors });
+  if (behind > 0) {
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = behind;
+    material.polygonOffsetUnits = behind;
+  }
+  patchStreetMaterial(
+    material, surface,
+    surfaceTexture(STREET_PATTERN[surface], textureSize, anisotropy),
+    surfaceReliefTexture(STREET_PATTERN[surface], textureSize, anisotropy),
+  );
   return material;
 }
 
@@ -324,4 +283,17 @@ export function useTiledSurface(kind: SurfaceKind, extent: number, tile: number)
   );
   useEffect(() => () => texture.dispose(), [texture]);
   return texture;
+}
+
+/** Colour and relief use the same repeat and share their cached source images. */
+export function useTiledSurfaceDetail(kind: SurfaceKind, extent: number, tile: number) {
+  const { textureSize, anisotropy } = useQuality();
+  const detail = useMemo(() => {
+    const repeat = Math.max(1, Math.round(extent / tile));
+    const map = tiledSurface(kind, textureSize, repeat, anisotropy);
+    const relief = tiledSurface(kind, textureSize, repeat, anisotropy, true);
+    return { map, bumpMap: relief, roughnessMap: relief, bumpScale: SURFACE_BUMP[kind] };
+  }, [kind, extent, tile, textureSize, anisotropy]);
+  useEffect(() => () => { detail.map.dispose(); detail.bumpMap.dispose(); }, [detail]);
+  return detail;
 }

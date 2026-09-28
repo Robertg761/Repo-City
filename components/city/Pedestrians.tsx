@@ -3,8 +3,8 @@
 /**
  * The crowd (PLAN.md sections 17, 18, 37).
  *
- * `ambience.pedestrianDensity` becomes people on the pavements: a capsule and
- * a sphere each, walking the road graph from `traffic.ts` offset by half a
+ * `ambience.pedestrianDensity` becomes clothed people on the pavements,
+ * walking the road graph from `traffic.ts` offset by half a
  * carriageway plus a unit, plus small idle groups outside the town hall and
  * the information centre. An archived city keeps two or three of them, which
  * is the difference between quiet and dead (section 19).
@@ -47,6 +47,9 @@ import { roadStyle } from "./groundwork";
 import { crowdScale, tierOf } from "./scale";
 import { roadGraph } from "./traffic";
 import { useRevealClock } from "./useReveal";
+import { tintedMaterial } from "./models/props/material";
+import { walkerBodyGeometry, walkerHeadGeometry } from "./models/props/walkerModel";
+import { useQuality } from "./quality";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -70,6 +73,17 @@ export default function Pedestrians({
   const bodyRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
+  const { textureSize, anisotropy } = useQuality();
+  const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
+  const headMaterial = useMemo(() => tintedMaterial({ roughness: 0.92 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
+  useEffect(() => () => {
+    bodyMaterial.dispose();
+    headMaterial.dispose();
+  }, [bodyMaterial, headMaterial]);
 
   const { graph, blocks, walkers, idle, prng, total, motion, lanes } = useMemo(() => {
     const rng = prngFor(city.seed, "pedestrians");
@@ -203,12 +217,12 @@ export default function Pedestrians({
         castShadow
         frustumCulled={false}
       >
-        <capsuleGeometry args={[0.17, 0.48, 2, 6]} />
-        <meshStandardMaterial roughness={0.85} />
+        <primitive object={walkerBodyGeometry()} attach="geometry" />
+        <primitive object={bodyMaterial} attach="material" />
       </instancedMesh>
       <instancedMesh ref={headRef} args={[undefined, undefined, total]} frustumCulled={false}>
-        <sphereGeometry args={[0.15, 7, 5]} />
-        <meshStandardMaterial roughness={0.9} />
+        <primitive object={walkerHeadGeometry()} attach="geometry" />
+        <primitive object={headMaterial} attach="material" />
       </instancedMesh>
     </group>
   );

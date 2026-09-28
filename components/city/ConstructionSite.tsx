@@ -31,7 +31,6 @@ import { useFrame } from "@react-three/fiber";
 import {
   BoxGeometry,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   PlaneGeometry,
   RingGeometry,
   type BufferGeometry,
@@ -68,6 +67,8 @@ import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
 import { useSkyValue } from "./sky";
+import { buildingDetailMaterial } from "./models/buildings/material";
+import { qualitySettings, useQuality } from "./quality";
 
 /** One pool per merged shape; `receive` as the mesh it replaces had it. */
 function mergedKind(
@@ -76,9 +77,12 @@ function mergedKind(
   surface: { roughness: number; metalness?: number },
   receiveShadow: boolean,
 ): BatchKind {
-  return batchKind(`site:${name}:${geometry.uuid}`, () => ({
+  const { textureSize, anisotropy } = qualitySettings();
+  return batchKind(`site:${name}:${geometry.uuid}:${textureSize}`, () => ({
     geometry: () => geometry,
-    material: () => new MeshStandardMaterial({ vertexColors: true, ...surface }),
+    material: () => buildingDetailMaterial({ vertexColors: true, ...surface }, {
+      textureSize, anisotropy, surfaceAttribute: geometry.hasAttribute("surface"), surface: 7,
+    }),
     castShadow: true,
     receiveShadow,
   }));
@@ -89,7 +93,7 @@ const CRANE_SURFACE = { roughness: 0.6, metalness: 0.15 };
 /** The cleared plot, `SITE` square. */
 const GROUND = batchKind("site:ground", () => ({
   geometry: () => new PlaneGeometry(SITE, SITE),
-  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 1 }),
+  material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 1 }, { ...qualitySettings(), surface: 11 }),
   receiveShadow: true,
 }));
 
@@ -98,7 +102,7 @@ const unitBox = () => new BoxGeometry(1, 1, 1);
 
 const SHELL = batchKind("site:shell", () => ({
   geometry: unitBox,
-  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.95 }),
+  material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 0.95 }, { ...qualitySettings(), surface: 11 }),
   castShadow: true,
   receiveShadow: true,
 }));
@@ -106,14 +110,14 @@ const SHELL = batchKind("site:shell", () => ({
 /** A finished building's shell is a little smoother than a bare frame's. */
 const SHELL_DONE = batchKind("site:shell-done", () => ({
   geometry: unitBox,
-  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.7 }),
+  material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 0.7 }, { ...qualitySettings(), surface: 0 }),
   castShadow: true,
   receiveShadow: true,
 }));
 
 const SLAB = batchKind("site:slab", () => ({
   geometry: unitBox,
-  material: () => new MeshStandardMaterial({ color: "#ffffff", roughness: 0.95 }),
+  material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 0.95 }, { ...qualitySettings(), surface: 11 }),
 }));
 
 /** The lit band of a finished building's windows. */
@@ -180,9 +184,12 @@ function Crane({
  * archetypes' faces are modelled for.
  */
 function finishedKind(name: string, geometry: BufferGeometry): BatchKind {
-  return batchKind(`site:${name}:${geometry.uuid}`, () => ({
+  const { textureSize, anisotropy } = qualitySettings();
+  return batchKind(`site:${name}:${geometry.uuid}:${textureSize}`, () => ({
     geometry: () => geometry,
-    material: () => new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.84, metalness: 0 }),
+    material: () => buildingDetailMaterial({ vertexColors: true, flatShading: true, roughness: 0.84, metalness: 0 }, {
+      textureSize, anisotropy, surfaceAttribute: geometry.hasAttribute("surface"),
+    }),
     castShadow: true,
     receiveShadow: true,
   }));
@@ -245,6 +252,7 @@ export default function ConstructionSitePiece({
   /** The settlement tier; absent means the city. */
   settlement?: SettlementTier;
 }) {
+  useQuality();
   const { hovered, selected } = useEntityState(site.id);
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);

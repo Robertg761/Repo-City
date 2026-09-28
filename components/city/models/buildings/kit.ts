@@ -39,11 +39,13 @@ import {
   type Panel,
   type Rgb3,
 } from "./mesh";
+import { SURFACE, type SurfaceId } from "../../textures/surface-types";
 
 /** A colour and the paint channel it is written in. */
 export interface Mat {
   color: Rgb3;
   paint: number;
+  surface?: SurfaceId;
 }
 
 type P = readonly [number, number, number];
@@ -63,9 +65,9 @@ export function linear(hex: string): Rgb3 {
   return [channel((n >> 16) & 255), channel((n >> 8) & 255), channel(n & 255)];
 }
 
-const absolute = (hex: string): Mat => ({ color: linear(hex), paint: PAINT_NONE });
-const wallShade = (k: number): Mat => ({ color: [k, k, k], paint: PAINT_WALL });
-const accentShade = (k: number): Mat => ({ color: [k, k, k], paint: PAINT_ACCENT });
+const absolute = (hex: string, surface: SurfaceId): Mat => ({ color: linear(hex), paint: PAINT_NONE, surface });
+const wallShade = (k: number): Mat => ({ color: [k, k, k], paint: PAINT_WALL, surface: SURFACE.plaster });
+const accentShade = (k: number): Mat => ({ color: [k, k, k], paint: PAINT_ACCENT, surface: SURFACE.timber });
 
 /**
  * The village and town materials. Warm and a little muted, so they sit under
@@ -79,38 +81,39 @@ export const M = {
   accent: accentShade(1),
   accentDark: accentShade(0.72),
 
-  thatch: absolute("#c6a25e"),
-  thatchDark: absolute("#a3823f"),
-  thatchLight: absolute("#d6b675"),
-  tile: absolute("#a8573f"),
-  tileDark: absolute("#8a4434"),
-  slate: absolute("#6b7680"),
-  slateDark: absolute("#56606a"),
-  barnRoof: absolute("#655e58"),
-  stone: absolute("#bdb4a3"),
-  stoneDark: absolute("#968d7e"),
-  brick: absolute("#a95e46"),
-  brickDark: absolute("#8b4a37"),
-  timber: absolute("#6b4e39"),
-  timberDark: absolute("#4e3a2b"),
-  frame: absolute("#f1ede2"),
-  glass: absolute("#4f6070"),
-  shopGlass: absolute("#5d7384"),
-  door: absolute("#4a3a30"),
-  flowerRed: absolute("#cf4d57"),
-  flowerPink: absolute("#e07ca0"),
-  flowerYellow: absolute("#e9c44f"),
-  leaf: absolute("#5b8a47"),
-  hay: absolute("#d9bd68"),
-  concrete: absolute("#c8c2b4"),
-  concreteDark: absolute("#a9a397"),
-  metal: absolute("#8b9295"),
-  railing: absolute("#3e4448"),
-  cream: absolute("#f1e7cf"),
+  thatch: absolute("#c6a25e", SURFACE.thatch),
+  thatchDark: absolute("#a3823f", SURFACE.thatch),
+  thatchLight: absolute("#d6b675", SURFACE.thatch),
+  tile: absolute("#a8573f", SURFACE.clayTile),
+  tileDark: absolute("#8a4434", SURFACE.clayTile),
+  slate: absolute("#6b7680", SURFACE.slate),
+  slateDark: absolute("#56606a", SURFACE.slate),
+  barnRoof: absolute("#655e58", SURFACE.metal),
+  stone: absolute("#bdb4a3", SURFACE.stone),
+  stoneDark: absolute("#968d7e", SURFACE.stone),
+  brick: absolute("#a95e46", SURFACE.brick),
+  brickDark: absolute("#8b4a37", SURFACE.brick),
+  timber: absolute("#6b4e39", SURFACE.timber),
+  timberDark: absolute("#4e3a2b", SURFACE.timber),
+  frame: absolute("#f1ede2", SURFACE.timber),
+  glass: absolute("#4f6070", SURFACE.glass),
+  shopGlass: absolute("#5d7384", SURFACE.glass),
+  door: absolute("#4a3a30", SURFACE.timber),
+  flowerRed: absolute("#cf4d57", SURFACE.foliage),
+  flowerPink: absolute("#e07ca0", SURFACE.foliage),
+  flowerYellow: absolute("#e9c44f", SURFACE.foliage),
+  leaf: absolute("#5b8a47", SURFACE.foliage),
+  hay: absolute("#d9bd68", SURFACE.thatch),
+  concrete: absolute("#c8c2b4", SURFACE.concrete),
+  concreteDark: absolute("#a9a397", SURFACE.concrete),
+  metal: absolute("#8b9295", SURFACE.metal),
+  railing: absolute("#3e4448", SURFACE.metal),
+  cream: absolute("#f1e7cf", SURFACE.plaster),
 } as const satisfies Record<string, Mat>;
 
 function paintAs(draft: MeshDraft, mat: Mat): Rgb3 {
   draft.paintValue = mat.paint;
+  draft.surfaceValue = mat.surface ?? SURFACE.plaster;
   return mat.color;
 }
 
@@ -203,6 +206,64 @@ export interface RoofSpec {
   ridgeCap?: Mat;
 }
 
+/** Eaves drain to a rear pipe, away from the street doors and shop awnings. */
+export function rainwater(draft: MeshDraft, spec: RoofSpec): void {
+  if (spec.w * spec.d < 0.3 || spec.rise < 0.1) return;
+  const alongX = spec.ridge === "x";
+  const halfA = (alongX ? spec.w : spec.d) / 2;
+  const halfB = (alongX ? spec.d : spec.w) / 2;
+  const outA = halfA + spec.overhang;
+  const outB = halfB + spec.overhang;
+  const eave = spec.y - spec.overhang * spec.rise / halfB;
+  const cx = spec.x ?? 0;
+  const cz = spec.z ?? 0;
+  for (const side of [-1, 1]) {
+    box(draft, alongX
+      ? { x: cx, y: eave - 0.03, z: cz + side * (outB + 0.01), w: outA * 2 + LAYER * 4, h: 0.018, d: 0.032 }
+      : { x: cx + side * (outB + 0.01), y: eave - 0.03, z: cz, w: 0.032, h: 0.018, d: outA * 2 + LAYER * 4 }, M.metal);
+  }
+  const a = -halfA + 0.05;
+  const b = -outB - 0.01;
+  cylinder(draft, { x: cx + (alongX ? a : b), y: 0.02, z: cz + (alongX ? b : a), radius: 0.009, h: Math.max(0.02, eave - 0.045), segments: 5 }, M.railing);
+}
+
+/** Overlapping tile courses, kept clear of the roof's depth-buffer layer. */
+function roofCourses(
+  draft: MeshDraft,
+  at: (a: number, y: number, b: number) => P,
+  spec: RoofSpec,
+  halfA: number,
+  halfB: number,
+  ridgeHalf = halfA,
+  joints = true,
+): void {
+  if (spec.rise < 0.1 || spec.w * spec.d < 0.2) return;
+  const outA = halfA + spec.overhang;
+  const outB = halfB + spec.overhang;
+  const apex = spec.y + spec.rise;
+  const pitch = spec.rise / halfB;
+  const seam: Mat = { color: [spec.roof.color[0] * 0.8, spec.roof.color[1] * 0.8, spec.roof.color[2] * 0.8], paint: spec.roof.paint, surface: spec.roof.surface };
+  const point = (a: number, b: number): P => at(a, apex - Math.abs(b) * pitch + 0.016, b);
+  for (const side of [-1, 1]) {
+    for (let row = joints ? 1 : 3; row <= 5; row++) {
+      const b0 = (outB * row) / 6;
+      const b1 = b0 + 0.012;
+      const a0 = ridgeHalf + (outA - ridgeHalf) * (b0 / outB);
+      const a1 = ridgeHalf + (outA - ridgeHalf) * (b1 / outB);
+      face(draft, [point(-a0, side * b0), point(a0, side * b0), point(a1, side * b1), point(-a1, side * b1)], at(0, spec.y, 0), seam);
+      if (!joints) continue;
+      // Staggered tile joints stop at each course, like bonded slate or clay.
+      const from = b1;
+      const to = Math.min(outB, b0 + outB / 6 - 0.012);
+      for (let joint = 1; joint < 5; joint++) {
+        const a = -a0 + (2 * a0 * (joint + (row % 2) * 0.25)) / 5;
+        if (Math.abs(a) + 0.004 > ridgeHalf + (outA - ridgeHalf) * (from / outB)) continue;
+        face(draft, [point(a - 0.004, side * from), point(a + 0.004, side * from), point(a + 0.004, side * to), point(a - 0.004, side * to)], at(0, spec.y, 0), seam);
+      }
+    }
+  }
+}
+
 /**
  * A gabled roof. The slopes carry on past the wall by `overhang` and drop
  * below the wall plate as they do, so the eave sits a little under the top of
@@ -231,6 +292,8 @@ export function gableRoof(draft: MeshDraft, spec: RoofSpec): void {
       spec.roof,
     );
   }
+  roofCourses(draft, at, spec, halfA, halfB);
+  rainwater(draft, spec);
   const inside = at(0, spec.y, 0);
   for (const end of [1, -1]) {
     face(draft, [at(end * halfA, spec.y, -halfB), at(end * halfA, spec.y, halfB), at(end * halfA, apex - 0.004, 0)], inside, spec.gable);
@@ -289,6 +352,8 @@ export function hipRoof(
       spec.roof,
     );
   }
+  // Reed courses start below the scalloped ridge and have no tile joints.
+  roofCourses(draft, at, spec, halfA, halfB, r, !spec.ridgeBand);
   if (spec.ridgeBand) {
     // A fifth of the way down each long slope, lifted just off it, with a
     // scalloped lower edge: five points instead of a straight line.
@@ -419,7 +484,7 @@ export function framedWindow(draft: MeshDraft, spec: WindowSpec): Panel {
   const base = { facing: spec.facing, u: spec.u, cx: spec.cx, cz: spec.cz };
   const frame = spec.frame ?? 0.016;
   panel(draft, { ...base, v: spec.v, w: spec.w + frame * 2, h: spec.h + frame * 2, plane: spec.plane }, M.frame);
-  const glass: Panel = { ...base, v: spec.v, w: spec.w, h: spec.h, plane: spec.plane + LAYER };
+  const glass: Panel = { ...base, v: spec.v, w: spec.w, h: spec.h, plane: spec.plane + LAYER, surface: SURFACE.glass };
   const bar = 0.012;
   const bars = spec.bars ?? "cross";
   // Pane edges across and up the glass: the bars are the gaps between them.
@@ -458,6 +523,16 @@ export function framedWindow(draft: MeshDraft, spec: WindowSpec): Panel {
         },
         M.accent,
       );
+      for (let slat = 0; slat < 3; slat++) {
+        panel(draft, {
+          ...base,
+          u: spec.u + side * (spec.w / 2 + frame + spec.w * 0.27),
+          v: spec.v + (slat - 1) * spec.h * 0.25,
+          w: spec.w * 0.34,
+          h: 0.009,
+          plane: spec.plane + LAYER,
+        }, M.accentDark);
+      }
     }
   }
   if (spec.flowers) {
@@ -500,6 +575,12 @@ export function door(
   const total = spec.h + fan;
   panel(draft, { ...base, v: spec.v + (total + 0.025) / 2, w: spec.w + 0.05, h: total + 0.025, plane: spec.plane }, surround);
   panel(draft, { ...base, v: spec.v + spec.h / 2, w: spec.w, h: spec.h, plane: spec.plane + LAYER }, spec.mat ?? M.accent);
+  // Lower recessed panels stay below the glass of shop doors; the handle
+  // sits beside it. Both remain part of the same instanced building mesh.
+  for (const side of [-1, 1]) {
+    panel(draft, { ...base, u: spec.u + side * spec.w * 0.2, v: spec.v + spec.h * 0.2, w: spec.w * 0.28, h: spec.h * 0.2, plane: spec.plane + LAYER * 2 }, M.accentDark);
+  }
+  panel(draft, { ...base, u: spec.u + spec.w * 0.38, v: spec.v + spec.h * 0.48, w: Math.min(0.012, spec.w * 0.12), h: 0.012, plane: spec.plane + LAYER * 2 }, M.metal);
   if (fan > 0) {
     panel(draft, { ...base, v: spec.v + spec.h + fan / 2 + 0.004, w: spec.w * 0.9, h: fan - 0.008, plane: spec.plane + LAYER }, M.glass);
   }
@@ -535,5 +616,14 @@ export function chimney(
       { x: spec.x + (alongZ ? 0 : offset), y: spec.top, z: spec.z + (alongZ ? offset : 0), radius: 0.018, h: 0.04, segments: 5 },
       M.tileDark,
     );
+    // A dark opening above the pot's rim reads as a hollow flue at close range.
+    const x = spec.x + (alongZ ? 0 : offset);
+    const z = spec.z + (alongZ ? offset : 0);
+    const y = spec.top + 0.04 + LAYER;
+    for (let side = 0; side < 5; side++) {
+      const a = side * Math.PI * 2 / 5;
+      const b = (side + 1) * Math.PI * 2 / 5;
+      face(draft, [[x, y, z], [x + Math.cos(a) * 0.012, y, z + Math.sin(a) * 0.012], [x + Math.cos(b) * 0.012, y, z + Math.sin(b) * 0.012]], [x, spec.top, z], M.railing);
+    }
   }
 }

@@ -50,6 +50,7 @@ import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf } from "./scale";
 import { GlowField } from "./glow";
 import { useSky, useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
+import { useQuality } from "./quality";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -125,6 +126,7 @@ export default function Props({
   const furnitureRefs = useRef<(InstancedMesh | null)[]>([]);
   const parkedRefs = useRef<(InstancedMesh | null)[]>([]);
   const clock = useRevealClock();
+  const { textureSize, anisotropy } = useQuality();
   const settled = useRef(false);
 
   const { trees, species } = useMemo(() => {
@@ -153,16 +155,23 @@ export default function Props({
       tintedMaterial(
         { roughness: 1, flatShading: true },
         { time: WIND_CLOCK, amount: prefersStill() ? 0 : SWAY_AMOUNT, base: SWAY_BASE },
+        { textureSize, anisotropy },
       ),
-    [],
+    [textureSize, anisotropy],
   );
-  const parkedMaterial = useMemo(() => tintedMaterial({ roughness: 0.55, metalness: 0.08 }), []);
+  const parkedMaterial = useMemo(() => tintedMaterial({ roughness: 0.55, metalness: 0.08 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
+  const furnitureMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
   useEffect(
     () => () => {
       treeMaterial.dispose();
       parkedMaterial.dispose();
+      furnitureMaterial.dispose();
     },
-    [treeMaterial, parkedMaterial],
+    [treeMaterial, parkedMaterial, furnitureMaterial],
   );
 
   useFrame(({ clock: sceneClock }) => {
@@ -291,10 +300,11 @@ export default function Props({
   });
 
   // A new city, or a new tone -- which rebuilds the tone-keyed geometries and
-  // with them the meshes -- has to lay every instance out again.
+  // with them the meshes -- has to lay every instance out again. So does a
+  // quality change, which rebuilds the materials and remounts the meshes.
   useEffect(() => {
     settled.current = false;
-  }, [city, atmosphere.desaturation]);
+  }, [city, atmosphere.desaturation, treeMaterial, parkedMaterial, furnitureMaterial]);
 
   // Per-instance colour: the crowns carry their seeded leaf tint, the parked
   // cars their paint. Everything else is coloured in its merged geometry.
@@ -319,7 +329,8 @@ export default function Props({
       });
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     });
-  }, [species, trees, parked, atmosphere.desaturation]);
+    // The materials too: a quality change remounts the meshes without colours.
+  }, [species, trees, parked, atmosphere.desaturation, treeMaterial, parkedMaterial]);
 
   return (
     <group>
@@ -407,7 +418,7 @@ export default function Props({
           castShadow
           frustumCulled={false}
         >
-          <meshStandardMaterial roughness={0.9} vertexColors />
+          <primitive object={furnitureMaterial} attach="material" />
         </instancedMesh>
       ))}
 

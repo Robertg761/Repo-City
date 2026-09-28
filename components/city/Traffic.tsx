@@ -102,8 +102,14 @@ export default function Traffic({
 
   // One material for every body type: the paint mask lets the car's colour
   // reach the paintwork and nothing else (`models/props/material.ts`).
-  const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }), []);
-  useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
+  const { textureSize, anisotropy, postProcessing } = useQuality();
+  const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
+  const wheelMaterial = useMemo(() => tintedMaterial({ roughness: 0.85, metalness: 0.05 }, undefined, {
+    textureSize, anisotropy, surfaceAttribute: true,
+  }), [textureSize, anisotropy]);
+  useEffect(() => () => { bodyMaterial.dispose(); wheelMaterial.dispose(); }, [bodyMaterial, wheelMaterial]);
 
   // Lamps brighten with the city's lit windows: at dusk a street of tail
   // lights, at noon pale lenses and dull red glass (PLAN.md section 39). The
@@ -112,7 +118,7 @@ export default function Traffic({
   // At night they burn past white, into the bloom, and throw their light on
   // the road ahead (`glow.tsx`). Both follow the live hour (`sky.tsx`).
   // Softer without the composer's tone mapping (`glow.tsx`).
-  const beamScale = useQuality().postProcessing ? 1 : LOW_TIER_GLOW;
+  const beamScale = postProcessing ? 1 : LOW_TIER_GLOW;
   const lampMaterial = useMemo(
     () => new MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     [],
@@ -298,7 +304,7 @@ export default function Traffic({
         args={[wheelGeometry(), undefined, cars.length * 4]}
         frustumCulled={false}
       >
-        <meshStandardMaterial vertexColors roughness={0.85} metalness={0.05} />
+        <primitive object={wheelMaterial} attach="material" />
       </instancedMesh>
     </group>
   );

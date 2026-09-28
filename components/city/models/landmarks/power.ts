@@ -15,6 +15,7 @@
  * `Landmark.tsx` on top of this shell.
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 export type PowerSlot = "deck" | "hull" | "steel" | "hazard" | "glass" | "cold";
@@ -158,7 +159,10 @@ function switchyard(a: A): void {
       a.cylinder("deck", 0.1, 0.14, 0.85, 6, { at: [cx + dx, DECK + 2.18, 3.0] });
       a.cylinder("deck", 0.24, 0.24, 0.07, 8, { at: [cx + dx, DECK + 1.95, 3.0] });
       a.cylinder("deck", 0.2, 0.2, 0.07, 8, { at: [cx + dx, DECK + 2.3, 3.0] });
+      a.strut("steel", [cx + dx, DECK + 2.6, 3.0], [cx + dx, DECK + 3.5, 3.0], 0.045, 5);
     }
+    a.box("steel", [2.5, 0.06, 0.06], { at: [cx, DECK + 3.5, 3.0] });
+    a.panel("hazard", 0.45, 0.22, { at: [cx, DECK + 1.1, 3.963] });
   }
 
   for (const px of [1.4, 7.8]) {
@@ -184,10 +188,13 @@ function board(a: A): void {
   a.box("steel", [0.16, 2.1, 0.16], { at: [-1.8, DECK + 1.05, 5.2] });
   a.box("hazard", [1.7, 1.1, 0.12], { at: [-1.8, DECK + 2.1, 5.2] });
   a.box("deck", [1.42, 0.82, 0.06], { at: [-1.8, DECK + 2.1, 5.29] });
+  for (let i = 0; i < 3; i++) {
+    a.panel("steel", 0.76 - i * 0.14, 0.045, { at: [-1.9, DECK + 2.23 - i * 0.18, 5.327] });
+  }
 }
 
 function buildPower(mode: PowerMode): Slots<PowerSlot> {
-  const a = new Assembly<PowerSlot>();
+  const a = new Assembly<PowerSlot>({ deck: SURFACE.concrete, hull: SURFACE.metal, steel: SURFACE.metal, hazard: SURFACE.metal, glass: SURFACE.glass, cold: SURFACE.metal });
 
   a.box("deck", [16.6, DECK, 11.4], { at: [0, DECK / 2, 0] });
 
@@ -211,9 +218,18 @@ function buildPower(mode: PowerMode): Slots<PowerSlot> {
   }
   for (const wz of [4.33, -4.33]) {
     a.box("glass", [6.1, 1.35, 0.1], { at: [HALL_X, DECK + 3.3, wz] });
+    for (let i = 0; i < 7; i++) {
+      a.panel("steel", 0.045, 1.32, { at: [HALL_X - 2.8 + i * 0.93, DECK + 3.3, wz + Math.sign(wz) * 0.059], rot: [0, wz < 0 ? Math.PI : 0, 0] });
+    }
   }
   a.box("steel", [2.3, 2.8, 0.14], { at: [HALL_X, DECK + 1.4, 4.36] });
   a.box("hazard", [2.5, 0.18, 0.18], { at: [HALL_X, DECK + 2.95, 4.36] });
+  for (let row = 0; row < 7; row++) {
+    a.panel("steel", 8.35, 0.025, { at: [HALL_X + 3.509, DECK + 0.65 + row * 0.6, 0], rot: [0, Math.PI / 2, 0] });
+  }
+  for (let row = 0; row < 6; row++) {
+    a.panel("deck", 2.1, 0.035, { at: [HALL_X, DECK + 0.45 + row * 0.42, 4.439] });
+  }
 
   // -- cooling towers ------------------------------------------------------
   for (const [tx, tz] of TOWERS) {
@@ -232,6 +248,11 @@ function buildPower(mode: PowerMode): Slots<PowerSlot> {
       });
     }
     a.cylinder("deck", 1.2, 1.2, 0.06, 12, { at: [tx, DECK + 8.0, tz] });
+    a.cylinder("steel", 1.395, 1.395, 0.07, 16, { at: [tx, DECK + 8.74, tz] }, true);
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4;
+      a.strut("steel", [tx + Math.cos(angle) * 1.385, DECK + 8.35, tz + Math.sin(angle) * 1.385], [tx + Math.cos(angle) * 1.385, DECK + 8.74, tz + Math.sin(angle) * 1.385], 0.035, 4);
+    }
   }
 
   // -- chimney -------------------------------------------------------------

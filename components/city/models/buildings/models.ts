@@ -1,3 +1,4 @@
+import { SURFACE } from "../../textures/surface-types";
 /**
  * The eight archetype models (PLAN.md sections 4 and 9).
  *
@@ -24,8 +25,10 @@ import {
   addCylinder,
   addGable,
   addPanel,
+  addQuad,
   addSawtooth,
   emptyDraft,
+  surfaceColor,
   windowGrid,
   windowRing,
   type MeshDraft,
@@ -36,23 +39,24 @@ import type { ModelKey } from "./archetypes";
 import { towerGlass, towerSpire, towerTwin } from "./metropolis";
 import { apartmentLow, shopfront, terrace } from "./town";
 import { barn, cottage, farmhouse } from "./village";
+import { M, rainwater } from "./kit";
 
 /**
  * Vertex colours are MULTIPLIERS on the district's building colour: 1 is the
  * wall itself, 0.62 is the same hue in shadow. One palette, eight shapes.
  */
-const WALL: Rgb3 = [1, 1, 1];
-const WALL_SOFT: Rgb3 = [0.93, 0.93, 0.94];
-const TRIM: Rgb3 = [1.06, 1.06, 1.05];
-const ROOF: Rgb3 = [0.6, 0.62, 0.66];
-const ROOF_LIGHT: Rgb3 = [0.72, 0.73, 0.75];
+const WALL: Rgb3 = surfaceColor([1, 1, 1], SURFACE.plaster);
+const WALL_SOFT: Rgb3 = surfaceColor([0.93, 0.93, 0.94], SURFACE.plaster);
+const TRIM: Rgb3 = surfaceColor([1.06, 1.06, 1.05], SURFACE.stone);
+const ROOF: Rgb3 = surfaceColor([0.6, 0.62, 0.66], SURFACE.slate);
+const ROOF_LIGHT: Rgb3 = surfaceColor([0.72, 0.73, 0.75], SURFACE.slate);
 // Dark enough to read as glass against a pale wall, light enough that a
 // facade in shadow is still a facade and not a grid of holes.
-const WINDOW: Rgb3 = [0.42, 0.47, 0.54];
-const GLASS: Rgb3 = [0.58, 0.65, 0.7];
-const DOOR: Rgb3 = [0.4, 0.36, 0.34];
-const MECH: Rgb3 = [0.68, 0.69, 0.71];
-const PLINTH: Rgb3 = [0.8, 0.8, 0.81];
+const WINDOW: Rgb3 = surfaceColor([0.42, 0.47, 0.54], SURFACE.glass);
+const GLASS: Rgb3 = surfaceColor([0.58, 0.65, 0.7], SURFACE.glass);
+const DOOR: Rgb3 = surfaceColor([0.4, 0.36, 0.34], SURFACE.timber);
+const MECH: Rgb3 = surfaceColor([0.68, 0.69, 0.71], SURFACE.metal);
+const PLINTH: Rgb3 = surfaceColor([0.8, 0.8, 0.81], SURFACE.concrete);
 
 /** A flat rectangle on a roof that rooftop props may stand on. */
 export interface RoofPad {
@@ -137,6 +141,13 @@ function addEntrance(
   };
   addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h * 1.15), w: spec.w * 1.3, plane: surroundPlane }, WALL_SOFT);
   addPanel(draft, { facing: "+z", u: 0, ...standing(spec.h), w: spec.w, plane: surroundPlane + LAYER }, DOOR);
+  addPanel(draft, { facing: "+z", u: spec.w * 0.32, v: Math.max(floor + spec.h * 0.35, spec.v), w: spec.w * 0.06, h: spec.h * 0.11, plane: surroundPlane + LAYER * 2 }, MECH);
+  addPanel(draft, { facing: "+z", u: 0, v: spec.v + spec.h * 0.24, w: spec.w * 0.7, h: spec.h * 0.23, plane: surroundPlane + LAYER * 2 }, GLASS);
+  if (spec.canopy !== false) {
+    for (const side of [-1, 1]) {
+      addBox(draft, { x: side * spec.w * 0.63, y: 0, z: surroundPlane + 0.027, w: spec.w * 0.12, h: spec.v + spec.h * 0.6, d: 0.036, color: TRIM, skipBottom: true });
+    }
+  }
   if (spec.canopy !== false) {
     addBox(draft, {
       y: spec.v + spec.h * 0.6,
@@ -220,9 +231,66 @@ function addMullions(
   }
 }
 
+/** Louvered roof equipment uses the housing's existing footprint. */
+function addServiceBox(draft: MeshDraft, spec: { x: number; y: number; z: number; w: number; h: number; d: number }): void {
+  addBox(draft, { ...spec, color: MECH, skipBottom: true });
+  for (const facing of FACINGS) {
+    const alongX = facing === "+z" || facing === "-z";
+    for (let row = 0; row < 3; row++) {
+      addPanel(draft, {
+        facing,
+        cx: spec.x,
+        cz: spec.z,
+        u: 0,
+        v: spec.y + spec.h * (0.2 + row * 0.3),
+        w: (alongX ? spec.w : spec.d) * 0.7,
+        h: spec.h * 0.1,
+        plane: (alongX ? spec.d : spec.w) / 2,
+        surface: SURFACE.metal,
+      }, ROOF);
+    }
+  }
+}
+
 const bake = (draft: MeshDraft, windows: Panel[]): void => {
-  for (const panel of windows) addPanel(draft, panel, WINDOW);
+  for (const panel of windows) {
+    addPanel(draft, panel, WINDOW);
+    // Street-level doors already supply their own surrounds. Upper windows
+    // get four narrow frame strips around the original, unchanged glass.
+    if (panel.v - panel.h / 2 < 0.22) continue;
+    const t = Math.min(0.01, panel.h * 0.16);
+    const plane = panel.plane + LAYER * 2;
+    for (const side of [-1, 1]) {
+      addPanel(draft, { ...panel, u: panel.u + side * (panel.w + t) / 2, w: t, h: panel.h + t * 2, plane }, TRIM);
+      addPanel(draft, { ...panel, v: panel.v + side * (panel.h + t) / 2, w: panel.w, h: t, plane }, TRIM);
+    }
+    // Physical sills on the street facade catch light under the windows.
+    // Wider than a shader outline, they still read from the walking camera.
+    if (panel.facing === "+z" && panel.h >= 0.05) {
+      addBox(draft, { x: panel.u, y: panel.v - panel.h / 2 - 0.012, z: panel.plane + 0.026, w: panel.w + t * 2, h: 0.012, d: 0.052, color: TRIM });
+    }
+  }
 };
+
+/** Roof seams follow the pitch rather than floating as horizontal stripes. */
+function roofSeams(draft: MeshDraft, y: number, rise: number, w: number, d: number, ridge: "x" | "z"): void {
+  const alongX = ridge === "x";
+  const halfA = (alongX ? w : d) / 2;
+  const halfB = (alongX ? d : w) / 2;
+  const at = (a: number, b: number): readonly [number, number, number] => {
+    const height = y + rise * (1 - Math.abs(b) / halfB) + 0.012;
+    return alongX ? [a, height, b] : [b, height, a];
+  };
+  for (const side of [-1, 1]) {
+    for (let course = 1; course <= 4; course++) {
+      const b0 = side * halfB * course / 5;
+      const b1 = b0 + side * 0.012;
+      const points = [at(-halfA, b0), at(halfA, b0), at(halfA, b1), at(-halfA, b1)];
+      if ((alongX && side > 0) || (!alongX && side < 0)) points.reverse();
+      addQuad(draft, points[0], points[1], points[2], points[3], ROOF_LIGHT);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The eight archetypes
@@ -235,7 +303,10 @@ function house(): ArchetypeModel {
   addBox(draft, { y: 0.04, w: 0.92, h: 0.62, d: 0.92, color: WALL, skipBottom: true });
   addBox(draft, { y: 0.66, w: 1.0, h: 0.022, d: 1.0, color: TRIM, skipBottom: true });
   addGable(draft, { y: 0.682, w: 1.0, h: 0.28, d: 1.0, color: ROOF, ridge: "x" });
-  addBox(draft, { x: 0.3, y: 0.7, z: -0.24, w: 0.12, h: 0.28, d: 0.12, color: ROOF_LIGHT, skipBottom: true });
+  roofSeams(draft, 0.682, 0.28, 1, 1, "x");
+  rainwater(draft, { y: 0.682, w: 1, d: 1, rise: 0.28, overhang: 0, thickness: 0.022, ridge: "x", roof: M.slate, gable: M.wall });
+  addBox(draft, { x: 0.3, y: 0.7, z: -0.24, w: 0.12, h: 0.28, d: 0.12, color: ROOF_LIGHT, surface: SURFACE.stone, skipBottom: true });
+  addBox(draft, { x: 0.3, y: 0.98, z: -0.24, w: 0.16, h: 0.015, d: 0.16, color: MECH });
 
   const windows = [
     ...windowGrid({ facing: "+z", plane: 0.46, span: 0.55, columns: 2, rows: 1, from: 0.36, to: 0.36, w: 0.18, h: 0.15 }),
@@ -258,7 +329,7 @@ function lowriseParapet(): ArchetypeModel {
   // The roof deck runs exactly to the parapet's inner face. Run into it, its
   // edge lay a hair behind the parapet's ends; stopped short, it left a crack
   // of lit cornice round the roof too thin to draw.
-  addBox(draft, { y: 0.885, w: 0.93, h: 0.015, d: 0.93, color: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.885, w: 0.93, h: 0.015, d: 0.93, color: ROOF, surface: SURFACE.concrete, skipBottom: true });
   addParapet(draft, { y: 0.885, h: 0.055, w: 1.02, d: 1.02 });
 
   const windows = windowRing({ plane: 0.48, span: 0.66, columns: 3, rows: 2, from: 0.45, to: 0.7, w: 0.17, h: 0.12 });
@@ -285,6 +356,8 @@ function lowrisePitched(): ArchetypeModel {
   addBox(draft, { y: 0.74, w: 1.02, h: 0.03, d: 1.02, color: TRIM, skipBottom: true });
   // As wide as the band it sits on, as a parapet is its cornice.
   addGable(draft, { y: 0.77, w: 1.02, h: 0.23, d: 1.02, color: ROOF, ridge: "z" });
+  roofSeams(draft, 0.77, 0.23, 1.02, 1.02, "z");
+  rainwater(draft, { y: 0.77, w: 1.02, d: 1.02, rise: 0.23, overhang: 0, thickness: 0.03, ridge: "z", roof: M.slate, gable: M.wall });
   for (const side of [1, -1]) {
     addBox(draft, {
       x: side * 0.26,
@@ -327,7 +400,7 @@ function warehouseSawtooth(): ArchetypeModel {
       rise: 0.13,
       d: 0.98,
       color: ROOF,
-      glassColor: GLASS,
+      glassColor: GLASS, surface: SURFACE.metal,
     });
   }
   // Two vent pipes, because nothing else stands on a sawtooth roof.
@@ -345,6 +418,11 @@ function warehouseSawtooth(): ArchetypeModel {
   addPanel(draft, { facing: "+z", u: 0, v: 0.26, w: 0.42, h: 0.34, plane: 0.48 }, WALL_SOFT);
   addPanel(draft, { facing: "+z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.48 + LAYER }, DOOR);
   addPanel(draft, { facing: "-z", u: 0, v: 0.25, w: 0.36, h: 0.3, plane: 0.48 }, DOOR);
+  for (const facing of ["+z", "-z"] as const) {
+    for (let slat = 0; slat < 6; slat++) {
+      addPanel(draft, { facing, u: 0, v: 0.125 + slat * 0.049, w: 0.34, h: 0.008, plane: 0.48 + LAYER * 2 }, MECH);
+    }
+  }
 
   return { id: "warehouse-sawtooth", draft, windows, roofPads: [], maxProps: 0 };
 }
@@ -353,10 +431,10 @@ function warehouseSawtooth(): ArchetypeModel {
 function midriseSetback(): ArchetypeModel {
   const draft = emptyDraft();
   addBox(draft, { y: 0, w: 1, h: 0.03, d: 1, color: PLINTH });
-  addBox(draft, { y: 0.03, w: 1.0, h: 0.41, d: 1.0, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.03, w: 1.0, h: 0.41, d: 1.0, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addBox(draft, { y: 0.44, w: 1.04, h: 0.022, d: 1.04, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.462, h: 0.03, w: 1.04, d: 1.04, t: 0.03 });
-  addBox(draft, { y: 0.462, w: 0.76, h: 0.45, d: 0.76, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.462, w: 0.76, h: 0.45, d: 0.76, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addBox(draft, { y: 0.912, w: 0.82, h: 0.028, d: 0.82, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.94, h: 0.04, w: 0.82, d: 0.82, t: 0.035 });
 
@@ -383,12 +461,12 @@ function midriseSetback(): ArchetypeModel {
 function midriseMech(): ArchetypeModel {
   const draft = emptyDraft();
   addBox(draft, { y: 0, w: 1, h: 0.025, d: 1, color: PLINTH });
-  addBox(draft, { y: 0.025, w: 0.96, h: 0.875, d: 0.96, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.025, w: 0.96, h: 0.875, d: 0.96, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addMullions(draft, { y: 0.025, h: 0.875, plane: 0.48, offsets: [0.22] });
   addBox(draft, { y: 0.9, w: 1.0, h: 0.025, d: 1.0, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.925, h: 0.032, w: 1.0, d: 1.0 });
-  addBox(draft, { x: -0.12, y: 0.925, z: 0.08, w: 0.38, h: 0.06, d: 0.32, color: MECH, skipBottom: true });
-  addBox(draft, { x: 0.22, y: 0.925, z: -0.18, w: 0.14, h: 0.035, d: 0.14, color: MECH, skipBottom: true });
+  addServiceBox(draft, { x: -0.12, y: 0.925, z: 0.08, w: 0.38, h: 0.06, d: 0.32 });
+  addServiceBox(draft, { x: 0.22, y: 0.925, z: -0.18, w: 0.14, h: 0.035, d: 0.14 });
 
   const windows = windowRing({ plane: 0.48, span: 0.72, columns: 3, rows: 7, from: 0.12, to: 0.84, w: 0.16, h: 0.05 });
   bake(draft, windows);
@@ -407,15 +485,15 @@ function midriseMech(): ArchetypeModel {
 function towerStepped(): ArchetypeModel {
   const draft = emptyDraft();
   addBox(draft, { y: 0, w: 1, h: 0.02, d: 1, color: PLINTH });
-  addBox(draft, { y: 0.02, w: 1.0, h: 0.42, d: 1.0, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.02, w: 1.0, h: 0.42, d: 1.0, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addBox(draft, { y: 0.44, w: 1.04, h: 0.018, d: 1.04, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.458, h: 0.026, w: 1.04, d: 1.04, t: 0.028 });
 
-  addBox(draft, { y: 0.458, w: 0.78, h: 0.31, d: 0.78, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.458, w: 0.78, h: 0.31, d: 0.78, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addBox(draft, { y: 0.768, w: 0.82, h: 0.016, d: 0.82, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.784, h: 0.022, w: 0.82, d: 0.82, t: 0.026 });
 
-  addBox(draft, { y: 0.784, w: 0.56, h: 0.18, d: 0.56, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.784, w: 0.56, h: 0.18, d: 0.56, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addMullions(draft, { y: 0.784, h: 0.18, plane: 0.28, offsets: [0.14], t: 0.03, depth: 0.018 });
   addBox(draft, { y: 0.964, w: 0.6, h: 0.02, d: 0.6, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.984, h: 0.016, w: 0.6, d: 0.6, t: 0.026 });
@@ -445,11 +523,11 @@ function towerStepped(): ArchetypeModel {
 function towerCrown(): ArchetypeModel {
   const draft = emptyDraft();
   addBox(draft, { y: 0, w: 1, h: 0.018, d: 1, color: PLINTH });
-  addBox(draft, { y: 0.018, w: 0.92, h: 0.842, d: 0.92, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.018, w: 0.92, h: 0.842, d: 0.92, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addMullions(draft, { y: 0.018, h: 0.842, plane: 0.46, offsets: [0.44, 0.2], t: 0.03, depth: 0.02 });
   addBox(draft, { y: 0.86, w: 0.98, h: 0.024, d: 0.98, color: TRIM, skipBottom: true });
   addParapet(draft, { y: 0.884, h: 0.022, w: 0.98, d: 0.98, t: 0.03 });
-  addBox(draft, { y: 0.884, w: 0.62, h: 0.072, d: 0.62, color: WALL, topColor: ROOF, skipBottom: true });
+  addBox(draft, { y: 0.884, w: 0.62, h: 0.072, d: 0.62, color: WALL, topColor: ROOF, topSurface: SURFACE.concrete, skipBottom: true });
   addBox(draft, { y: 0.956, w: 0.66, h: 0.018, d: 0.66, color: TRIM, skipBottom: true });
   addBox(draft, { y: 0.974, w: 0.3, h: 0.016, d: 0.3, color: MECH, skipBottom: true });
   addCylinder(draft, { y: 0.974, radius: 0.014, h: 0.1, segments: 6, color: MECH });

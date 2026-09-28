@@ -74,6 +74,7 @@ import {
   type Triple,
 } from "../models/props/geometry";
 import { SCAFFOLD_BAY } from "./constants";
+import { SURFACE, type SurfaceId } from "../textures/surface-types";
 
 export { SCAFFOLD_BAY };
 
@@ -272,10 +273,10 @@ const CAR_GLASS: readonly ProfilePoint[] = [
 function carBody(glass = GLASS): CarParts {
   return {
     paint: [
-      { geometry: prismGeometry(CAR_BODY, CAR.width), color: PANEL },
-      box([CAR.width * 0.9, 0.07, 0.96], [0, 0.93, -0.35], PANEL),
+      { geometry: prismGeometry(CAR_BODY, CAR.width), color: PANEL, surface: SURFACE.metal },
+      { ...box([CAR.width * 0.9, 0.07, 0.96], [0, 0.93, -0.35], PANEL), surface: SURFACE.metal },
     ],
-    trim: [{ geometry: prismGeometry(CAR_GLASS, CAR.width * 0.86), color: glass }],
+    trim: [{ geometry: prismGeometry(CAR_GLASS, CAR.width * 0.86), color: glass, surface: SURFACE.glass }],
   };
 }
 
@@ -293,7 +294,7 @@ function sleeve(size: Triple, position: Triple, color: string, scale?: Triple): 
   }
   geometry.setIndex(kept);
   geometry.clearGroups();
-  return { geometry, color, position, scale };
+  return { geometry, color, position, scale, surface: SURFACE.fabric };
 }
 
 /**
@@ -865,8 +866,13 @@ const BUILDERS: Record<CrowdMesh, (tone: (hex: string) => string) => Built> = {
 // Merging, with the part attribute
 // ---------------------------------------------------------------------------
 
-function mergeGroup(group: PartGroup): BufferGeometry {
-  const merged = mergeParts(group.parts);
+function mergeGroup(group: PartGroup, finishes: ReadonlyMap<string, SurfaceId>): BufferGeometry {
+  const merged = mergeParts(group.parts.map((part) => ({
+    ...part,
+    surface: part.surface ?? finishes.get(part.color) ?? (
+      group.part === PART.flag ? SURFACE.fabric : group.part === PART.weed ? SURFACE.foliage : SURFACE.metal
+    ),
+  })));
   const position = merged.getAttribute("position");
   const data = new Float32Array(position.count * 2);
   for (let i = 0; i < position.count; i++) {
@@ -882,7 +888,15 @@ function mergeGroup(group: PartGroup): BufferGeometry {
 function build(form: CrowdMesh, desaturation: number): BufferGeometry {
   const shade = (hex: string) => desaturate(hex, desaturation);
   const { groups } = BUILDERS[form](shade);
-  const pieces = groups.map(mergeGroup);
+  // These palette entries name authored materials, before the city's tint is applied.
+  const palette: [string, SurfaceId][] = [
+    [PLANK, SURFACE.timber], [NETTING, SURFACE.fabric], [HIVIS, SURFACE.fabric],
+    [SKIN, SURFACE.plaster], [GLASS, SURFACE.glass], [TYRE, SURFACE.fabric],
+    [EARTH, SURFACE.concrete], [HOLE, SURFACE.concrete], [SCORCH, SURFACE.concrete],
+    [CONCRETE, SURFACE.concrete], [TREE_LEAF, SURFACE.foliage],
+  ];
+  const finishes = new Map(palette.map(([color, surface]) => [shade(color), surface]));
+  const pieces = groups.map((group) => mergeGroup(group, finishes));
   const merged = mergeGeometries(pieces, false);
   for (const piece of pieces) piece.dispose();
   if (!merged) throw new Error(`crowd form ${form} could not be merged`);

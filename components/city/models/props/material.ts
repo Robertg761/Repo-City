@@ -24,6 +24,9 @@
 
 import { MeshStandardMaterial, ShaderChunk, type MeshStandardMaterialParameters } from "three";
 import { PAINT_ATTRIBUTE } from "./geometry";
+import { configureSurfaceMaterial, patchModelDetail } from "../../textures/model-detail";
+import type { ModelDetailOptions } from "../../textures/texture-data";
+import { SURFACE } from "../../textures/surface-types";
 
 export interface SwayOptions {
   /** Shared clock uniform, in seconds. The caller advances it per frame. */
@@ -80,8 +83,12 @@ const SWAY_GLSL = `
 export function tintedMaterial(
   parameters: MeshStandardMaterialParameters = {},
   sway?: SwayOptions,
+  detail: ModelDetailOptions = {},
 ): MeshStandardMaterial {
   const material = new MeshStandardMaterial({ vertexColors: true, ...parameters });
+  const organic = Boolean(sway) || detail.profile === "organic";
+  const finish: ModelDetailOptions = organic ? detail : { surface: SURFACE.metal, ...detail };
+  configureSurfaceMaterial(material, finish);
 
   material.onBeforeCompile = (shader) => {
     const declarations = [`attribute float ${PAINT_ATTRIBUTE};`];
@@ -100,7 +107,14 @@ export function tintedMaterial(
         `#include <begin_vertex>\n${SWAY_GLSL}`,
       );
     }
+    patchModelDetail(shader, organic ? "organic" : "prop", finish);
+    if (!organic) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>\nfloat rcPropGlass = 1.0 - step(0.5, abs(rcSurfaceLayer - 8.0));\nfloat rcPropFresnel = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);\ndiffuseColor.rgb += vec3(0.014, 0.024, 0.032) * rcPropGlass * rcPropFresnel;`,
+      );
+    }
   };
-  material.customProgramCacheKey = () => (sway ? "tinted-sway" : "tinted");
+  material.customProgramCacheKey = () => `${sway ? "tinted-sway" : organic ? "tinted-organic" : "tinted"}${finish.surfaceAttribute ? "-surfaces" : ""}`;
   return material;
 }

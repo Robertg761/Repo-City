@@ -14,6 +14,7 @@
 
 import type { ArchetypeModel } from "./models";
 import { LAYER, type Panel } from "./mesh";
+import { SURFACE } from "../../textures/surface-types";
 import {
   M,
   box,
@@ -116,7 +117,7 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
   for (let i = 0; i < stripes; i++) {
     const x0 = windowL - 0.02 + (i * (windowW + 0.04)) / stripes;
     const x1 = windowL - 0.02 + ((i + 1) * (windowW + 0.04)) / stripes;
-    const mat = i % 2 === 0 ? M.accent : M.cream;
+    const mat = { ...(i % 2 === 0 ? M.accent : M.cream), surface: SURFACE.fabric };
     slab(
       draft,
       [
@@ -342,6 +343,12 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
   }
   // A stair tower head on the roof.
   box(draft, { x: -0.22, y: roofY, z: -0.18, w: 0.2, h: 0.06, d: 0.16, skipBottom: true }, M.wallShade);
+  box(draft, { x: -0.22, y: roofY + 0.06, z: -0.18, w: 0.2, h: 0.012, d: 0.16, skipBottom: true }, M.metal);
+  panel(draft, { facing: "+z", cx: -0.22, cz: -0.18, u: 0, v: roofY + 0.03, w: 0.085, h: 0.047, plane: 0.08 }, M.frame);
+  panel(draft, { facing: "+z", cx: -0.22, cz: -0.18, u: 0, v: roofY + 0.03, w: 0.067, h: 0.038, plane: 0.08 + LAYER }, M.metal);
+  for (let row = 0; row < 3; row++) {
+    panel(draft, { facing: "-z", cx: -0.22, cz: -0.18, u: 0, v: roofY + 0.015 + row * 0.015, w: 0.12, h: 0.006, plane: 0.08 }, M.railing);
+  }
 
   const windows: Panel[] = [];
   const upper = Array.from({ length: floors - 1 }, (_, f) => base + (f + 0.5) * floorH);
@@ -361,10 +368,13 @@ export function apartmentLow(retail: boolean): ArchetypeModel {
     for (const u of [-0.215, 0.215]) {
       wallBox(draft, { facing: "+z", plane: halfD, u, v: floorY, w: 0.34, h: 0.014, depth: 0.08 }, M.concrete);
       // A painted panel along the front, a rail on top, and two end panels.
-      wallBox(draft, { facing: "+z", plane: halfD + 0.072, u, v: floorY + 0.014, w: 0.34, h: railH, depth: 0.008 }, M.accent);
-      wallBox(draft, { facing: "+z", plane: halfD + 0.07, u, v: floorY + 0.014 + railH, w: 0.35, h: 0.008, depth: 0.012 }, M.frame);
+      wallBox(draft, { facing: "+z", plane: halfD + 0.072, u, v: floorY + 0.014, w: 0.34, h: railH, depth: 0.008 }, { ...M.accent, surface: SURFACE.metal });
+      for (const k of [-2, -1, 0, 1, 2]) {
+        panel(draft, { facing: "+z", plane: halfD + 0.08, u: u + k * 0.053, v: floorY + 0.014 + railH / 2, w: 0.008, h: railH - 0.012 }, { ...M.accentDark, surface: SURFACE.metal });
+      }
+      wallBox(draft, { facing: "+z", plane: halfD + 0.07, u, v: floorY + 0.014 + railH, w: 0.35, h: 0.008, depth: 0.012 }, { ...M.frame, surface: SURFACE.metal });
       for (const s of [-1, 1]) {
-        wallBox(draft, { facing: "+z", plane: halfD, u: u + s * 0.166, v: floorY + 0.014, w: 0.008, h: railH, depth: 0.072 }, M.accentDark);
+        wallBox(draft, { facing: "+z", plane: halfD, u: u + s * 0.166, v: floorY + 0.014, w: 0.008, h: railH, depth: 0.072 }, { ...M.accentDark, surface: SURFACE.metal });
       }
     }
   }

@@ -14,6 +14,7 @@
  * the front on +z, one merged geometry per material slot (`assembly.ts`).
  */
 
+import { SURFACE } from "../../textures/surface-types";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 
 /** Natural sizes, `[width, height, depth]`, for fitting into the plot. */
@@ -45,7 +46,7 @@ const TOWER_Z = NAVE_Z1 + TOWER / 2 - 0.3;
 const TOWER_H = 6.4;
 
 function buildChapel(): ChapelLayout {
-  const a = new Assembly<ChapelSlot>();
+  const a = new Assembly<ChapelSlot>({ stone: SURFACE.stone, roof: SURFACE.slate, trim: SURFACE.stone, wood: SURFACE.timber, glass: SURFACE.glass, green: SURFACE.foliage, metal: SURFACE.metal });
   const naveD = NAVE_Z1 - NAVE_Z0;
   const naveZ = (NAVE_Z0 + NAVE_Z1) / 2;
 
@@ -81,6 +82,8 @@ function buildChapel(): ChapelLayout {
       // Lancet windows: a tall light under a pointed head.
       a.box("trim", [0.12, 1.9, 0.78], { at: [s * (NAVE_W / 2 + 0.02), 1.95, z] });
       a.box("glass", [0.1, 1.6, 0.52], { at: [s * (NAVE_W / 2 + 0.06), 1.9, z] });
+      a.panel("trim", 0.028, 1.55, { at: [s * (NAVE_W / 2 + 0.12), 1.9, z], rot: [0, s * Math.PI / 2, 0] });
+      a.panel("trim", 0.5, 0.035, { at: [s * (NAVE_W / 2 + 0.12), 1.8, z], rot: [0, s * Math.PI / 2, 0] });
       // The pointed head reaches back to the wall: stopped a hundredth short
       // of it, a thread of the frame's top showed behind the point.
       a.box("glass", [0.11, 0.36, 0.36], { at: [s * (NAVE_W / 2 + 0.055), 2.75, z], rot: [Math.PI / 4, 0, 0] });
@@ -89,6 +92,8 @@ function buildChapel(): ChapelLayout {
       a.box("stone", [0.45, 2.4, 0.4], { at: [s * (NAVE_W / 2 + 0.2), 1.2, z] });
       a.box("stone", [0.3, 0.6, 0.3], { at: [s * (NAVE_W / 2 + 0.12), 2.55, z], rot: [0, 0, s * -0.5] });
     }
+    a.box("metal", [0.1, 0.1, naveD + 0.45], { at: [s * (NAVE_W / 2 + 0.36), NAVE_H - 0.38, naveZ] });
+    a.box("metal", [0.09, 3.0, 0.09], { at: [s * (NAVE_W / 2 + 0.28), 1.5, NAVE_Z0 + 0.1] });
   }
   // The east window, big, in the chancel.
   a.box("trim", [1.2, 1.6, 0.1], { at: [0, 1.7, NAVE_Z0 - 1.52] });
@@ -131,6 +136,10 @@ function buildChapel(): ChapelLayout {
   a.cylinder("trim", 0.46, 0.46, 0.08, 12, { at: [0, TOWER_H - 2.6, TOWER_Z + TOWER / 2 + 0.03], rot: [Math.PI / 2, 0, 0] });
   a.box("metal", [0.05, 0.34, 0.04], { at: [0, TOWER_H - 2.47, TOWER_Z + TOWER / 2 + 0.09] });
   a.box("metal", [0.24, 0.05, 0.04], { at: [0.1, TOWER_H - 2.6, TOWER_Z + TOWER / 2 + 0.09] });
+  for (let i = 0; i < 12; i++) {
+    const angle = i * Math.PI / 6;
+    a.panel("metal", 0.025, 0.06, { at: [Math.sin(angle) * 0.37, TOWER_H - 2.6 + Math.cos(angle) * 0.37, TOWER_Z + TOWER / 2 + 0.095], rot: [0, 0, -angle] });
+  }
 
   // The door: an arched oak door in a stone surround, a step and a lamp.
   const front = TOWER_Z + TOWER / 2;
@@ -138,6 +147,9 @@ function buildChapel(): ChapelLayout {
   // The door stands on the tower's plinth, not down behind its face.
   a.box("wood", [1.0, 1.5, 0.1], { at: [0, 1.15, front + 0.1] });
   a.cylinder("wood", 0.5, 0.5, 0.1, 10, { at: [0, 1.9, front + 0.1], rot: [Math.PI / 2, 0, 0] });
+  for (let i = 0; i < 5; i++) a.panel("metal", 0.018, 1.38, { at: [-0.4 + i * 0.2, 1.15, front + 0.165] });
+  for (const y of [0.77, 1.55]) a.panel("metal", 0.87, 0.065, { at: [0, y, front + 0.167] });
+  a.box("metal", [0.04, 0.16, 0.05], { at: [0.3, 1.15, front + 0.22] });
   a.box("stone", [1.7, 0.2, 0.7], { at: [0, 0.1, front + 0.35] });
   const lamp: V3 = [0, 2.75, front + 0.28];
   a.box("metal", [0.06, 0.06, 0.3], { at: [0, 2.9, front + 0.14] });
@@ -183,7 +195,7 @@ export interface VillageFireLayout {
  * repository's tests are strong enough to keep one (`level` 2 and up).
  */
 function buildVillageFire(level: number): VillageFireLayout {
-  const a = new Assembly<VillageFireSlot>();
+  const a = new Assembly<VillageFireSlot>({ deck: SURFACE.concrete, wall: SURFACE.brick, red: SURFACE.metal, trim: SURFACE.stone, roof: SURFACE.slate, steel: SURFACE.metal, glass: SURFACE.glass });
   const w = 4.6;
   const d = 5.2;
   const h = 3.6;
@@ -204,13 +216,21 @@ function buildVillageFire(level: number): VillageFireLayout {
   }
   a.box("red", [w + 0.02, 0.4, 0.06], { at: [-0.3, h - 0.45, front + 0.04] });
   a.box("glass", [0.8, 0.5, 0.06], { at: [-0.3, h + 0.5, front + 0.06] });
+  for (const x of [-1.1, -0.3, 0.5]) a.panel("glass", 0.53, 0.25, { at: [x, 2.3, front + 0.145] });
+  a.panel("steel", 0.3, 0.04, { at: [-0.3, 0.35, front + 0.146] });
 
   // Side windows and a side door.
   for (const z of [-3.0, -0.8]) {
     a.box("trim", [0.1, 1.0, 0.9], { at: [-0.3 + w / 2 + 0.02, 2.0, z] });
     a.box("glass", [0.1, 0.8, 0.7], { at: [-0.3 + w / 2 + 0.05, 2.0, z] });
+    a.panel("trim", 0.03, 0.77, { at: [-0.3 + w / 2 + 0.12, 2.0, z], rot: [0, Math.PI / 2, 0] });
+    a.panel("trim", 0.65, 0.03, { at: [-0.3 + w / 2 + 0.12, 2.0, z], rot: [0, Math.PI / 2, 0] });
   }
   a.box("red", [0.1, 1.9, 0.9], { at: [-0.3 - w / 2 - 0.04, 0.95, -0.4] });
+  for (const side of [-1, 1]) {
+    a.box("steel", [0.08, 0.08, d + 0.38], { at: [-0.3 + side * (w / 2 + 0.31), h - 0.22, z0] });
+    a.box("steel", [0.07, h - 0.35, 0.07], { at: [-0.3 + side * (w / 2 + 0.24), (h - 0.35) / 2, z0 - d / 2 + 0.1] });
+  }
 
   // The bell turret on the ridge.
   const ridge = h + 1.9 * (2 / 3) - 0.1;
@@ -265,7 +285,7 @@ export interface HaltLayout {
  * up) has a two-car railcar waiting at it.
  */
 function buildHalt(level: number): HaltLayout {
-  const a = new Assembly<HaltSlot>();
+  const a = new Assembly<HaltSlot>({ deck: SURFACE.stone, wall: SURFACE.timber, roof: SURFACE.slate, steel: SURFACE.metal, accent: SURFACE.metal, dark: SURFACE.concrete, glass: SURFACE.glass, wood: SURFACE.timber });
   const trackZ = -1.9;
   const platformZ = 0.9;
 
@@ -294,6 +314,8 @@ function buildHalt(level: number): HaltLayout {
   a.box("wall", [3.6, 2.2, 0.16], { at: [sx, 0.75 + 1.1, sz + 0.7] });
   for (const s of [-1, 1]) a.box("wall", [0.16, 2.2, 1.5], { at: [sx + s * 1.72, 0.75 + 1.1, sz] });
   a.box("glass", [1.4, 0.7, 0.06], { at: [sx - 0.6, 0.75 + 1.5, sz + 0.62] });
+  for (let i = 0; i < 10; i++) a.panel("wood", 0.035, 2.0, { at: [sx - 1.55 + i * 0.34, 1.85, sz + 0.79] });
+  a.panel("wood", 0.035, 0.65, { at: [sx - 0.6, 2.25, sz + 0.656], rot: [0, Math.PI, 0] });
   a.box("wood", [3.0, 0.12, 0.45], { at: [sx, 0.75 + 0.45, sz + 0.4] });
   a.gable("roof", 1.35, 0.9, 4.4, { at: [sx, 0.75 + 2.2 + 0.3, sz - 0.1], rot: [0, Math.PI / 2, 0] });
   for (let i = 0; i < 7; i++) {
@@ -315,6 +337,9 @@ function buildHalt(level: number): HaltLayout {
   // A bench.
   a.box("wood", [1.4, 0.08, 0.4], { at: [-4.6, 0.75 + 0.45, platformZ + 0.9] });
   a.box("wood", [1.4, 0.35, 0.06], { at: [-4.6, 0.75 + 0.7, platformZ + 1.1] });
+  for (let i = 0; i < 28; i++) {
+    a.panel("dark", 0.028, 0.22, { at: [-5.8 + i * 0.43, 0.821, platformZ - 1.425], rot: [-Math.PI / 2, 0, 0] });
+  }
 
   // Buffers at the end of the line: a siding, as a halt often has.
   a.box("accent", [0.3, 0.6, 1.4], { at: [7.2, 0.6, trackZ] });
@@ -330,6 +355,10 @@ function buildHalt(level: number): HaltLayout {
       a.box("roof", [carL - 0.2, 0.2, 1.5], { at: [cx, 0.4 + 1.9, trackZ] });
       a.box("glass", [carL - 0.6, 0.45, 1.74], { at: [cx, 0.4 + 1.35, trackZ] });
       a.box("dark", [carL - 0.8, 0.35, 1.3], { at: [cx, 0.4 + 0.2, trackZ] });
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 6; i++) a.panel("accent", 0.065, 0.44, { at: [cx - 1.65 + i * 0.66, 1.75, trackZ + side * 0.88], rot: [0, side < 0 ? Math.PI : 0, 0] });
+        a.panel("dark", 0.25, 0.7, { at: [cx + 1.92, 1.4, trackZ + side * 0.865], rot: [0, side < 0 ? Math.PI : 0, 0] });
+      }
     }
     a.box("glass", [0.06, 0.5, 1.2], { at: [carL + 0.12, 0.4 + 1.35, trackZ] });
     a.box("glass", [0.06, 0.5, 1.2], { at: [-carL - 0.12, 0.4 + 1.35, trackZ] });
@@ -362,7 +391,7 @@ export interface SubstationLayout {
  * same yard with the lamp unlit: no failure implied (PLAN.md section 14).
  */
 function buildSubstation(): SubstationLayout {
-  const a = new Assembly<SubstationSlot>();
+  const a = new Assembly<SubstationSlot>({ deck: SURFACE.concrete, hull: SURFACE.metal, steel: SURFACE.metal, hazard: SURFACE.metal, glass: SURFACE.glass, wood: SURFACE.timber, dark: SURFACE.metal });
   a.box("deck", [8.2, 0.1, 6.6], { at: [0, 0.05, 0] });
 
   // The fence: posts and two wires, open at the gate.
@@ -410,6 +439,10 @@ function buildSubstation(): SubstationLayout {
   a.box("dark", [0.8, 1.6, 0.08], { at: [hx - 0.3, 0.9, hz + 1.02] });
   a.box("glass", [0.5, 0.4, 0.06], { at: [hx + 0.55, 1.4, hz + 1.02] });
   a.box("hazard", [0.36, 0.36, 0.04], { at: [hx - 0.3, 1.45, hz + 1.07] });
+  for (let i = 0; i < 6; i++) a.panel("dark", 0.55, 0.035, { at: [hx - 0.3, 0.43 + i * 0.14, hz + 1.073] });
+  a.panel("steel", 0.035, 0.38, { at: [hx + 0.55, 1.4, hz + 1.068] });
+  for (let row = 0; row < 5; row++) a.panel("dark", 1.8, 0.022, { at: [hx + 1.11, 0.3 + row * 0.4, hz], rot: [0, Math.PI / 2, 0] });
+  a.box("steel", [0.045, 1.95, 0.045], { at: [hx + 1.04, 0.975, hz - 0.8] });
   const lamp: V3 = [hx + 0.55, 2.2 + 0.95, hz + 0.9];
   a.box("steel", [0.06, 0.3, 0.06], { at: [hx + 0.55, 2.2 + 0.6, hz + 0.9] });
 

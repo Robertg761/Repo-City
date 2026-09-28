@@ -35,6 +35,7 @@ import {
   type BufferGeometry,
 } from "three";
 import type { IncidentState } from "@/types/analysis";
+import { SURFACE } from "../../textures/surface-types";
 import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
 import {
   EMERGENCY_LIGHTS,
@@ -46,7 +47,7 @@ import {
 import { parkedGeometry } from "../vehicles/shapes";
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
-import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
+import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
 
 /** Just above the dark patch the incident draws on the tarmac. */
 const DECAL_Y = 0.135;
@@ -186,12 +187,26 @@ function cone(position: Triple, color: string, tone: number): Part[] {
       color,
       position: [position[0], DECAL_Y + 0.48, position[2]],
     },
+    {
+      geometry: new CylinderGeometry(0.128, 0.173, 0.12, 8, 1, true),
+      color: desaturate("#e6e1ca", tone),
+      position: [position[0], DECAL_Y + 0.5, position[2]],
+    },
   ];
 }
 
 function barricade(place: Placement, color: string, stripe: string, lean = 0): Part[] {
   const [x, , z] = place.position;
   const rotation: Triple = [0, place.rotationY, lean];
+  const panels: Part[] = [];
+  for (const side of [-1, 1]) {
+    for (const dx of [-0.94, -0.47, 0, 0.47, 0.94]) {
+      const along = dx * Math.cos(lean);
+      panels.push(surfacePanel(0.14, 0.21,
+        [x + along * Math.cos(place.rotationY) + side * 0.072 * Math.sin(place.rotationY), 0.95 + dx * Math.sin(lean), z - along * Math.sin(place.rotationY) + side * 0.072 * Math.cos(place.rotationY)],
+        color, [0, place.rotationY + (side < 0 ? Math.PI : 0), lean + side * 0.35]));
+    }
+  }
   return [
     { geometry: new BoxGeometry(2.6, 0.28, 0.12), color, position: [x, 0.62, z], rotation },
     { geometry: new BoxGeometry(2.6, 0.28, 0.12), color: stripe, position: [x, 0.95, z], rotation },
@@ -207,6 +222,7 @@ function barricade(place: Placement, color: string, stripe: string, lean = 0): P
       position: [x + 1.1 * Math.cos(place.rotationY), 0.5, z - 1.1 * Math.sin(place.rotationY)],
       rotation,
     },
+    ...panels,
   ];
 }
 
@@ -240,6 +256,7 @@ function weeds(spread: number, color: string, count: number): Part[] {
     parts.push({
       geometry: new ConeGeometry(0.3 * size, 0.9 * size, 5),
       color,
+      surface: SURFACE.foliage,
       position: [Math.sin(angle) * distance, 0.45 * size, Math.cos(angle) * distance],
       rotation: [0, angle, 0],
     });
@@ -452,7 +469,7 @@ function scene(state: IncidentState, variant: number, tone: number): Scene {
 
 const decorGeometryCache = geometryCache<string>((key) => {
   const [state, variant, tone] = key.split(":");
-  return mergeParts(scene(state as IncidentState, Number(variant), Number(tone)).parts);
+  return mergeParts(scene(state as IncidentState, Number(variant), Number(tone)).parts.map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
 });
 
 /**

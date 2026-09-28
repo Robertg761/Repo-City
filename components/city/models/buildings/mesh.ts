@@ -16,7 +16,12 @@
  * Pure arrays, no three.js, so it is unit tested directly.
  */
 
-export type Rgb3 = readonly [number, number, number];
+export type Rgb3 = readonly [number, number, number] & { readonly surface?: number };
+
+/** A material token carries its authored finish independently of its RGB. */
+export function surfaceColor(color: Rgb3, surface: number): Rgb3 {
+  return Object.assign([color[0], color[1], color[2]] as [number, number, number], { surface });
+}
 
 export interface MeshDraft {
   positions: number[];
@@ -33,6 +38,10 @@ export interface MeshDraft {
   paint?: number[];
   /** The channel `addQuad` writes while `paint` is present. */
   paintValue?: number;
+  /** Semantic finish per vertex, independent of wall/accent paint. */
+  surface?: number[];
+  /** Finish for the next authored primitive; plaster when absent. */
+  surfaceValue?: number;
 }
 
 export const PAINT_NONE = 0;
@@ -44,6 +53,7 @@ export const emptyDraft = (): MeshDraft => ({
   normals: [],
   colors: [],
   indices: [],
+  surface: [],
 });
 
 export const triangleCount = (draft: MeshDraft): number => draft.indices.length / 3;
@@ -51,7 +61,7 @@ export const triangleCount = (draft: MeshDraft): number => draft.indices.length 
 type P = readonly [number, number, number];
 
 /** Flat-shaded quad, wound a -> b -> c -> d. The normal comes from the winding. */
-export function addQuad(draft: MeshDraft, a: P, b: P, c: P, d: P, color: Rgb3): void {
+export function addQuad(draft: MeshDraft, a: P, b: P, c: P, d: P, color: Rgb3, surface?: number): void {
   const ux = b[0] - a[0];
   const uy = b[1] - a[1];
   const uz = b[2] - a[2];
@@ -77,6 +87,10 @@ export function addQuad(draft: MeshDraft, a: P, b: P, c: P, d: P, color: Rgb3): 
     const channel = draft.paintValue ?? PAINT_WALL;
     draft.paint.push(channel, channel, channel, channel);
   }
+  if (draft.surface) {
+    const finish = surface ?? color.surface ?? draft.surfaceValue ?? 0;
+    draft.surface.push(finish, finish, finish, finish);
+  }
 }
 
 export interface BoxSpec {
@@ -90,6 +104,8 @@ export interface BoxSpec {
   color: Rgb3;
   /** Overrides `color` for the +y face, e.g. a roof deck under a parapet. */
   topColor?: Rgb3;
+  surface?: number;
+  topSurface?: number;
   /** Skip the bottom face when it is buried in another volume. */
   skipBottom?: boolean;
 }
@@ -106,13 +122,13 @@ export function addBox(draft: MeshDraft, spec: BoxSpec): void {
   const top = spec.topColor ?? c;
 
   // +z, -z, +x, -x, +y, -y
-  addQuad(draft, [x - hw, y0, z + hd], [x + hw, y0, z + hd], [x + hw, y1, z + hd], [x - hw, y1, z + hd], c);
-  addQuad(draft, [x + hw, y0, z - hd], [x - hw, y0, z - hd], [x - hw, y1, z - hd], [x + hw, y1, z - hd], c);
-  addQuad(draft, [x + hw, y0, z + hd], [x + hw, y0, z - hd], [x + hw, y1, z - hd], [x + hw, y1, z + hd], c);
-  addQuad(draft, [x - hw, y0, z - hd], [x - hw, y0, z + hd], [x - hw, y1, z + hd], [x - hw, y1, z - hd], c);
-  addQuad(draft, [x - hw, y1, z + hd], [x + hw, y1, z + hd], [x + hw, y1, z - hd], [x - hw, y1, z - hd], top);
+  addQuad(draft, [x - hw, y0, z + hd], [x + hw, y0, z + hd], [x + hw, y1, z + hd], [x - hw, y1, z + hd], c, spec.surface);
+  addQuad(draft, [x + hw, y0, z - hd], [x - hw, y0, z - hd], [x - hw, y1, z - hd], [x + hw, y1, z - hd], c, spec.surface);
+  addQuad(draft, [x + hw, y0, z + hd], [x + hw, y0, z - hd], [x + hw, y1, z - hd], [x + hw, y1, z + hd], c, spec.surface);
+  addQuad(draft, [x - hw, y0, z - hd], [x - hw, y0, z + hd], [x - hw, y1, z + hd], [x - hw, y1, z - hd], c, spec.surface);
+  addQuad(draft, [x - hw, y1, z + hd], [x + hw, y1, z + hd], [x + hw, y1, z - hd], [x - hw, y1, z - hd], top, spec.topSurface ?? (spec.topColor ? undefined : spec.surface));
   if (!spec.skipBottom) {
-    addQuad(draft, [x - hw, y0, z - hd], [x + hw, y0, z - hd], [x + hw, y0, z + hd], [x - hw, y0, z + hd], c);
+    addQuad(draft, [x - hw, y0, z - hd], [x + hw, y0, z - hd], [x + hw, y0, z + hd], [x - hw, y0, z + hd], c, spec.surface);
   }
 }
 
@@ -124,6 +140,7 @@ export interface GableSpec {
   h: number;
   d: number;
   color: Rgb3;
+  surface?: number;
   /** The ridge runs along this axis. */
   ridge: "x" | "z";
   /** 0 = a flat ridge line, 1 = the ridge sits at the full width. */
@@ -147,10 +164,10 @@ export function addGable(draft: MeshDraft, spec: GableSpec): void {
     const dd: P = [x - hw, y0, z - hd];
     const r0: P = [x - hw, y1, z];
     const r1: P = [x + hw, y1, z];
-    addQuad(draft, a, b, r1, r0, c); // +z slope
-    addQuad(draft, cc, dd, r0, r1, c); // -z slope
-    addQuad(draft, b, cc, r1, r1, c); // +x gable (degenerate 4th point = triangle)
-    addQuad(draft, dd, a, r0, r0, c); // -x gable
+    addQuad(draft, a, b, r1, r0, c, spec.surface); // +z slope
+    addQuad(draft, cc, dd, r0, r1, c, spec.surface); // -z slope
+    addQuad(draft, b, cc, r1, r1, c, spec.surface); // +x gable (degenerate 4th point = triangle)
+    addQuad(draft, dd, a, r0, r0, c, spec.surface); // -x gable
   } else {
     const a: P = [x + hw, y0, z + hd];
     const b: P = [x + hw, y0, z - hd];
@@ -158,10 +175,10 @@ export function addGable(draft: MeshDraft, spec: GableSpec): void {
     const dd: P = [x - hw, y0, z + hd];
     const r0: P = [x, y1, z + hd];
     const r1: P = [x, y1, z - hd];
-    addQuad(draft, a, b, r1, r0, c);
-    addQuad(draft, cc, dd, r0, r1, c);
-    addQuad(draft, b, cc, r1, r1, c);
-    addQuad(draft, dd, a, r0, r0, c);
+    addQuad(draft, a, b, r1, r0, c, spec.surface);
+    addQuad(draft, cc, dd, r0, r1, c, spec.surface);
+    addQuad(draft, b, cc, r1, r1, c, spec.surface);
+    addQuad(draft, dd, a, r0, r0, c, spec.surface);
   }
 }
 
@@ -181,6 +198,8 @@ export function addSawtooth(
     d: number;
     color: Rgb3;
     glassColor: Rgb3;
+    surface?: number;
+    glassSurface?: number;
   },
 ): void {
   const z = spec.z ?? 0;
@@ -191,13 +210,13 @@ export function addSawtooth(
   const y1 = spec.y + spec.rise;
 
   // Sloped deck, low at x0 and high at x1.
-  addQuad(draft, [x0, y0, z + hd], [x1, y1, z + hd], [x1, y1, z - hd], [x0, y0, z - hd], spec.color);
+  addQuad(draft, [x0, y0, z + hd], [x1, y1, z + hd], [x1, y1, z - hd], [x0, y0, z - hd], spec.color, spec.surface);
   // The vertical glazed face that drops back to the deck.
-  addQuad(draft, [x1, y0, z + hd], [x1, y1, z + hd], [x1, y1, z - hd], [x1, y0, z - hd], spec.glassColor);
-  addQuad(draft, [x1, y0, z - hd], [x1, y1, z - hd], [x1, y1, z + hd], [x1, y0, z + hd], spec.glassColor);
+  addQuad(draft, [x1, y0, z + hd], [x1, y1, z + hd], [x1, y1, z - hd], [x1, y0, z - hd], spec.glassColor, spec.glassSurface);
+  addQuad(draft, [x1, y0, z - hd], [x1, y1, z - hd], [x1, y1, z + hd], [x1, y0, z + hd], spec.glassColor, spec.glassSurface);
   // End caps so the tooth is solid from the side.
-  addQuad(draft, [x0, y0, z + hd], [x1, y0, z + hd], [x1, y1, z + hd], [x1, y1, z + hd], spec.color);
-  addQuad(draft, [x1, y0, z - hd], [x0, y0, z - hd], [x1, y1, z - hd], [x1, y1, z - hd], spec.color);
+  addQuad(draft, [x0, y0, z + hd], [x1, y0, z + hd], [x1, y1, z + hd], [x1, y1, z + hd], spec.color, spec.surface);
+  addQuad(draft, [x1, y0, z - hd], [x0, y0, z - hd], [x1, y1, z - hd], [x1, y1, z - hd], spec.color, spec.surface);
 }
 
 /** A vertical prism, used for tanks, masts and columns. */
@@ -212,6 +231,8 @@ export function addCylinder(
     segments?: number;
     color: Rgb3;
     topColor?: Rgb3;
+    surface?: number;
+    topSurface?: number;
   },
 ): void {
   const x = spec.x ?? 0;
@@ -235,12 +256,13 @@ export function addCylinder(
       [px(i), y1, pz(i)],
       [px(j), y1, pz(j)],
       spec.color,
+      spec.surface,
     );
   }
   // Flat cap as a fan of degenerate quads: cheap and it reads from above.
   for (let i = 0; i < seg; i++) {
     const j = (i + 1) % seg;
-    addQuad(draft, [x, y1, z], [px(j), y1, pz(j)], [px(i), y1, pz(i)], [px(i), y1, pz(i)], top);
+    addQuad(draft, [x, y1, z], [px(j), y1, pz(j)], [px(i), y1, pz(i)], [px(i), y1, pz(i)], top, spec.topSurface ?? (spec.topColor ? undefined : spec.surface));
   }
 }
 
@@ -269,6 +291,8 @@ export function facingYaw(facing: Facing): number {
  * tower's upper windows land on the upper volume's wall, not the base's.
  */
 export interface Panel {
+  /** An explicit authored finish, independent of the pane's color. */
+  surface?: number;
   facing: Facing;
   /** Offset along the wall, in unit space. */
   u: number;
@@ -328,16 +352,16 @@ export function addPanel(draft: MeshDraft, panel: Panel, color: Rgb3): void {
   const hw = panel.w / 2;
   switch (panel.facing) {
     case "+z":
-      addQuad(draft, [cx - hw, cy - hh, cz], [cx + hw, cy - hh, cz], [cx + hw, cy + hh, cz], [cx - hw, cy + hh, cz], color);
+      addQuad(draft, [cx - hw, cy - hh, cz], [cx + hw, cy - hh, cz], [cx + hw, cy + hh, cz], [cx - hw, cy + hh, cz], color, panel.surface);
       break;
     case "-z":
-      addQuad(draft, [cx + hw, cy - hh, cz], [cx - hw, cy - hh, cz], [cx - hw, cy + hh, cz], [cx + hw, cy + hh, cz], color);
+      addQuad(draft, [cx + hw, cy - hh, cz], [cx - hw, cy - hh, cz], [cx - hw, cy + hh, cz], [cx + hw, cy + hh, cz], color, panel.surface);
       break;
     case "+x":
-      addQuad(draft, [cx, cy - hh, cz + hw], [cx, cy - hh, cz - hw], [cx, cy + hh, cz - hw], [cx, cy + hh, cz + hw], color);
+      addQuad(draft, [cx, cy - hh, cz + hw], [cx, cy - hh, cz - hw], [cx, cy + hh, cz - hw], [cx, cy + hh, cz + hw], color, panel.surface);
       break;
     default:
-      addQuad(draft, [cx, cy - hh, cz - hw], [cx, cy - hh, cz + hw], [cx, cy + hh, cz + hw], [cx, cy + hh, cz - hw], color);
+      addQuad(draft, [cx, cy - hh, cz - hw], [cx, cy - hh, cz + hw], [cx, cy + hh, cz + hw], [cx, cy + hh, cz - hw], color, panel.surface);
       break;
   }
 }

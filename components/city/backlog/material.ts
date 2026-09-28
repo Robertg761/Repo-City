@@ -31,6 +31,8 @@ import {
 } from "three";
 import { REVEAL_MS } from "../reveal";
 import { CROWD_ATTRIBUTE, PART } from "./forms";
+import { buildingDetailMaterial } from "../models/buildings/material";
+import type { ModelDetailOptions } from "../textures/texture-data";
 
 /** The crowd's clock. `Backlog.tsx` advances both once a frame. */
 export const CROWD_CLOCK = {
@@ -156,15 +158,18 @@ transformed *= crowdShown * crowdGrow( instanceCrowd.y );
  * form's own paint; the instance colour carries state, age and hover. One
  * program for every form (`customProgramCacheKey`).
  */
-export function crowdMaterial(parameters: MeshStandardMaterialParameters = {}): MeshStandardMaterial {
-  const material = new MeshStandardMaterial({
+export function crowdMaterial(parameters: MeshStandardMaterialParameters = {}, detail: ModelDetailOptions = {}): MeshStandardMaterial {
+  const material = buildingDetailMaterial({
     vertexColors: true,
     flatShading: true,
     roughness: 0.78,
     metalness: 0.04,
     ...parameters,
-  });
-  material.onBeforeCompile = (shader) => {
+  }, { ...detail, surfaceAttribute: true, surface: 7 });
+  const finish = material.onBeforeCompile;
+  const finishKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    finish.call(material, shader, renderer);
     shader.uniforms.uTime = CROWD_CLOCK.uTime;
     shader.uniforms.uReveal = CROWD_CLOCK.uReveal;
     shader.vertexShader = shader.vertexShader
@@ -177,7 +182,7 @@ export function crowdMaterial(parameters: MeshStandardMaterialParameters = {}): 
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vCrowdGlow;",
       );
   };
-  material.customProgramCacheKey = () => "crowd";
+  material.customProgramCacheKey = () => `crowd:${finishKey}`;
   return material;
 }
 

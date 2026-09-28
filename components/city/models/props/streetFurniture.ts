@@ -15,11 +15,12 @@
  * Pure apart from the geometry builders: unit tested.
  */
 
-import { BoxGeometry, CylinderGeometry, IcosahedronGeometry, type BufferGeometry } from "three";
+import { BoxGeometry, CircleGeometry, CylinderGeometry, IcosahedronGeometry, type BufferGeometry } from "three";
 import type { Prng } from "@/lib/city/prng";
+import { SURFACE } from "../../textures/surface-types";
 import type { CityModel, RoadSegment, Vec3 } from "@/types/city";
 import { desaturate } from "../../palette";
-import { geometryCache, mergeParts, toneKey, type Part } from "./geometry";
+import { geometryCache, mergeParts, surfacePanel, toneKey, type Part } from "./geometry";
 import { paintFor, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
 import { incidentForm, worksForm } from "../../backlog/plan";
 import { crowdRect, type LocalRect } from "../../blockages";
@@ -342,15 +343,15 @@ function furnitureParts(kind: FurnitureKind, tone: number): Part[] {
   const shade = (hex: string) => desaturate(hex, tone);
   if (kind === "bench") {
     return [
-      { geometry: new BoxGeometry(1.5, 0.1, 0.46), color: shade(WOOD), position: [0, 0.42, 0] },
-      {
-        geometry: new BoxGeometry(1.5, 0.42, 0.09),
-        color: shade(WOOD),
-        position: [0, 0.62, -0.2],
-        rotation: [-0.18, 0, 0],
-      },
+      ...[-0.17, -0.056, 0.056, 0.17].map((z) => ({ geometry: new BoxGeometry(1.5, 0.1, 0.1), color: shade(WOOD), position: [0, 0.42, z] as Vec3 })),
+      ...[0.49, 0.63, 0.77].map((y) => ({ geometry: new BoxGeometry(1.5, 0.12, 0.09), color: shade(WOOD), position: [0, y, -0.2 - Math.sin(0.18) * (y - 0.62)] as Vec3, rotation: [-0.18, 0, 0] as Vec3 })),
       { geometry: new BoxGeometry(0.11, 0.42, 0.42), color: shade(METAL), position: [-0.6, 0.21, 0] },
       { geometry: new BoxGeometry(0.11, 0.42, 0.42), color: shade(METAL), position: [0.6, 0.21, 0] },
+      ...[-0.17, -0.056, 0.056, 0.17].flatMap((z) => [-0.63, 0.63].map((x) => ({ geometry: new CircleGeometry(0.014, 6), color: shade(METAL), position: [x, 0.479, z] as Vec3, rotation: [-Math.PI / 2, 0, 0] as Vec3 }))),
+      ...[-0.64, 0.64].flatMap((x) => [
+        { geometry: new BoxGeometry(0.07, 0.22, 0.07), color: shade(METAL), position: [x, 0.55, 0.1] as Vec3 },
+        { geometry: new BoxGeometry(0.09, 0.06, 0.4), color: shade(METAL), position: [x, 0.68, -0.02] as Vec3 },
+      ]),
     ];
   }
   if (kind === "bin") {
@@ -365,6 +366,14 @@ function furnitureParts(kind: FurnitureKind, tone: number): Part[] {
         color: shade("#4c4f4d"),
         position: [0, 0.76, 0],
       },
+      surfacePanel(0.24, 0.055, [0, 0.81, 0], shade("#242b2a"), [-Math.PI / 2, 0, 0]),
+      ...Array.from({ length: 8 }, (_, i) => {
+        const angle = i * Math.PI / 4;
+        return surfacePanel(0.045, 0.5, [Math.sin(angle) * 0.243, 0.39, Math.cos(angle) * 0.243], shade("#47534d"), [0, angle, 0]);
+      }),
+      surfacePanel(0.18, 0.17, [0, 0.48, 0.256], shade("#a7bb9c")),
+      { geometry: new CylinderGeometry(0.27, 0.28, 0.065, 8), color: shade("#3e4842"), position: [0, 0.045, 0] },
+      { geometry: new CylinderGeometry(0.306, 0.306, 0.035, 8, 1, true), color: shade("#9ba096"), position: [0, 0.804, 0] },
     ];
   }
   if (kind === "stop") {
@@ -385,6 +394,11 @@ function furnitureParts(kind: FurnitureKind, tone: number): Part[] {
       { geometry: new BoxGeometry(1.4, 0.09, 0.4), color: shade(WOOD), position: [0, 0.5, -0.35] },
       // The timetable board, facing the street.
       { geometry: new BoxGeometry(0.62, 0.46, 0.07), color: shade("#37423f"), position: [1.1, 2.1, 0.1] },
+      ...[-0.42, 0.42].map((x) => ({ geometry: new BoxGeometry(0.045, 1.45, 0.07), color: shade(METAL), position: [x, 1.6, -0.535] as Vec3 })),
+      { geometry: new BoxGeometry(2.45, 0.045, 0.07), color: shade(METAL), position: [0, 1.1, -0.535] },
+      surfacePanel(0.23, 0.05, [1.01, 2.23, 0.14], shade("#d6cfb8")),
+      ...[0, 1, 2, 3].map((i) => surfacePanel(0.4 - i * 0.045, 0.018, [1.07, 2.14 - i * 0.05, 0.14], shade("#a9b4ab"))),
+      surfacePanel(1.4, 0.055, [0, 2.6, 0.506], shade("#68848b")),
     ];
   }
   if (kind === "bush") {
@@ -400,6 +414,9 @@ function furnitureParts(kind: FurnitureKind, tone: number): Part[] {
         color: shade(LEAF),
         position: [-0.3, 0.3, -0.22],
       },
+      { geometry: new IcosahedronGeometry(0.25, 0), color: shade("#8ba575"), position: [-0.05, 0.79, 0.12] },
+      { geometry: new IcosahedronGeometry(0.21, 0), color: shade("#597a51"), position: [-0.43, 0.44, 0.15] },
+      ...[-1, 1].map((side) => ({ geometry: new CylinderGeometry(0.02, 0.035, 0.36, 5, 1, true), color: shade(WOOD), surface: SURFACE.timber, position: [side * 0.16, 0.2, 0] as Vec3, rotation: [0, 0, side * 0.9] as Vec3 })),
     ];
   }
   // A flower bed: turned soil with a handful of colour in it.
@@ -411,12 +428,21 @@ function furnitureParts(kind: FurnitureKind, tone: number): Part[] {
     { geometry: new IcosahedronGeometry(0.16, 0), color: shade("#c86fa0"), position: [0.55, 0.3, -0.25] },
     { geometry: new IcosahedronGeometry(0.14, 0), color: shade("#8f6fb0"), position: [0.85, 0.28, 0.3] },
     { geometry: new IcosahedronGeometry(0.15, 0), color: shade("#e2c46a"), position: [0.1, 0.3, -0.42] },
+    ...[-0.8, -0.35, 0.2, 0.65].map((x) => ({ geometry: new IcosahedronGeometry(0.17, 0), color: shade(LEAF), position: [x, 0.26, x > 0 ? 0.25 : -0.18] as Vec3, scale: [1.6, 0.55, 1] as Vec3 })),
+    ...[-0.78, 0, 0.78].map((x) => surfacePanel(0.02, 0.12, [x, 0.08, 0.779], shade("#6c665a"))),
   ];
 }
 
 const furnitureBuilder = geometryCache<string>((key) => {
   const [kind, tone] = key.split(":");
-  return mergeParts(furnitureParts(kind as FurnitureKind, Number(tone)));
+  const shade = (hex: string) => desaturate(hex, Number(tone));
+  return mergeParts(furnitureParts(kind as FurnitureKind, Number(tone)).map((part) => ({
+    ...part,
+    surface: part.surface ?? (part.geometry.type === "IcosahedronGeometry" ? SURFACE.foliage
+      : part.color === shade(WOOD) || part.color === shade("#594735") ? SURFACE.timber
+      : part.color === shade("#a8bcc4") ? SURFACE.glass
+      : kind === "bed" ? SURFACE.stone : SURFACE.metal),
+  })));
 });
 
 /** The merged geometry for one kind of prop at the city's current tone. */

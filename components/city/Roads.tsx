@@ -78,6 +78,9 @@ import {
 import { revealScale } from "./reveal";
 import { useStreetMaterial } from "./textures/surfaces";
 import { useRevealClock } from "./useReveal";
+import { gullyGeometry, roadDetailLays, utilityCoverGeometry } from "./roadDetails";
+import { useQuality } from "./quality";
+import { buildingDetailMaterial } from "./models/buildings/material";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -197,6 +200,7 @@ export default function Roads({
   const verges = useMemo(() => vergeLays(lays, topology), [lays, topology]);
   const medians = useMemo(() => medianLays(lays, topology), [lays, topology]);
   const barriers = useMemo(() => barrierLays(lays, topology), [lays, topology]);
+  const details = useMemo(() => roadDetailLays(lays, walks), [lays, walks]);
   const joints = useMemo(() => {
     const all = jointLays(lays, topology);
     return {
@@ -226,6 +230,8 @@ export default function Roads({
   const discRef = useRef<InstancedMesh>(null);
   const laneDiscRef = useRef<InstancedMesh>(null);
   const squareRef = useRef<InstancedMesh>(null);
+  const coverRef = useRef<InstancedMesh>(null);
+  const drainRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
 
@@ -237,6 +243,18 @@ export default function Roads({
   const laneAsphalt = useStreetMaterial("asphalt", desaturate(LANE_COLOR, tone), 0.95, 1);
   const patch = useStreetMaterial("patch", desaturate(ROAD_COLOR, tone), 0.95, 2);
   const lanePatch = useStreetMaterial("patch", desaturate(LANE_COLOR, tone), 0.95, 2);
+  const kerbStone = useStreetMaterial("concrete", desaturate(CURB_COLOR, tone), 0.95);
+  const barrierStone = useStreetMaterial("concrete", desaturate(BARRIER_COLOR, tone), 0.9);
+  const vergeGravel = useStreetMaterial("gravel", "#ffffff", 1);
+  const medianLawn = useStreetMaterial("lawn", desaturate(mix(MEDIAN_GRASS, atmosphere.terrainColor, 0.35), tone), 1);
+  const { textureSize, anisotropy } = useQuality();
+  const ironMaterial = useMemo(
+    () => buildingDetailMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.25 }, {
+      textureSize, anisotropy, surface: 7,
+    }),
+    [textureSize, anisotropy],
+  );
+  useEffect(() => () => ironMaterial.dispose(), [ironMaterial]);
 
   /** How far each road has drawn itself in, in world units from `from`. */
   const fronts = useMemo(() => new Float32Array(lays.length), [lays]);
@@ -311,6 +329,18 @@ export default function Roads({
     layJoints(laneDiscRef.current, joints.lane, fronts);
     layJoints(squareRef.current, joints.square, fronts);
 
+    for (const [mesh, items] of [[coverRef.current, details.covers], [drainRef.current, details.drains]] as const) {
+      if (!mesh) continue;
+      items.forEach((item, i) => {
+        const shown = fronts[item.road] >= item.s + 0.4;
+        place(lays[item.road], item.s, item.lateral, 0.105);
+        scratch.scale.setScalar(shown ? 1 : 0);
+        scratch.updateMatrix();
+        mesh.setMatrixAt(i, scratch.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+
     if (done) settled.current = true;
   });
 
@@ -374,11 +404,7 @@ export default function Roads({
             frustumCulled={false}
           >
             <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
-            <meshStandardMaterial
-              color={desaturate(CURB_COLOR, tone)}
-              roughness={0.95}
-              metalness={0}
-            />
+            <primitive object={kerbStone} attach="material" />
           </instancedMesh>
         </>
       )}
@@ -398,6 +424,19 @@ export default function Roads({
       <JointMesh meshRef={laneDiscRef} count={joints.lane.length} material={lanePatch} shape="disc" />
       <JointMesh meshRef={squareRef} count={joints.square.length} material={patch} shape="square" />
 
+      {details.covers.length > 0 && (
+        <instancedMesh ref={coverRef} args={[undefined, undefined, details.covers.length]} receiveShadow frustumCulled={false} raycast={() => null}>
+          <primitive object={utilityCoverGeometry()} attach="geometry" />
+          <primitive object={ironMaterial} attach="material" />
+        </instancedMesh>
+      )}
+      {details.drains.length > 0 && (
+        <instancedMesh ref={drainRef} args={[undefined, undefined, details.drains.length]} receiveShadow frustumCulled={false} raycast={() => null}>
+          <primitive object={gullyGeometry()} attach="geometry" />
+          <primitive object={ironMaterial} attach="material" />
+        </instancedMesh>
+      )}
+
       {verges.length > 0 && (
         <instancedMesh
           ref={vergeRef}
@@ -406,7 +445,7 @@ export default function Roads({
           frustumCulled={false}
         >
           <boxGeometry args={[1, VERGE_HEIGHT, 1]} />
-          <meshStandardMaterial roughness={1} metalness={0} />
+          <primitive object={vergeGravel} attach="material" />
         </instancedMesh>
       )}
 
@@ -420,7 +459,7 @@ export default function Roads({
             frustumCulled={false}
           >
             <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
-            <meshStandardMaterial color={desaturate(CURB_COLOR, tone)} roughness={0.95} metalness={0} />
+            <primitive object={kerbStone} attach="material" />
           </instancedMesh>
           <instancedMesh
             ref={medianGrassRef}
@@ -429,11 +468,7 @@ export default function Roads({
             frustumCulled={false}
           >
             <boxGeometry args={[1, SIDEWALK_HEIGHT, 1]} />
-            <meshStandardMaterial
-              color={desaturate(mix(MEDIAN_GRASS, atmosphere.terrainColor, 0.35), tone)}
-              roughness={1}
-              metalness={0}
-            />
+            <primitive object={medianLawn} attach="material" />
           </instancedMesh>
         </>
       )}
@@ -447,7 +482,7 @@ export default function Roads({
           frustumCulled={false}
         >
           <boxGeometry args={[1, BARRIER_HEIGHT, 1]} />
-          <meshStandardMaterial color={desaturate(BARRIER_COLOR, tone)} roughness={0.9} metalness={0} />
+          <primitive object={barrierStone} attach="material" />
         </instancedMesh>
       )}
     </group>
