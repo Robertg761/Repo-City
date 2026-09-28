@@ -32,6 +32,23 @@ export function toGeometry(draft: MeshDraft): BufferGeometry {
 
 const ARCHETYPE_CACHE = new Map<ModelKey, BufferGeometry>();
 
+/**
+ * The detailed near level of an archetype for `LodInstances` (`../../lod.tsx`),
+ * or null to draw only the lean model. A near level is authored in the same
+ * unit space as the lean one, stands on the same footprint, and keeps the lean
+ * model's window rectangles exactly: the lit-window pass draws both from the
+ * lean model's `windows`.
+ */
+export function archetypeNearGeometry(id: ModelKey): BufferGeometry | null {
+  return nearBuilders[id]?.() ?? null;
+}
+
+/**
+ * Near-level builders by archetype. Empty until the detailed models land;
+ * each entry returns a cached geometry built like `archetypeGeometry`'s.
+ */
+const nearBuilders: Partial<Record<ModelKey, () => BufferGeometry | null>> = {};
+
 export function archetypeGeometry(id: ModelKey): BufferGeometry {
   const cached = ARCHETYPE_CACHE.get(id);
   if (cached) return cached;

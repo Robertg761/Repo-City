@@ -320,6 +320,8 @@ function usePinchAsDolly(): void {
  * Development-only: `__repoCity.camera.state()` reports where the camera is
  * and what it orbits, and `__repoCity.camera.project(x, y, z)` gives the page
  * coordinates of a world point, so scripted pointer tests can aim at things.
+ * `__repoCity.camera.lookAt(px, py, pz, tx, ty, tz)` jumps the camera, for
+ * scripted close-ups (`scripts/shot.ts`).
  */
 function useCameraDebugHandle(controls: unknown): void {
   const camera = useThree((state) => state.camera);
@@ -341,6 +343,9 @@ function useCameraDebugHandle(controls: unknown): void {
           rect.left + ((v.x + 1) / 2) * rect.width,
           rect.top + ((1 - v.y) / 2) * rect.height,
         ];
+      },
+      lookAt(px: number, py: number, pz: number, tx: number, ty: number, tz: number) {
+        return controls.setLookAt(px, py, pz, tx, ty, tz, false);
       },
     };
   }, [controls, camera, gl]);

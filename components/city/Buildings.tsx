@@ -43,11 +43,13 @@ import { useCityStore } from "@/store/useCityStore";
 import {
   PROP_MESH,
   archetypeGeometry,
+  archetypeNearGeometry,
   propBlockGeometry,
   propTankGeometry,
   windowPanelGeometry,
 } from "./models/buildings/geometry";
 import { ACCENT_ATTRIBUTE, buildingDetailMaterial, settlementMaterial } from "./models/buildings/material";
+import { LodInstances } from "./lod";
 import { useQuality } from "./quality";
 import {
   litWindowCount,
@@ -71,6 +73,13 @@ import { useRevealClock } from "./useReveal";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
+
+/** Most buildings of one archetype drawn in detail at once (high tier). */
+const BUILDING_NEAR_CAP = 24;
+/** Projected size (radius over distance) past which a building is drawn in detail. */
+const BUILDING_NEAR_SIZE = 0.05;
+const PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE] as const;
+const NO_ATTRIBUTES = [] as const;
 
 /** Below this the instance is scaled to nothing rather than drawn as a speck. */
 const VISIBLE = 0.002;
@@ -111,6 +120,7 @@ function ArchetypeInstances({
     );
     return own;
   }, [group.model, painted, instances.length]);
+  const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model]);
   const material = useMemo(
     () => painted
       ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
@@ -207,17 +217,22 @@ function ArchetypeInstances({
   }, [instances, baseColors, accentColors, geometry, material, hoveredId, selectedId]);
 
   return (
-    <instancedMesh
+    // Vertex colours carry the roof, cornice, door and window shading; the
+    // instance colour carries the district. One material, one draw call for
+    // the lean level, one more for the few buildings drawn in detail.
+    <LodInstances
       ref={meshRef}
-      args={[geometry, material, instances.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={instances.length}
+      maxNear={BUILDING_NEAR_CAP}
+      nearSize={BUILDING_NEAR_SIZE}
+      instancedAttributes={painted ? PAINTED_ATTRIBUTES : NO_ATTRIBUTES}
+      handlers={handlers}
       castShadow
       receiveShadow
-      frustumCulled={false}
-      {...handlers}
-    >
-      {/* Vertex colours carry the roof, cornice, door and window shading; the
-          instance colour carries the district. One material, one draw call. */}
-    </instancedMesh>
+    />
   );
 }
 
