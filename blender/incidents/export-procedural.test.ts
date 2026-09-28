@@ -63,7 +63,7 @@ test.skipIf(!process.env.EXPORT_PLY)("export procedural incident models", () => 
  */
 test.skipIf(!process.env.EXPORT_PLY)("export blender construction sites and incidents", async () => {
   vi.resetModules();
-  vi.doMock("@/components/city/models/spike", () => ({ BLENDER_MODELS: true }));
+  vi.doMock("@/components/city/models/modelSource", () => ({ BLENDER_MODELS: true }));
   const site = await import("@/components/city/models/props/constructionDecor");
   const incidents = await import("@/components/city/models/props/incidentDecor");
   for (const state of ["active", "slow", "abandoned"] as ConstructionState[]) {

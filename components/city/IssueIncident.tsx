@@ -32,6 +32,7 @@ import { useFrame } from "@react-three/fiber";
 import {
   AdditiveBlending,
   CircleGeometry,
+  Color,
   ConeGeometry,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -46,6 +47,8 @@ import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
 import { Beacon, BlinkLight, Smoke } from "./effects";
 import { FIRE_AT, glowTexture, incidentDecor, variantFor } from "./models/props/incidentDecor";
+import { flameGeometry, patchGeometry } from "./models/props/incidentKit";
+import { BLENDER_MODELS } from "./models/modelSource";
 import { qualitySettings, useQuality } from "./quality";
 import { buildingDetailMaterial } from "./models/buildings/material";
 import { useEntityHandlers, useEntityState } from "./useEntity";
@@ -103,16 +106,24 @@ function HazardRing({
   );
 }
 
-function patchKind(name: string, geometry: () => BufferGeometry): BatchKind {
+function patchKind(name: string, geometry: () => BufferGeometry, modelled: boolean): BatchKind {
   return batchKind(`incident:patch:${name}`, () => ({
     geometry,
-    material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 1 }, { ...qualitySettings(), surface: 11 }),
+    // A modelled patch (`blender/incidents2/incident_kit.py`) is ragged and
+    // layered, its shades in the vertex colours; the round decal is one flat colour.
+    material: () => modelled
+      ? buildingDetailMaterial({ vertexColors: true, roughness: 1 }, { ...qualitySettings(), surface: 11, surfaceAttribute: true })
+      : buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 1 }, { ...qualitySettings(), surface: 11 }),
   }));
 }
 
-/** The dark patch under an incident: a small one under a pothole, a wide one otherwise. */
-const PATCH_SMALL = patchKind("small", () => new CircleGeometry(1.8, 18));
-const PATCH_WIDE = patchKind("wide", () => new CircleGeometry(3.1, 22));
+/**
+ * The dark patch under an incident: a small one under a pothole, a wide one
+ * otherwise. With the Blender models a ragged, layered stain; the model is
+ * read when the pool builds its geometry, never at import.
+ */
+const PATCH_SMALL = patchKind("small", () => (BLENDER_MODELS ? patchGeometry("small") : new CircleGeometry(1.8, 18)), BLENDER_MODELS);
+const PATCH_WIDE = patchKind("wide", () => (BLENDER_MODELS ? patchGeometry("wide") : new CircleGeometry(3.1, 22)), BLENDER_MODELS);
 
 /** One pool per merged scene: every incident in the same state, variant and tone shares it. */
 function decorKind(geometry: BufferGeometry): BatchKind {
@@ -127,26 +138,38 @@ function decorKind(geometry: BufferGeometry): BatchKind {
   }));
 }
 
+/**
+ * The flames are cones, or with the Blender models tongues of flame
+ * (`blender/incidents2/incident_kit.py`) about the same size, banded from a
+ * red-orange root to a pale tip in their vertex colours and drawn unlit, as
+ * the emissive cones read. They flicker by scale exactly as the cones do.
+ */
+const flameMaterial = () => new MeshBasicMaterial({ vertexColors: true, color: new Color(1.3, 1.22, 1.15), toneMapped: false });
+
 const FLAME_OUTER = batchKind("incident:flame-outer", () => ({
-  geometry: () => new ConeGeometry(1, 3.4, 7),
+  geometry: () => (BLENDER_MODELS ? flameGeometry("outer") : new ConeGeometry(1, 3.4, 7)),
   material: () =>
-    new MeshStandardMaterial({
-      color: "#f2803a",
-      emissive: "#ff6a1f",
-      emissiveIntensity: 1.6,
-      toneMapped: false,
-    }),
+    BLENDER_MODELS
+      ? flameMaterial()
+      : new MeshStandardMaterial({
+          color: "#f2803a",
+          emissive: "#ff6a1f",
+          emissiveIntensity: 1.6,
+          toneMapped: false,
+        }),
 }));
 
 const FLAME_INNER = batchKind("incident:flame-inner", () => ({
-  geometry: () => new ConeGeometry(0.66, 2.5, 6),
+  geometry: () => (BLENDER_MODELS ? flameGeometry("inner") : new ConeGeometry(0.66, 2.5, 6)),
   material: () =>
-    new MeshStandardMaterial({
-      color: "#ffd66b",
-      emissive: "#ffc14d",
-      emissiveIntensity: 2.2,
-      toneMapped: false,
-    }),
+    BLENDER_MODELS
+      ? flameMaterial()
+      : new MeshStandardMaterial({
+          color: "#ffd66b",
+          emissive: "#ffc14d",
+          emissiveIntensity: 2.2,
+          toneMapped: false,
+        }),
 }));
 
 /**

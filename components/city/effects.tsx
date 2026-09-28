@@ -32,6 +32,8 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { BatchPart } from "./Batch";
 import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
+import { BLENDER_MODELS } from "./models/modelSource";
+import { beaconMastGeometry } from "./models/props/incidentKit";
 
 /**
  * A lit lamp: white, glowing white, so each instance's colour paints both its
@@ -115,15 +117,21 @@ const SPARK = batchKind("fx:spark", () => ({
   material: lampMaterial,
 }));
 
-/** A beacon's mast and the hood over its lamp: one material, so one shape. */
+/**
+ * A beacon's mast and the hood over its lamp: one material, so one shape.
+ * With the Blender models the mast is the kit's foot, whole poles stacked to
+ * the height and the lamp cage with its hood (`blender/incidents2/incident_kit.py`).
+ */
 function mastKind(height: number): BatchKind {
   return batchKind(`fx:mast:${height}`, () => ({
     geometry: () => {
+      if (BLENDER_MODELS) return beaconMastGeometry(height);
       const mast = new CylinderGeometry(0.1, 0.14, height, 6).translate(0, height / 2, 0);
       const hood = new BoxGeometry(0.7, 0.12, 0.42).translate(0, height + 0.62, 0);
       return mergeGeometries([mast, hood]);
     },
-    material: () => new MeshStandardMaterial({ color: "#9aa0a0", roughness: 0.6, metalness: 0.25 }),
+    material: () =>
+      new MeshStandardMaterial({ color: BLENDER_MODELS ? "#ffffff" : "#9aa0a0", vertexColors: BLENDER_MODELS, roughness: 0.6, metalness: 0.25 }),
     castShadow: true,
   }));
 }

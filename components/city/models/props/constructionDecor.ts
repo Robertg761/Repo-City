@@ -37,6 +37,8 @@ import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CRANE } from "./crane.model";
 import { MODEL as SITE_PROPS } from "./constructionProps.model";
+import { KIT_COLORS, completedYard, fallenHoarding, fenceParts, leaningSign, scaffoldParts } from "./siteKit";
+import { weedParts } from "./incidentKit";
 
 /** The site is drawn on an eleven unit square; see `ConstructionSite.tsx`. */
 export const SITE = 11;
@@ -329,6 +331,17 @@ function hut(at: Triple, rotationY: number, body: string, roof: string): Part[] 
 }
 
 function weeds(color: string, count: number, spread: number): Part[] {
+  if (BLENDER_MODELS) {
+    return weedParts(
+      Array.from({ length: count }, (_, i) => {
+        const angle = i * 2.39;
+        const distance = 1.5 + ((i * 0.43) % 1) * spread;
+        const size = 0.6 + ((i * 0.31) % 1) * 0.7;
+        return { x: Math.sin(angle) * distance, z: Math.cos(angle) * distance, height: 0.85 * size, turn: angle };
+      }),
+      color,
+    );
+  }
   const parts: Part[] = [];
   for (let i = 0; i < count; i++) {
     const angle = i * 2.39;
@@ -352,6 +365,7 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
   const parts: Part[] = [];
 
   if (state === "completed") {
+    if (BLENDER_MODELS) return completedYard(shade);
     // A finished building: a swept forecourt, a ribbon across the doors and
     // something planted. The clean opposite of the site next door.
     parts.push(
@@ -416,6 +430,18 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
           )),
     );
     // A hoarding that came down years ago, and the sign nobody took away.
+    if (BLENDER_MODELS) {
+      parts.push(
+        ...fallenHoarding((hex) =>
+          weathered(hex === KIT_COLORS.board ? CONCRETE : hex),
+        ),
+        ...leaningSign([SITE * 0.34 + 0.28, 0.04, -SITE * 0.34], 0.22, weathered),
+        ...scaffoldParts(height, (hex) =>
+          weathered(hex === KIT_COLORS.steel ? RUST : hex === KIT_COLORS.plank ? TIMBER : hex),
+        ),
+      );
+      return parts;
+    }
     parts.push(
       {
         geometry: new BoxGeometry(SITE * 0.5, 1.5, 0.12),
@@ -449,8 +475,13 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
   // active and slow: a working site, with more of everything when it is
   // actually moving (PLAN.md section 13's "crane moving, equipment").
   const busy = state === "active";
-  parts.push(...fence(shade("#bdb6a4"), shade(WARNING_ORANGE)));
-  parts.push(...scaffold(height, shade(STEEL), shade(TIMBER)));
+  if (BLENDER_MODELS) {
+    // The hoarding and the scaffold are kits laid out at real size.
+    parts.push(...fenceParts(shade), ...scaffoldParts(height, shade));
+  } else {
+    parts.push(...fence(shade("#bdb6a4"), shade(WARNING_ORANGE)));
+    parts.push(...scaffold(height, shade(STEEL), shade(TIMBER)));
+  }
   if (BLENDER_MODELS) {
     parts.push(
       siteProp("Materials", paint, [-SITE * 0.3, 0, SITE * 0.32]),

@@ -51,6 +51,7 @@ import { MODEL as INCIDENT_PROPS } from "./incidentProps.model";
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
+import { debrisPiece, potholeParts, scorchParts, skidParts, spoilParts, weedParts } from "./incidentKit";
 
 /** Just above the dark patch the incident draws on the tarmac. */
 const DECAL_Y = 0.135;
@@ -149,18 +150,22 @@ function wreck(
   };
 }
 
-/** A skid mark: a long thin decal on the tarmac. */
-function skid(position: Triple, rotationY: number, length: number, tone: number): Part {
-  return {
+/**
+ * A skid mark: a long thin decal on the tarmac, or with the Blender models
+ * whole tiles of tyre mark laid end to end (`incidentKit.ts`).
+ */
+function skid(position: Triple, rotationY: number, length: number, tone: number): Part[] {
+  if (BLENDER_MODELS) return skidParts(position, rotationY, length, tone);
+  return [{
     geometry: new BoxGeometry(0.16, 0.02, length),
     color: desaturate("#2e2f30", tone * 0.4),
     position,
     rotation: [0, rotationY, 0],
-  };
+  }];
 }
 
 /** Scattered debris: a handful of small angular pieces. */
-function debris(count: number, spread: number, color: string, seed: number): Part[] {
+function debris(count: number, spread: number, color: string, seed: number, shade: (hex: string) => string): Part[] {
   const parts: Part[] = [];
   for (let i = 0; i < count; i++) {
     // A fixed pseudo-random scatter: the same state always looks the same,
@@ -168,6 +173,11 @@ function debris(count: number, spread: number, color: string, seed: number): Par
     const angle = (i * 2.399 + seed) % (Math.PI * 2);
     const distance = 0.9 + ((i * 0.37 + seed * 0.11) % 1) * spread;
     const size = 0.12 + ((i * 0.53 + seed * 0.29) % 1) * 0.22;
+    if (BLENDER_MODELS) {
+      // Panels, bumper ends, a hub cap and glass, at the same scatter.
+      parts.push(...debrisPiece(i, Math.sin(angle) * distance, Math.cos(angle) * distance, size, angle * 1.7, color, shade));
+      continue;
+    }
     parts.push({
       geometry: new BoxGeometry(size, size * 0.5, size * 1.4),
       color,
@@ -296,6 +306,17 @@ function worksSign(
 }
 
 function weeds(spread: number, color: string, count: number): Part[] {
+  if (BLENDER_MODELS) {
+    return weedParts(
+      Array.from({ length: count }, (_, i) => {
+        const angle = i * 2.11;
+        const distance = 1 + ((i * 0.41) % 1) * spread;
+        const size = 0.7 + ((i * 0.27) % 1) * 0.6;
+        return { x: Math.sin(angle) * distance, z: Math.cos(angle) * distance, height: 0.9 * size, turn: angle };
+      }),
+      color,
+    );
+  }
   const parts: Part[] = [];
   for (let i = 0; i < count; i++) {
     const angle = i * 2.11;
@@ -369,18 +390,22 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
 
   if (state === "minor") {
     // A dug-out pothole with the spoil beside it.
-    parts.push({
+    if (BLENDER_MODELS) {
+      parts.push(...potholeParts(shade), ...spoilParts(1.1 * flip, -0.9, shade));
+    } else parts.push({
       geometry: new CylinderGeometry(0.78, 0.66, 0.1, 16),
       color: shade("#33352f"),
       position: [0, DECAL_Y, 0],
     });
     mark(0, 0, 0.78, "pothole");
-    parts.push({
-      geometry: new IcosahedronGeometry(0.5, 0),
-      color: shade("#4a4740"),
-      position: [1.1 * flip, 0.3, -0.9],
-      scale: [1, 0.55, 1],
-    });
+    if (!BLENDER_MODELS) {
+      parts.push({
+        geometry: new IcosahedronGeometry(0.5, 0),
+        color: shade("#4a4740"),
+        position: [1.1 * flip, 0.3, -0.9],
+        scale: [1, 0.55, 1],
+      });
+    }
     mark(1.1 * flip, -0.9, 0.5, "spoil");
     for (const spot of [
       [-1 * flip, 0.5],
@@ -418,12 +443,12 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     );
     // The braking that led to it, printed on the road.
     parts.push(
-      skid([-1.55 * flip, DECAL_Y, 2.5], 0.2 * flip, 3.4, tone),
-      skid([-0.85 * flip, DECAL_Y, 2.5], 0.2 * flip, 3.4, tone),
-      skid([1.75 * flip, DECAL_Y, -2.6], -0.3 * flip, 2.6, tone),
-      skid([1.05 * flip, DECAL_Y, -2.6], -0.3 * flip, 2.6, tone),
+      ...skid([-1.55 * flip, DECAL_Y, 2.5], 0.2 * flip, 3.4, tone),
+      ...skid([-0.85 * flip, DECAL_Y, 2.5], 0.2 * flip, 3.4, tone),
+      ...skid([1.75 * flip, DECAL_Y, -2.6], -0.3 * flip, 2.6, tone),
+      ...skid([1.05 * flip, DECAL_Y, -2.6], -0.3 * flip, 2.6, tone),
     );
-    parts.push(...debris(7, 1.6, shade("#8c8880"), 1.3));
+    parts.push(...debris(7, 1.6, shade("#8c8880"), 1.3, shade));
     addCone(0.2 * flip, 2.6, shade(WARNING_ORANGE));
     addCone(-2.3 * flip, -1.8, shade(WARNING_ORANGE));
 
@@ -437,7 +462,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     // Tipped onto its flank rather than flat on its roof: from the overview
     // a car on its side still reads as a car.
     addWreck(wreck([0, 0.58, 0], 0.7 * flip, 1.05 * flip, faded(RUST)));
-    parts.push(...debris(5, 2.1, faded("#7c766c"), 2.7));
+    parts.push(...debris(5, 2.1, faded("#7c766c"), 2.7, faded));
     addBarricade({ position: [0, 0, 3], rotationY: 0 }, faded(WARNING_ORANGE), faded("#e8e3d6"));
     addBarricade(
       { position: [2.5 * flip, 0, 3.1], rotationY: 0.12 },
@@ -478,14 +503,17 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
   }
 
   // major: the city is on fire.
-  parts.push({
-    geometry: new CylinderGeometry(2.8, 2.8, 0.06, 26),
-    color: shade("#2b2724"),
-    position: [0, DECAL_Y, 0],
-  });
+  if (BLENDER_MODELS) parts.push(...scorchParts(shade));
+  else {
+    parts.push({
+      geometry: new CylinderGeometry(2.8, 2.8, 0.06, 26),
+      color: shade("#2b2724"),
+      position: [0, DECAL_Y, 0],
+    });
+  }
   addWreck(wreck([-1.4 * flip, 0.02, 0.8], 0.9 * flip, 0, shade("#3a3532")));
   addWreck(wreck([1.5 * flip, 0.1, -0.7], -0.5 * flip, 0.42 * flip, shade("#5a5450"), "pickup"));
-  parts.push(...debris(9, 2.4, shade("#5f5a54"), 0.7));
+  parts.push(...debris(9, 2.4, shade("#5f5a54"), 0.7, shade));
   addBarricade({ position: [0, 0, 4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
   addBarricade({ position: [0, 0, -4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
 

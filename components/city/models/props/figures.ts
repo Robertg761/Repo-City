@@ -7,13 +7,16 @@
  * the fire, not part of the city's population.
  *
  * The same clothed body and hair as the walking crowd, with helmets and
- * reflective strips for the crews.
+ * reflective strips for the crews: the Blender walker with a Blender hard
+ * hat and vest bands when the Blender models are on, primitives otherwise.
  */
 
 import { CylinderGeometry, SphereGeometry } from "three";
 import { surfacePanel, type Part, type Triple } from "./geometry";
 import { walkerBodyParts, walkerHeadParts } from "./walkerModel";
 import { SURFACE } from "../../textures/surface-types";
+import { BLENDER_MODELS } from "../modelSource";
+import { crewGearParts } from "./siteKit";
 
 const SKIN = "#c99f7d";
 
@@ -49,7 +52,11 @@ export function figureParts({
       position: [part.position?.[0] ?? 0, (part.position?.[1] ?? 0) + 0.94, part.position?.[2] ?? 0] as Triple,
     })),
   ];
-  if (helmet) {
+  if (helmet && BLENDER_MODELS) {
+    // The crew's hard hat and the vest's reflective bands, modelled on the
+    // Blender walker (`blender/incidents2/site_kit.py`), in the figure's frame.
+    parts.push(...crewGearParts(helmet));
+  } else if (helmet) {
     parts.push(
       { geometry: new CylinderGeometry(0.19, 0.19, 0.035, 8), color: helmet, surface: SURFACE.metal, position: [0, 1.0, 0] },
       { geometry: new SphereGeometry(0.165, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2), color: helmet, surface: SURFACE.metal, position: [0, 1.0, 0] },
