@@ -17,6 +17,8 @@ import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { mergeParts } from "../props/geometry";
 import { MODEL as STREET2_MODEL } from "../props/street2.model";
+import { NEAR_LOWRISE } from "./near/lowrise";
+import { NEAR_TOWERS } from "./near/towers";
 
 export function toGeometry(draft: MeshDraft): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -44,10 +46,10 @@ export function archetypeNearGeometry(id: ModelKey): BufferGeometry | null {
 }
 
 /**
- * Near-level builders by archetype. Empty until the detailed models land;
- * each entry returns a cached geometry built like `archetypeGeometry`'s.
+ * Near-level builders by archetype, one module per family (`./near/`); each
+ * entry returns a cached geometry built like `archetypeGeometry`'s.
  */
-const nearBuilders: Partial<Record<ModelKey, () => BufferGeometry | null>> = {};
+const nearBuilders: Partial<Record<ModelKey, () => BufferGeometry | null>> = { ...NEAR_TOWERS, ...NEAR_LOWRISE };
 
 export function archetypeGeometry(id: ModelKey): BufferGeometry {
   const cached = ARCHETYPE_CACHE.get(id);
