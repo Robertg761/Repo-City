@@ -11,6 +11,13 @@ Hackyard Yard #3 requires an accurate model declaration at submission. Every age
 - GPT-6 Astra — used a little by Robert during the build. No commit names it in a trailer.
 - Original plan, drafted before kickoff: several models helped, Claude Fable 5.1 (`claude-fable-5-1`) among them. The plan is in `docs/PLAN.original.md`, and it isn't project code.
 
+### After the hackathon
+
+- Claude Opus 5.5 (`claude-opus-5-5`) — the texture and surface round, and the Blender round that re-modelled the whole city as Blender Python scripts (`blender/`, see `blender/README.md`): the pipeline, the importer and lazy loading, the fire engine and fire station, orchestration and review, and the sub-agents that converted the fleet, landmarks, buildings, street props, incidents and the crowd.
+- Claude Sonnet 5.5 (`claude-sonnet-5-5`) — the sub-agents that finished the Blender round: wheels and lamps, parked vehicles, the city-limits sign, the bus stop, rooftop plant and farmland, and the construction and incident leftovers.
+
+Blender itself (5.2, run headless) is a modelling tool, not a model: every asset is geometry written by the scripts above, with no generative 3D model involved.
+
 These are the only models that touched the code. For the Claude models the git history is the receipt: every commit they wrote carries a `Co-Authored-By` trailer naming the model. GPT-6 Astra's light use is declared here, not in a trailer.
 
 ```bash
