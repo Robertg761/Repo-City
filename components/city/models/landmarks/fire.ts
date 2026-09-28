@@ -12,10 +12,19 @@
  * when test infrastructure was actually detected.
  */
 
+import type { BufferGeometry } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { SURFACE } from "../../textures/surface-types";
+import { importedMarkers, importedSlots } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { MODEL as FIRE_STATION } from "./fireStation.model";
 
-export type FireSlot = "deck" | "wall" | "red" | "trim" | "steel" | "glass";
+/**
+ * The procedural station's slots, and the Blender one's extra four: light
+ * metal, near-black, planting and the engines' blue glass.
+ */
+export type FireSlot = "deck" | "wall" | "red" | "trim" | "steel" | "glass" | "metal" | "dark" | "green" | "blue";
 
 const DECK = 0.45;
 const BAY = 3.5;
@@ -226,5 +235,33 @@ function buildFire(level: number): FireLayout {
 
 export function fireStation(level: number): FireLayout {
   const clamped = Math.min(3, Math.max(1, Math.round(level)));
+  if (BLENDER_MODELS) return cached(`fire-blender:${clamped}`, () => blenderFire(clamped));
   return cached(`fire:${clamped}`, () => buildFire(clamped));
+}
+
+/**
+ * Spike: the station modelled in Blender (`blender/fire_station.py`), with
+ * the Blender fire engine parked at each of the level's engine markers.
+ * Every slot carries baked occlusion in its vertex colour.
+ */
+export function blenderFire(level: number): FireLayout {
+  const engines = importedMarkers(FIRE_STATION, `Station${level}.engine.`);
+  const lamps = importedMarkers(FIRE_STATION, "Engine.lamp.");
+  const lists: Record<string, BufferGeometry[]> = importedSlots(FIRE_STATION, `Station${level}`);
+  if (engines.length) {
+    for (const [slot, list] of Object.entries(importedSlots(FIRE_STATION, "Engine", engines))) {
+      (lists[slot] ??= []).push(...list);
+    }
+  }
+  const slots: Partial<Record<FireSlot, BufferGeometry>> = {};
+  for (const [slot, list] of Object.entries(lists)) {
+    const merged = mergeGeometries(list, false);
+    if (!merged) throw new Error(`blenderFire: slot ${slot} could not be merged`);
+    merged.computeBoundingSphere();
+    slots[slot as FireSlot] = merged;
+  }
+  const beacons: V3[] = engines.flatMap(([ex, ey, ez]) =>
+    lamps.map(([lx, ly, lz]): V3 => [ex + lx, ey + ly, ez + lz]),
+  );
+  return { slots, beacons };
 }

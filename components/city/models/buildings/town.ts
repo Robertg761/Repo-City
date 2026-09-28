@@ -13,6 +13,10 @@
  */
 
 import type { ArchetypeModel } from "./models";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as SHOPFRONT } from "./shopfront.model";
+import { MODEL as TERRACE } from "./terrace.model";
+import { MODEL as APARTMENT_LOW } from "./apartmentLow.model";
 import { LAYER, type Panel } from "./mesh";
 import { SURFACE } from "../../textures/surface-types";
 import {
@@ -27,7 +31,27 @@ import {
   settlementDraft,
   slab,
   wallBox,
+  importedArchetype,
 } from "./kit";
+
+/** The low block of flats modelled in Blender (`blender/settlement/apartment.py`). */
+export function blenderApartmentLow(retail: boolean): ArchetypeModel {
+  return retail
+    ? importedArchetype(APARTMENT_LOW, "ApartmentLowRetail", "apartment-low/retail")
+    : importedArchetype(APARTMENT_LOW, "ApartmentLow", "apartment-low");
+}
+
+/** The terrace modelled in Blender (`blender/settlement/terrace.py`). */
+export function blenderTerrace(): ArchetypeModel {
+  return importedArchetype(TERRACE, "Terrace", "terrace");
+}
+
+/** The shop modelled in Blender (`blender/settlement/shopfront.py`). */
+export function blenderShopfront(storeys: 2 | 3): ArchetypeModel {
+  return storeys === 2
+    ? importedArchetype(SHOPFRONT, "Shopfront", "shopfront")
+    : importedArchetype(SHOPFRONT, "ShopfrontTall", "shopfront/tall");
+}
 
 type Draft = ReturnType<typeof settlementDraft>;
 
@@ -150,6 +174,7 @@ function shopFront(draft: Draft, spec: { plane: number; halfW: number; top: numb
  * on the party walls, and a hanging sign on its bracket.
  */
 export function shopfront(storeys: 2 | 3): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderShopfront(storeys);
   const draft = settlementDraft();
   const halfW = 0.47;
   const halfD = 0.45;
@@ -210,6 +235,7 @@ export function shopfront(storeys: 2 | 3): ArchetypeModel {
  * colour -- which is what a real terrace does with one design.
  */
 export function terrace(): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderTerrace();
   const draft = settlementDraft();
   const halfW = 0.48;
   const halfD = 0.38;
@@ -313,6 +339,7 @@ export function terrace(): ArchetypeModel {
  * row of shops under it, for the high street.
  */
 export function apartmentLow(retail: boolean): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderApartmentLow(retail);
   const draft = settlementDraft();
   const halfW = 0.47;
   const halfD = 0.44;

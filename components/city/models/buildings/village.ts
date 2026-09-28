@@ -13,6 +13,10 @@
  */
 
 import type { ArchetypeModel } from "./models";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as COTTAGE } from "./cottage.model";
+import { MODEL as FARMHOUSE } from "./farmhouse.model";
+import { MODEL as BARN } from "./barn.model";
 import { LAYER, PANEL_LIFT, type Panel } from "./mesh";
 import {
   M,
@@ -29,8 +33,26 @@ import {
   settlementDraft,
   slab,
   wallBox,
+  importedArchetype,
   type Mat,
 } from "./kit";
+
+/** The cottage modelled in Blender (`blender/settlement/cottage.py`). */
+export function blenderCottage(roof: "thatch" | "tile"): ArchetypeModel {
+  return roof === "thatch"
+    ? importedArchetype(COTTAGE, "CottageThatch", "cottage")
+    : importedArchetype(COTTAGE, "CottageTile", "cottage/tile");
+}
+
+/** The barn modelled in Blender (`blender/settlement/barn.py`). */
+export function blenderBarn(): ArchetypeModel {
+  return importedArchetype(BARN, "Barn", "barn");
+}
+
+/** The farmhouse modelled in Blender (`blender/settlement/farmhouse.py`). */
+export function blenderFarmhouse(): ArchetypeModel {
+  return importedArchetype(FARMHOUSE, "Farmhouse", "farmhouse");
+}
 
 /** A climbing rose: a patch of leaves up the wall with a few flowers in it. */
 function climbingRose(
@@ -63,6 +85,7 @@ function climbingRose(
  * boxes at the front, and a rose up the wall by the door.
  */
 export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderCottage(roof);
   const draft = settlementDraft();
   const wallTop = roof === "thatch" ? 0.5 : 0.52;
   const halfW = 0.42;
@@ -163,6 +186,7 @@ export function cottage(roof: "thatch" | "tile"): ArchetypeModel {
  * under its own mono-pitch roof.
  */
 export function farmhouse(): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderFarmhouse();
   const draft = settlementDraft();
   // The main block, pushed to +x so the lean-to fits on -x.
   const cx = 0.13;
@@ -299,6 +323,7 @@ function brace(
  * cupola on the ridge, and a stone silo standing beside it.
  */
 export function barn(): ArchetypeModel {
+  if (BLENDER_MODELS) return blenderBarn();
   const draft = settlementDraft();
   const cx = -0.12;
   const halfW = 0.31;

@@ -14,7 +14,11 @@
  */
 
 import { SURFACE } from "../../textures/surface-types";
+import { importedMarkers } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { blenderSlots } from "./blenderSlots";
+import { MODEL as INFO_CENTRE } from "./infoCentre.model";
 
 export type InfoSlot = "deck" | "wall" | "roof" | "glass" | "sign" | "green";
 
@@ -203,5 +207,17 @@ function buildInfo(level: number): InfoLayout {
 
 export function infoCentre(level: number): InfoLayout {
   const clamped = Math.min(3, Math.max(1, Math.round(level)));
+  if (BLENDER_MODELS) return cached(`info-blender:${clamped}`, () => blenderInfo(clamped));
   return cached(`info:${clamped}`, () => buildInfo(clamped));
+}
+
+/**
+ * Spike: the centre modelled in Blender (`blender/landmarks/info.py`), one
+ * node per level, with the garden lamps at its `Info3.lamp.*` markers. Same
+ * slots and natural size as `buildInfo`, with baked occlusion in the vertex
+ * colour.
+ */
+export function blenderInfo(level: number): InfoLayout {
+  const lamps = importedMarkers(INFO_CENTRE, `Info${level}.lamp.`).map(([x, y, z]): V3 => [x, y, z]);
+  return { slots: blenderSlots<InfoSlot>(INFO_CENTRE, [`Info${level}`]), lamps };
 }

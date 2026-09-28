@@ -41,6 +41,9 @@ import { TREE_LEAF, desaturate } from "../../palette";
 import { archetypeGeometry } from "../buildings/geometry";
 import type { ModelKey } from "../buildings/archetypes";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as FINISHED_DRESSING } from "./finishedDressing.model";
 
 export type FinishedTier = "village" | "town";
 
@@ -308,8 +311,18 @@ const houseCache = geometryCache<string>((key) => {
   return bakedHouse(tier as FinishedTier, Number(tone));
 });
 
+/**
+ * The Blender dressing (`blender/incidents/finished_dressing.py`): the same
+ * fence, bunting, board, trees and balloons at the same places, modelled.
+ */
+export function blenderDressingGeometry(tier: FinishedTier, desaturation: number): BufferGeometry {
+  const shade = (hex: string) => desaturate(hex, desaturation);
+  return mergeParts(importedParts(FINISHED_DRESSING, tier === "village" ? "VillageDressing" : "TownDressing", shade));
+}
+
 const dressingCache = geometryCache<string>((key) => {
   const [tier, tone] = key.split(":");
+  if (BLENDER_MODELS) return blenderDressingGeometry(tier as FinishedTier, Number(tone));
   const shade = (hex: string) => desaturate(hex, Number(tone));
   return mergeParts(tier === "village" ? villageDressing(shade) : townDressing(shade));
 });

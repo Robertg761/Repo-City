@@ -50,7 +50,8 @@ import { useQuality, type QualitySettings } from "../quality";
 import { useSkyFrame } from "../sky";
 import { useInstanceHandlers } from "../useEntity";
 import { useRevealClock } from "../useReveal";
-import { formGeometry } from "./forms";
+import { HOARDING_GROUND, formGeometry, hoardingPlot, hoardingPlotGeometry } from "./forms";
+import { BLENDER_MODELS } from "../models/modelSource";
 import {
   CROWD_CLOCK,
   DATA_ATTRIBUTE,
@@ -95,12 +96,37 @@ function litColor(tint: string, hovered: boolean, selected: boolean): Color {
   return scratchColor.set(tint);
 }
 
+/**
+ * The crowd's groups as drawn. Under the Blender models a ground hoarding is
+ * built round its own plot rather than stretched to it (`hoardingKit`), so
+ * the hoardings split into one group per plot size (rounded to
+ * `HOARDING_PLOT_STEP`); every other form is one group, as planned.
+ */
+function drawnGroups(groups: readonly CrowdGroup[]): { group: CrowdGroup; plot?: [number, number] }[] {
+  return groups.flatMap((group) => {
+    if (!BLENDER_MODELS || group.form !== "hoarding") return [{ group }];
+    const byPlot = new Map<string, { group: CrowdGroup; plot: [number, number] }>();
+    for (const item of group.items) {
+      const plot = hoardingPlot(item.scale);
+      const key = plot.join("x");
+      let entry = byPlot.get(key);
+      if (!entry) byPlot.set(key, (entry = { group: { form: group.form, items: [], ids: [] }, plot }));
+      entry.group.items.push(item);
+      entry.group.ids.push(item.id);
+    }
+    return [...byPlot.values()];
+  });
+}
+
 function FormInstances({
   group,
   atmosphere,
+  plot,
 }: {
   group: CrowdGroup;
   atmosphere: SceneAtmosphere;
+  /** A ground hoarding's plot, when its model is built to it (`drawnGroups`). */
+  plot?: [number, number];
 }) {
   const meshRef = useRef<InstancedMesh>(null);
   const handlers = useInstanceHandlers(group.ids);
@@ -114,7 +140,10 @@ function FormInstances({
   );
 
   const geometry = useMemo(() => {
-    const own = formGeometry(group.form, atmosphere.desaturation).clone();
+    const own = (plot
+      ? hoardingPlotGeometry(plot[0], plot[1], atmosphere.desaturation)
+      : formGeometry(group.form, atmosphere.desaturation)
+    ).clone();
     const phase = new Float32Array(count);
     const data = new Float32Array(count * 3);
     const paintA = new Float32Array(count * 3);
@@ -145,7 +174,7 @@ function FormInstances({
     own.setAttribute(PAINT_B_ATTRIBUTE, new InstancedBufferAttribute(paintB, 3));
     own.setAttribute(WEAR_ATTRIBUTE, new InstancedBufferAttribute(wear, 1));
     return own;
-  }, [group, count, atmosphere.desaturation]);
+  }, [group, count, atmosphere.desaturation, plot]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   const { textureSize, anisotropy } = useQuality();
@@ -168,14 +197,17 @@ function FormInstances({
     group.items.forEach((item, i) => {
       scratch.position.set(item.x, item.y, item.z);
       scratch.rotation.set(0, item.rotationY, 0);
-      scratch.scale.set(item.scale[0], item.scale[1], item.scale[2]);
+      // A hoarding built to its plot only takes up the rounding.
+      const fx = plot ? HOARDING_GROUND.w / plot[0] : 1;
+      const fz = plot ? HOARDING_GROUND.d / plot[1] : 1;
+      scratch.scale.set(item.scale[0] * fx, item.scale[1], item.scale[2] * fz);
       scratch.updateMatrix();
       mesh.setMatrixAt(i, scratch.matrix);
       mesh.setColorAt(i, scratchColor.set(item.tint));
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [group, geometry]);
+  }, [group, geometry, plot]);
 
   // Hover and selection: rewrite only the instances whose look changed.
   const lit = useRef<number[]>([]);
@@ -296,6 +328,7 @@ export default function Backlog({
 }) {
   useDevBacklog(city);
   const plan = useMemo(() => planCrowd(city), [city]);
+  const drawn = useMemo(() => drawnGroups(plan.groups), [plan]);
   const quality = useQuality();
   const effects = crowdEffectsOn(quality);
   const clock = useRevealClock();
@@ -312,8 +345,13 @@ export default function Backlog({
 
   return (
     <group>
-      {plan.groups.map((group) => (
-        <FormInstances key={group.form} group={group} atmosphere={atmosphere} />
+      {drawn.map(({ group, plot }) => (
+        <FormInstances
+          key={plot ? `${group.form}:${plot.join("x")}` : group.form}
+          group={group}
+          plot={plot}
+          atmosphere={atmosphere}
+        />
       ))}
       {effects && plan.halos.length > 0 && <Halos halos={plan.halos} />}
       {effects && plan.smoke.length > 0 && <Smoke puffs={plan.smoke} />}

@@ -45,6 +45,9 @@ import {
   type EmergencyLight,
 } from "../vehicles/emergency";
 import { parkedGeometry } from "../vehicles/shapes";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as INCIDENT_PROPS } from "./incidentProps.model";
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
@@ -175,7 +178,31 @@ function debris(count: number, spread: number, color: string, seed: number): Par
   return parts;
 }
 
+/**
+ * The Blender props (`blender/incidents/incident_props.py`), one merged
+ * geometry per node and shade, placed like any other part. `paint` shades the
+ * model's own colours: fresh at a live incident, faded at a stale one.
+ */
+const blenderPropCache = new Map<string, BufferGeometry>();
+
+export function blenderProp(node: string, paint: (hex: string) => string, position: Triple, rotation?: Triple): Part {
+  const key = `${node}:${paint(WARNING_ORANGE)}`;
+  let geometry = blenderPropCache.get(key);
+  if (!geometry) {
+    geometry = mergeParts(importedParts(INCIDENT_PROPS, node, paint));
+    blenderPropCache.set(key, geometry);
+  }
+  return { geometry, color: "#ffffff", position, rotation };
+}
+
+/** The Blender barricade's boards stand this high at their middle. */
+export const BLENDER_RAIL_MID = 0.785;
+
+/** Where the road crew's sign carries its lamp, above its foot. */
+export const SIGN_LAMP_Y = 3.32;
+
 function cone(position: Triple, color: string, tone: number): Part[] {
+  if (BLENDER_MODELS) return [blenderProp("Cone", (hex) => desaturate(hex, tone), [position[0], DECAL_Y, position[2]])];
   return [
     {
       geometry: new BoxGeometry(0.6, 0.08, 0.6),
@@ -195,9 +222,22 @@ function cone(position: Triple, color: string, tone: number): Part[] {
   ];
 }
 
-function barricade(place: Placement, color: string, stripe: string, lean = 0): Part[] {
+function barricade(
+  place: Placement,
+  color: string,
+  stripe: string,
+  lean = 0,
+  paint: (hex: string) => string = (hex) => hex,
+): Part[] {
   const [x, , z] = place.position;
   const rotation: Triple = [0, place.rotationY, lean];
+  if (BLENDER_MODELS) {
+    // The boards knocked askew about their middle; the posts stay upright.
+    const ends = [-1, 1].map((side) =>
+      blenderProp("BarricadePost", paint, [x + side * 1.1 * Math.cos(place.rotationY), 0, z - side * 1.1 * Math.sin(place.rotationY)], [0, place.rotationY, 0]),
+    );
+    return [blenderProp("BarricadeRails", paint, [x, BLENDER_RAIL_MID, z], rotation), ...ends];
+  }
   const panels: Part[] = [];
   for (const side of [-1, 1]) {
     for (const dx of [-0.94, -0.47, 0, 0.47, 0.94]) {
@@ -227,9 +267,17 @@ function barricade(place: Placement, color: string, stripe: string, lean = 0): P
 }
 
 /** The road crew's sign: a board on a post. The blinker is added separately. */
-function worksSign(place: Placement, color: string, lean: number, tone: number): Part[] {
+function worksSign(
+  place: Placement,
+  color: string,
+  lean: number,
+  tone: number,
+  paint: (hex: string) => string = (hex) => desaturate(hex, tone),
+): Part[] {
   const [x, , z] = place.position;
   const rotation: Triple = [0, place.rotationY, lean];
+  // The Blender sign leans from its foot, as a sign knocked over would.
+  if (BLENDER_MODELS) return [blenderProp("WorksSign", paint, [x, 0, z], rotation)];
   return [
     {
       geometry: new CylinderGeometry(0.09, 0.11, 2.2, 6),
@@ -294,8 +342,10 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     );
     mark(x, z, 0.22, "crew");
   };
+  // The Blender props take the scene's shading, so a stale scene's fade too.
+  const paint = state === "stale" ? faded : shade;
   const addBarricade = (place: Placement, color: string, stripe: string, lean = 0) => {
-    parts.push(...barricade(place, color, stripe, lean));
+    parts.push(...barricade(place, color, stripe, lean, paint));
     // Along its length, so a vehicle cannot stand across the middle of it.
     for (const along of [-1.3, -0.65, 0, 0.65, 1.3]) {
       mark(
@@ -346,7 +396,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     // The board is wider than its post, and stands at a cab's height.
     mark(sign.position[0], sign.position[2], 0.85, "sign");
     lights.push({
-      position: [sign.position[0], 3.32, sign.position[2]],
+      position: [sign.position[0], SIGN_LAMP_Y, sign.position[2]],
       color: WARNING_ORANGE,
       rate: 1.1,
       radius: 0.2,
@@ -417,7 +467,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       lights.push({ position: [x, 1.15, z], color: faded(WARNING_ORANGE), rate, radius: 0.15 });
     }
     const sign: Placement = { position: [-2.3 * flip, 0, -2.4], rotationY: -0.5 * flip };
-    parts.push(...worksSign(sign, faded(WARNING_ORANGE), 0.17 * flip, tone));
+    parts.push(...worksSign(sign, faded(WARNING_ORANGE), 0.17 * flip, tone, faded));
     mark(sign.position[0], sign.position[2], 0.85, "sign");
     parts.push(...weeds(2.6, faded(mix(TREE_LEAF, "#9aa36a", 0.4)), 9));
 

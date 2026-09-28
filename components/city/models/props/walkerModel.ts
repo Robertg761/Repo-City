@@ -1,12 +1,36 @@
 import { BoxGeometry, CapsuleGeometry, SphereGeometry, type BufferGeometry } from "three";
 import { mergeParts, surfacePanel, type Part, type Triple } from "./geometry";
 import { SURFACE } from "../../textures/surface-types";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as WALKER } from "./walker.model";
+
+/** The colours the Blender figure (`blender/props/walker.py`) is modelled in. */
+const MODEL_PAINT = "#ffffff";
+const MODEL_SKIN = "#c99f7d";
+const MODEL_HAIR = "#4a3830";
+
+/**
+ * The Blender body: the clothes are its paint and take `clothes`, the hands
+ * take `skin`, trousers and shoes keep their own colours. Same frame as the
+ * procedural body (origin at the crowd's chest height).
+ */
+export function blenderWalkerBodyParts(clothes = "#ffffff", skin = "#c99f7d"): Part[] {
+  return importedParts(WALKER, "WalkerBody", (hex) => (hex === MODEL_PAINT ? clothes : hex === MODEL_SKIN ? skin : hex));
+}
+
+/** The Blender head, its skin the paint; `hair: false` leaves the hair off for a helmet. */
+export function blenderWalkerHeadParts(skin = "#ffffff", { hair = true } = {}): Part[] {
+  return importedParts(WALKER, "WalkerHead", (hex) => (hex === MODEL_PAINT ? skin : hex))
+    .filter((part) => hair || part.color !== MODEL_HAIR);
+}
 
 let body: BufferGeometry | undefined;
 let head: BufferGeometry | undefined;
 
 /** Body origin is the crowd's chest height, 0.44 above the pavement. */
 export function walkerBodyParts(clothes = "#ffffff", skin = "#c99f7d"): Part[] {
+  if (BLENDER_MODELS) return blenderWalkerBodyParts(clothes, skin);
   const parts: Part[] = [{
     geometry: new CapsuleGeometry(0.15, 0.25, 1, 6),
     color: clothes,
@@ -35,8 +59,9 @@ export function walkerBodyGeometry(): BufferGeometry {
   return body ??= mergeParts(walkerBodyParts());
 }
 
-export function walkerHeadParts(skin = "#ffffff"): Part[] {
-  return [
+export function walkerHeadParts(skin = "#ffffff", { hair = true } = {}): Part[] {
+  if (BLENDER_MODELS) return blenderWalkerHeadParts(skin, { hair });
+  return ([
     { geometry: new SphereGeometry(0.15, 7, 5), color: skin, paint: true, surface: SURFACE.plaster },
     {
       geometry: new SphereGeometry(0.154, 7, 3, 0, Math.PI * 2, 0, Math.PI * 0.48),
@@ -46,7 +71,7 @@ export function walkerHeadParts(skin = "#ffffff"): Part[] {
     },
     ...[-1, 1].map((side) => surfacePanel(0.018, 0.018, [side * 0.045, 0.02, 0.154], "#302d29", [0, 0, 0], false, SURFACE.glass)),
     surfacePanel(0.035, 0.012, [0, -0.057, 0.148], "#ad8272", [0, 0, 0], false, SURFACE.plaster),
-  ];
+  ] as Part[]).filter((_, index) => hair || index !== 1);
 }
 
 /** Skin takes the instance tint while the hair stays dark. */

@@ -15,7 +15,16 @@
  */
 
 import { SURFACE } from "../../textures/surface-types";
+import { importedMarker, importedMarkers } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { blenderSlots } from "./blenderSlots";
+import { MODEL as VILLAGE_CHAPEL } from "./villageChapel.model";
+import { MODEL as VILLAGE_FIRE } from "./villageFire.model";
+import { MODEL as VILLAGE_HALT } from "./villageHalt.model";
+import { MODEL as VILLAGE_SUBSTATION } from "./villageSubstation.model";
+
+const v3 = ([x, y, z]: readonly number[]): V3 => [x, y, z];
 
 /** Natural sizes, `[width, height, depth]`, for fitting into the plot. */
 export const VILLAGE_NATURAL_SIZE = {
@@ -174,7 +183,16 @@ function buildChapel(): ChapelLayout {
 }
 
 export function chapel(): ChapelLayout {
+  if (BLENDER_MODELS) return cached("village-blender:chapel", blenderChapel);
   return cached("village:chapel", buildChapel);
+}
+
+/** Spike: the chapel modelled in Blender (`blender/landmarks/chapel.py`). */
+export function blenderChapel(): ChapelLayout {
+  return {
+    slots: blenderSlots<ChapelSlot>(VILLAGE_CHAPEL, ["Chapel"]),
+    lamp: v3(importedMarker(VILLAGE_CHAPEL, "Chapel.lamp")),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +283,21 @@ function buildVillageFire(level: number): VillageFireLayout {
 
 export function villageFireStation(level: number): VillageFireLayout {
   const key = level >= 2 ? 2 : 1;
+  if (BLENDER_MODELS) return cached(`village-blender:fire:${key}`, () => blenderVillageFire(key));
   return cached(`village:fire:${key}`, () => buildVillageFire(key));
+}
+
+/**
+ * Spike: the station modelled in Blender (`blender/landmarks/village_fire.py`),
+ * beacons at its markers in the procedural order: the lamp over the door,
+ * then the appliance's roof light.
+ */
+export function blenderVillageFire(level: number): VillageFireLayout {
+  const key = level >= 2 ? 2 : 1;
+  return {
+    slots: blenderSlots<VillageFireSlot>(VILLAGE_FIRE, [`VFire${key}`]),
+    beacons: importedMarkers(VILLAGE_FIRE, `VFire${key}.beacon.`).map(v3),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +401,17 @@ function buildHalt(level: number): HaltLayout {
 
 export function halt(level: number): HaltLayout {
   const key = level >= 2 ? 2 : 1;
+  if (BLENDER_MODELS) return cached(`village-blender:halt:${key}`, () => blenderHalt(key));
   return cached(`village:halt:${key}`, () => buildHalt(key));
+}
+
+/** Spike: the halt modelled in Blender (`blender/landmarks/halt.py`). */
+export function blenderHalt(level: number): HaltLayout {
+  const key = level >= 2 ? 2 : 1;
+  return {
+    slots: blenderSlots<HaltSlot>(VILLAGE_HALT, [`Halt${key}`]),
+    lamps: importedMarkers(VILLAGE_HALT, "Halt.lamp.").map(v3),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -473,5 +515,17 @@ function buildSubstation(): SubstationLayout {
 }
 
 export function substation(): SubstationLayout {
+  if (BLENDER_MODELS) return cached("village-blender:substation", blenderSubstation);
   return cached("village:substation", buildSubstation);
+}
+
+/** Spike: the substation modelled in Blender (`blender/landmarks/substation.py`). */
+export function blenderSubstation(): SubstationLayout {
+  return {
+    slots: blenderSlots<SubstationSlot>(VILLAGE_SUBSTATION, ["Substation"]),
+    anchors: {
+      lamp: v3(importedMarker(VILLAGE_SUBSTATION, "Substation.lamp")),
+      yard: v3(importedMarker(VILLAGE_SUBSTATION, "Substation.yard")),
+    },
+  };
 }

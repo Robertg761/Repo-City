@@ -29,7 +29,12 @@
  */
 
 import { SURFACE } from "../../textures/surface-types";
+import { importedMarkers } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { blenderSlots } from "./blenderSlots";
+import { MODEL as TRANSIT_STATION } from "./transitStation.model";
+import { MODEL as TRANSIT_TRAIN } from "./transitTrain.model";
 
 export type StationSlot = "deck" | "wall" | "roof" | "steel" | "glass" | "accent" | "dark";
 export type TrainSlot = "body" | "glass" | "gear";
@@ -78,6 +83,12 @@ function track(a: A, cz: number): void {
     a.box("steel", [TRACK_HALF * 2, 0.16, 0.14], { at: [TRACK_X, 0.42, cz + s * 0.72] });
   }
 }
+
+/**
+ * The contact wire's axis over track A (the mast height, 4.3, less the 0.8 the
+ * wire hangs below it). The Blender train's raised pantograph meets it.
+ */
+export const CONTACT_WIRE_Y = PLATFORM_Y + 4.3 - 0.8;
 
 /** A catenary mast with its cantilever arm and the contact wire it carries. */
 function catenary(a: A, xs: number[], cz: number, side: number): void {
@@ -333,11 +344,43 @@ function buildTrain(): Slots<TrainSlot> {
 
 export function transitStation(level: number): StationLayout {
   const clamped = Math.min(3, Math.max(1, Math.round(level)));
+  if (BLENDER_MODELS) return cached(`station-blender:${clamped}`, () => blenderStation(clamped));
   return cached(`station:${clamped}`, () => buildStation(clamped));
 }
 
-export function trainCars(): Slots<TrainSlot> {
+/**
+ * Spike: the station modelled in Blender (`blender/landmarks/station.py`),
+ * one node per level, lamps at its `Station.lamp.*` markers. The tracks,
+ * platform edge and portal face are where `buildStation` puts them, so the
+ * procedural trains still run, stop and clip at `PORTAL_X` exactly.
+ */
+export function blenderStation(level: number): StationLayout {
+  const lamps = importedMarkers(TRANSIT_STATION, "Station.lamp.").map(([x, y, z]): V3 => [x, y, z]);
+  const tracks: 1 | 2 = level >= 3 ? 2 : 1;
+  return { slots: blenderSlots<StationSlot>(TRANSIT_STATION, [`Station${level}`]), lamps, tracks };
+}
+
+/**
+ * The pantograph on the locomotive's roof: `raised` on the running train, up
+ * to the contact wire over track A; `lowered` on the parked one, which has no
+ * wire over it. The procedural set has no pantograph and ignores it.
+ */
+export type Pantograph = "raised" | "lowered";
+
+export function trainCars(pantograph: Pantograph = "raised"): Slots<TrainSlot> {
+  if (BLENDER_MODELS) return cached(`station-blender:train:${pantograph}`, () => blenderTrain(pantograph));
   return cached("station:train", buildTrain);
+}
+
+/**
+ * Spike: the train modelled in Blender (`blender/landmarks/train.py`): the
+ * same set, centred on the origin with the nose to +x, wheels on the rail
+ * tops at y 0.5 and the procedural bogie centres, in the same three slots,
+ * so `Landmark.tsx` runs, parks and clips it exactly as it does `buildTrain`.
+ */
+export function blenderTrain(pantograph: Pantograph = "raised"): Slots<TrainSlot> {
+  const arms = pantograph === "raised" ? "PantographRaised" : "PantographLowered";
+  return blenderSlots<TrainSlot>(TRANSIT_TRAIN, ["Train", arms]);
 }
 
 /**

@@ -36,7 +36,16 @@ import {
   type Rgb3,
 } from "./mesh";
 import type { ModelKey } from "./archetypes";
-import { towerGlass, towerSpire, towerTwin } from "./metropolis";
+import { BLENDER_TOWERS, importedArchetype, towerGlass, towerSpire, towerTwin } from "./metropolis";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as HOUSE_MODEL } from "./buildingHouse.model";
+import { MODEL as LOWRISE_PARAPET_MODEL } from "./buildingLowriseParapet.model";
+import { MODEL as MIDRISE_MECH_MODEL } from "./buildingMidriseMech.model";
+import { MODEL as LOWRISE_PITCHED_MODEL } from "./buildingLowrisePitched.model";
+import { MODEL as WAREHOUSE_MODEL } from "./buildingWarehouseSawtooth.model";
+import { MODEL as MIDRISE_SETBACK_MODEL } from "./buildingMidriseSetback.model";
+import { MODEL as TOWER_STEPPED_MODEL } from "./buildingTowerStepped.model";
+import { MODEL as TOWER_CROWN_MODEL } from "./buildingTowerCrown.model";
 import { apartmentLow, shopfront, terrace } from "./town";
 import { barn, cottage, farmhouse } from "./village";
 import { M, rainwater } from "./kit";
@@ -573,13 +582,63 @@ const BUILDERS: Record<ModelKey, () => ArchetypeModel> = {
   "tower-spire": towerSpire,
 };
 
+/**
+ * A Blender material role (`blender/buildings/bkit.py`) as the multiplier the
+ * procedural models paint the same part with.
+ */
+const BLENDER_ROLES: Record<string, Rgb3> = {
+  wall: WALL,
+  core: WALL,
+  wallSoft: WALL_SOFT,
+  trim: TRIM,
+  plinth: PLINTH,
+  deck: surfaceColor([0.6, 0.62, 0.66], SURFACE.concrete),
+  roof: ROOF,
+  roofLight: ROOF_LIGHT,
+  window: WINDOW,
+  glass: GLASS,
+  door: DOOR,
+  mech: MECH,
+};
+
+function blenderRole(role: string): Rgb3 {
+  const color = BLENDER_ROLES[role];
+  if (!color) throw new Error(`models.ts: no multiplier for the Blender role ${role}`);
+  return color;
+}
+
+/**
+ * The archetypes modelled in Blender (spike: `blender/buildings/`), drawn in
+ * place of the procedural ones by default.
+ */
+export const BLENDER_ARCHETYPES: Partial<Record<ModelKey, () => ArchetypeModel>> = {
+  house: () => importedArchetype("house", HOUSE_MODEL, blenderRole),
+  "lowrise-parapet": () => importedArchetype("lowrise-parapet", LOWRISE_PARAPET_MODEL, blenderRole),
+  "midrise-mech": () => importedArchetype("midrise-mech", MIDRISE_MECH_MODEL, blenderRole),
+  "lowrise-pitched": () => importedArchetype("lowrise-pitched", LOWRISE_PITCHED_MODEL, blenderRole),
+  "warehouse-sawtooth": () => importedArchetype("warehouse-sawtooth", WAREHOUSE_MODEL, blenderRole),
+  "midrise-setback": () => importedArchetype("midrise-setback", MIDRISE_SETBACK_MODEL, blenderRole),
+  "tower-stepped": () => importedArchetype("tower-stepped", TOWER_STEPPED_MODEL, blenderRole),
+  "tower-crown": () => importedArchetype("tower-crown", TOWER_CROWN_MODEL, blenderRole),
+  ...BLENDER_TOWERS,
+};
+
+/** The Blender variant of an archetype, whatever the flag says (for tests). */
+export function blenderArchetypeModel(id: ModelKey): ArchetypeModel {
+  const build = BLENDER_ARCHETYPES[id];
+  if (!build) throw new Error(`blenderArchetypeModel: no Blender model for ${id}`);
+  return build();
+}
+
 const CACHE = new Map<ModelKey, ArchetypeModel>();
 
 /** Built once per model per page, then shared by every instance of it. */
 export function archetypeModel(id: ModelKey): ArchetypeModel {
   const cached = CACHE.get(id);
   if (cached) return cached;
-  const model = BUILDERS[id]();
+  // By default, the Blender variant where there is one.
+  const blender = BLENDER_MODELS ? BLENDER_ARCHETYPES[id] : undefined;
+  const model = blender ? blender() : BUILDERS[id]();
   CACHE.set(id, model);
   return model;
 }

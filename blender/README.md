@@ -1,0 +1,90 @@
+# Blender models
+
+The city's models, written as Blender Python scripts. They are what the city
+draws by default; `?models=procedural` switches back to the procedural
+TypeScript builders they replaced (for comparison), and the app falls back to
+those by itself if the model data cannot load. Tests run in node and see the
+procedural builders unless they mock `BLENDER_MODELS`; every Blender variant
+has tests of its own.
+
+## The pipeline
+
+```
+blender/<area>/<model>.py      build() -> the objects to export
+        | blender -b --python blender/export.py -- blender/<area>/<model>.py <name>
+assets/models/<name>.glb       the source of truth, uncompressed
+        | node scripts/import-model.ts assets/models/<name>.glb components/city/models/<area>/<camelName>.model.ts
+components/city/models/<area>/<camelName>.model.ts   generated, never edited by hand
+        | importedParts / importedSlots / importedMarkers   (components/city/models/imported.ts)
+the model's TypeScript builder, switched by BLENDER_MODELS   (components/city/models/modelSource.ts)
+```
+
+Preview and compare without the app:
+
+```
+blender -b --python blender/stage.py -- blender/out/<area>/<prefix> blender/<area>/<model>.py [other.py | other.ply | model.py@N]
+```
+
+`stage.py` lays the sources out side by side, prints `TRIANGLES <source> <n>`
+per source, and renders `-front34`, `-rear34`, `-side` and `-city` PNGs.
+`model.py@N` calls the script's `preview(N)` for a variant. To render the
+procedural counterpart, export it to PLY (see `blender/export-procedural.test.ts`,
+run with `EXPORT_PLY=1`).
+
+## Conventions
+
+- **Coordinates:** `blender/kit.py` takes the APP's frame everywhere (x across,
+  y up, z forward, ground y = 0) and converts to Blender itself, so numbers are
+  copied straight from the TypeScript specs. Match the procedural model's
+  footprint, pivots and anchor points exactly; tests should prove it.
+- **Materials** are named `<role>.<surface>[.tNN]`:
+  - `surface` is a key of `SURFACE` (`components/city/textures/surface-types.ts`);
+  - `tNN` is a darker shade of the role (t80 = 80%), baked into the vertex colour;
+  - a role starting with `paint` is paintwork that an instance colour paints
+    (`Part.paint`), for tinted instanced models like the fleet;
+  - landmarks use the role as the colour SLOT the renderer paints from the
+    city palette (see `fire_station.py` and `FireStation` in `Landmark.tsx`).
+- **Ambient occlusion** is baked into the `AO` colour attribute by
+  `kit.bake_ao`. Keep `floor` around 0.55 for things that stand among
+  unoccluded procedural neighbours, or they read as dirty.
+- **Markers:** `kit.marker(name, pos)` exports a point the runtime reads with
+  `importedMarkers` (engine parking spots, lamp positions, anchors).
+- **Variants** of one model (levels, states) are separate named objects in one
+  GLB; share sub-models as their own node placed at markers (see the station's
+  `Engine`).
+- **Budgets:** the procedural model's triangle budget test is the budget,
+  unless the brief says otherwise. Bevels cost ~30 triangles per box: use them
+  where they catch light at city scale, never on anything under 5 cm
+  (`kit.box` already skips those).
+- **Size:** report the brotli size of every generated module
+  (`brotli -c -q 11 <file> | wc -c`).
+
+## Loading
+
+The importer writes two files per model: `<name>.data.ts` (the model) and
+`<name>.model.ts`, a stub whose `MODEL` is a handle from `lazyModel`. Only
+`loadModels()` imports the data files, so the bundler gives each its own chunk
+and the main bundle carries none of it. `useModelsReady()` (in
+`components/city/models/useModels.ts`) starts the download when the app opens
+and holds the city back until it lands, retrying once and then reloading on
+the procedural models if it cannot. With `?models=procedural` nothing is
+fetched.
+
+So **never read a model while a module is evaluated** (a top-level
+`const X = MODEL.meta`, a geometry built at import): read it inside a function
+or a hook. Tests get every data module handed over by `vitest.setup.ts`; the
+probe that catches import-time reads runs on its own:
+
+```
+pnpm vitest run --config vitest.models.config.mts
+```
+
+## Gotchas already paid for
+
+- Join evaluated meshes with `material.original` (done in `kit.finish`), or
+  Blender crashes on the next depsgraph update.
+- Never call `view_layer.update()` mid-build.
+- Faces are shaded per vertex: slice big faces (`box(..., cell=1.5)`) or the
+  whole face takes its corners' occlusion.
+- Merged geometries need identical attributes: imported geometry carries
+  position, normal, uv (zeros), color, and surface when asked.

@@ -26,6 +26,13 @@ import { BoxGeometry, ConeGeometry, CylinderGeometry, type BufferGeometry } from
 import { desaturate } from "../../palette";
 import { SURFACE } from "../../textures/surface-types";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "../props/geometry";
+import { importedMarkers, importedOrigin, importedParts, type ImportedModel } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as AMBULANCE } from "./ambulance.model";
+import { MODEL as FIRE_ENGINE } from "./fireEngine.model";
+import { MODEL as POLICE_CAR } from "./policeCar.model";
+import { MODEL as TOW_TRUCK } from "./towTruck.model";
+import { MODEL as WORKS_TRUCK } from "./worksTruck.model";
 import {
   BODY_SPECS,
   PANEL_SHADE,
@@ -161,11 +168,69 @@ function strut(from: Triple, to: Triple, thickness: [number, number], color: str
 }
 
 /**
+ * The Blender fire engine as parts: the truck, and its ladder merged into one
+ * part stood on the pivot and turned by `ladderYaw`, as the procedural one is.
+ */
+export function blenderFireParts(shade: (hex: string) => string, ladderYaw: number): Part[] {
+  return [
+    ...importedParts(FIRE_ENGINE, "FireEngine", shade),
+    {
+      geometry: mergeParts(importedParts(FIRE_ENGINE, "Ladder", shade)),
+      color: "#ffffff",
+      position: importedOrigin(FIRE_ENGINE, "Ladder"),
+      rotation: [0, ladderYaw, 0],
+    },
+  ];
+}
+
+/** The incident vehicles modelled in Blender (`blender/incidents/*.py`). */
+type BlenderVehicle = Exclude<EmergencyKind, "fire">;
+
+const BLENDER_VEHICLES: Record<BlenderVehicle, { model: ImportedModel; node: string }> = {
+  police: { model: POLICE_CAR, node: "PoliceCar" },
+  ambulance: { model: AMBULANCE, node: "Ambulance" },
+  tow: { model: TOW_TRUCK, node: "TowTruck" },
+  works: { model: WORKS_TRUCK, node: "WorksTruck" },
+};
+
+/**
+ * A Blender incident vehicle as parts, in the same frame and on the same
+ * footprint as the procedural one it stands in for.
+ */
+export function blenderVehicleParts(kind: BlenderVehicle, shade: (hex: string) => string): Part[] {
+  const { model, node } = BLENDER_VEHICLES[kind];
+  return importedParts(model, node, shade);
+}
+
+/**
+ * A Blender vehicle's blinking lamps: one per `<kind>.lamp.<i>` marker the
+ * model exports on its light bar, in the procedural lamps' colours and rates.
+ */
+export function blenderVehicleLights(kind: BlenderVehicle): EmergencyLight[] {
+  const template = PROCEDURAL_LIGHTS[kind];
+  return importedMarkers(BLENDER_VEHICLES[kind].model, `${kind}.lamp.`).map((position, i) => {
+    const like = template[Math.min(i, template.length - 1)];
+    // A second lamp where the procedural bar had one blinks a touch slower,
+    // so the two never fall into step.
+    return { ...like, position, rate: i < template.length ? like.rate : like.rate * 0.88 };
+  });
+}
+
+/**
+ * The tow truck's boom, in its own frame: the pivot on the mount between the
+ * lockers and the head over the tail the hook hangs from. The Blender truck
+ * exports `tow.boom.foot` and `tow.boom.head` at the same two points.
+ */
+export const TOW_BOOM_FOOT: Triple = [0, 1.1, -0.45];
+export const TOW_BOOM_HEAD: Triple = [0, 2.05, -2.12];
+
+/**
  * The fire engine: a red cab-over with a white roof and stripe, a wall of
  * locker shutters down each flank, and a turntable ladder raised back over
  * the tail at the smoke.
  */
 function fireParts(shade: (hex: string) => string, ladderYaw: number): Part[] {
+  if (BLENDER_MODELS) return blenderFireParts(shade, ladderYaw);
   const spec = TRUCK_SPECS.engine;
   const w = spec.width;
   const h = spec.length / 2;
@@ -242,8 +307,8 @@ function towParts(shade: (hex: string) => string): Part[] {
   const dark = shade(DARK);
   const length = h + spec.cabBack - 0.02;
   const mid = (spec.cabBack - 0.02 - h) / 2;
-  const boomFoot: Triple = [0, 1.1, -0.45];
-  const boomHead: Triple = [0, 2.05, -2.12];
+  const boomFoot = TOW_BOOM_FOOT;
+  const boomHead = TOW_BOOM_HEAD;
   return [
     ...repaint(truckParts("wrecker"), yellow, yellow, shade),
     // The body: a painted skirt over the rear wheels, and a locker on each
@@ -335,6 +400,7 @@ function worksParts(shade: (hex: string) => string): Part[] {
 
 function basePartsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
   const shade = (hex: string) => desaturate(hex, tone);
+  if (BLENDER_MODELS && kind !== "fire") return blenderVehicleParts(kind, shade);
 
   if (kind === "police") {
     // The fleet's own sedan in white, with a livery band down each flank --
@@ -372,8 +438,7 @@ function partsFor(kind: EmergencyKind, tone: number, ladderYaw = 0): Part[] {
   return basePartsFor(kind, tone, ladderYaw).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal }));
 }
 
-/** Where each vehicle's lamps sit, in its own frame: on its light bar. */
-export const EMERGENCY_LIGHTS: Record<EmergencyKind, EmergencyLight[]> = {
+const PROCEDURAL_LIGHTS: Record<EmergencyKind, EmergencyLight[]> = {
   police: [
     { position: [-0.3, 1.22, -0.23], color: "#4f8bff", rate: 3.4, radius: 0.19 },
     { position: [0.3, 1.22, -0.23], color: "#ff4d4d", rate: 3.4, radius: 0.19 },
@@ -389,6 +454,40 @@ export const EMERGENCY_LIGHTS: Record<EmergencyKind, EmergencyLight[]> = {
   tow: [{ position: [0, TRUCK_SPECS.wrecker.roof + 0.24, 0.36], color: "#ffb347", rate: 1.8, radius: 0.19 }],
   works: [{ position: [0, TRUCK_SPECS.dropside.roof + 0.24, 0.44], color: "#ffb347", rate: 1.3, radius: 0.18 }],
 };
+
+/**
+ * Where each vehicle's lamps sit, in its own frame: on its light bar. With
+ * the Blender models (the default) they are read from their lamp markers, on
+ * first use: the markers only exist once `loadModels()` has resolved, which is
+ * after this module is evaluated.
+ */
+export const EMERGENCY_LIGHTS: Record<EmergencyKind, EmergencyLight[]> = BLENDER_MODELS
+  ? markerLights()
+  : PROCEDURAL_LIGHTS;
+
+function markerLights(): Record<EmergencyKind, EmergencyLight[]> {
+  const cache = new Map<BlenderVehicle, EmergencyLight[]>();
+  const read = (kind: BlenderVehicle): EmergencyLight[] => {
+    let lights = cache.get(kind);
+    if (!lights) cache.set(kind, (lights = blenderVehicleLights(kind)));
+    return lights;
+  };
+  return {
+    fire: PROCEDURAL_LIGHTS.fire,
+    get police() {
+      return read("police");
+    },
+    get ambulance() {
+      return read("ambulance");
+    },
+    get tow() {
+      return read("tow");
+    },
+    get works() {
+      return read("works");
+    },
+  };
+}
 
 const builder = geometryCache<string>((key) => {
   const [kind, tone] = key.split(":");

@@ -13,7 +13,11 @@
  */
 
 import { SURFACE } from "../../textures/surface-types";
+import { importedMarker } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { blenderSlots } from "./blenderSlots";
+import { MODEL as TOWN_HALL } from "./townHall.model";
 
 export type CivicSlot = "stone" | "wall" | "accent" | "metal" | "glass";
 
@@ -178,5 +182,16 @@ function buildCivic(): CivicLayout {
 }
 
 export function townHall(): CivicLayout {
+  if (BLENDER_MODELS) return cached("civic-blender", blenderTownHall);
   return cached("civic", buildCivic);
+}
+
+/**
+ * Spike: the hall modelled in Blender (`blender/landmarks/townhall.py`). Same
+ * slots and natural size as `buildCivic`; the lantern is open between its
+ * posts, so the light React hangs at the `TownHall.lantern` marker shows.
+ */
+export function blenderTownHall(): CivicLayout {
+  const [x, y, z] = importedMarker(TOWN_HALL, "TownHall.lantern");
+  return { slots: blenderSlots<CivicSlot>(TOWN_HALL, ["TownHall"]), lantern: [x, y, z] };
 }

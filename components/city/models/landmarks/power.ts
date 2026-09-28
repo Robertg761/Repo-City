@@ -16,7 +16,10 @@
  */
 
 import { SURFACE } from "../../textures/surface-types";
+import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { blenderSlots } from "./blenderSlots";
+import { MODEL as POWER_STATION } from "./powerStation.model";
 
 export type PowerSlot = "deck" | "hull" | "steel" | "hazard" | "glass" | "cold";
 export type PowerMode = "full" | "failing" | "bare";
@@ -325,5 +328,18 @@ function buildPower(mode: PowerMode): Slots<PowerSlot> {
 
 export function powerPlant(state: string): Slots<PowerSlot> {
   const mode = powerMode(state);
+  if (BLENDER_MODELS) return cached(`power-blender:${mode}`, () => blenderPower(mode));
   return cached(`power:${mode}`, () => buildPower(mode));
+}
+
+/**
+ * Spike: the plant modelled in Blender (`blender/landmarks/power.py`). The
+ * plant is one node and its chimney another, painted lit (`Stack`) or cold
+ * (`StackCold`), so the one piece of geometry a CI state changes is the only
+ * one stored twice; `Bare` is the substation alone. Same slots, anchors and
+ * natural size as `buildPower`, with baked occlusion in the vertex colour.
+ */
+export function blenderPower(mode: PowerMode): Slots<PowerSlot> {
+  if (mode === "bare") return blenderSlots<PowerSlot>(POWER_STATION, ["Bare"]);
+  return blenderSlots<PowerSlot>(POWER_STATION, ["Power", mode === "failing" ? "StackCold" : "Stack"]);
 }

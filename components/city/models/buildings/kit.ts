@@ -40,6 +40,9 @@ import {
   type Rgb3,
 } from "./mesh";
 import { SURFACE, type SurfaceId } from "../../textures/surface-types";
+import { importedDraft, type ImportedModel } from "../imported";
+import type { ModelKey } from "./archetypes";
+import type { ArchetypeModel, RoofPad } from "./models";
 
 /** A colour and the paint channel it is written in. */
 export interface Mat {
@@ -626,4 +629,31 @@ export function chimney(
       face(draft, [[x, y, z], [x + Math.cos(a) * 0.012, y, z + Math.sin(a) * 0.012], [x + Math.cos(b) * 0.012, y, z + Math.sin(b) * 0.012]], [x, spec.top, z], M.railing);
     }
   }
+}
+
+/** What a settlement model's Blender script publishes per node (`<name>.meta.json`). */
+interface SettlementMeta {
+  windows: Panel[];
+  roofPads: RoofPad[];
+  maxProps: number;
+}
+
+/**
+ * A settlement model authored in Blender (`blender/settlement/*.py`, behind
+ * `BLENDER_MODELS`) as the same `ArchetypeModel` the procedural builders
+ * return. The script names its materials by role: `wall` is painted with the
+ * instance's wall colour and `accent` with its accent, both in the tone the
+ * material carries; every other role keeps its own colour, as `M` does. The
+ * baked occlusion rides in the vertex colour. The windows, roof pads and prop
+ * count come from the meta the same script wrote while placing the glass.
+ */
+export function importedArchetype(model: ImportedModel, node: string, id: ModelKey): ArchetypeModel {
+  const meta = (model.meta as Record<string, SettlementMeta> | undefined)?.[node];
+  if (!meta) throw new Error(`importedArchetype: no meta for ${node}`);
+  const draft = importedDraft(model, node, (mat) => {
+    if (mat.role === "wall") return { color: [1, 1, 1], paint: PAINT_WALL };
+    if (mat.role === "accent") return { color: [1, 1, 1], paint: PAINT_ACCENT };
+    return { color: linear(mat.hex), paint: PAINT_NONE };
+  });
+  return { id, draft, windows: meta.windows, roofPads: meta.roofPads, maxProps: meta.maxProps };
 }

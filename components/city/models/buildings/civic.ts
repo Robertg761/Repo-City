@@ -28,11 +28,16 @@ import {
   addPanel,
   addQuad,
   emptyDraft,
+  facingYaw,
   surfaceColor,
+  type Facing,
   type MeshDraft,
   type Rgb3,
 } from "./mesh";
 import { SURFACE } from "../../textures/surface-types";
+import { importedDraft } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as CIVIC_KIT } from "./civicKit.model";
 
 export interface CivicPalette {
   wall: Rgb3;
@@ -72,10 +77,210 @@ const PLINTH_H = 0.5;
  */
 const CIVIC_LAYER = 0.03;
 
+// ---------------------------------------------------------------------------
+// The Blender kit (the default)
+// ---------------------------------------------------------------------------
+
+/**
+ * By default the five buildings are assembled from the parts
+ * modelled in `blender/civic/civic_kit.py`: columns, pediment, steps, clock,
+ * belfry, spire, lantern, doors, containers and the rest. The masses (walls,
+ * slabs, the barrel roof) stay boxes here, exact at any plot size, and the
+ * cornices are the kit's authored profiles swept round them (`addProfile`),
+ * so their corners mitre whatever the plot. A part is placed with one scale
+ * where it must keep its proportions, and stretched on one axis only where
+ * its authoring allows (see the script's header).
+ */
+interface KitMeta {
+  profiles: Record<"cornice" | "band" | "plinthCap", [number, number][]>;
+  pediment: { h: number; d: number };
+  door: { h: number };
+  belfryH: number;
+  spireH: number;
+  lanternH: number;
+  drumH: number;
+  flagSize: number;
+}
+
+/** The kit's published sizes and profiles; read on use, once the model is loaded. */
+const kit = (): KitMeta => CIVIC_KIT.meta as KitMeta;
+
+/** The palette a build is authored in, and whether it builds from the kit. */
+type Authored = CivicPalette & { kit?: boolean };
+
+type KitPart =
+  | "ColumnBase" | "ColumnShaft" | "ColumnCapital" | "Pediment" | "Steps3" | "Steps4" | "StepCheek"
+  | "Clock" | "Belfry" | "Spire" | "Lantern" | "LanternGlow" | "Baluster" | "Container" | "RollDoor"
+  | "Door" | "Buttress" | "Vent" | "FlagPole" | "FlagTop" | "Sill" | "Hood" | "Bench";
+
+interface Placement {
+  /** Where the part's origin goes. */
+  at: readonly [number, number, number];
+  /** Turn about y: a wall part authored facing +z, turned to `facing`. */
+  facing?: Facing;
+  /** One scale, then per axis on top of it (in the part's own frame). */
+  s?: number;
+  sx?: number;
+  sy?: number;
+  sz?: number;
+  /** The colour a `container` role takes. */
+  container?: Rgb3;
+}
+
+function roleColor(p: CivicPalette, role: string, container?: Rgb3): Rgb3 {
+  switch (role) {
+    case "wall":
+      return p.wall;
+    case "stone":
+      return p.stone;
+    case "roof":
+      return p.roof;
+    case "accent":
+      return p.accent;
+    case "trim":
+      return p.trim;
+    case "door":
+      return p.door;
+    case "window":
+      return p.window;
+    case "metal":
+      return p.metal;
+    case "flag":
+      return p.flag;
+    case "container":
+      return container ?? p.containers[0];
+    default:
+      // Warm glass: white, for the emissive material to colour.
+      return [1, 1, 1];
+  }
+}
+
+/** Add one kit part to a draft at a placement. */
+function addPart(draft: MeshDraft, p: CivicPalette, part: KitPart, place: Placement): void {
+  const source = importedDraft(CIVIC_KIT, part, (mat) => ({ color: roleColor(p, mat.role, place.container) }));
+  const s = place.s ?? 1;
+  const sx = s * (place.sx ?? 1);
+  const sy = s * (place.sy ?? 1);
+  const sz = s * (place.sz ?? 1);
+  const yaw = place.facing ? facingYaw(place.facing) : 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const [ox, oy, oz] = place.at;
+  const base = draft.positions.length / 3;
+  const pos = source.positions;
+  for (let i = 0; i < pos.length; i += 3) {
+    const x = pos[i] * sx;
+    const z = pos[i + 2] * sz;
+    draft.positions.push(ox + x * cos + z * sin, oy + pos[i + 1] * sy, oz - x * sin + z * cos);
+  }
+  // Flat shaded, one vertex per corner: the normal is the triangle's own,
+  // taken after the scale so a stretched part still lights true.
+  const out = draft.positions;
+  for (let t = 0; t < pos.length / 9; t++) {
+    const a = (base + t * 3) * 3;
+    const ux = out[a + 3] - out[a];
+    const uy = out[a + 4] - out[a + 1];
+    const uz = out[a + 5] - out[a + 2];
+    const vx = out[a + 6] - out[a];
+    const vy = out[a + 7] - out[a + 1];
+    const vz = out[a + 8] - out[a + 2];
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    for (let k = 0; k < 3; k++) draft.normals.push(nx, ny, nz);
+  }
+  for (const c of source.colors) draft.colors.push(c);
+  for (let i = 0; i < pos.length / 3; i++) draft.indices.push(base + i);
+  if (draft.surface) for (const f of source.surface) draft.surface.push(f);
+  if (draft.paint) for (let i = 0; i < pos.length / 3; i++) draft.paint.push(draft.paintValue ?? 0);
+}
+
+/** A point on a wall, in the building's frame (`panelCentre`'s convention). */
+function onWall(facing: Facing, u: number, v: number, plane: number, cx = 0, cz = 0): readonly [number, number, number] {
+  switch (facing) {
+    case "+z":
+      return [cx + u, v, cz + plane];
+    case "-z":
+      return [cx - u, v, cz - plane];
+    case "+x":
+      return [cx + plane, v, cz - u];
+    default:
+      return [cx - plane, v, cz + u];
+  }
+}
+
+/**
+ * A profile swept round a rectangle `w` by `d` centred on (cx, cz), its foot
+ * at `y`: a cornice, a band course. Each point is (projection past the wall,
+ * height), scaled by `scale`; offsetting both axes by the projection is what
+ * mitres the corners, at any plot size.
+ */
+function addProfile(
+  draft: MeshDraft,
+  profile: readonly (readonly [number, number])[],
+  spec: { y: number; w: number; d: number; cx?: number; cz?: number; scale?: number },
+  color: Rgb3,
+): void {
+  const k = spec.scale ?? 1;
+  const cx = spec.cx ?? 0;
+  const cz = spec.cz ?? 0;
+  const sides: [number, number, number, number][] = [
+    // outward normal (x, z), along-wall axis (x, z) = y cross n
+    [0, 1, 1, 0],
+    [1, 0, 0, -1],
+    [0, -1, -1, 0],
+    [-1, 0, 0, 1],
+  ];
+  for (const [nx, nz, ux, uz] of sides) {
+    const halfU = nx === 0 ? spec.w / 2 : spec.d / 2;
+    const halfN = nx === 0 ? spec.d / 2 : spec.w / 2;
+    const at = (along: number, o: number, y: number): [number, number, number] => [
+      cx + ux * along * (halfU + o) + nx * (halfN + o),
+      spec.y + y,
+      cz + uz * along * (halfU + o) + nz * (halfN + o),
+    ];
+    for (let i = 0; i + 1 < profile.length; i++) {
+      const [o0, y0] = profile[i];
+      const [o1, y1] = profile[i + 1];
+      if (Math.abs(o0 - o1) < 1e-9 && Math.abs(y0 - y1) < 1e-9) continue;
+      addQuad(draft, at(-1, o0 * k, y0 * k), at(1, o0 * k, y0 * k), at(1, o1 * k, y1 * k), at(-1, o1 * k, y1 * k), color);
+    }
+  }
+}
+
+/** A column from the kit: base and capital at one scale, the shaft stretched. */
+function addKitColumn(draft: MeshDraft, p: CivicPalette, x: number, y: number, z: number, h: number, r: number): void {
+  addPart(draft, p, "ColumnBase", { at: [x, y, z], s: r });
+  addPart(draft, p, "ColumnShaft", { at: [x, y + r * 0.7, z], sx: r, sz: r, sy: h - r * 1.5 });
+  addPart(draft, p, "ColumnCapital", { at: [x, y + h - r * 0.8, z], s: r });
+}
+
+/** The kit's portico pediment, `w` wide, `h` to its apex, `d` deep. */
+function addKitPediment(draft: MeshDraft, p: CivicPalette, y: number, z: number, w: number, h: number, d: number): void {
+  addPart(draft, p, "Pediment", { at: [0, y, z], s: w, sy: h / w / kit().pediment.h, sz: d / w / kit().pediment.d });
+}
+
+/** A door from the kit on a wall: `w` wide and `h` tall. */
+function addKitDoor(draft: MeshDraft, p: CivicPalette, facing: Facing, u: number, y: number, plane: number, w: number, h: number): void {
+  // Its depth stays in world units: the leaf, panels and surround are layers
+  // a fixed distance apart, whatever the door's width.
+  addPart(draft, p, "Door", { at: onWall(facing, u, y, plane), facing, s: w, sy: h / w / kit().door.h, sz: 1 / w });
+}
+
+/** A lantern from the kit, `diameter` across, glazed into the glow draft. */
+function addKitLantern(drafts: CivicDrafts, p: CivicPalette, x: number, y: number, z: number, diameter: number): void {
+  addPart(drafts.body, p, "Lantern", { at: [x, y, z], s: diameter });
+  addPart(drafts.glow, p, "LanternGlow", { at: [x, y, z], s: diameter });
+}
+
 /** A window: a dark pane in the wall, and warm glass just in front of it. */
 function addWindow(
   drafts: CivicDrafts,
-  palette: CivicPalette,
+  palette: Authored,
   spec: {
     facing: "+z" | "-z" | "+x" | "-x";
     /** Offset along the wall, world units. */
@@ -90,10 +295,22 @@ function addWindow(
     cx?: number;
     cz?: number;
     lit?: boolean;
+    /** Kit only: a hood moulding over the window as well as a sill. */
+    hood?: boolean;
   },
 ): void {
   addPanel(drafts.body, { ...spec, plane: spec.plane + CIVIC_LAYER }, palette.window);
   const frame = Math.min(0.075, spec.w * 0.08, spec.h * 0.08);
+  if (palette.kit) {
+    // A stone sill under it, and on the tall windows a hood over it: world
+    // sized, stretched only along the wall.
+    const span = spec.w + frame * 2 + 0.1;
+    const { facing, cx, cz, u, plane } = spec;
+    addPart(drafts.body, palette, "Sill", { at: onWall(facing, u, spec.v - spec.h / 2 - frame, plane, cx, cz), facing, sx: span });
+    if (spec.hood) {
+      addPart(drafts.body, palette, "Hood", { at: onWall(facing, u, spec.v + spec.h / 2 + frame, plane, cx, cz), facing, sx: span });
+    }
+  }
   const plane = spec.plane + CIVIC_LAYER * 3;
   for (const side of [-1, 1]) {
     addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
@@ -114,12 +331,16 @@ function addWindow(
 /** A run of columns with bases and capitals: a portico, not four pipes. */
 function addColonnade(
   draft: MeshDraft,
-  palette: CivicPalette,
+  palette: Authored,
   spec: { count: number; spanW: number; z: number; y: number; h: number; radius: number },
 ): void {
   const { count, spanW, z, y, h, radius } = spec;
   for (let i = 0; i < count; i++) {
     const x = count === 1 ? 0 : -spanW / 2 + (spanW * i) / (count - 1);
+    if (palette.kit) {
+      addKitColumn(draft, palette, x, y, z, h, radius);
+      continue;
+    }
     addBox(draft, { x, y, z, w: radius * 2.7, h: radius * 0.7, d: radius * 2.7, color: palette.stone });
     addCylinder(draft, {
       x,
@@ -145,11 +366,20 @@ function addColonnade(
 /** Front steps with the cheek walls that make them read as an approach. */
 function addSteps(
   draft: MeshDraft,
-  palette: CivicPalette,
+  palette: Authored,
   spec: { z: number; w: number; y: number; h: number; treads?: number; run?: number },
 ): void {
   const treads = spec.treads ?? 4;
   const run = spec.run ?? 0.42;
+  if (palette.kit && (treads === 3 || treads === 4)) {
+    // The flight is planar, so it stretches on every axis; the cheeks keep
+    // their coping by being stretched only along their run and height.
+    addPart(draft, palette, treads === 3 ? "Steps3" : "Steps4", { at: [0, spec.y, spec.z], sx: spec.w, sy: spec.h, sz: run * treads });
+    for (const side of [1, -1]) {
+      addPart(draft, palette, "StepCheek", { at: [(side * spec.w) / 2, spec.y, spec.z], sx: run * 0.9, sy: spec.h, sz: run * treads });
+    }
+    return;
+  }
   for (let i = 0; i < treads; i++) {
     addBox(draft, {
       y: spec.y,
@@ -194,7 +424,7 @@ function addBalustrade(
 /** A clock face with two hands, on the wall of a tower. */
 function addClock(
   draft: MeshDraft,
-  palette: CivicPalette,
+  palette: Authored,
   spec: {
     facing: "+z" | "-z" | "+x" | "-x";
     v: number;
@@ -205,6 +435,10 @@ function addClock(
   },
 ): void {
   const r = spec.radius;
+  if (palette.kit) {
+    addPart(draft, palette, "Clock", { at: onWall(spec.facing, 0, spec.v, spec.plane, spec.cx, spec.cz), facing: spec.facing, s: r });
+    return;
+  }
   const at = { facing: spec.facing, cx: spec.cx, cz: spec.cz };
   addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER, radius: r * 1.12 }, palette.trim);
   addDisc(draft, { ...at, u: 0, v: spec.v, plane: spec.plane + CIVIC_LAYER * 2, radius: r }, palette.stone);
@@ -220,10 +454,15 @@ function addClock(
 /** A flag on a pole, with the halyard cleat that sells the scale. */
 function addFlag(
   draft: MeshDraft,
-  palette: CivicPalette,
+  palette: Authored,
   spec: { x: number; z: number; y: number; h: number; size: number },
 ): void {
   addBox(draft, { x: spec.x, y: spec.y, z: spec.z, w: spec.size * 0.5, h: 0.22, d: spec.size * 0.5, color: palette.stone });
+  if (palette.kit) {
+    addPart(draft, palette, "FlagPole", { at: [spec.x, spec.y, spec.z], sx: 0.08, sz: 0.08, sy: spec.h });
+    addPart(draft, palette, "FlagTop", { at: [spec.x, spec.y + spec.h, spec.z], s: spec.size / kit().flagSize });
+    return;
+  }
   addCylinder(draft, { x: spec.x, y: spec.y, z: spec.z, radius: 0.08, h: spec.h, segments: 6, color: palette.metal });
   const top = spec.y + spec.h;
   addQuad(
@@ -249,7 +488,7 @@ function addFlag(
 // README: the library
 // ---------------------------------------------------------------------------
 
-function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
+function library(plot: CivicPlot, p: Authored): CivicDrafts {
   const drafts: CivicDrafts = { body: emptyDraft(), glow: emptyDraft() };
   const { w, h, d } = plot;
   const base = PLINTH_H;
@@ -293,7 +532,8 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 
   addBox(body, { y: base, w, h, d, color: p.wall });
   // A band course, halfway up, right round the block.
-  addBox(body, { y: base + h * 0.52, w: w + 0.16, h: 0.18, d: d + 0.16, color: p.trim });
+  if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.52, w, d }, p.trim);
+  else addBox(body, { y: base + h * 0.52, w: w + 0.16, h: 0.18, d: d + 0.16, color: p.trim });
 
   // Tall reading-room windows down the flanks and the back.
   for (let i = 0; i < 3; i++) {
@@ -304,6 +544,7 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
         v: base + h * 0.62,
         w: d * 0.13,
         h: h * 0.42,
+        hood: true,
         plane: w / 2,
         lit: i !== 1,
       });
@@ -314,6 +555,7 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
       v: base + h * 0.62,
       w: w * 0.12,
       h: h * 0.42,
+      hood: true,
       plane: d / 2,
     });
   }
@@ -331,33 +573,48 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
     radius: Math.min(0.3, w * 0.045),
   });
   addBox(body, { y: base + colH, z: porchZ, w: w * 0.96, h: h * 0.1, d: w * 0.26, color: p.stone });
-  addGable(body, {
-    y: base + colH + h * 0.1,
-    z: porchZ,
-    w: w * 0.96,
-    h: h * 0.2,
-    d: w * 0.26,
-    color: p.roof,
-    ridge: "x",
-  });
-  // The tympanum: the flat triangle a city carves its name into.
-  addPanel(
-    body,
-    { facing: "+z", u: 0, v: base + colH + h * 0.16, w: w * 0.4, h: h * 0.07, plane: porchZ + w * 0.13 },
-    p.accent,
-  );
-  addBox(body, {
-    y: base,
-    z: porchZ + w * 0.05,
-    w: w * 0.18,
-    h: h * 0.42,
-    d: 0.16,
-    color: p.door,
-  });
+  if (p.kit) {
+    // A true pediment, its triangle to the square, and the door on the wall.
+    addKitPediment(body, p, base + colH + h * 0.1, porchZ, w * 0.96, h * 0.2, w * 0.26);
+    addKitDoor(body, p, "+z", 0, base, d / 2, w * 0.18, h * 0.42);
+  } else {
+    addGable(body, {
+      y: base + colH + h * 0.1,
+      z: porchZ,
+      w: w * 0.96,
+      h: h * 0.2,
+      d: w * 0.26,
+      color: p.roof,
+      ridge: "x",
+    });
+    // The tympanum: the flat triangle a city carves its name into.
+    addPanel(
+      body,
+      { facing: "+z", u: 0, v: base + colH + h * 0.16, w: w * 0.4, h: h * 0.07, plane: porchZ + w * 0.13 },
+      p.accent,
+    );
+    addBox(body, {
+      y: base,
+      z: porchZ + w * 0.05,
+      w: w * 0.18,
+      h: h * 0.42,
+      d: 0.16,
+      color: p.door,
+    });
+  }
 
   // A flat roof with a cornice and a lantern over the reading room.
-  addBox(body, { y: base + h, w: w + 0.5, h: 0.3, d: d + 0.5, color: p.roof, surface: SURFACE.concrete });
+  if (p.kit) {
+    addBox(body, { y: base + h, w, h: 0.3, d, color: p.roof, surface: SURFACE.concrete, skipBottom: true });
+    addProfile(body, kit().profiles.cornice, { y: base + h, w, d }, p.trim);
+  } else {
+    addBox(body, { y: base + h, w: w + 0.5, h: 0.3, d: d + 0.5, color: p.roof, surface: SURFACE.concrete });
+  }
   addBalustrade(body, p, { y: base + h + 0.3, h: h * 0.07, w: w * 0.92, d: d * 0.92, posts: 7 });
+  if (p.kit) {
+    addKitLantern(drafts, p, 0, base + h + 0.3, -d * 0.06, Math.min(w * 0.34, d * 0.3));
+    return drafts;
+  }
   addBox(body, { y: base + h + 0.3, z: -d * 0.06, w: w * 0.34, h: h * 0.16, d: d * 0.3, color: p.wall });
   for (const facing of ["+z", "-z"] as const) {
     addWindow(drafts, p, {
@@ -387,14 +644,15 @@ function library(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 // The manifest: the clock hall
 // ---------------------------------------------------------------------------
 
-function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
+function clockHall(plot: CivicPlot, p: Authored): CivicDrafts {
   const drafts: CivicDrafts = { body: emptyDraft(), glow: emptyDraft() };
   const { w, h, d } = plot;
   const base = PLINTH_H;
   const body = drafts.body;
 
   addBox(body, { y: base, w, h, d, color: p.wall });
-  addBox(body, { y: base + h * 0.44, w: w + 0.14, h: 0.16, d: d + 0.14, color: p.trim });
+  if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.44, w, d }, p.trim);
+  else addBox(body, { y: base + h * 0.44, w: w + 0.14, h: 0.16, d: d + 0.14, color: p.trim });
 
   // Two storeys of hall windows on every side.
   for (let i = 0; i < 3; i++) {
@@ -404,12 +662,14 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
       ["+x", w / 2, d],
       ["-x", w / 2, d],
     ] as const) {
-      addWindow(drafts, p, {
+      // The kit's door stands on the front wall, where the middle window was.
+      if (!(p.kit && facing === "+z" && i === 1)) addWindow(drafts, p, {
         facing,
         u: (i - 1) * span * 0.3,
         v: base + h * 0.26,
         w: span * 0.13,
         h: h * 0.26,
+        hood: true,
         plane,
         lit: i !== 2,
       });
@@ -438,10 +698,16 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
     radius: Math.min(0.3, w * 0.055),
   });
   addBox(body, { y: base + colH, z: porchZ, w: w * 0.74, h: h * 0.08, d: w * 0.22, color: p.stone });
-  addBox(body, { y: base, z: porchZ, w: w * 0.2, h: h * 0.4, d: 0.16, color: p.door });
+  if (p.kit) addKitDoor(body, p, "+z", 0, base, d / 2, w * 0.2, h * 0.4);
+  else addBox(body, { y: base, z: porchZ, w: w * 0.2, h: h * 0.4, d: 0.16, color: p.door });
 
   // Hipped roof and balustrade.
-  addBox(body, { y: base + h, w: w + 0.44, h: 0.28, d: d + 0.44, color: p.roof, surface: SURFACE.concrete });
+  if (p.kit) {
+    addBox(body, { y: base + h, w, h: 0.28, d, color: p.roof, surface: SURFACE.concrete, skipBottom: true });
+    addProfile(body, kit().profiles.cornice, { y: base + h, w, d, scale: 0.28 / 0.3 }, p.trim);
+  } else {
+    addBox(body, { y: base + h, w: w + 0.44, h: 0.28, d: d + 0.44, color: p.roof, surface: SURFACE.concrete });
+  }
   addBalustrade(body, p, { y: base + h + 0.28, h: h * 0.06, w: w * 0.94, d: d * 0.94, posts: 6 });
 
   // The clock tower: shaft, clock stage, belfry, spire.
@@ -453,7 +719,8 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   const towerY = base + h + 0.28;
   const towerZ = d * 0.1;
   addBox(body, { y: towerY, z: towerZ, w: towerW, h: shaftH, d: towerW, color: p.wall });
-  addBox(body, { y: towerY + shaftH, z: towerZ, w: towerW + 0.3, h: 0.2, d: towerW + 0.3, color: p.trim });
+  if (p.kit) addProfile(body, kit().profiles.band, { y: towerY + shaftH, w: towerW, d: towerW, cz: towerZ, scale: 1.1 }, p.trim);
+  else addBox(body, { y: towerY + shaftH, z: towerZ, w: towerW + 0.3, h: 0.2, d: towerW + 0.3, color: p.trim });
 
   const clockY = towerY + shaftH + 0.2;
   const clockH = towerW * 0.95;
@@ -470,6 +737,11 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 
   // The belfry: four posts, an open stage and a roof.
   const belfryY = clockY + clockH;
+  if (p.kit) {
+    addPart(body, p, "Belfry", { at: [0, belfryY, towerZ], s: towerW });
+    addPart(body, p, "Spire", { at: [0, belfryY + kit().belfryH * towerW, towerZ], s: towerW });
+    return drafts;
+  }
   const belfryH = towerW * 0.7;
   addBox(body, { y: belfryY, z: towerZ, w: towerW + 0.24, h: 0.16, d: towerW + 0.24, color: p.trim });
   for (const [dx, dz] of [
@@ -515,7 +787,7 @@ function clockHall(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 // CHANGELOG: the archive
 // ---------------------------------------------------------------------------
 
-function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
+function archive(plot: CivicPlot, p: Authored): CivicDrafts {
   const drafts: CivicDrafts = { body: emptyDraft(), glow: emptyDraft() };
   const { w, h, d } = plot;
   const base = PLINTH_H;
@@ -523,7 +795,20 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 
   addBox(body, { y: base, w, h, d, color: p.wall });
   // Buttresses: an archive is a building that holds weight.
-  for (let i = -1; i <= 1; i++) {
+  if (p.kit) {
+    for (let i = -1; i <= 1; i++) {
+      for (const facing of ["+x", "-x"] as const) {
+        addPart(body, p, "Buttress", { at: onWall(facing, i * d * 0.3 * (facing === "+x" ? -1 : 1), base, w / 2), facing, sx: d * 0.1, sy: h * 0.92, sz: w * 0.07 });
+      }
+    }
+    for (const side of [1, -1]) {
+      const facing = side > 0 ? "+z" : "-z";
+      // Both on the side away from the record tower, which stands over the
+      // back one's procedural twin.
+      addPart(body, p, "Buttress", { at: [w * 0.34, base, (side * d) / 2], facing, sx: w * 0.1, sy: h * 0.92, sz: d * 0.07 });
+    }
+  }
+  for (let i = -1; i <= 1 && !p.kit; i++) {
     for (const side of [1, -1]) {
       addBox(body, {
         x: (side * w) / 2,
@@ -536,7 +821,7 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
       });
     }
   }
-  for (const side of [1, -1]) {
+  for (const side of p.kit ? [] : [1, -1]) {
     addBox(body, {
       x: side * w * 0.34,
       y: base,
@@ -571,10 +856,18 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   }
 
   // A heavy cornice and a low roof with vents.
-  addBox(body, { y: base + h * 0.92, w: w + 0.4, h: h * 0.08, d: d + 0.4, color: p.trim });
-  addBox(body, { y: base + h, w: w * 0.96, h: 0.16, d: d * 0.96, color: p.roof, surface: SURFACE.concrete });
-  for (const x of [-w * 0.26, w * 0.26]) {
-    addCylinder(body, { x, y: base + h + 0.16, z: -d * 0.2, radius: w * 0.05, h: h * 0.1, segments: 6, color: p.metal });
+  if (p.kit) {
+    addProfile(body, kit().profiles.cornice, { y: base + h * 0.92, w, d, scale: Math.min(2, (h * 0.08) / 0.3) }, p.trim);
+    addBox(body, { y: base + h, w: w * 0.96, h: 0.16, d: d * 0.96, color: p.roof, surface: SURFACE.concrete, skipBottom: true });
+    for (const x of [-w * 0.26, w * 0.26]) {
+      addPart(body, p, "Vent", { at: [x, base + h + 0.16, -d * 0.2], s: w * 0.05 });
+    }
+  } else {
+    addBox(body, { y: base + h * 0.92, w: w + 0.4, h: h * 0.08, d: d + 0.4, color: p.trim });
+    addBox(body, { y: base + h, w: w * 0.96, h: 0.16, d: d * 0.96, color: p.roof, surface: SURFACE.concrete });
+    for (const x of [-w * 0.26, w * 0.26]) {
+      addCylinder(body, { x, y: base + h + 0.16, z: -d * 0.2, radius: w * 0.05, h: h * 0.1, segments: 6, color: p.metal });
+    }
   }
 
   // The record tower, banded, with a lantern that is always lit.
@@ -586,6 +879,10 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   const tz = -d * 0.38;
   addBox(body, { x: tx, y: base, z: tz, w: towerW, h: towerH, d: towerW, color: p.wall });
   for (let i = 1; i <= 3; i++) {
+    if (p.kit) {
+      addProfile(body, kit().profiles.band, { y: base + (towerH * i) / 4, w: towerW, d: towerW, cx: tx, cz: tz }, p.trim);
+      continue;
+    }
     addBox(body, {
       x: tx,
       y: base + (towerH * i) / 4,
@@ -609,8 +906,13 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
       lit: false,
     });
   }
-  addBox(body, { x: tx, y: base + towerH, z: tz, w: towerW + 0.36, h: 0.22, d: towerW + 0.36, color: p.trim });
   const lanternY = base + towerH + 0.22;
+  if (p.kit) {
+    addBox(body, { x: tx, y: base + towerH, z: tz, w: towerW, h: 0.22, d: towerW, color: p.roof, surface: SURFACE.concrete, skipBottom: true });
+    addProfile(body, kit().profiles.cornice, { y: base + towerH, w: towerW, d: towerW, cx: tx, cz: tz, scale: 0.22 / 0.3 }, p.trim);
+    addKitLantern(drafts, p, tx, lanternY, tz, towerW * 0.62);
+  } else {
+  addBox(body, { x: tx, y: base + towerH, z: tz, w: towerW + 0.36, h: 0.22, d: towerW + 0.36, color: p.trim });
   addBox(body, { x: tx, y: lanternY, z: tz, w: towerW * 0.6, h: towerW * 0.55, d: towerW * 0.6, color: p.stone });
   for (const facing of ["+z", "-z", "+x", "-x"] as const) {
     addWindow(drafts, p, {
@@ -634,12 +936,17 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
     color: p.accent,
     ridge: "z",
   });
+  }
 
   // A reading annex with its own door, tucked against the main block.
   const annexW = w * 0.5;
   addBox(body, { x: w * 0.3, y: base, z: d * 0.62, w: annexW, h: h * 0.4, d: d * 0.3, color: p.wall });
   addBox(body, { x: w * 0.3, y: base + h * 0.4, z: d * 0.62, w: annexW + 0.26, h: 0.18, d: d * 0.3 + 0.26, color: p.roof, surface: SURFACE.concrete });
-  addBox(body, { x: w * 0.3, y: base, z: d * 0.77, w: annexW * 0.3, h: h * 0.26, d: 0.14, color: p.door });
+  if (p.kit) {
+    addPart(body, p, "Door", { at: [w * 0.3, base, d * 0.77], s: annexW * 0.3, sy: (h * 0.26) / (annexW * 0.3) / kit().door.h, sz: 1 / (annexW * 0.3) });
+  } else {
+    addBox(body, { x: w * 0.3, y: base, z: d * 0.77, w: annexW * 0.3, h: h * 0.26, d: 0.14, color: p.door });
+  }
 
   return drafts;
 }
@@ -648,7 +955,7 @@ function archive(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 // The Dockerfile: the goods yard
 // ---------------------------------------------------------------------------
 
-function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
+function warehouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const drafts: CivicDrafts = { body: emptyDraft(), glow: emptyDraft() };
   const { w, h, d } = plot;
   const base = PLINTH_H;
@@ -688,6 +995,11 @@ function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   const dockH = base + shedH * 0.12;
   addBox(body, { y: base, z: shedD / 2 + w * 0.09, w: w * 0.94, h: shedH * 0.12, d: w * 0.18, color: p.stone });
   for (const x of [-w * 0.3, 0, w * 0.3]) {
+    if (p.kit) {
+      // A roller door, stretched to its opening: its slats run across it.
+      addPart(body, p, "RollDoor", { at: [x, dockH, shedD / 2], sx: w * 0.26, sy: shedH * 0.6 });
+      continue;
+    }
     addBox(body, { x, y: dockH, z: shedD / 2, w: w * 0.26, h: shedH * 0.6, d: 0.18, color: p.trim });
     addBox(body, { x, y: dockH, z: shedD / 2 + 0.06, w: w * 0.22, h: shedH * 0.55, d: 0.14, color: p.door });
     // The slats stop short of the door's edges; the same width, their ends
@@ -740,6 +1052,10 @@ function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   // The container yard behind the shed: stacked, ribbed, slightly askew.
   const unit = Math.min(w * 0.3, d * 0.3);
   const container = (x: number, y: number, z: number, colour: Rgb3) => {
+    if (p.kit) {
+      addPart(body, p, "Container", { at: [x, y, z], s: unit, container: colour });
+      return;
+    }
     addBox(body, { x, y, z, w: unit * 2, h: unit * 0.86, d: unit * 0.92, color: colour });
     for (let i = -2; i <= 2; i++) {
       addBox(body, {
@@ -773,7 +1089,7 @@ function warehouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
 // CONTRIBUTING: the meeting house
 // ---------------------------------------------------------------------------
 
-function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
+function flagHouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const drafts: CivicDrafts = { body: emptyDraft(), glow: emptyDraft() };
   const { w, h, d } = plot;
   const base = PLINTH_H;
@@ -821,6 +1137,7 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
         v: base + wallH * 0.56,
         w: span * 0.16,
         h: wallH * 0.38,
+        hood: true,
         plane,
         lit: i > 0 || facing === "+z",
       });
@@ -842,7 +1159,8 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
     addBox(body, { x, y: base + porchH * 0.34, z: porchZ + porchD * 0.36, w: w * 0.2, h: 0.1, d: w * 0.04, color: p.stone });
   }
   addBox(body, { y: base + porchH, z: porchZ, w: w * 0.92, h: 0.16, d: porchD + 0.3, color: p.roof, surface: SURFACE.concrete });
-  addBox(body, { y: base, z: d / 2, w: w * 0.2, h: wallH * 0.52, d: 0.16, color: p.door });
+  if (p.kit) addKitDoor(body, p, "+z", 0, base, d / 2, w * 0.2, wallH * 0.52);
+  else addBox(body, { y: base, z: d / 2, w: w * 0.2, h: wallH * 0.52, d: 0.16, color: p.door });
   addWindow(drafts, p, {
     facing: "+z",
     u: 0,
@@ -853,8 +1171,12 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   });
 
   // A bench by the door and a noticeboard: newcomers welcome.
-  addBox(body, { x: w * 0.42, y: base, z: porchZ, w: w * 0.06, h: 0.3, d: d * 0.16, color: p.stone });
-  addBox(body, { x: w * 0.42, y: base + 0.3, z: porchZ, w: w * 0.1, h: 0.08, d: d * 0.2, color: p.metal });
+  if (p.kit) {
+    addPart(body, p, "Bench", { at: [w * 0.42, base, porchZ], facing: "-x", sx: d * 0.2, sy: 0.75, sz: 0.75 });
+  } else {
+    addBox(body, { x: w * 0.42, y: base, z: porchZ, w: w * 0.06, h: 0.3, d: d * 0.16, color: p.stone });
+    addBox(body, { x: w * 0.42, y: base + 0.3, z: porchZ, w: w * 0.1, h: 0.08, d: d * 0.2, color: p.metal });
+  }
   const boardX = -w * 0.5;
   const boardZ = d / 2 + porchD * 1.1;
   addBox(body, { x: boardX, y: 0, z: boardZ, w: 0.12, h: base + h * 0.3, d: 0.12, color: p.metal });
@@ -866,7 +1188,7 @@ function flagHouse(plot: CivicPlot, p: CivicPalette): CivicDrafts {
   return drafts;
 }
 
-const BUILDERS: Record<LandmarkFile, (plot: CivicPlot, palette: CivicPalette) => CivicDrafts> = {
+const BUILDERS: Record<LandmarkFile, (plot: CivicPlot, palette: Authored) => CivicDrafts> = {
   readme: library,
   manifest: clockHall,
   changelog: archive,
@@ -880,13 +1202,20 @@ function addPlinth(draft: MeshDraft, plot: CivicPlot, p: CivicPalette): void {
   addBox(draft, { y: PLINTH_H * 0.7, w: plot.w * 1.24, h: PLINTH_H * 0.3, d: plot.d * 1.24, color: p.stone });
 }
 
-/** Build one civic building at its reserved plot size. */
+/**
+ * Build one civic building at its reserved plot size. `models` picks the
+ * procedural build or the one assembled from the Blender kit; by default it
+ * follows `BLENDER_MODELS` (`../modelSource`): the kit in the app, the
+ * procedural build in tests unless they ask.
+ */
 export function buildCivic(
   kind: LandmarkFile,
   plot: CivicPlot,
   palette: CivicPalette,
+  options: { models?: "procedural" | "blender" } = {},
 ): CivicDrafts {
-  const authored: CivicPalette = {
+  const authored: Authored = {
+    kit: (options.models ?? (BLENDER_MODELS ? "blender" : "procedural")) === "blender",
     wall: surfaceColor(palette.wall, SURFACE.plaster),
     stone: surfaceColor(palette.stone, SURFACE.stone),
     roof: surfaceColor(palette.roof, SURFACE.slate),

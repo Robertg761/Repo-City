@@ -53,6 +53,12 @@ import {
   type Rgb3,
 } from "./mesh";
 import type { ArchetypeModel, RoofPad } from "./models";
+import type { ModelKey } from "./archetypes";
+import { importedDraft, type ImportedModel } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as TOWER_GLASS_MODEL } from "./buildingTowerGlass.model";
+import { MODEL as TOWER_TWIN_MODEL } from "./buildingTowerTwin.model";
+import { MODEL as TOWER_SPIRE_MODEL } from "./buildingTowerSpire.model";
 
 export type MetropolisArchetypeId = "tower-glass" | "tower-twin" | "tower-spire";
 
@@ -382,6 +388,74 @@ function addPyramid(draft: MeshDraft, spec: { y0: number; y1: number; half: numb
 }
 
 // ---------------------------------------------------------------------------
+// Blender variants (spike: `blender/buildings/`, by default)
+// ---------------------------------------------------------------------------
+
+/** What a building's Blender script publishes beside its GLB. */
+interface ArchetypeMeta {
+  windows: Panel[];
+  roofPads: RoofPad[];
+  maxProps: number;
+}
+
+/**
+ * An archetype modelled in Blender: its `Building` node as a draft whose
+ * vertex colours are the city's multipliers (`roles` maps a material role to
+ * one) times the baked occlusion, with the windows and roof pads the same
+ * script placed the geometry by. `models.ts` builds the city's eight with it.
+ */
+export function importedArchetype(
+  id: ModelKey,
+  model: ImportedModel,
+  roles: (role: string) => Rgb3,
+  maxProps?: number,
+): ArchetypeModel {
+  const meta = model.meta as ArchetypeMeta;
+  const draft = importedDraft(model, "Building", (mat) => ({ color: roles(mat.role) }));
+  return {
+    id,
+    draft,
+    windows: meta.windows,
+    roofPads: meta.roofPads,
+    maxProps: maxProps ?? meta.maxProps,
+  };
+}
+
+/**
+ * The towers' Blender material roles (`blender/buildings/bkit.py`) as the
+ * multipliers the procedural towers paint the same parts with. `glass0` to
+ * `glass8` are the curtain wall's grade, `glassAt` at eighths of the height;
+ * each pane's own shade of it rides in the material's tone.
+ */
+const TOWER_ROLES: Record<string, Rgb3> = {
+  wall: WALL,
+  core: WALL,
+  trim: TRIM,
+  plinth: PLINTH,
+  deck: ROOF,
+  mech: MECH,
+  door: DOOR,
+  lobby: LOBBY,
+  frame: FRAME,
+  metal: METAL,
+};
+
+function towerRole(role: string): Rgb3 {
+  const grade = /^glass(\d)$/.exec(role);
+  if (grade) return glassAt(Number(grade[1]) / 8);
+  const color = TOWER_ROLES[role];
+  if (!color) throw new Error(`metropolis.ts: no multiplier for the Blender role ${role}`);
+  return color;
+}
+
+/** The towers modelled in Blender (spike), drawn by default. */
+export const BLENDER_TOWERS: Record<MetropolisArchetypeId, () => ArchetypeModel> = {
+  "tower-glass": () => importedArchetype("tower-glass", TOWER_GLASS_MODEL, towerRole),
+  "tower-twin": () => importedArchetype("tower-twin", TOWER_TWIN_MODEL, towerRole),
+  "tower-spire": () => importedArchetype("tower-spire", TOWER_SPIRE_MODEL, towerRole),
+};
+
+// ---------------------------------------------------------------------------
 // The three towers
 // ---------------------------------------------------------------------------
 
@@ -391,6 +465,7 @@ function addPyramid(draft: MeshDraft, spec: { y0: number; y1: number; half: numb
  * stone towers, which fill theirs.
  */
 export function towerGlass(): ArchetypeModel {
+  if (BLENDER_MODELS) return BLENDER_TOWERS["tower-glass"]();
   const draft = emptyDraft();
   const lobbyH = 0.045;
   addBox(draft, { y: 0, w: 0.96, h: lobbyH, d: 0.96, color: WALL, topColor: ROOF, skipBottom: true });
@@ -427,6 +502,7 @@ export function towerGlass(): ArchetypeModel {
  * a little over half height, a crown and a mast on each.
  */
 export function towerTwin(): ArchetypeModel {
+  if (BLENDER_MODELS) return BLENDER_TOWERS["tower-twin"]();
   const draft = emptyDraft();
   const podium = 0.16;
   addBox(draft, { y: 0, w: 1, h: podium, d: 1, color: WALL, topColor: ROOF, skipBottom: true });
@@ -510,6 +586,7 @@ export function towerTwin(): ArchetypeModel {
  * above the building's height, as a mast does on the city's crowned tower.
  */
 export function towerSpire(): ArchetypeModel {
+  if (BLENDER_MODELS) return BLENDER_TOWERS["tower-spire"]();
   const draft = emptyDraft();
   const lobbyH = 0.035;
   addBox(draft, { y: 0, w: 1, h: lobbyH, d: 1, color: WALL, topColor: ROOF, skipBottom: true });

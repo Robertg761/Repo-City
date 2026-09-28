@@ -75,6 +75,9 @@ import {
 } from "../models/props/geometry";
 import { SCAFFOLD_BAY } from "./constants";
 import { SURFACE, type SurfaceId } from "../textures/surface-types";
+import { importedParts } from "../models/imported";
+import { BLENDER_MODELS } from "../models/modelSource";
+import { MODEL as CROWD_MODEL } from "./crowd.model";
 
 export { SCAFFOLD_BAY };
 
@@ -863,6 +866,198 @@ const BUILDERS: Record<CrowdMesh, (tone: (hex: string) => string) => Built> = {
 };
 
 // ---------------------------------------------------------------------------
+// The Blender forms (`blender/crowd/forms.py`), the default
+// ---------------------------------------------------------------------------
+
+/**
+ * The forms modelled in Blender (`blender/crowd/forms.py`): every crowd
+ * form, each one node, except the hoardings, which are laid out from the
+ * hoarding kit round their plot (`hoardingKit`; their entry names the kit's
+ * sheet).
+ */
+export const BLENDER_FORM_NODE: Partial<Record<CrowdMesh, string>> = {
+  fire: "Fire",
+  van: "Van",
+  scaffold: "Scaffold",
+  collision: "Collision",
+  wreck: "Wreck",
+  hoarding: "HoardSheet",
+  "hoarding-kerb": "HoardSheet",
+  roadblock: "Roadblock",
+  signpost: "Signpost",
+  survey: "Survey",
+  pothole: "Pothole",
+  trench: "Trench",
+};
+
+/**
+ * The part a Blender material's role stands for (`blender/crowd/crowdkit.py`):
+ * the role's prefix names it; `paintA` and `paintB` are body paint slots.
+ */
+const ROLE_PARTS: [string, PartId][] = [
+  ["flame", PART.flame],
+  ["amber", PART.amber],
+  ["hazard", PART.hazard],
+  ["worker", PART.worker],
+  ["beacon", PART.beacon],
+  ["board", PART.board],
+  ["flag", PART.flag],
+  ["weed", PART.weed],
+];
+
+/** Roles whose colour is a light: not toned with the city, as the procedural lamps are not. */
+const UNTONED: readonly PartId[] = [PART.flame, PART.amber, PART.hazard, PART.beacon];
+
+export const partOfRole = (role: string): PartId =>
+  ROLE_PARTS.find(([prefix]) => role.startsWith(prefix))?.[1] ?? PART.body;
+
+export const slotOfRole = (role: string): 0 | 1 | 2 =>
+  role === "paintA" ? PAINT_SLOT.a : role === "paintB" ? PAINT_SLOT.b : PAINT_SLOT.own;
+
+/** Each form's flame and flag weights, measured as its procedural form measures them. */
+const BLENDER_WEIGHTS: Partial<Record<CrowdMesh, Partial<Record<PartId, PartGroup["weight"]>>>> = {
+  fire: { [PART.flame]: rising(0.5, 1.95) },
+  van: { [PART.flag]: outward(-0.47, 0.72) },
+  scaffold: { [PART.flag]: outward(-(SCAFFOLD_BAY.width / 2 - 0.05) + 0.03, 0.72) },
+  trench: { [PART.flag]: outward(-0.69, 0.72) },
+};
+
+/** One node of the Blender model placed in a form's frame. */
+interface Placement {
+  node: string;
+  position?: Triple;
+  rotation?: Triple;
+  scale?: Triple;
+}
+
+/**
+ * Placed Blender nodes as part groups. `importedParts` shades one part per
+ * material in order, so the shade hook records each part's role, found by
+ * its material's colour (every role in the model has its own colour).
+ */
+function blenderGroups(
+  form: CrowdMesh,
+  placements: readonly Placement[],
+  tone: (hex: string) => string,
+  weights: Partial<Record<PartId, PartGroup["weight"]>> = BLENDER_WEIGHTS[form] ?? {},
+): PartGroup[] {
+  const groups = new Map<string, PartGroup>();
+  for (const { node, position, rotation, scale } of placements) {
+    const roles: string[] = [];
+    const parts = importedParts(CROWD_MODEL, node, (hex) => {
+      const role = CROWD_MODEL.materials.find((m) => m.hex === hex)!.role;
+      roles.push(role);
+      const part = partOfRole(role);
+      if (slotOfRole(role) !== PAINT_SLOT.own) return PANEL;
+      return UNTONED.includes(part) ? hex : tone(hex);
+    });
+    parts.forEach((piece, i) => {
+      const part = partOfRole(roles[i]);
+      const slot = slotOfRole(roles[i]);
+      const key = `${part}:${slot}`;
+      let group = groups.get(key);
+      if (!group) {
+        const weight = slot !== PAINT_SLOT.own ? () => slot
+          : part === PART.worker ? () => 1
+          : weights[part];
+        groups.set(key, (group = { part, parts: [], weight }));
+      }
+      group.parts.push({ ...piece, paint: false, position, rotation, scale });
+    });
+  }
+  return [...groups.values()];
+}
+
+/** A Blender form: its one node, or the hoarding kit laid out round its plot. */
+function blenderBuilt(form: CrowdMesh, tone: (hex: string) => string): Built {
+  const spec = BUILDERS[form]((hex) => hex).spec;
+  if (form === "hoarding") return { groups: hoardingKit(HOARDING_GROUND.w, HOARDING_GROUND.d, tone), spec };
+  if (form === "hoarding-kerb") return { groups: hoardingKit(HOARDING_KERB.w, HOARDING_KERB.d, tone), spec };
+  return { groups: blenderGroups(form, [{ node: BLENDER_FORM_NODE[form]! }], tone), spec };
+}
+
+/** The most boarding sheets a hoarding carries, whatever its plot: the pull form budget. */
+const MAX_SHEETS = 15;
+/** How long a sheet would like to be; a run is cut into whole sheets near this. */
+const SHEET = 1.3;
+
+/**
+ * A hoarding round a `w` x `d` plot from the Blender kit
+ * (`blender/crowd/hoarding.py`), laid out at the plot's real size: each side
+ * is cut into whole sheets (their length the only thing that stretches),
+ * capped with the white band, with a post at each corner, a gate in the
+ * back run, the planning notice facing the road and the four optional parts
+ * where the procedural hoarding has them. The same frame as `hoardingOf`.
+ */
+export function hoardingKit(w: number, d: number, tone: (hex: string) => string): PartGroup[] {
+  const hx = w / 2 - 0.1;
+  const hz = d / 2 - 0.1;
+  // [length, centre x, centre z, along z]
+  const runs: [number, number, number, boolean][] = [
+    [w - 0.1, 0, hz, false],
+    [w - 0.1, 0, -hz, false],
+    [d - 0.1, hx, 0, true],
+    [d - 0.1, -hx, 0, true],
+  ];
+  const sheets = runs.map(([length]) => Math.max(1, Math.round(length / SHEET)));
+  while (sheets.reduce((a, b) => a + b, 0) > MAX_SHEETS) {
+    const i = sheets.indexOf(Math.max(...sheets));
+    sheets[i]--;
+  }
+  const placed: Placement[] = [{ node: "HoardGround", scale: [w - 0.1, 1, d - 0.1] }];
+  runs.forEach(([length, cx, cz, along], r) => {
+    const n = sheets[r];
+    const step = length / n;
+    const rotation: Triple = along ? [0, Math.PI / 2, 0] : [0, 0, 0];
+    // The gate: in the back run (+z), in the sheet nearest the middle on the +x side.
+    const gate = r === 0 && n >= 2 ? Math.floor(n / 2) : -1;
+    for (let j = 0; j < n; j++) {
+      const t = -length / 2 + (j + 0.5) * step;
+      placed.push({
+        node: j === gate ? "HoardGate" : (j + r) % 2 === 0 ? "HoardSheet" : "HoardSheetAlt",
+        position: along ? [cx, 0, t] : [t, 0, cz],
+        rotation,
+        scale: [step, 1, 1],
+      });
+    }
+    placed.push({ node: "HoardBand", position: [cx, 0, cz], rotation, scale: [length, 1, 1] });
+  });
+  for (const [x, z] of [[hx, hz], [hx, -hz], [-hx, hz], [-hx, -hz]]) placed.push({ node: "HoardPost", position: [x, 0, z] });
+  placed.push(
+    { node: "HoardNotice", position: [-hx - 0.05, 0, 0], rotation: [0, -Math.PI / 2, 0] },
+    { node: "HoardWorker", position: [0.1, 0, 0.2] },
+    { node: "HoardBeacon", position: [hx, 1.35, hz] },
+    { node: "HoardStop", position: [-hx - 0.07, 0.73, -hz * 0.55] },
+    { node: "HoardFlag", position: [-hx + 0.04, 0, hz - 0.04] },
+  );
+  return blenderGroups("hoarding", placed, tone, { [PART.flag]: outward(-hx + 0.07, 0.72) });
+}
+
+/** The step plot hoardings are built at: a plot is drawn at its size rounded to this. */
+export const HOARDING_PLOT_STEP = 0.25;
+
+/** The plot a ground hoarding instance fences, rounded to `HOARDING_PLOT_STEP`, from its instance scale. */
+export function hoardingPlot(scale: readonly number[]): [number, number] {
+  const round = (v: number) => Math.max(1, Math.round(v / HOARDING_PLOT_STEP)) * HOARDING_PLOT_STEP;
+  return [round(HOARDING_GROUND.w * scale[0]), round(HOARDING_GROUND.d * scale[2])];
+}
+
+const plotCache = geometryCache<string>((key) => {
+  const [w, d, tone] = key.split(":").map(Number);
+  const shade = (hex: string) => desaturate(hex, tone);
+  return mergeBuilt(hoardingKit(w, d, shade), shade, "hoarding");
+});
+
+/**
+ * A ground hoarding built round a `w` x `d` plot (see `hoardingPlot`), for
+ * the renderer to draw each plot size at its own size instead of stretching
+ * the 2.8 m model. Built once per size and tone.
+ */
+export function hoardingPlotGeometry(w: number, d: number, desaturation = 0): BufferGeometry {
+  return plotCache(`${w}:${d}:${toneKey(desaturation)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Merging, with the part attribute
 // ---------------------------------------------------------------------------
 
@@ -885,9 +1080,14 @@ function mergeGroup(group: PartGroup, finishes: ReadonlyMap<string, SurfaceId>):
   return merged;
 }
 
-function build(form: CrowdMesh, desaturation: number): BufferGeometry {
+function build(form: CrowdMesh, desaturation: number, blender = BLENDER_MODELS): BufferGeometry {
   const shade = (hex: string) => desaturate(hex, desaturation);
-  const { groups } = BUILDERS[form](shade);
+  const { groups } = blender && BLENDER_FORM_NODE[form] ? blenderBuilt(form, shade) : BUILDERS[form](shade);
+  return mergeBuilt(groups, shade, form);
+}
+
+/** Part groups merged into one geometry with the `crowd` attribute. */
+function mergeBuilt(groups: readonly PartGroup[], shade: (hex: string) => string, form: CrowdMesh): BufferGeometry {
   // These palette entries name authored materials, before the city's tint is applied.
   const palette: [string, SurfaceId][] = [
     [PLANK, SURFACE.timber], [NETTING, SURFACE.fabric], [HIVIS, SURFACE.fabric],
@@ -913,6 +1113,16 @@ const cache = geometryCache<string>((key) => {
 /** One form's merged geometry at the city's tone, built once and shared. */
 export function formGeometry(form: CrowdMesh, desaturation = 0): BufferGeometry {
   return cache(`${form}:${toneKey(desaturation)}`);
+}
+
+const blenderCache = geometryCache<string>((key) => {
+  const [form, tone] = key.split(":");
+  return build(form as CrowdMesh, Number(tone), true);
+});
+
+/** The Blender form (procedural where there is none) whatever the flag says, for its tests and renders. */
+export function blenderFormGeometry(form: CrowdMesh, desaturation = 0): BufferGeometry {
+  return blenderCache(`${form}:${toneKey(desaturation)}`);
 }
 
 const specs = new Map<CrowdMesh, FormSpec>();

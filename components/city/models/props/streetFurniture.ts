@@ -24,6 +24,9 @@ import { geometryCache, mergeParts, surfacePanel, toneKey, type Part } from "./g
 import { paintFor, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
 import { incidentForm, worksForm } from "../../backlog/plan";
 import { crowdRect, type LocalRect } from "../../blockages";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as FURNITURE_MODEL } from "./streetFurniture.model";
 
 /** Section 37's "tiny props" allowance, over and above the trees and lamps. */
 export const SMALL_PROP_BUDGET = 150;
@@ -445,10 +448,59 @@ const furnitureBuilder = geometryCache<string>((key) => {
   })));
 });
 
+/**
+ * The kinds modelled in Blender (`blender/props/street_furniture.py`), for
+ * the Blender models (the default). The bus stop stays procedural: its Blender version did
+ * not beat it within the budget.
+ */
+const FURNITURE_NODE: Partial<Record<FurnitureKind, string>> = {
+  bench: "Bench",
+  bin: "Bin",
+  bush: "Bush",
+  bed: "Bed",
+};
+
+const blenderFurnitureBuilder = geometryCache<string>((key) => {
+  const [kind, tone] = key.split(":");
+  const node = FURNITURE_NODE[kind as FurnitureKind];
+  if (!node) return furnitureBuilder(key);
+  return mergeParts(importedParts(FURNITURE_MODEL, node, (hex) => desaturate(hex, Number(tone))));
+});
+
 /** The merged geometry for one kind of prop at the city's current tone. */
 export function furnitureGeometry(kind: FurnitureKind, desaturation: number): BufferGeometry {
-  return furnitureBuilder(`${kind}:${toneKey(desaturation)}`);
+  return (BLENDER_MODELS ? blenderFurnitureBuilder : furnitureBuilder)(`${kind}:${toneKey(desaturation)}`);
 }
+
+/** The Blender furniture whatever the flag says, for its tests and renders. */
+export function blenderFurnitureGeometry(kind: FurnitureKind, desaturation: number): BufferGeometry {
+  return blenderFurnitureBuilder(`${kind}:${toneKey(desaturation)}`);
+}
+
+/** How tall a street lamp's pole is, and where its lantern's centre sits. */
+export const LAMP_HEIGHT = 2.7;
+export const LAMP_HEAD_Y = LAMP_HEIGHT + 0.09;
+
+let blenderLamp: { pole: BufferGeometry; head: BufferGeometry } | undefined;
+
+/**
+ * The Blender street lamp: a pole (plinth, collar and lantern roof) centred
+ * half way up, where the procedural cylinder's centre is, and the lantern
+ * glass centred on the halo's anchor, so both instance the way the procedural
+ * pole and head do. The pole's vertex colour is only its shade: `Props.tsx`
+ * colours it with the lamp post's material, as before.
+ */
+export function blenderLampGeometry(): { pole: BufferGeometry; head: BufferGeometry } {
+  // Both nodes are modelled standing on the ground; shift each onto its
+  // instance origin, as the procedural cylinder and box are centred.
+  const at = (node: string, y: number) =>
+    mergeParts(importedParts(FURNITURE_MODEL, node, () => "#ffffff").map((part) => ({ ...part, position: [0, -y, 0] as Vec3 })));
+  return blenderLamp ??= { pole: at("LampPole", LAMP_HEIGHT / 2), head: at("LampHead", LAMP_HEAD_Y) };
+}
+
+/** The lamp `Props.tsx` draws: the Blender one by default, else none (its own primitives). */
+export const lampGeometry = (): { pole: BufferGeometry; head: BufferGeometry } | null =>
+  BLENDER_MODELS ? blenderLampGeometry() : null;
 
 /** Re-exported so `Props.tsx` has one import for everything it draws. */
 export { parkedGeometry };

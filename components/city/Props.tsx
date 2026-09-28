@@ -27,6 +27,7 @@ import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import {
   furnitureGeometry,
+  lampGeometry,
   placeStreetProps,
   type FurnitureKind,
   type ParkedVehicle,
@@ -63,6 +64,7 @@ const scratchColor = new Color();
  * standing over the blocks (PLAN.md section 4).
  */
 const LAMP_HEIGHT = 2.7;
+
 
 /**
  * A lamp head's glow for an hour: Auto's is what it always was, and the
@@ -128,6 +130,10 @@ export default function Props({
   const clock = useRevealClock();
   const { textureSize, anisotropy } = useQuality();
   const settled = useRef(false);
+  // The Blender lamp (`blender/props/street_furniture.py`), or null for
+  // the primitives below. Built on render, not at import: the model's data
+  // arrives after the module loads.
+  const modelledLamp = useMemo(() => lampGeometry(), []);
 
   const { trees, species } = useMemo(() => {
     // A city keeps its hundred; a village plants 160, a metropolis 120.
@@ -356,19 +362,21 @@ export default function Props({
         <>
           <instancedMesh
             ref={poleRef}
-            args={[undefined, undefined, lamps.length]}
+            args={[modelledLamp?.pole, undefined, lamps.length]}
             castShadow
             frustumCulled={false}
           >
-            <cylinderGeometry args={[0.07, 0.095, LAMP_HEIGHT, 5]} />
+            {!modelledLamp && <cylinderGeometry args={[0.07, 0.095, LAMP_HEIGHT, 5]} />}
             <meshStandardMaterial
+              // The modelled pole carries its baked shade in its vertex colours.
+              vertexColors={Boolean(modelledLamp)}
               color={desaturate(LAMP_POST, atmosphere.desaturation)}
               roughness={0.7}
               metalness={0.2}
             />
           </instancedMesh>
-          <instancedMesh ref={headRef} args={[undefined, undefined, lamps.length]} frustumCulled={false}>
-            <boxGeometry args={[0.32, 0.16, 0.32]} />
+          <instancedMesh ref={headRef} args={[modelledLamp?.head, undefined, lamps.length]} frustumCulled={false}>
+            {!modelledLamp && <boxGeometry args={[0.32, 0.16, 0.32]} />}
             <meshStandardMaterial
               ref={headMaterial}
               color={mix(WINDOW_COLOR, "#ffffff", 0.3)}

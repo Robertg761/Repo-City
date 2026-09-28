@@ -33,6 +33,7 @@
  *   ONLY     comma-separated scenario names to run
  *   UNCAP=1  lifts vsync to show headroom
  *   SHOTS=1  saves a screenshot of each scenario
+ *   EXTRA_QUERY  appended to every scenario URL, e.g. `&models=procedural`
  *   MEASURE_MS, SETTLE_MS, TAG, CHROME
  *
  * Swiftshader renders on the CPU; its frame rates are a worst-case floor and
@@ -331,7 +332,8 @@ async function main(): Promise<void> {
     if (!PROD) params.set("perf", "1");
     if (QUALITY !== "auto") params.set("quality", QUALITY);
     if (TIME !== "auto") params.set("time", TIME);
-    const url = `${BASE}/?${params}${scenario.query}`;
+    // EXTRA_QUERY appends to every scenario's URL (e.g. `&models=procedural`).
+    const url = `${BASE}/?${params}${scenario.query}${process.env.EXTRA_QUERY ?? ""}`;
     console.log(`${scenario.name}: ${url}`);
     messages = [];
     await send("Page.navigate", { url });

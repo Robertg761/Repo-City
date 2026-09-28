@@ -38,6 +38,7 @@ import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
 import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
+import { useModelsReady } from "@/components/city/models/useModels";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -255,7 +256,9 @@ function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   const storeCity = useCityStore((s) => s.city);
   const actions = useCityStore((s) => s.actions);
   const devCity = useDevCity(storeCity !== null);
-  const city = storeCity ?? devCity;
+  // The city waits for the model chunks (or the procedural fallback).
+  const modelsReady = useModelsReady();
+  const city = modelsReady ? (storeCity ?? devCity) : null;
   const aspect = useViewportAspect();
   // The canvas is created at the tier's pixel ratio, and follows it. R3F
   // re-applies this prop whenever the canvas re-renders, so it has to be the

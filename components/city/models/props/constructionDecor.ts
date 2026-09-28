@@ -33,6 +33,10 @@ import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../.
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as CRANE } from "./crane.model";
+import { MODEL as SITE_PROPS } from "./constructionProps.model";
 
 /** The site is drawn on an eleven unit square; see `ConstructionSite.tsx`. */
 export const SITE = 11;
@@ -98,6 +102,36 @@ function fence(color: string, rail: string): Part[] {
     });
   }
   return parts;
+}
+
+/**
+ * A Blender site prop (`blender/incidents/construction_props.py`) as one
+ * merged part at `at`, turned `rotationY`, its colours through `paint`.
+ */
+function siteProp(node: string, paint: (hex: string) => string, at: Triple, rotationY = 0): Part {
+  return {
+    geometry: mergeParts(importedParts(SITE_PROPS, node, paint)),
+    color: "#ffffff",
+    position: at,
+    rotation: [0, rotationY, 0],
+  };
+}
+
+/** The Blender props' own colours for the stock the procedural site paints. */
+const SITE_TIMBER = TIMBER;
+const SITE_PIPE = STEEL;
+const SITE_SAND = "#c2b08a";
+
+/**
+ * How a site in `state` paints the Blender props: fresh on a working site;
+ * on an abandoned one the timber and the pipes rusted, the sand gone grey
+ * and everything weathered, as the procedural materials are.
+ */
+function sitePaint(state: ConstructionState, tone: number): (hex: string) => string {
+  if (state !== "abandoned") return (hex) => desaturate(hex, tone);
+  const weathered = (hex: string) => desaturate(hex, Math.min(1, tone + 0.4));
+  return (hex) =>
+    weathered(hex === SITE_TIMBER || hex === SITE_PIPE ? RUST : hex === SITE_SAND ? "#8f8a7c" : hex);
 }
 
 /** Scaffolding: uprights, ledgers and a working platform up one face. */
@@ -367,15 +401,19 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
     return parts;
   }
 
+  const paint = sitePaint(state, tone);
+
   if (state === "abandoned") {
     parts.push(...weeds(weathered(mix(TREE_LEAF, "#9aa36a", 0.45)), 14, 4.2));
     parts.push(
-      ...materials(
-        [-SITE * 0.3, 0, SITE * 0.3],
-        weathered(RUST),
-        weathered(RUST),
-        weathered("#8f8a7c"),
-      ),
+      ...(BLENDER_MODELS
+        ? [siteProp("Materials", paint, [-SITE * 0.3, 0, SITE * 0.3])]
+        : materials(
+            [-SITE * 0.3, 0, SITE * 0.3],
+            weathered(RUST),
+            weathered(RUST),
+            weathered("#8f8a7c"),
+          )),
     );
     // A hoarding that came down years ago, and the sign nobody took away.
     parts.push(
@@ -413,15 +451,24 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
   const busy = state === "active";
   parts.push(...fence(shade("#bdb6a4"), shade(WARNING_ORANGE)));
   parts.push(...scaffold(height, shade(STEEL), shade(TIMBER)));
-  parts.push(...materials([-SITE * 0.3, 0, SITE * 0.32], shade(TIMBER), shade(STEEL), shade("#c2b08a")));
-  parts.push(...hut([SITE * 0.3, 0, SITE * 0.34], -0.4, shade("#8fa3a8"), shade("#5f6a6d")));
-  parts.push(
-    ...mixer([SITE * 0.32, 0, -SITE * 0.1], busy ? 0.4 : 1.2, shade(WARNING_ORANGE), shade(STEEL)),
-  );
-  if (busy) {
+  if (BLENDER_MODELS) {
     parts.push(
-      ...excavator([-SITE * 0.32, 0, -SITE * 0.02], 2.2, shade("#e0b750"), shade("#6b6f6d")),
+      siteProp("Materials", paint, [-SITE * 0.3, 0, SITE * 0.32]),
+      siteProp("SiteHut", paint, [SITE * 0.3, 0, SITE * 0.34], -0.4),
+      siteProp("Mixer", paint, [SITE * 0.32, 0, -SITE * 0.1], busy ? 0.4 : 1.2),
     );
+    if (busy) parts.push(siteProp("Excavator", paint, [-SITE * 0.32, 0, -SITE * 0.02], 2.2));
+  } else {
+    parts.push(...materials([-SITE * 0.3, 0, SITE * 0.32], shade(TIMBER), shade(STEEL), shade("#c2b08a")));
+    parts.push(...hut([SITE * 0.3, 0, SITE * 0.34], -0.4, shade("#8fa3a8"), shade("#5f6a6d")));
+    parts.push(
+      ...mixer([SITE * 0.32, 0, -SITE * 0.1], busy ? 0.4 : 1.2, shade(WARNING_ORANGE), shade(STEEL)),
+    );
+    if (busy) {
+      parts.push(
+        ...excavator([-SITE * 0.32, 0, -SITE * 0.02], 2.2, shade("#e0b750"), shade("#6b6f6d")),
+      );
+    }
   }
 
   const crew: [number, number, number][] = busy
@@ -453,8 +500,31 @@ const builder = geometryCache<string>((key) => {
 const mastColor = (state: ConstructionState, tone: number): string =>
   desaturate(state === "abandoned" ? RUST : "#e0b750", 0.15 + tone * 0.4);
 
+/** The Blender crane's steel and hook, as its materials carry them. */
+const BLENDER_CRANE_STEEL = "#e0b750";
+
+/**
+ * How the Blender crane (`blender/incidents/crane.py`) is painted in a state:
+ * its steel in the procedural mast colour, rust on an abandoned site like
+ * the hook, and everything else weathered with it.
+ */
+function cranePaint(state: ConstructionState, tone: number): (hex: string) => string {
+  const abandoned = state === "abandoned";
+  return (hex) => {
+    if (hex === BLENDER_CRANE_STEEL) return mastColor(state, tone);
+    if (hex === WARNING_ORANGE) return desaturate(abandoned ? RUST : WARNING_ORANGE, tone);
+    return desaturate(hex, abandoned ? Math.min(1, tone + 0.4) : tone);
+  };
+}
+
+/** The Blender crane's tower, or its jib in the jib's turning frame. */
+export function blenderCraneGeometry(piece: "CraneMast" | "CraneJib", state: ConstructionState, tone: number): BufferGeometry {
+  return mergeParts(importedParts(CRANE, piece, cranePaint(state, tone)));
+}
+
 const mastBuilder = geometryCache<string>((key) => {
   const [state, tone] = key.split(":");
+  if (BLENDER_MODELS) return blenderCraneGeometry("CraneMast", state as ConstructionState, Number(tone));
   const mast = mastColor(state as ConstructionState, Number(tone));
   return mergeDecorParts([
     {
@@ -476,6 +546,7 @@ const mastBuilder = geometryCache<string>((key) => {
 
 const jibBuilder = geometryCache<string>((key) => {
   const [state, tone] = key.split(":");
+  if (BLENDER_MODELS) return blenderCraneGeometry("CraneJib", state as ConstructionState, Number(tone));
   const mast = mastColor(state as ConstructionState, Number(tone));
   const hook = desaturate(state === "abandoned" ? RUST : WARNING_ORANGE, Number(tone));
   return mergeDecorParts([

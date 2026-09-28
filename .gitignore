@@ -43,3 +43,7 @@ next-env.d.ts
 
 # Agent worktrees and local Claude state
 .claude/
+
+# Blender spike: renders, previews and the .blend are rebuilt by blender/*.py
+blender/out/
+__pycache__/

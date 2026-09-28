@@ -71,6 +71,7 @@ import {
   trainCars,
   trainPose,
   transitStation,
+  type Pantograph,
 } from "./models/landmarks/station";
 import { townHall } from "./models/landmarks/townhall";
 import {
@@ -143,7 +144,8 @@ function Part({
       emissive: emissive ?? "#000000", emissiveIntensity,
       toneMapped: emissive === undefined,
       clippingPlanes: clip ?? null, clipShadows: clip !== undefined,
-      vertexColors: false,
+      // Only the Blender models carry vertex colours (baked occlusion).
+      vertexColors: geometry?.hasAttribute("color") ?? false,
     };
     return buildingDetailMaterial(parameters, {
       textureSize, anisotropy, surfaceAttribute: geometry?.hasAttribute("surface") ?? false,
@@ -332,6 +334,10 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       <Part geometry={slots.red} color={skin.tint(ENGINE_RED)} roughness={0.55} />
       <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.6} />
       <Part geometry={slots.steel} color={skin.tint(DARK_STEEL)} roughness={0.5} metalness={0.25} />
+      <Part geometry={slots.metal} color={skin.tint(STEEL)} roughness={0.45} metalness={0.35} />
+      <Part geometry={slots.dark} color={skin.tint("#2b2f33")} roughness={0.8} />
+      <Part geometry={slots.green} color={skin.tint(TREE_LEAF)} roughness={0.95} />
+      <Part geometry={slots.blue} color={skin.tint("#3d5068")} roughness={0.25} metalness={0.2} />
       <Part
         geometry={slots.glass}
         color={WINDOW_COLOR}
@@ -376,8 +382,8 @@ function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
 }
 
 /** One train, drawn from the shared geometry. */
-function Train({ skin, clip }: { skin: Skin; clip?: Plane[] }) {
-  const cars = trainCars();
+function Train({ skin, clip, pantograph }: { skin: Skin; clip?: Plane[]; pantograph: Pantograph }) {
+  const cars = trainCars(pantograph);
   return (
     <>
       <Part
@@ -454,11 +460,11 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
       />
 
       <group ref={train} position={[PORTAL_X + 7, 0, TRACK_A]} visible={false}>
-        <Train skin={skin} clip={clip} />
+        <Train skin={skin} clip={clip} pantograph="raised" />
       </group>
       {tracks === 2 && (
         <group position={[PARKED_X, 0, TRACK_B]} rotation-y={Math.PI}>
-          <Train skin={skin} />
+          <Train skin={skin} pantograph="lowered" />
         </group>
       )}
 

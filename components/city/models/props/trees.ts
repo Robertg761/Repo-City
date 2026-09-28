@@ -39,6 +39,9 @@ import { SETTLEMENT_PARAMS } from "@/lib/city/settlement";
 import type { District, Vec3 } from "@/types/city";
 import { TREE_LEAF, TREE_TRUNK, desaturate, mix } from "../../palette";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as TREES } from "./trees.model";
 
 export type TreeSpecies = "broadleaf" | "conifer" | "poplar" | "birch";
 
@@ -302,12 +305,32 @@ function speciesParts(species: TreeSpecies, tone: number): Part[] {
   ];
 }
 
-const builder = geometryCache<string>((key) => {
-  const [species, tone] = key.split(":");
-  return mergeParts(speciesParts(species as TreeSpecies, Number(tone)).map((part) => ({
-    ...part, surface: part.paint ? SURFACE.foliage : SURFACE.timber,
-  })));
-});
+/** The Blender model's node for each species (`blender/props/trees.py`). */
+const TREE_NODE: Record<TreeSpecies, string> = {
+  broadleaf: "TreeBroadleaf",
+  conifer: "TreeConifer",
+  poplar: "TreePoplar",
+  birch: "TreeBirch",
+};
+
+/**
+ * The species as modelled in Blender, (the default): the same foot,
+ * heights and paint contract (crown painted, bark not), its shading baked in.
+ */
+export function blenderTreeParts(species: TreeSpecies, tone: number): Part[] {
+  return importedParts(TREES, TREE_NODE[species], (hex) => desaturate(hex, tone));
+}
+
+const cacheOf = (parts: (species: TreeSpecies, tone: number) => Part[]) =>
+  geometryCache<string>((key) => {
+    const [species, tone] = key.split(":");
+    return mergeParts(parts(species as TreeSpecies, Number(tone)).map((part) => ({
+      ...part, surface: part.paint ? SURFACE.foliage : SURFACE.timber,
+    })));
+  });
+
+const builder = cacheOf(speciesParts);
+const blenderBuilder = cacheOf(blenderTreeParts);
 
 /**
  * One species, trunk and crown, measured from the tree's base so an instance
@@ -315,7 +338,12 @@ const builder = geometryCache<string>((key) => {
  * species and tone: the bark desaturates with the city (section 19).
  */
 export function treeGeometry(species: TreeSpecies, desaturation = 0): BufferGeometry {
-  return builder(`${species}:${toneKey(desaturation)}`);
+  return (BLENDER_MODELS ? blenderBuilder : builder)(`${species}:${toneKey(desaturation)}`);
+}
+
+/** The Blender species whatever the flag says, for its tests and renders. */
+export function blenderTreeGeometry(species: TreeSpecies, desaturation = 0): BufferGeometry {
+  return blenderBuilder(`${species}:${toneKey(desaturation)}`);
 }
 
 /**

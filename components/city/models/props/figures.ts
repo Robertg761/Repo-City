@@ -42,9 +42,9 @@ export function figureParts({
   const parts: Part[] = [
     ...walkerBodyParts(color, SKIN).map((part) => ({
       ...part,
-      position: [part.position![0], part.position![1] + 0.44, part.position![2]] as Triple,
+      position: [part.position?.[0] ?? 0, (part.position?.[1] ?? 0) + 0.44, part.position?.[2] ?? 0] as Triple,
     })),
-    ...walkerHeadParts(SKIN).filter((_, index) => !helmet || index !== 1).map((part) => ({
+    ...walkerHeadParts(SKIN, { hair: !helmet }).map((part) => ({
       ...part,
       position: [part.position?.[0] ?? 0, (part.position?.[1] ?? 0) + 0.94, part.position?.[2] ?? 0] as Triple,
     })),

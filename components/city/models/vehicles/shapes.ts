@@ -38,6 +38,10 @@
 import { BoxGeometry, CylinderGeometry, type BufferGeometry } from "three";
 import type { Prng } from "@/lib/city/prng";
 import { SURFACE } from "../../textures/surface-types";
+import { importedParts } from "../imported";
+import { BLENDER_MODELS } from "../modelSource";
+import { MODEL as FLEET_MODEL } from "./fleet.model";
+import { MODEL as TRACTOR_MODEL } from "./tractor.model";
 import {
   mergeParts,
   prismGeometry,
@@ -236,11 +240,7 @@ function running(spec: BodySpec, bottom: number, bumperY: number, sill = true): 
   return parts.map(vehicleSurface);
 }
 
-/**
- * Every body's parts, in its own frame, unmerged. Exported so the emergency
- * services can build a police car on the sedan and an ambulance on the van
- * and have them look like members of the same fleet.
- */
+/** Every procedural body's parts, in its own frame, unmerged. */
 function baseBodyParts(kind: VehicleBody): Part[] {
   const spec = BODY_SPECS[kind];
   const w = spec.width;
@@ -416,8 +416,37 @@ function baseBodyParts(kind: VehicleBody): Part[] {
   ];
 }
 
-/** Panel joins, handles and grille bars stay in the body's single draw call. */
+/**
+ * Every body's parts, in its own frame, unmerged. Exported so the emergency
+ * services can build a police car on the sedan and an ambulance on the van.
+ * By default (`../spike`) they are the bodies modelled in
+ * `blender/fleet/fleet.py`: same frame, spec and paint flags.
+ */
 export function bodyParts(kind: VehicleBody): Part[] {
+  return BLENDER_MODELS ? blenderBodyParts(kind) : proceduralBodyParts(kind);
+}
+
+const FLEET_NODE: Record<VehicleBody, string> = {
+  hatchback: "Hatchback",
+  sedan: "Sedan",
+  taxi: "Taxi",
+  van: "Van",
+  pickup: "Pickup",
+  bus: "Bus",
+};
+
+/**
+ * A body modelled in Blender (spike): one loft per body, arches and a few
+ * quads of detail, with baked occlusion. Its paintwork's colours are PAINT,
+ * ROOF_SHADE and PANEL_SHADE exactly, so a livery repaints it as it does the
+ * procedural body. The lamps stay in `lightsGeometry`, which it leaves room for.
+ */
+export function blenderBodyParts(kind: VehicleBody): Part[] {
+  return importedParts(FLEET_MODEL, FLEET_NODE[kind], (hex) => hex).map(vehicleSurface);
+}
+
+/** Panel joins, handles and grille bars stay in the body's single draw call. */
+function proceduralBodyParts(kind: VehicleBody): Part[] {
   const spec = BODY_SPECS[kind];
   const w = spec.width;
   const h = spec.length / 2;
@@ -911,9 +940,19 @@ function mudguard(x: number): Part {
 /**
  * The tractor's body without its wheels, for a moving tractor whose wheels
  * turn (`wheelGeometry` scaled by `wheelRadii`). Paintwork is flagged as
- * paint, so the instance colour is the livery.
+ * paint, so the instance colour is the livery. By default it is
+ * the tractor modelled in `blender/fleet/tractor.py`.
  */
 export function tractorParts(): Part[] {
+  return BLENDER_MODELS ? blenderTractorParts() : proceduralTractorParts();
+}
+
+/** The tractor modelled in Blender (spike): same frame, spec and lamp points. */
+export function blenderTractorParts(): Part[] {
+  return importedParts(TRACTOR_MODEL, "Tractor", (hex) => hex).map(vehicleSurface);
+}
+
+function proceduralTractorParts(): Part[] {
   const w = TRACTOR_SPEC.width;
   const cabZ = -0.45;
   const posts: [number, number][] = [
