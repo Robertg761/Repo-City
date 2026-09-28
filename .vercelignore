@@ -1,2 +1,6 @@
 # Local agent files, including the rendered demo video, never go to Vercel.
 .claude/
+# The Blender sources and their GLBs: the app ships the generated modules
+# under components/, so neither is needed to build or serve it.
+blender/
+assets/
