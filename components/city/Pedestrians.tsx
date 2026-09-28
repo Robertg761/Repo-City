@@ -48,8 +48,25 @@ import { crowdScale, tierOf } from "./scale";
 import { roadGraph } from "./traffic";
 import { useRevealClock } from "./useReveal";
 import { tintedMaterial } from "./models/props/material";
-import { walkerBodyGeometry, walkerHeadGeometry } from "./models/props/walkerModel";
+import {
+  walkerBodyGeometry,
+  walkerBodyNearGeometry,
+  walkerHeadGeometry,
+  walkerHeadNearGeometry,
+} from "./models/props/walkerModel";
+import { LodInstances } from "./lod";
 import { useQuality } from "./quality";
+
+/**
+ * Detail level. A figure is about 1.1 units tall with a bounding radius of
+ * 0.45, so 0.1 puts the switch 4.5 units away, where a person fills a tenth of
+ * the view height and their face and hands are a few dozen pixels: only a
+ * street-level camera gets there. Thirty-two figures at 3,000 triangles is
+ * 96,000, cheap next to the lean crowd's eighty, and a cap of 32 is more than
+ * ever stand within that range of a street camera.
+ */
+const NEAR_MAX = 32;
+const NEAR_SIZE = 0.1;
 
 const scratch = new Object3D();
 const scratchColor = new Color();
@@ -72,6 +89,7 @@ export default function Pedestrians({
 }) {
   const bodyRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
+  const nearSelection = useRef<number[]>([]);
   const clock = useRevealClock();
   const { textureSize, anisotropy } = useQuality();
   const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
@@ -211,19 +229,29 @@ export default function Pedestrians({
 
   return (
     <group>
-      <instancedMesh
+      <LodInstances
         ref={bodyRef}
-        args={[undefined, undefined, total]}
+        geometry={walkerBodyGeometry()}
+        nearGeometry={walkerBodyNearGeometry()}
+        material={bodyMaterial}
+        count={total}
+        maxNear={NEAR_MAX}
+        nearSize={NEAR_SIZE}
+        selection={nearSelection}
         castShadow
-        frustumCulled={false}
-      >
-        <primitive object={walkerBodyGeometry()} attach="geometry" />
-        <primitive object={bodyMaterial} attach="material" />
-      </instancedMesh>
-      <instancedMesh ref={headRef} args={[undefined, undefined, total]} frustumCulled={false}>
-        <primitive object={walkerHeadGeometry()} attach="geometry" />
-        <primitive object={headMaterial} attach="material" />
-      </instancedMesh>
+      />
+      {/* The head moves by its own matrix but follows the body's selection. */}
+      <LodInstances
+        ref={headRef}
+        geometry={walkerHeadGeometry()}
+        nearGeometry={walkerHeadNearGeometry()}
+        material={headMaterial}
+        count={total}
+        maxNear={NEAR_MAX}
+        nearSize={NEAR_SIZE}
+        selection={nearSelection}
+        follow
+      />
     </group>
   );
 }

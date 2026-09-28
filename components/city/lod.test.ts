@@ -1,6 +1,6 @@
 import { Matrix4, MeshStandardMaterial, Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { LOD_HIDDEN_ATTRIBUTE, patchLodHidden, selectNear } from "./lod";
+import { LOD_HIDDEN_ATTRIBUTE, patchLodHidden, selectNear, swapHidden } from "./lod";
 
 function matrices(entries: { at: [number, number, number]; scale?: number | [number, number, number] }[]): Float32Array {
   const out = new Float32Array(entries.length * 16);
@@ -59,5 +59,16 @@ describe("patchLodHidden", () => {
     expect(shader.vertexShader.match(new RegExp(`attribute float ${LOD_HIDDEN_ATTRIBUTE}`, "g"))).toHaveLength(1);
     expect(shader.vertexShader.indexOf("transformed.y += 1.0")).toBeLessThan(shader.vertexShader.indexOf("> 0.5) transformed = vec3(0.0)"));
     expect(material.customProgramCacheKey()).toMatch(/-lod$/);
+  });
+});
+
+describe("swapHidden", () => {
+  it("un-hides the previous near set and hides the new one", () => {
+    const flags = new Float32Array(5);
+    const hidden = { setX: (i: number, v: number) => void (flags[i] = v) };
+    swapHidden(hidden, [], [1, 3]);
+    expect(Array.from(flags)).toEqual([0, 1, 0, 1, 0]);
+    swapHidden(hidden, [1, 3], [3, 4]);
+    expect(Array.from(flags)).toEqual([0, 0, 0, 1, 1]);
   });
 });
