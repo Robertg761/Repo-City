@@ -42,6 +42,7 @@ import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as FLEET_MODEL } from "./fleet.model";
 import { MODEL as TRACTOR_MODEL } from "./tractor.model";
+import { MODEL as PARTS_MODEL } from "./vehicleParts.model";
 import {
   mergeParts,
   prismGeometry,
@@ -718,6 +719,24 @@ let wheelCache: BufferGeometry | null = null;
  * a hair wide beside the tyre.
  */
 export function wheelGeometry(): BufferGeometry {
+  return BLENDER_MODELS ? blenderWheelGeometry() : proceduralWheelGeometry();
+}
+
+let blenderWheelCache: BufferGeometry | null = null;
+
+/**
+ * The wheel modelled in Blender (`blender/vehicles2/parts.py`): the same
+ * radius, axle and instancing contract, with a crowned tread, a sloped
+ * sidewall and a shallow rim cone whose eight wedges are pale or dark in an
+ * uneven run, so the spin reads from any side. 64 triangles, as the
+ * procedural wheel.
+ */
+export function blenderWheelGeometry(): BufferGeometry {
+  blenderWheelCache ??= mergeVehicleParts(importedParts(PARTS_MODEL, "Wheel", (hex) => hex));
+  return blenderWheelCache;
+}
+
+function proceduralWheelGeometry(): BufferGeometry {
   if (wheelCache) return wheelCache;
   const tyre = new CylinderGeometry(1, 1, 0.9, 8);
   const hub = new CylinderGeometry(0.5, 0.5, 1.0, 6);
@@ -740,6 +759,27 @@ const lightsCache = new Map<VehicleBody, BufferGeometry>();
  * come up with the city's windows.
  */
 export function lightsGeometry(kind: VehicleBody): BufferGeometry {
+  return BLENDER_MODELS ? blenderLightsGeometry(kind) : proceduralLightsGeometry(kind);
+}
+
+const blenderLightsCache = new Map<VehicleBody, BufferGeometry>();
+
+/**
+ * The lamps modelled in Blender (`blender/vehicles2/parts.py`): each is a lit
+ * lens in a darker bezel, open behind, on the spec's point and 5 cm deep like
+ * the procedural box, so they meet the Blender body's lamp recesses. The
+ * taxi's roof sign and the bus's destination board come with them.
+ */
+export function blenderLightsGeometry(kind: VehicleBody): BufferGeometry {
+  let made = blenderLightsCache.get(kind);
+  if (!made) {
+    made = mergeVehicleParts(importedParts(PARTS_MODEL, `Lamps${FLEET_NODE[kind]}`, (hex) => hex));
+    blenderLightsCache.set(kind, made);
+  }
+  return made;
+}
+
+function proceduralLightsGeometry(kind: VehicleBody): BufferGeometry {
   const hit = lightsCache.get(kind);
   if (hit) return hit;
   const spec = BODY_SPECS[kind];
@@ -769,6 +809,38 @@ export function lightsGeometry(kind: VehicleBody): BufferGeometry {
 
 const parkedCache = new Map<VehicleBody, BufferGeometry>();
 
+/** A lit lamp's colour, switched off: what a parked car's lamps are drawn in. */
+const UNLIT: Record<string, string> = {
+  [HEADLIGHT]: "#d8d8d2",
+  [TAILLIGHT]: "#8a3a33",
+  [SIGN]: "#b9a46a",
+  "#ffb347": "#a8834a",
+};
+const unlit = (hex: string) => UNLIT[hex] ?? hex;
+
+/** The Blender wheel (`blender/vehicles2/parts.py`) standing at a wheel position of a body. */
+function blenderWheelParts(x: number, z: number, radius: number): Part[] {
+  return importedParts(PARTS_MODEL, "Wheel", (hex) => hex).map((part) => ({
+    ...part,
+    position: [x, radius, z] as Triple,
+    scale: radius,
+  }));
+}
+
+/**
+ * A parked vehicle from the Blender parts: the Blender body, the Blender
+ * wheel at each spec position and radius, and the lamp lenses switched off
+ * (the taxi's sign and the bus's board come too, dull).
+ */
+function blenderParkedParts(kind: VehicleBody): Part[] {
+  const spec = BODY_SPECS[kind];
+  return [
+    ...bodyParts(kind),
+    ...spec.wheels.flatMap(([x, z]) => blenderWheelParts(x, z, spec.wheelRadius)),
+    ...importedParts(PARTS_MODEL, `Lamps${FLEET_NODE[kind]}`, unlit).map(vehicleSurface),
+  ];
+}
+
 /**
  * A parked vehicle: the body with its wheels baked in, because a car at the
  * kerb never moves and one geometry is one draw call for the whole street.
@@ -777,6 +849,11 @@ const parkedCache = new Map<VehicleBody, BufferGeometry>();
 export function parkedGeometry(kind: VehicleBody): BufferGeometry {
   const hit = parkedCache.get(kind);
   if (hit) return hit;
+  if (BLENDER_MODELS) {
+    const made = mergeVehicleParts(blenderParkedParts(kind));
+    parkedCache.set(kind, made);
+    return made;
+  }
   const spec = BODY_SPECS[kind];
   const tyre = new CylinderGeometry(spec.wheelRadius, spec.wheelRadius, 0.22, 7);
   const lamp = new BoxGeometry(spec.lamp[0], spec.lamp[1], 0.05);
@@ -1020,6 +1097,15 @@ function tractorWheelParts(): Part[] {
   });
 }
 
+/** Parked tractor from the Blender parts: body, the wheel at each radius, unlit lamps and beacon. */
+function blenderTractorParkedParts(): Part[] {
+  return [
+    ...tractorParts(),
+    ...TRACTOR_SPEC.wheels.flatMap(([x, z], i) => blenderWheelParts(x, z, TRACTOR_SPEC.wheelRadii[i])),
+    ...importedParts(PARTS_MODEL, "LampsTractor", unlit).map(vehicleSurface),
+  ];
+}
+
 let tractorCache: BufferGeometry | null = null;
 let tractorParkedCache: BufferGeometry | null = null;
 let tractorLightsCache: BufferGeometry | null = null;
@@ -1032,12 +1118,26 @@ export function tractorGeometry(): BufferGeometry {
 
 /** A tractor with its wheels baked in: parked in a yard, or queued at the village edge. */
 export function tractorParkedGeometry(): BufferGeometry {
-  if (!tractorParkedCache) tractorParkedCache = mergeVehicleParts([...tractorParts(), ...tractorWheelParts()]);
+  if (!tractorParkedCache) {
+    tractorParkedCache = mergeVehicleParts(BLENDER_MODELS ? blenderTractorParkedParts() : [...tractorParts(), ...tractorWheelParts()]);
+  }
   return tractorParkedCache;
 }
 
 /** Head and tail lamps and the amber roof beacon, for the fleet's unlit lamp material. */
 export function tractorLightsGeometry(): BufferGeometry {
+  return BLENDER_MODELS ? blenderTractorLightsGeometry() : proceduralTractorLightsGeometry();
+}
+
+let blenderTractorLightsCache: BufferGeometry | null = null;
+
+/** The tractor's lamps and beacon modelled in Blender (`blender/vehicles2/parts.py`). */
+export function blenderTractorLightsGeometry(): BufferGeometry {
+  blenderTractorLightsCache ??= mergeVehicleParts(importedParts(PARTS_MODEL, "LampsTractor", (hex) => hex));
+  return blenderTractorLightsCache;
+}
+
+function proceduralTractorLightsGeometry(): BufferGeometry {
   if (tractorLightsCache) return tractorLightsCache;
   const lamp = new BoxGeometry(TRACTOR_SPEC.lamp[0], TRACTOR_SPEC.lamp[1], 0.05);
   tractorLightsCache = mergeVehicleParts([

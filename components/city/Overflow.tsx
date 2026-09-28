@@ -34,6 +34,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { signposted } from "@/lib/city/overflow";
 import type { CityModel, Overflow as OverflowEntity } from "@/types/city";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
+import { blenderSignFaces, blenderSignFrame } from "./models/vehicles/overflowSign";
+import { BLENDER_MODELS } from "./models/modelSource";
 import { mergeParts, type Part } from "./models/props/geometry";
 import { tintedMaterial } from "./models/props/material";
 import { queueBody } from "./blockages";
@@ -82,7 +84,12 @@ export function signLines(overflow: Pick<OverflowEntity, "issues" | "pulls" | "e
  */
 export const POST_X = BOARD.width / 2 + 0.12 + 0.13;
 
-function frameGeometry(): BufferGeometry {
+/** The sign's frame: the model from Blender, or the boxes it replaced (`?models=procedural`). */
+export function frameGeometry(): BufferGeometry {
+  return BLENDER_MODELS ? blenderSignFrame() : proceduralFrameGeometry();
+}
+
+function proceduralFrameGeometry(): BufferGeometry {
   const post = (x: number): Part => ({
     geometry: new BoxGeometry(0.26, BOARD.y + BOARD.height / 2 + 0.1, 0.26),
     color: "#6f7270",
@@ -111,7 +118,11 @@ function frameGeometry(): BufferGeometry {
 }
 
 /** Both faces of the board, one quad each, sharing one texture. */
-function faceGeometry(): BufferGeometry {
+export function faceGeometry(): BufferGeometry {
+  return BLENDER_MODELS ? blenderSignFaces(BOARD) : proceduralFaceGeometry();
+}
+
+function proceduralFaceGeometry(): BufferGeometry {
   const front = new PlaneGeometry(BOARD.width, BOARD.height);
   front.translate(0, BOARD.y, BOARD.depth / 2 + 0.01);
   const back = new PlaneGeometry(BOARD.width, BOARD.height);
