@@ -135,9 +135,45 @@ export function coplanarOverlaps(
     return false;
   };
 
+  // Candidates by bucket: faces facing (within a hundredth) the same way,
+  // sorted by plane offset, so a face is only compared with the few whose
+  // plane is within `within` of its own, not with the whole model.
+  const buckets = new Map<string, { d: number; t: number }[]>();
+  tris.forEach((T, t) => {
+    const key = `${Math.round(T.n[0] * 100)},${Math.round(T.n[1] * 100)},${Math.round(T.n[2] * 100)}`;
+    let list = buckets.get(key);
+    if (!list) buckets.set(key, (list = []));
+    list.push({ d: T.d, t });
+  });
+  for (const list of buckets.values()) list.sort((a, b) => a.d - b.d);
+  const candidates = (A: (typeof tris)[number], x: number): number[] => {
+    const reach = options.within / A.stretch;
+    const out: number[] = [];
+    const [cx, cy, cz] = [Math.round(A.n[0] * 100), Math.round(A.n[1] * 100), Math.round(A.n[2] * 100)];
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        for (let k = -1; k <= 1; k++) {
+          const list = buckets.get(`${cx + i},${cy + j},${cz + k}`);
+          if (!list) continue;
+          let lo = 0;
+          let hi = list.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (list[mid].d < A.d - reach) lo = mid + 1;
+            else hi = mid;
+          }
+          for (; lo < list.length && list[lo].d <= A.d + reach; lo++) if (list[lo].t > x) out.push(list[lo].t);
+        }
+      }
+    }
+    return out.sort((a, b) => a - b);
+  };
+
   const pairs: CoplanarPair[] = [];
   for (let x = 0; x < tris.length; x++) {
     const A = tris[x];
+    const near = candidates(A, x);
+    if (near.length === 0) continue;
     // A 2D frame in A's plane.
     const helper: V = Math.abs(A.n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
     const u0 = cross(helper, A.n);
@@ -147,7 +183,7 @@ export function coplanarOverlaps(
     const flat = (p: V): P2 => [dot(p, u), dot(p, v)];
     let a2 = A.p.map(flat);
     if (area2(a2) < 0) a2 = [a2[0], a2[2], a2[1]];
-    for (let y = x + 1; y < tris.length; y++) {
+    for (const y of near) {
       const B = tris[y];
       if (dot(A.n, B.n) < 0.99995) continue;
       const separation = Math.abs(B.d - A.d) * A.stretch;
