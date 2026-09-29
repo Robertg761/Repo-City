@@ -31,6 +31,8 @@ def lobby(front):
 
 def make(near=False):
     d = bkit.Draft(nkit.Near(SCALE) if near else None)
+    if near:
+        d.near.no_corbel = {("+z", 0.0)}
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth", skip=())
     openings = {}
     for face in bkit.FACES:
@@ -55,6 +57,10 @@ def make(near=False):
         n.fan(d, 0.29, 0.29, deck, n.ux(0.35))
         n.stack(d, -0.3, -0.3, deck, n.ux(0.13), n.uy(1.0))
         n.louvred_box(d, 0.3, -0.3, deck, 0.1, 0.08, n.uy(0.7))
+        n.tank(d, -0.28, 0.28, deck, 0.3, 0.5)
+        # A cable tray and a pipe run along the back edge between the two.
+        n.tray(d, -0.22, -0.315, 0.22, -0.315, deck + n.uy(0.05), 0.3)
+        n.pipes(d, -0.24, -0.27, 0.24, -0.27, deck, radii=(0.05, 0.035))
     return d
 
 

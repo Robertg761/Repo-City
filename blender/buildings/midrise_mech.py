@@ -62,6 +62,24 @@ def make(near=False):
         for face in bkit.FACES:
             for v in ROWS:
                 n.fbox(d, face, HW, -HW + 0.02, HW - 0.02, v - band / 2 - n.uy(0.16), v - band / 2 - 0.004, 0, 0.018, "trim", skip=("back", "left", "right"))
+        # A sunshade blade over each ribbon, on a bracket at either end.
+        for face in bkit.FACES:
+            for v in ROWS:
+                top = v + band / 2
+                n.fbox(d, face, HW, -HW + 0.06, HW - 0.06, top + n.uy(0.03), top + n.uy(0.09), 0, 0.04, "trim", skip=("back",))
+                for u in (-HW + 0.07, HW - 0.07):
+                    n.fbox(d, face, HW, u - n.ux(0.05), u + n.ux(0.05), top, top + n.uy(0.03), 0, 0.03, "trim", skip=("back", "top"))
+        # A framed panel in every spandrel between the fins, and a tall one
+        # in the parapet's frieze.
+        cells = ((-HW + 0.06, -FIN_U - 0.03 - n.ux(0.12)), (-FIN_U + 0.03 + n.ux(0.12), FIN_U - 0.03 - n.ux(0.12)), (FIN_U + 0.03 + n.ux(0.12), HW - 0.06))
+        for face in bkit.FACES:
+            for k, v in enumerate(ROWS):
+                lo = ROWS[k - 1] + band / 2 + n.uy(0.07) if k else PLINTH + 0.085 + n.uy(0.1)
+                hi = v - band / 2 - n.uy(0.16) - n.uy(0.07)
+                for a, b in cells:
+                    n.panel(d, face, HW, a, b, lo, hi, 0.0)
+            for a, b in cells:
+                n.panel(d, face, HW, a, b, ROWS[-1] + band / 2 + n.uy(0.1), TOP - n.uy(0.15), 0.0)
         # The plant room's hatch, a fan and a stack on its lid.
         n.stack(d, px + 0.12, pz + 0.05, deck + ph + 0.01, n.ux(0.13), n.uy(0.7))
         n.fan(d, px - 0.1, pz - 0.04, deck + ph + 0.01, n.ux(0.5))
@@ -69,6 +87,13 @@ def make(near=False):
         for x in (-0.36, -0.22, -0.08):
             n.louvred_box(d, x, -0.32, deck, 0.11, 0.09, n.uy(0.62))
             n.fan(d, x, -0.32, deck + n.uy(0.62), n.ux(0.28))
+        # A tank in the corner, a cable tray from the plant room to the
+        # condensers, an air handler with its duct, and pipes along the edge.
+        n.tank(d, -0.34, 0.34, deck, 0.4, 0.9)
+        n.tray(d, -0.385, -0.22, -0.385, 0.24, deck + n.uy(0.05), 0.4)
+        n.ahu(d, 0.29, 0.15, deck, 0.12, 0.09, n.uy(0.8), fans=2)
+        n.duct(d, 0.09, 0.15, 0.245, 0.15, deck, 0.4, 0.45)
+        n.pipes(d, -0.16, 0.395, 0.42, 0.395, deck)
     return d
 
 

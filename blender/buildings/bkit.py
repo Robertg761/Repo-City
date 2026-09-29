@@ -119,6 +119,8 @@ class Draft:
     def poly(self, pts, role, facing=None):
         """A planar polygon; with `facing`, wound so its normal points that way."""
         pts = [tuple(float(c) for c in p) for p in pts]
+        if self.near:
+            role = self.near.remap.get(role, role)
         if facing is not None:
             n = _cross(_sub(pts[1], pts[0]), _sub(pts[-1], pts[0]))
             if abs(_dot(n, n)) < 1e-18 and len(pts) > 3:
@@ -470,13 +472,21 @@ def bake(obj, scale, distance=1.2, floor=0.55, samples=96):
 
 def build_model(make, scale, meta_extra=None, name="Building", distance=1.2, near=False):
     """Run an archetype script: build the draft, bake, write the sidecar.
-    With `near`, `make(True)` builds the detailed level (`near.py`)."""
+    With `near`, `make(True)` builds the detailed level (`near.py`), baked
+    with more samples and matched to the tone of the lean model's GLB
+    (`tone.py`) so the swap does not flash darker."""
     kit.reset()
     d = make(True) if near else make()
     obj = d.mesh(name)
     print("TRIS", name, d.triangles(), "WINDOWS", len(d.windows))
-    bake(obj, scale, distance=distance, samples=16 if near else 96)
+    bake(obj, scale, distance=distance, samples=64 if near else 96)
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+    if near and len(argv) >= 2:
+        import tone  # noqa: E402
+
+        lean_glb = argv[1].removesuffix("-near") + ".glb"
+        tone.match(obj, lean_glb, "Building", scale)
+        _flatten_glass(obj, lean_glb, scale)
     if len(argv) >= 2 and argv[0].endswith(".py"):
         meta = {"windows": d.windows, "roofPads": d.pads, "maxProps": 0}
         meta.update(meta_extra or {})
@@ -486,6 +496,25 @@ def build_model(make, scale, meta_extra=None, name="Building", distance=1.2, nea
             json.dump(meta, f, indent=1)
         print("META", path)
     return [obj]
+
+
+def _flatten_glass(obj, glb, scale):
+    """Give every glass material of `obj` the lean model's mean occlusion, the
+    same at every corner: the frames round a pane would otherwise shade its
+    corners into triangles across it."""
+    import tone  # noqa: E402
+
+    lean = tone.lean_means(glb, "Building", scale)
+    mesh = obj.data
+    data = mesh.color_attributes["AO"].data
+    for poly in mesh.polygons:
+        name = mesh.materials[poly.material_index].name
+        role = tone._role(name)
+        if role.split(".")[1:2] != ["glass"] or role not in lean:
+            continue
+        v = max(0.0, min(1.0, lean[role][0] / tone._tone(name)))
+        for li in poly.loop_indices:
+            data[li].color = (v, v, v, 1.0)
 
 
 # -- composition helpers ------------------------------------------------------

@@ -153,3 +153,26 @@ export function slivers(draft: MeshDraft, scale: Scale = [1, 1, 1], narrowerThan
     (l) => `${l.height > 0 ? `lip ${l.height.toFixed(4)} high` : `${l.width.toFixed(4)} wide`} at ${l.at.map((c) => c.toFixed(3)).join(",")}`,
   );
 }
+
+/**
+ * The mean colour (AO and tone included, as the renderer multiplies them) of
+ * a draft's faces per surface, weighted by their world area: how bright the
+ * model reads from a distance. `scale` is what the unit box is stretched to.
+ */
+export function toneBySurface(draft: MeshDraft, scale: Scale): Map<number, { area: number; tone: number }> {
+  const out = new Map<number, { area: number; tone: number }>();
+  const at = (i: number): V => [draft.positions[i * 3] * scale[0], draft.positions[i * 3 + 1] * scale[1], draft.positions[i * 3 + 2] * scale[2]];
+  for (let t = 0; t < draft.indices.length; t += 3) {
+    const [a, b, c] = [draft.indices[t], draft.indices[t + 1], draft.indices[t + 2]];
+    const area = Math.hypot(...cross(sub(at(b), at(a)), sub(at(c), at(a)))) / 2;
+    if (area <= 0) continue;
+    const tone = (draft.colors[a * 3] + draft.colors[b * 3] + draft.colors[c * 3]) / 3;
+    const surface = draft.surface?.[a] ?? -1;
+    const acc = out.get(surface) ?? { area: 0, tone: 0 };
+    acc.area += area;
+    acc.tone += area * tone;
+    out.set(surface, acc);
+  }
+  for (const acc of out.values()) acc.tone /= acc.area;
+  return out;
+}

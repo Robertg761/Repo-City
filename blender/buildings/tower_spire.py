@@ -27,6 +27,10 @@ def make(near=False):
     decks = []
     for top, half, bands, mullions in STAGES:
         bkit.curtain(d, y, top, half, half, bands, mullions, 0.28, grade=(y, top), sleeve="wall", lit_every=3)
+        # The lower roofs are a metre or two wide round the stage above: no
+        # balustrade there, only on the last.
+        if near:
+            d.near.balustrade = 0.45 if top == STAGES[-1][0] else 0
         y, _, _ = bkit.crown(d, top, half, half, 0.012, 0.02 + 0.006, 0.012, 0.02, inset=0)
         decks.append(y)
     # The lantern: stone, a glass panel a face, a rib at each corner.
