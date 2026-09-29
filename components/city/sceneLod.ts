@@ -20,12 +20,16 @@
  *
  * The quality tier scales it as it scales the instanced layers (`lod.tsx`):
  * high keeps the distance and the cap, medium draws near scenes from two thirds
- * of the distance and halves the cap, low turns detail off.
+ * of the distance and halves the cap, low turns detail off. Every near model
+ * downloads after the city is drawn (`loadNearModels`); a scene stays lean
+ * until they are all in.
  */
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector3, type Object3D } from "three";
+import { nearModelsLoaded } from "./models/imported";
+import { useNearModels } from "./models/useModels";
 import { useQuality, type QualityTier } from "./quality";
 
 /** Share of a scene's near distance, and of its cap, each tier draws. */
@@ -79,6 +83,11 @@ const REGISTRY = new Map<symbol, Entry>();
  */
 export function useSceneNear(target: RefObject<Object3D | null>, distance: number, cap: number): boolean {
   const { tier } = useQuality();
+  // A scene's near level reads many near models at once (the crane, the site
+  // kit, the vehicles, the walkers...): it waits until every one is in, and
+  // draws the lean scene until then. The hook re-renders it as they land.
+  useNearModels();
+  const loaded = nearModelsLoaded();
   const share = SCENE_NEAR_SHARE[tier];
   const id = useMemo(() => Symbol("scene"), []);
   const [near, setNear] = useState(false);
@@ -113,5 +122,5 @@ export function useSceneNear(target: RefObject<Object3D | null>, distance: numbe
   });
 
   // The tier turning detail off drops it at once, not at the next decision.
-  return most > 0 && near;
+  return most > 0 && near && loaded;
 }

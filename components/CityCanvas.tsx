@@ -38,7 +38,7 @@ import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
 import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
-import { useModelsReady } from "@/components/city/models/useModels";
+import { useLoadNearModels, useModelsReady } from "@/components/city/models/useModels";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -264,7 +264,10 @@ function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   // re-applies this prop whenever the canvas re-renders, so it has to be the
   // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
   // back on twice the pixels each time a new city arrived.
-  const { maxDpr } = useQuality();
+  const { maxDpr, tier } = useQuality();
+  // The detailed near models download once the city is on screen, and not at
+  // all on the low tier, which draws none of them.
+  useLoadNearModels(city !== null, tier !== "low");
 
   return (
     <Canvas

@@ -11,8 +11,8 @@
  * the procedural models rather than leaving an empty stage.
  */
 
-import { useEffect, useState } from "react";
-import { loadModels, modelsLoaded } from "./imported";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { loadModels, loadNearModels, modelsLoaded, nearModelsVersion, subscribeNearModels } from "./imported";
 import { BLENDER_MODELS, PROCEDURAL_PARAM } from "./modelSource";
 
 async function loadWithRetry(): Promise<void> {
@@ -49,4 +49,40 @@ export function useModelsReady(): boolean {
     };
   }, [ready]);
   return ready;
+}
+
+const serverVersion = () => 0;
+
+/**
+ * A number that changes each time a near model lands (`loadNearModels`).
+ * Read it in a component that draws a near level, and put it in the deps of
+ * any memo that builds one: the near accessors return null until their model
+ * is in, and this is what makes the component ask again.
+ */
+export function useNearModels(): number {
+  return useSyncExternalStore(subscribeNearModels, nearModelsVersion, serverVersion);
+}
+
+/** How long after the city is on screen the first near model is fetched. */
+const NEAR_START_DELAY_MS = 1500;
+
+/**
+ * Starts fetching the near levels once the city has been drawn (`shown`), in
+ * the background, one model at a time. Never on the low tier or the procedural
+ * models, which have none (`enabled` false).
+ */
+export function useLoadNearModels(shown: boolean, enabled: boolean): void {
+  useEffect(() => {
+    if (!shown || !enabled || !BLENDER_MODELS) return;
+    // Two frames so the first draw is out, then a pause for the frame-rate
+    // governor and the reveal to settle before any decoding competes with them.
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => void loadNearModels(), NEAR_START_DELAY_MS);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [shown, enabled]);
 }

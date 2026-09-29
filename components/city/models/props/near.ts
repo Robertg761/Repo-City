@@ -18,7 +18,7 @@
 import type { BufferGeometry } from "three";
 import { SURFACE } from "../../textures/surface-types";
 import { desaturate } from "../../palette";
-import { importedParts } from "../imported";
+import { importedParts, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { geometryCache, mergeParts, toneKey } from "./geometry";
 import type { FurnitureKind } from "./streetFurniture";
@@ -60,9 +60,9 @@ const treeBuilder = geometryCache<string>((key) => {
 export const blenderTreeNearGeometry = (species: TreeSpecies, desaturation = 0): BufferGeometry =>
   treeBuilder(`${species}:${toneKey(desaturation)}`);
 
-/** A species' near tree, or null when the procedural models are on. */
+/** A species' near tree, or null under the procedural models or until its model has loaded. */
 export const treeNearGeometry = (species: TreeSpecies, desaturation = 0): BufferGeometry | null =>
-  BLENDER_MODELS ? blenderTreeNearGeometry(species, desaturation) : null;
+  BLENDER_MODELS && isModelLoaded(TREES_NEAR) ? blenderTreeNearGeometry(species, desaturation) : null;
 
 const FURNITURE_NODE: Record<FurnitureKind, { model: typeof FURNITURE_NEAR; node: string }> = {
   bench: { model: FURNITURE_NEAR, node: "BenchNear" },
@@ -84,7 +84,7 @@ export const blenderFurnitureNearGeometry = (kind: FurnitureKind, desaturation =
 
 /** A kind of street furniture's near model, or null under the procedural models. */
 export const furnitureNearGeometry = (kind: FurnitureKind, desaturation = 0): BufferGeometry | null =>
-  BLENDER_MODELS ? blenderFurnitureNearGeometry(kind, desaturation) : null;
+  BLENDER_MODELS && isModelLoaded(FURNITURE_NODE[kind].model) ? blenderFurnitureNearGeometry(kind, desaturation) : null;
 
 interface LampParts {
   pole: BufferGeometry;
@@ -104,7 +104,7 @@ export function blenderLampNearGeometry(): LampParts {
   return (lamp ??= { pole: at("LampPoleNear"), head: at("LampHeadNear") });
 }
 
-export const lampNearGeometry = (): LampParts | null => (BLENDER_MODELS ? blenderLampNearGeometry() : null);
+export const lampNearGeometry = (): LampParts | null => (BLENDER_MODELS && isModelLoaded(FURNITURE_NEAR) ? blenderLampNearGeometry() : null);
 
 let block: BufferGeometry | undefined;
 let tank: BufferGeometry | undefined;
@@ -122,6 +122,6 @@ export const blenderPropTankNearGeometry = (): BufferGeometry =>
 export const blenderBaleNearGeometry = (): BufferGeometry =>
   (bale ??= mergeParts(importedParts(STREET2_NEAR, "BaleNear", (hex) => hex)));
 
-export const propBlockNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS ? blenderPropBlockNearGeometry() : null);
-export const propTankNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS ? blenderPropTankNearGeometry() : null);
-export const baleNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS ? blenderBaleNearGeometry() : null);
+export const propBlockNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS && isModelLoaded(STREET2_NEAR) ? blenderPropBlockNearGeometry() : null);
+export const propTankNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS && isModelLoaded(STREET2_NEAR) ? blenderPropTankNearGeometry() : null);
+export const baleNearGeometry = (): BufferGeometry | null => (BLENDER_MODELS && isModelLoaded(STREET2_NEAR) ? blenderBaleNearGeometry() : null);

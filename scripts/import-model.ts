@@ -209,7 +209,7 @@ export const DATA: ImportedModel = ${JSON.stringify({ materials, nodes, markers,
   const source = `${header}
 import { lazyModel } from "${importPath(output)}";
 
-export const MODEL = lazyModel(${JSON.stringify(key)}, () => import("./${key}.data"));
+export const MODEL = lazyModel(${JSON.stringify(key)}, () => import("./${key}.data")${key.endsWith("Near") ? ", { deferred: true }" : ""});
 `;
   writeFileSync(dataPath, data);
   writeFileSync(output, source);

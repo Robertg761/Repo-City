@@ -75,7 +75,7 @@ import {
 } from "../models/props/geometry";
 import { SCAFFOLD_BAY } from "./constants";
 import { SURFACE, type SurfaceId } from "../textures/surface-types";
-import { importedParts, type ImportedModel } from "../models/imported";
+import { importedParts, isModelLoaded, type ImportedModel } from "../models/imported";
 import { BLENDER_MODELS } from "../models/modelSource";
 import { MODEL as CROWD_MODEL } from "./crowd.model";
 import { MODEL as CROWD_NEAR_MODEL } from "./crowdNear.model";
@@ -1164,12 +1164,12 @@ export const blenderNearFormGeometry = (form: CrowdMesh, desaturation = 0): Buff
 export const blenderNearHoardingPlotGeometry = (w: number, d: number, desaturation = 0): BufferGeometry =>
   nearCache(`hoarding:${toneKey(desaturation)}:${w}:${d}`);
 
-/** What the city draws: null without the Blender models, and the lean forms alone. */
+/** What the city draws: null without the Blender models or before the near kit has loaded, and the lean forms alone. */
 export const nearFormGeometry = (form: CrowdMesh, desaturation = 0): BufferGeometry | null =>
-  BLENDER_MODELS ? blenderNearFormGeometry(form, desaturation) : null;
+  BLENDER_MODELS && isModelLoaded(CROWD_NEAR_MODEL) ? blenderNearFormGeometry(form, desaturation) : null;
 
 export const nearHoardingPlotGeometry = (w: number, d: number, desaturation = 0): BufferGeometry | null =>
-  BLENDER_MODELS ? blenderNearHoardingPlotGeometry(w, d, desaturation) : null;
+  BLENDER_MODELS && isModelLoaded(CROWD_NEAR_MODEL) ? blenderNearHoardingPlotGeometry(w, d, desaturation) : null;
 
 const specs = new Map<CrowdMesh, FormSpec>();
 

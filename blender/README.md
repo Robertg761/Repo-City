@@ -122,6 +122,14 @@ and holds the city back until it lands, retrying once and then reloading on
 the procedural models if it cannot. With `?models=procedural` nothing is
 fetched.
 
+The near levels (`*Near.model.ts`, stubs the importer writes with
+`{ deferred: true }`) are not part of that. `loadModels()` skips them; once the
+city is on screen `loadNearModels()` fetches them one at a time (never on the
+low tier or with `?models=procedural`), and `useNearModels()` returns a number
+that bumps as each lands. A near accessor returns null until its own model is
+in (`isModelLoaded`), so a consumer calls the hook and puts the number in its
+memo deps; `useSceneNear` keeps a scene lean until every near model is in.
+
 So **never read a model while a module is evaluated** (a top-level
 `const X = MODEL.meta`, a geometry built at import): read it inside a function
 or a hook. Tests get every data module handed over by `vitest.setup.ts`; the

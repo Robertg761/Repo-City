@@ -11,7 +11,7 @@
  */
 
 import type { BufferGeometry } from "three";
-import { importedParts } from "../imported";
+import { importedParts, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import type { Part, Triple } from "../props/geometry";
 import { MODEL as NEAR_MODEL } from "./fleetNear.model";
@@ -78,9 +78,11 @@ export const blenderNearParked = (kind: VehicleBody): BufferGeometry =>
   });
 
 // What the city draws: null without the Blender models, and the lean fleet alone.
-export const nearBodyGeometry = (kind: VehicleBody) => (BLENDER_MODELS ? blenderNearBody(kind) : null);
-export const nearWheelGeometry = () => (BLENDER_MODELS ? blenderNearWheel() : null);
-export const nearLightsGeometry = (kind: VehicleBody) => (BLENDER_MODELS ? blenderNearLights(kind) : null);
-export const nearTractorGeometry = () => (BLENDER_MODELS ? blenderNearTractor() : null);
-export const nearTractorLightsGeometry = () => (BLENDER_MODELS ? blenderNearTractorLights() : null);
-export const nearParkedGeometry = (kind: VehicleBody) => (BLENDER_MODELS ? blenderNearParked(kind) : null);
+const ready = (): boolean => isModelLoaded(NEAR_MODEL);
+
+export const nearBodyGeometry = (kind: VehicleBody) => (BLENDER_MODELS && ready() ? blenderNearBody(kind) : null);
+export const nearWheelGeometry = () => (BLENDER_MODELS && ready() ? blenderNearWheel() : null);
+export const nearLightsGeometry = (kind: VehicleBody) => (BLENDER_MODELS && ready() ? blenderNearLights(kind) : null);
+export const nearTractorGeometry = () => (BLENDER_MODELS && ready() ? blenderNearTractor() : null);
+export const nearTractorLightsGeometry = () => (BLENDER_MODELS && ready() ? blenderNearTractorLights() : null);
+export const nearParkedGeometry = (kind: VehicleBody) => (BLENDER_MODELS && ready() ? blenderNearParked(kind) : null);

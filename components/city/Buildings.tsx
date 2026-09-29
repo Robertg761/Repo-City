@@ -28,6 +28,7 @@
  * instanced mesh per model. The city's archetypes draw exactly as before.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
@@ -118,6 +119,7 @@ function ArchetypeInstances({
   group: ArchetypeGroup;
   atmosphere: SceneAtmosphere;
 }) {
+  const nearVersion = useNearModels();
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
@@ -145,7 +147,8 @@ function ArchetypeInstances({
     );
     return own;
   }, [group.model, painted, instances.length]);
-  const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+  const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model, nearVersion]);
   const near = useMemo(() => {
     if (!nearGeometry) return { cap: 0, size: 0 };
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
@@ -537,6 +540,7 @@ export default function Buildings({
   settlement?: SettlementTier;
   roads?: readonly RoadSegment[];
 }) {
+  useNearModels();
   const storedTier = useCityStore((s) => s.city?.settlement?.tier);
   const storedRoads = useCityStore((s) => s.city?.roads);
   const tier = settlement ?? storedTier ?? "city";

@@ -403,6 +403,10 @@ async function main(): Promise<void> {
     const draws = steady.map(([, , d]) => d);
     const reveal = log.longtasks.filter(([start]) => start >= started && start < cityFrame + 8000);
     const tti = interactiveAt(log.longtasks, started, measureFrom);
+    // DUMP_TASKS=1: every long task after the start, as [ms after start, duration], to see what a tbt is made of.
+    if (process.env.DUMP_TASKS) {
+      console.log("   city frame at", Math.round(cityFrame - started), "long tasks:", JSON.stringify(log.longtasks.filter(([t]) => t >= started).map(([t, d]) => [Math.round(t - started), Math.round(d)])));
+    }
 
     const dev = PROD
       ? null

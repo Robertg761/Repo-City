@@ -34,6 +34,7 @@
  * keeps the city's models; its hall is the town hall.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group } from "three";
@@ -133,6 +134,9 @@ const ENGINE_RED = mix(HAZARD_RED, "#e05540", 0.5);
  * buildings, and none of them can be seen swapping.
  */
 function useDetailed(): boolean {
+  // The detailed models arrive after the city is drawn; the near accessors
+  // return null until they do, and this asks again when each lands.
+  useNearModels();
   return useQuality().tier !== "low";
 }
 

@@ -37,6 +37,7 @@
  * crowd object: every open issue stays on the map (PLAN.md 76.13).
  */
 
+import { useNearModels } from "../models/useModels";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
@@ -217,6 +218,7 @@ function FormInstances({
   }, [group, count, atmosphere.desaturation, plot]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
+  const nearVersion = useNearModels();
   const { tier, textureSize, anisotropy } = useQuality();
   const material = useMemo(() => crowdMaterial({}, { textureSize, anisotropy }), [textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
@@ -227,7 +229,8 @@ function FormInstances({
     return plot
       ? nearHoardingPlotGeometry(plot[0], plot[1], atmosphere.desaturation)
       : nearFormGeometry(group.form, atmosphere.desaturation);
-  }, [tier, plot, group.form, atmosphere.desaturation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near kit arriving
+  }, [tier, plot, group.form, atmosphere.desaturation, nearVersion]);
   const large = group.form === "scaffold" || group.form === "hoarding" || group.form === "hoarding-kerb";
   // Every form goes near at the same distance, whatever its size.
   const nearSize = (geometry.boundingSphere?.radius ?? 1) / NEAR_DISTANCE;

@@ -5,4 +5,4 @@
 
 import { lazyModel } from "../imported";
 
-export const MODEL = lazyModel("civicKitNear", () => import("./civicKitNear.data"));
+export const MODEL = lazyModel("civicKitNear", () => import("./civicKitNear.data"), { deferred: true });

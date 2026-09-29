@@ -1,7 +1,7 @@
 import { BoxGeometry, CapsuleGeometry, SphereGeometry, type BufferGeometry } from "three";
 import { mergeParts, surfacePanel, type Part, type Triple } from "./geometry";
 import { SURFACE } from "../../textures/surface-types";
-import { importedParts } from "../imported";
+import { importedParts, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { detailLevel } from "../detailLevel";
 import { MODEL as WALKER } from "./walker.model";
@@ -104,15 +104,15 @@ let headNear: BufferGeometry | undefined;
  * The close-up figure (`blender/props/walker_near.py`): jacket layers,
  * backpack, hands with fingers, shoes with soles. Same frames and colour roles
  * as the lean body, so the crowd's matrices and tints apply unchanged. Null
- * on the procedural models, which have no near level.
+ * on the procedural models, which have no near level, and until the model has loaded.
  */
 export function walkerBodyNearGeometry(): BufferGeometry | null {
-  if (!BLENDER_MODELS) return null;
+  if (!BLENDER_MODELS || !isModelLoaded(WALKER_NEAR)) return null;
   return bodyNear ??= mergeParts(blenderWalkerBodyNearParts());
 }
 
 /** The close-up head, neck and hair; skin is the paint, as on the lean head. */
 export function walkerHeadNearGeometry(): BufferGeometry | null {
-  if (!BLENDER_MODELS) return null;
+  if (!BLENDER_MODELS || !isModelLoaded(WALKER_NEAR)) return null;
   return headNear ??= mergeParts(blenderWalkerHeadNearParts());
 }

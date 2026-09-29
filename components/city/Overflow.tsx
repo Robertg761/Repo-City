@@ -18,6 +18,7 @@
  * The sign and every car in the queue select the one entity, `"overflow"`.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
@@ -273,6 +274,7 @@ function QueueBody({
   appearAt: number;
   handlers: ReturnType<typeof useEntityHandlers>;
 }) {
+  useNearModels();
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);

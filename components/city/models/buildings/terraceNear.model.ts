@@ -5,4 +5,4 @@
 
 import { lazyModel } from "../imported";
 
-export const MODEL = lazyModel("terraceNear", () => import("./terraceNear.data"));
+export const MODEL = lazyModel("terraceNear", () => import("./terraceNear.data"), { deferred: true });

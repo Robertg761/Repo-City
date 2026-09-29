@@ -1,6 +1,6 @@
 import { BufferGeometry, Float32BufferAttribute } from "three";
 import { SURFACE } from "../../../textures/surface-types";
-import { importedDraft, type ImportedModel } from "../../imported";
+import { importedDraft, isModelLoaded, type ImportedModel } from "../../imported";
 import { BLENDER_MODELS } from "../../modelSource";
 import type { ModelKey } from "../archetypes";
 import { surfaceColor, type MeshDraft, type Rgb3 } from "../mesh";
@@ -71,6 +71,23 @@ export const BLENDER_NEAR_LOWRISE: Partial<Record<ModelKey, () => MeshDraft>> = 
   "apartment-low/retail": () => importedSettlementDraft(APARTMENT_NEAR, "ApartmentLowRetailNear"),
 };
 
+/** The near model each archetype's draft reads, to know when it has loaded. */
+const NEAR_MODEL: Partial<Record<ModelKey, ImportedModel>> = {
+  house: HOUSE_NEAR,
+  "lowrise-parapet": PARAPET_NEAR,
+  "lowrise-pitched": PITCHED_NEAR,
+  "warehouse-sawtooth": WAREHOUSE_NEAR,
+  cottage: COTTAGE_NEAR,
+  "cottage/tile": COTTAGE_NEAR,
+  farmhouse: FARMHOUSE_NEAR,
+  barn: BARN_NEAR,
+  shopfront: SHOPFRONT_NEAR,
+  "shopfront/tall": SHOPFRONT_NEAR,
+  terrace: TERRACE_NEAR,
+  "apartment-low": APARTMENT_NEAR,
+  "apartment-low/retail": APARTMENT_NEAR,
+};
+
 const CACHE = new Map<ModelKey, BufferGeometry>();
 
 /** Built once per model per page, then shared by every instance of it. */
@@ -83,10 +100,10 @@ function cached(id: ModelKey, draft: () => MeshDraft): BufferGeometry {
   return geometry;
 }
 
-/** What the city draws: null without the Blender models, and the lean model alone. */
+/** What the city draws: null without the Blender models or before the near model has loaded, and the lean model alone. */
 export const NEAR_LOWRISE: Partial<Record<ModelKey, () => BufferGeometry | null>> = Object.fromEntries(
   Object.entries(BLENDER_NEAR_LOWRISE).map(([id, draft]) => [
     id,
-    () => (BLENDER_MODELS ? cached(id as ModelKey, draft) : null),
+    () => (BLENDER_MODELS && isModelLoaded(NEAR_MODEL[id as ModelKey] as ImportedModel) ? cached(id as ModelKey, draft) : null),
   ]),
 );

@@ -19,7 +19,7 @@
  * with `loadModels()` (`../imported.ts`).
  */
 
-import { importedMarker, importedMarkers } from "../imported";
+import { importedMarker, importedMarkers, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { cached, type V3 } from "./assembly";
 import { blenderSlots } from "./blenderSlots";
@@ -143,29 +143,29 @@ export function blenderSubstationNear(): SubstationLayout {
 // What the city draws: null without the Blender models, and the lean model alone.
 // ---------------------------------------------------------------------------
 
-export const townHallNear = (): CivicLayout | null => (BLENDER_MODELS ? cached("civic-near", blenderTownHallNear) : null);
+export const townHallNear = (): CivicLayout | null => (BLENDER_MODELS && isModelLoaded(TOWN_HALL_NEAR, TOWN_HALL) ? cached("civic-near", blenderTownHallNear) : null);
 
 export const fireStationNear = (level: number): FireLayout | null =>
-  BLENDER_MODELS ? cached(`fire-near:${clampLevel(level)}`, () => blenderFireNear(level)) : null;
+  BLENDER_MODELS && isModelLoaded(FIRE_STATION_NEAR) ? cached(`fire-near:${clampLevel(level)}`, () => blenderFireNear(level)) : null;
 
 export const infoCentreNear = (level: number): InfoLayout | null =>
-  BLENDER_MODELS ? cached(`info-near:${clampLevel(level)}`, () => blenderInfoNear(level)) : null;
+  BLENDER_MODELS && isModelLoaded(INFO_CENTRE_NEAR, INFO_CENTRE) ? cached(`info-near:${clampLevel(level)}`, () => blenderInfoNear(level)) : null;
 
-export const powerPlantNear = (mode: PowerMode) => (BLENDER_MODELS ? cached(`power-near:${mode}`, () => blenderPowerNear(mode)) : null);
+export const powerPlantNear = (mode: PowerMode) => (BLENDER_MODELS && isModelLoaded(POWER_STATION_NEAR) ? cached(`power-near:${mode}`, () => blenderPowerNear(mode)) : null);
 
 export const transitStationNear = (level: number): StationLayout | null =>
-  BLENDER_MODELS ? cached(`station-near:${clampLevel(level)}`, () => blenderStationNear(level)) : null;
+  BLENDER_MODELS && isModelLoaded(TRANSIT_STATION_NEAR, TRANSIT_STATION) ? cached(`station-near:${clampLevel(level)}`, () => blenderStationNear(level)) : null;
 
 export const trainCarsNear = (pantograph: Pantograph = "raised") =>
-  BLENDER_MODELS ? cached(`train-near:${pantograph}`, () => blenderTrainNear(pantograph)) : null;
+  BLENDER_MODELS && isModelLoaded(TRANSIT_TRAIN_NEAR) ? cached(`train-near:${pantograph}`, () => blenderTrainNear(pantograph)) : null;
 
-export const chapelNear = (): ChapelLayout | null => (BLENDER_MODELS ? cached("chapel-near", blenderChapelNear) : null);
+export const chapelNear = (): ChapelLayout | null => (BLENDER_MODELS && isModelLoaded(VILLAGE_CHAPEL_NEAR, VILLAGE_CHAPEL) ? cached("chapel-near", blenderChapelNear) : null);
 
 export const villageFireStationNear = (level: number): VillageFireLayout | null =>
-  BLENDER_MODELS ? cached(`village-fire-near:${villageLevel(level)}`, () => blenderVillageFireNear(level)) : null;
+  BLENDER_MODELS && isModelLoaded(VILLAGE_FIRE_NEAR, VILLAGE_FIRE) ? cached(`village-fire-near:${villageLevel(level)}`, () => blenderVillageFireNear(level)) : null;
 
 export const haltNear = (level: number): HaltLayout | null =>
-  BLENDER_MODELS ? cached(`halt-near:${villageLevel(level)}`, () => blenderHaltNear(level)) : null;
+  BLENDER_MODELS && isModelLoaded(VILLAGE_HALT_NEAR, VILLAGE_HALT) ? cached(`halt-near:${villageLevel(level)}`, () => blenderHaltNear(level)) : null;
 
 export const substationNear = (): SubstationLayout | null =>
-  BLENDER_MODELS ? cached("substation-near", blenderSubstationNear) : null;
+  BLENDER_MODELS && isModelLoaded(VILLAGE_SUBSTATION_NEAR, VILLAGE_SUBSTATION) ? cached("substation-near", blenderSubstationNear) : null;

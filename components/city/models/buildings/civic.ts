@@ -35,7 +35,7 @@ import {
   type Rgb3,
 } from "./mesh";
 import { SURFACE } from "../../textures/surface-types";
-import { importedDraft } from "../imported";
+import { importedDraft, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CIVIC_KIT } from "./civicKit.model";
 import { MODEL as CIVIC_KIT_NEAR } from "./civicKitNear.model";
@@ -107,6 +107,9 @@ interface KitMeta {
 const kit = (): KitMeta => CIVIC_KIT.meta as KitMeta;
 
 /** The palette a build is authored in, and whether it builds from the kit. */
+/** Whether the near kit has loaded: `buildCivic(..., { near: true })` reads it. */
+export const civicNearReady = (): boolean => isModelLoaded(CIVIC_KIT_NEAR);
+
 type Authored = CivicPalette & { kit?: boolean; near?: boolean };
 
 type KitPart =

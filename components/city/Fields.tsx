@@ -14,6 +14,7 @@
  * rather than scaling in from the middle of the village.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, Object3D, type Group, type InstancedMesh, type BufferGeometry, type Material } from "three";
@@ -148,6 +149,7 @@ export default function Fields({
   city: CityModel;
   atmosphere: SceneAtmosphere;
 }) {
+  useNearModels();
   const fields = city.props.fields;
   const plan = useMemo(() => planFarmland(fields ?? []), [fields]);
   const desaturation = atmosphere.desaturation;

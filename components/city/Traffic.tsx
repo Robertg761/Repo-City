@@ -30,6 +30,7 @@
  * Traffic starts once the reveal has finished: it is step 8 of section 43.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, MeshBasicMaterial, Object3D, Vector3, type InstancedMesh, type ShaderMaterial } from "three";
@@ -112,6 +113,8 @@ export default function Traffic({
   atmosphere: SceneAtmosphere;
 }) {
   const clock = useRevealClock();
+  // Rebuilds the near levels as their models land (`useNearModels`).
+  useNearModels();
 
   const { traffic, cars, looks, groups } = useMemo(() => {
     const fleet = cityFleet(city);

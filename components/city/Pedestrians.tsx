@@ -24,6 +24,7 @@
  * never the one that has to be taken.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Color, Object3D, type InstancedMesh } from "three";
@@ -87,6 +88,7 @@ export default function Pedestrians({
   startAt: number;
   atmosphere: SceneAtmosphere;
 }) {
+  useNearModels();
   const bodyRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
   const nearSelection = useRef<number[]>([]);

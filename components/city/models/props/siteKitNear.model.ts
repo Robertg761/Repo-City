@@ -5,4 +5,4 @@
 
 import { lazyModel } from "../imported";
 
-export const MODEL = lazyModel("siteKitNear", () => import("./siteKitNear.data"));
+export const MODEL = lazyModel("siteKitNear", () => import("./siteKitNear.data"), { deferred: true });

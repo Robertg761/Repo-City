@@ -10,7 +10,7 @@ import { MODEL as TOWER_TWIN_NEAR } from "../buildingTowerTwinNear.model";
 import { toGeometry } from "../geometry";
 import { towerRole } from "../metropolis";
 import { blenderRole } from "../models";
-import { importedDraft, type ImportedModel } from "../../imported";
+import { importedDraft, isModelLoaded, type ImportedModel } from "../../imported";
 import { BLENDER_MODELS } from "../../modelSource";
 import type { Rgb3 } from "../mesh";
 
@@ -22,11 +22,12 @@ const CACHE = new Map<ModelKey, BufferGeometry>();
  * detailer, so it stands on the lean footprint and holds its glazing in the
  * lean model's window rectangles. Painted with the lean model's own role
  * multipliers, built once per page, and null when the Blender models are off
- * (the procedural buildings have no near level).
+ * (the procedural buildings have no near level) or the near model has not
+ * loaded yet.
  */
 function near(id: ModelKey, model: ImportedModel, roles: (role: string) => Rgb3): () => BufferGeometry | null {
   return () => {
-    if (!BLENDER_MODELS) return null;
+    if (!BLENDER_MODELS || !isModelLoaded(model)) return null;
     let geometry = CACHE.get(id);
     if (!geometry) {
       geometry = toGeometry(importedDraft(model, "Building", (mat) => ({ color: roles(mat.role) })));

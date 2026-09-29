@@ -18,6 +18,7 @@
  * Props are never selectable: they have no meaning to explain.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BoxGeometry, Color, CylinderGeometry, MeshStandardMaterial, Object3D, type InstancedMesh } from "three";
@@ -144,6 +145,7 @@ export default function Props({
   city: CityModel;
   atmosphere: SceneAtmosphere;
 }) {
+  const nearVersion = useNearModels();
   const treeRefs = useRef<(InstancedMesh | null)[]>([]);
   const poleRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
@@ -156,7 +158,8 @@ export default function Props({
   // the primitives below. Built on render, not at import: the model's data
   // arrives after the module loads.
   const modelledLamp = useMemo(() => lampGeometry(), []);
-  const nearLamp = useMemo(() => lampNearGeometry(), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+  const nearLamp = useMemo(() => lampNearGeometry(), [nearVersion]);
   // Both stand on the ground under the lamp, so one matrix places both and
   // they go near together; the procedural primitives are lifted to match.
   const lampPole = useMemo(
