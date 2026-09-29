@@ -32,7 +32,7 @@ def partition(rng, total, lo, hi):
 
 
 # ---------------------------------------------------------------------------
-# Plaster: trowel passes, sand grain, pinholes, hairline cracks, flaked patches
+# Plaster: sand-float grain, faint float arcs, sand grain, pinholes, hairline cracks, flaked patches
 # ---------------------------------------------------------------------------
 
 @layer
@@ -48,8 +48,12 @@ def plaster():
         broad = pnoise(X, Y, W, W, 301, octaves=3, f0=3)
         grain = pnoise(X, Y, W, W, 302, octaves=2, f0=320, gain=0.9)
         mid = pnoise(X, Y, W, W, 303, octaves=2, f0=40, gain=0.7)
-        z = z0 + 0.0011 * broad + 0.00035 * grain + 0.0004 * mid
-        tone = 0.965 + 0.012 * broad + 0.008 * grain
+        # Faint horizontal float arcs: small, low, no edges.
+        float_a = pnoise(X, Y, W, W, 304, octaves=2, f0=8, gain=0.5, stretch=(0.4, 1.6))
+        float_b = pnoise(X, Y, W, W, 305, octaves=2, f0=14, gain=0.5, stretch=(0.35, 1.5))
+        arcs = 0.65 * float_a + 0.35 * float_b
+        z = z0 + 0.0004 * broad + 0.00045 * grain + 0.00025 * mid + 0.00018 * arcs
+        tone = 0.965 + 0.006 * broad + 0.008 * grain + 0.0035 * arcs
         rough = np.full(X.shape, 0.90, np.float32) + 0.03 * grain
         # Pinholes: shallow bubbles that burst in the render.
         lx, ly, r, (sx, sy) = cells(X, Y, 0.045, W, W, 33)
@@ -81,22 +85,6 @@ def plaster():
         return z, tone, rough, 0.0
 
     t.base(base)
-    # Trowel passes: overlapping, feathered crescents whose rims catch light.
-    for k in range(46):
-        cx, cy = rng.uniform(0, W), rng.uniform(0, W)
-        ang = rng.normal(0.35, 0.6)
-        lx, ly = rng.uniform(0.35, 0.8), rng.uniform(0.10, 0.20)
-        dh = rng.normal(0, 0.00035)
-        dt = rng.normal(0, 0.004)
-
-        def fn(U, V, dh=dh, dt=dt, lx=lx, ly=ly):
-            r2 = (U / (lx / 2)) ** 2 + (V / (ly / 2)) ** 2
-            inside = r2 < 1
-            rim = sstep(0.55, 0.98, r2) * (1 - sstep(0.98, 1.0, r2))
-            z = z0 + 0.0004 + 0.35 * dh + 0.00005 * rim - 0.0001 * (1 - r2)
-            return np.where(inside, z, np.nan), 0.965 + dt, 0.9, 0.0
-
-        t.oriented(cx, cy, ang, lx, ly, fn)
     return t, {"finish": {"ao_strength": 0.6}, "tone_range": (0.80, 0.995)}
 
 
