@@ -186,7 +186,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
     maxNear,
     nearSize = 0.06,
     instancedAttributes = [],
-    selection,
+    selection: selectionRef,
     follow = false,
     handlers,
     raycast,
@@ -237,7 +237,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
     const far = farRef.current;
     const nearMesh = nearRef.current;
     if (!far) return;
-    const hidden = farGeometry.getAttribute(LOD_HIDDEN_ATTRIBUTE) as InstancedBufferAttribute;
+    const hidden = far.geometry.getAttribute(LOD_HIDDEN_ATTRIBUTE) as InstancedBufferAttribute;
     if (!nearMesh || !nearShared || cap === 0) {
       if (near.current.length) {
         for (const i of near.current) hidden.setX(i, 0);
@@ -247,11 +247,11 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       return;
     }
 
-    if (follow && selection) {
-      if (selection.current !== near.current) {
-        swapHidden(hidden, near.current, selection.current);
+    if (follow && selectionRef) {
+      if (selectionRef.current !== near.current) {
+        swapHidden(hidden, near.current, selectionRef.current);
         hidden.needsUpdate = true;
-        near.current = selection.current;
+        near.current = selectionRef.current;
       }
     } else if (frame.current++ % SELECT_EVERY === 0) {
       camera.getWorldPosition(cameraAt);
@@ -261,7 +261,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       swapHidden(hidden, near.current, chosen);
       hidden.needsUpdate = true;
       near.current = chosen;
-      if (selection) selection.current = chosen;
+      if (selectionRef) selectionRef.current = chosen;
     }
 
     // Copy every frame: moving layers rewrite their far matrices each frame.
