@@ -33,6 +33,12 @@ import { MODEL as FIRE_ENGINE } from "./fireEngine.model";
 import { MODEL as POLICE_CAR } from "./policeCar.model";
 import { MODEL as TOW_TRUCK } from "./towTruck.model";
 import { MODEL as WORKS_TRUCK } from "./worksTruck.model";
+import { MODEL as AMBULANCE_NEAR } from "./ambulanceNear.model";
+import { MODEL as FIRE_ENGINE_NEAR } from "./fireEngineNear.model";
+import { MODEL as POLICE_CAR_NEAR } from "./policeCarNear.model";
+import { MODEL as TOW_TRUCK_NEAR } from "./towTruckNear.model";
+import { MODEL as WORKS_TRUCK_NEAR } from "./worksTruckNear.model";
+import { levelKey, modelFor } from "../detailLevel";
 import {
   BODY_SPECS,
   PANEL_SHADE,
@@ -172,12 +178,14 @@ function strut(from: Triple, to: Triple, thickness: [number, number], color: str
  * part stood on the pivot and turned by `ladderYaw`, as the procedural one is.
  */
 export function blenderFireParts(shade: (hex: string) => string, ladderYaw: number): Part[] {
+  const truck = modelFor(FIRE_ENGINE, FIRE_ENGINE_NEAR, "FireEngine");
+  const ladder = modelFor(FIRE_ENGINE, FIRE_ENGINE_NEAR, "Ladder");
   return [
-    ...importedParts(FIRE_ENGINE, "FireEngine", shade),
+    ...importedParts(truck, "FireEngine", shade),
     {
-      geometry: mergeParts(importedParts(FIRE_ENGINE, "Ladder", shade)),
+      geometry: mergeParts(importedParts(ladder, "Ladder", shade)),
       color: "#ffffff",
-      position: importedOrigin(FIRE_ENGINE, "Ladder"),
+      position: importedOrigin(ladder, "Ladder"),
       rotation: [0, ladderYaw, 0],
     },
   ];
@@ -186,11 +194,11 @@ export function blenderFireParts(shade: (hex: string) => string, ladderYaw: numb
 /** The incident vehicles modelled in Blender (`blender/incidents/*.py`). */
 type BlenderVehicle = Exclude<EmergencyKind, "fire">;
 
-const BLENDER_VEHICLES: Record<BlenderVehicle, { model: ImportedModel; node: string }> = {
-  police: { model: POLICE_CAR, node: "PoliceCar" },
-  ambulance: { model: AMBULANCE, node: "Ambulance" },
-  tow: { model: TOW_TRUCK, node: "TowTruck" },
-  works: { model: WORKS_TRUCK, node: "WorksTruck" },
+const BLENDER_VEHICLES: Record<BlenderVehicle, { model: ImportedModel; near: ImportedModel; node: string }> = {
+  police: { model: POLICE_CAR, near: POLICE_CAR_NEAR, node: "PoliceCar" },
+  ambulance: { model: AMBULANCE, near: AMBULANCE_NEAR, node: "Ambulance" },
+  tow: { model: TOW_TRUCK, near: TOW_TRUCK_NEAR, node: "TowTruck" },
+  works: { model: WORKS_TRUCK, near: WORKS_TRUCK_NEAR, node: "WorksTruck" },
 };
 
 /**
@@ -198,8 +206,8 @@ const BLENDER_VEHICLES: Record<BlenderVehicle, { model: ImportedModel; node: str
  * footprint as the procedural one it stands in for.
  */
 export function blenderVehicleParts(kind: BlenderVehicle, shade: (hex: string) => string): Part[] {
-  const { model, node } = BLENDER_VEHICLES[kind];
-  return importedParts(model, node, shade);
+  const { model, near, node } = BLENDER_VEHICLES[kind];
+  return importedParts(modelFor(model, near, node), node, shade);
 }
 
 /**
@@ -490,13 +498,16 @@ function markerLights(): Record<EmergencyKind, EmergencyLight[]> {
 }
 
 const builder = geometryCache<string>((key) => {
-  const [kind, tone] = key.split(":");
+  const [, kind, tone] = key.split(":");
   return mergeParts(partsFor(kind as EmergencyKind, Number(tone)));
 });
 
-/** The merged geometry for one emergency vehicle at the city's tone. */
+/**
+ * The merged geometry for one emergency vehicle at the city's tone. Built at
+ * the current level of detail (`detailLevel.ts`); the caches keep them apart.
+ */
 export function emergencyGeometry(kind: EmergencyKind, desaturation: number): BufferGeometry {
-  return builder(`${kind}:${toneKey(desaturation)}`);
+  return builder(levelKey(`${kind}:${toneKey(desaturation)}`));
 }
 
 /**

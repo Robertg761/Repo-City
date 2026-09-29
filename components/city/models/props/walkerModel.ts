@@ -3,6 +3,7 @@ import { mergeParts, surfacePanel, type Part, type Triple } from "./geometry";
 import { SURFACE } from "../../textures/surface-types";
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
+import { detailLevel } from "../detailLevel";
 import { MODEL as WALKER } from "./walker.model";
 import { MODEL as WALKER_NEAR } from "./walkerNear.model";
 
@@ -17,12 +18,18 @@ const MODEL_HAIR = "#4a3830";
  * procedural body (origin at the crowd's chest height).
  */
 export function blenderWalkerBodyParts(clothes = "#ffffff", skin = "#c99f7d"): Part[] {
-  return importedParts(WALKER, "WalkerBody", (hex) => (hex === MODEL_PAINT ? clothes : hex === MODEL_SKIN ? skin : hex));
+  // Built at the near level (a scene's crew, `figures.ts`), the close-up figure
+  // in the same frame and roles.
+  const near = detailLevel() === "near";
+  return importedParts(near ? WALKER_NEAR : WALKER, near ? "WalkerBodyNear" : "WalkerBody", (hex) =>
+    hex === MODEL_PAINT ? clothes : hex === MODEL_SKIN ? skin : hex,
+  );
 }
 
 /** The Blender head, its skin the paint; `hair: false` leaves the hair off for a helmet. */
 export function blenderWalkerHeadParts(skin = "#ffffff", { hair = true } = {}): Part[] {
-  return importedParts(WALKER, "WalkerHead", (hex) => (hex === MODEL_PAINT ? skin : hex))
+  const near = detailLevel() === "near";
+  return importedParts(near ? WALKER_NEAR : WALKER, near ? "WalkerHeadNear" : "WalkerHead", (hex) => (hex === MODEL_PAINT ? skin : hex))
     .filter((part) => hair || part.color !== MODEL_HAIR);
 }
 

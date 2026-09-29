@@ -36,7 +36,10 @@ import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Tripl
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CRANE } from "./crane.model";
+import { MODEL as CRANE_NEAR } from "./craneNear.model";
 import { MODEL as SITE_PROPS } from "./constructionProps.model";
+import { MODEL as SITE_PROPS_NEAR } from "./constructionPropsNear.model";
+import { atLevel, detailLevel, modelFor, type DetailLevel } from "../detailLevel";
 import { KIT_COLORS, completedYard, fallenHoarding, fenceParts, leaningSign, scaffoldParts } from "./siteKit";
 import { weedParts } from "./incidentKit";
 
@@ -112,7 +115,7 @@ function fence(color: string, rail: string): Part[] {
  */
 function siteProp(node: string, paint: (hex: string) => string, at: Triple, rotationY = 0): Part {
   return {
-    geometry: mergeParts(importedParts(SITE_PROPS, node, paint)),
+    geometry: mergeParts(importedParts(modelFor(SITE_PROPS, SITE_PROPS_NEAR, node), node, paint)),
     color: "#ffffff",
     position: at,
     rotation: [0, rotationY, 0],
@@ -418,7 +421,8 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
   const paint = sitePaint(state, tone);
 
   if (state === "abandoned") {
-    parts.push(...weeds(weathered(mix(TREE_LEAF, "#9aa36a", 0.45)), 14, 4.2));
+    // Twice the tufts when close enough to count them.
+    parts.push(...weeds(weathered(mix(TREE_LEAF, "#9aa36a", 0.45)), detailLevel() === "near" ? 28 : 14, 4.2));
     parts.push(
       ...(BLENDER_MODELS
         ? [siteProp("Materials", paint, [-SITE * 0.3, 0, SITE * 0.3])]
@@ -489,6 +493,16 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
       siteProp("Mixer", paint, [SITE * 0.32, 0, -SITE * 0.1], busy ? 0.4 : 1.2),
     );
     if (busy) parts.push(siteProp("Excavator", paint, [-SITE * 0.32, 0, -SITE * 0.02], 2.2));
+    if (detailLevel() === "near") {
+      // What only a close camera notices, in the ground the site leaves free
+      // behind the shell and in front of the scaffold: a pallet of bricks, a
+      // skip and a portable toilet.
+      parts.push(
+        siteProp("BrickPallet", paint, [SITE * 0.09, 0, -SITE * 0.36], 0.35),
+        siteProp("Skip", paint, [SITE * 0.3, 0, -SITE * 0.33], -0.2),
+      );
+      if (busy) parts.push(siteProp("Portaloo", paint, [-SITE * 0.04, 0, SITE * 0.44], 0.3));
+    }
   } else {
     parts.push(...materials([-SITE * 0.3, 0, SITE * 0.32], shade(TIMBER), shade(STEEL), shade("#c2b08a")));
     parts.push(...hut([SITE * 0.3, 0, SITE * 0.34], -0.4, shade("#8fa3a8"), shade("#5f6a6d")));
@@ -523,8 +537,10 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
 }
 
 const builder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  return mergeParts(partsFor(state as ConstructionState, Number(tone)).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
+  const [level, state, tone] = key.split(":");
+  return atLevel(level as DetailLevel, () =>
+    mergeParts(partsFor(state as ConstructionState, Number(tone)).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal }))),
+  );
 });
 
 /** The crane's mast colour: rusted on a site nobody has visited for months. */
@@ -550,12 +566,12 @@ function cranePaint(state: ConstructionState, tone: number): (hex: string) => st
 
 /** The Blender crane's tower, or its jib in the jib's turning frame. */
 export function blenderCraneGeometry(piece: "CraneMast" | "CraneJib", state: ConstructionState, tone: number): BufferGeometry {
-  return mergeParts(importedParts(CRANE, piece, cranePaint(state, tone)));
+  return mergeParts(importedParts(modelFor(CRANE, CRANE_NEAR, piece), piece, cranePaint(state, tone)));
 }
 
 const mastBuilder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  if (BLENDER_MODELS) return blenderCraneGeometry("CraneMast", state as ConstructionState, Number(tone));
+  const [level, state, tone] = key.split(":");
+  if (BLENDER_MODELS) return atLevel(level as DetailLevel, () => blenderCraneGeometry("CraneMast", state as ConstructionState, Number(tone)));
   const mast = mastColor(state as ConstructionState, Number(tone));
   return mergeDecorParts([
     {
@@ -576,8 +592,8 @@ const mastBuilder = geometryCache<string>((key) => {
 });
 
 const jibBuilder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  if (BLENDER_MODELS) return blenderCraneGeometry("CraneJib", state as ConstructionState, Number(tone));
+  const [level, state, tone] = key.split(":");
+  if (BLENDER_MODELS) return atLevel(level as DetailLevel, () => blenderCraneGeometry("CraneJib", state as ConstructionState, Number(tone)));
   const mast = mastColor(state as ConstructionState, Number(tone));
   const hook = desaturate(state === "abandoned" ? RUST : WARNING_ORANGE, Number(tone));
   return mergeDecorParts([
@@ -595,17 +611,25 @@ const jibBuilder = geometryCache<string>((key) => {
   ]);
 });
 
-/** The crane's tower, and its jib in the jib's own turning frame. */
-export const craneMastGeometry = (state: ConstructionState, desaturation: number) =>
-  mastBuilder(`${state}:${toneKey(desaturation)}`);
+/**
+ * The crane's tower, and its jib in the jib's own turning frame, at a level of
+ * detail (`detailLevel.ts`): "near" is the crane of `blender/scenes_near/`.
+ */
+export const craneMastGeometry = (state: ConstructionState, desaturation: number, level: DetailLevel = "lean") =>
+  mastBuilder(`${level}:${state}:${toneKey(desaturation)}`);
 
-export const craneJibGeometry = (state: ConstructionState, desaturation: number) =>
-  jibBuilder(`${state}:${toneKey(desaturation)}`);
+export const craneJibGeometry = (state: ConstructionState, desaturation: number, level: DetailLevel = "lean") =>
+  jibBuilder(`${level}:${state}:${toneKey(desaturation)}`);
 
-/** The merged site dressing for one state at the city's tone. */
+/**
+ * The merged site dressing for one state at the city's tone, at a level of
+ * detail. The near level has no procedural counterpart: without the Blender
+ * models it is the lean one.
+ */
 export function constructionDecor(
   state: ConstructionState,
   desaturation: number,
+  level: DetailLevel = "lean",
 ): BufferGeometry {
-  return builder(`${state}:${toneKey(desaturation)}`);
+  return builder(`${BLENDER_MODELS ? level : "lean"}:${state}:${toneKey(desaturation)}`);
 }

@@ -10,12 +10,14 @@
  * The model is only read inside functions (never while a module is evaluated).
  */
 
-import { BufferGeometry } from "three";
+import { BufferGeometry, Euler, Quaternion } from "three";
 import { desaturate, mix } from "../../palette";
 import { importedParts } from "../imported";
 import { mergeParts, type Part, type Triple } from "./geometry";
 import { frame, moved } from "./siteKit";
 import { MODEL as KIT } from "./incidentKit.model";
+import { MODEL as KIT_NEAR } from "./incidentKitNear.model";
+import { modelFor } from "../detailLevel";
 
 /** Just above the dark patch the incident draws on the tarmac. */
 export const DECAL_Y = 0.135;
@@ -25,7 +27,7 @@ const WEED = "#7fa46a";
 const WEED_DRY = "#b3aa6c";
 const DEBRIS = "#8c8880";
 
-const node = (name: string, paint: (hex: string) => string): Part[] => importedParts(KIT, name, paint);
+const node = (name: string, paint: (hex: string) => string): Part[] => importedParts(modelFor(KIT, KIT_NEAR, name), name, paint);
 
 /** A tuft the scene wants: where, how tall its procedural cone was, and how it is turned. */
 export interface Weed {
@@ -145,4 +147,67 @@ export function beaconMastGeometry(height: number): BufferGeometry {
   }
   parts.push(...node("BeaconHead", (hex) => hex).map((part) => ({ ...part, position: [0, height, 0] as Triple })));
   return mergeParts(parts);
+}
+
+/**
+ * A run of flat-laid fire hose from `from` to `to` on the tarmac, laid from
+ * whole 2 m lengths with a brass coupling at each joint and the last one
+ * stretched or squeezed a little to arrive: near level only.
+ */
+export function hoseParts(from: [number, number], to: [number, number], shade: (hex: string) => string): Part[] {
+  const dx = to[0] - from[0];
+  const dz = to[1] - from[1];
+  const length = Math.hypot(dx, dz);
+  const heading = Math.atan2(dx, dz);
+  const pieces = Math.max(1, Math.round(length / HOSE_LENGTH));
+  const parts: Part[] = [];
+  for (let i = 0; i < pieces; i++) {
+    const t = (i + 0.5) / pieces;
+    parts.push(
+      ...node("HoseLine", shade).map((part) => ({
+        ...part,
+        position: [from[0] + dx * t, DECAL_Y - 0.03, from[1] + dz * t] as Triple,
+        rotation: [0, heading, 0] as Triple,
+        scale: [1, 1, length / pieces / HOSE_LENGTH] as Triple,
+      })),
+    );
+  }
+  return parts;
+}
+
+/** The length of one piece of hose. */
+export const HOSE_LENGTH = 2;
+
+/** A hose flaked in a coil on the road at `x, z`, turned `turn`. */
+export function hoseCoilParts(x: number, z: number, turn: number, shade: (hex: string) => string): Part[] {
+  return node("HoseCoil", shade).map((part) => ({ ...part, position: [x, DECAL_Y - 0.03, z] as Triple, rotation: [0, turn, 0] as Triple }));
+}
+
+/**
+ * Hazard tape strung between two points `from` and `to` (`[x, y, z]`), at their
+ * heights: the node is a metre long and sags, so it is turned about y to the
+ * run, pitched to the slope, and stretched along its length. Near level only.
+ */
+export function tapeParts(from: Triple, to: Triple, shade: (hex: string) => string): Part[] {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const dz = to[2] - from[2];
+  const run = Math.hypot(dx, dz);
+  const heading = Math.atan2(-dz, dx);
+  const pitch = Math.atan2(dy, run);
+  return node("TapeSpan", shade).map((part) => ({
+    ...part,
+    position: from,
+    // Heading about y turns the node's +x along the run; the pitch is about
+    // its own z, so it is written in ZYX order through the quaternion below.
+    rotation: tapeRotation(heading, pitch),
+    scale: [Math.hypot(run, dy), 1, 1] as Triple,
+  }));
+}
+
+/** Turned `heading` about y, then tipped `pitch` about the node's own z. */
+function tapeRotation(heading: number, pitch: number): Triple {
+  const q = new Quaternion().setFromEuler(new Euler(0, heading, pitch, "YZX"));
+  const e = new Euler().setFromQuaternion(q, "XYZ");
+  return [e.x, e.y, e.z];
 }
