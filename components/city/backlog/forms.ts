@@ -75,9 +75,10 @@ import {
 } from "../models/props/geometry";
 import { SCAFFOLD_BAY } from "./constants";
 import { SURFACE, type SurfaceId } from "../textures/surface-types";
-import { importedParts } from "../models/imported";
+import { importedParts, type ImportedModel } from "../models/imported";
 import { BLENDER_MODELS } from "../models/modelSource";
 import { MODEL as CROWD_MODEL } from "./crowd.model";
+import { MODEL as CROWD_NEAR_MODEL } from "./crowdNear.model";
 
 export { SCAFFOLD_BAY };
 
@@ -940,12 +941,13 @@ function blenderGroups(
   placements: readonly Placement[],
   tone: (hex: string) => string,
   weights: Partial<Record<PartId, PartGroup["weight"]>> = BLENDER_WEIGHTS[form] ?? {},
+  model: ImportedModel = CROWD_MODEL,
 ): PartGroup[] {
   const groups = new Map<string, PartGroup>();
   for (const { node, position, rotation, scale } of placements) {
     const roles: string[] = [];
-    const parts = importedParts(CROWD_MODEL, node, (hex) => {
-      const role = CROWD_MODEL.materials.find((m) => m.hex === hex)!.role;
+    const parts = importedParts(model, node, (hex) => {
+      const role = model.materials.find((m) => m.hex === hex)!.role;
       roles.push(role);
       const part = partOfRole(role);
       if (slotOfRole(role) !== PAINT_SLOT.own) return PANEL;
@@ -989,7 +991,9 @@ const SHEET = 1.3;
  * back run, the planning notice facing the road and the four optional parts
  * where the procedural hoarding has them. The same frame as `hoardingOf`.
  */
-export function hoardingKit(w: number, d: number, tone: (hex: string) => string): PartGroup[] {
+export function hoardingKit(w: number, d: number, tone: (hex: string) => string, near = false): PartGroup[] {
+  // The near kit has the same pieces under the same names, plus `Near`.
+  const piece = (name: string) => (near ? `${name}Near` : name);
   const hx = w / 2 - 0.1;
   const hz = d / 2 - 0.1;
   // [length, centre x, centre z, along z]
@@ -1004,7 +1008,7 @@ export function hoardingKit(w: number, d: number, tone: (hex: string) => string)
     const i = sheets.indexOf(Math.max(...sheets));
     sheets[i]--;
   }
-  const placed: Placement[] = [{ node: "HoardGround", scale: [w - 0.1, 1, d - 0.1] }];
+  const placed: Placement[] = [{ node: piece("HoardGround"), scale: [w - 0.1, 1, d - 0.1] }];
   runs.forEach(([length, cx, cz, along], r) => {
     const n = sheets[r];
     const step = length / n;
@@ -1014,23 +1018,23 @@ export function hoardingKit(w: number, d: number, tone: (hex: string) => string)
     for (let j = 0; j < n; j++) {
       const t = -length / 2 + (j + 0.5) * step;
       placed.push({
-        node: j === gate ? "HoardGate" : (j + r) % 2 === 0 ? "HoardSheet" : "HoardSheetAlt",
+        node: piece(j === gate ? "HoardGate" : (j + r) % 2 === 0 ? "HoardSheet" : "HoardSheetAlt"),
         position: along ? [cx, 0, t] : [t, 0, cz],
         rotation,
         scale: [step, 1, 1],
       });
     }
-    placed.push({ node: "HoardBand", position: [cx, 0, cz], rotation, scale: [length, 1, 1] });
+    placed.push({ node: piece("HoardBand"), position: [cx, 0, cz], rotation, scale: [length, 1, 1] });
   });
-  for (const [x, z] of [[hx, hz], [hx, -hz], [-hx, hz], [-hx, -hz]]) placed.push({ node: "HoardPost", position: [x, 0, z] });
+  for (const [x, z] of [[hx, hz], [hx, -hz], [-hx, hz], [-hx, -hz]]) placed.push({ node: piece("HoardPost"), position: [x, 0, z] });
   placed.push(
-    { node: "HoardNotice", position: [-hx - 0.05, 0, 0], rotation: [0, -Math.PI / 2, 0] },
-    { node: "HoardWorker", position: [0.1, 0, 0.2] },
-    { node: "HoardBeacon", position: [hx, 1.35, hz] },
-    { node: "HoardStop", position: [-hx - 0.07, 0.73, -hz * 0.55] },
-    { node: "HoardFlag", position: [-hx + 0.04, 0, hz - 0.04] },
+    { node: piece("HoardNotice"), position: [-hx - 0.05, 0, 0], rotation: [0, -Math.PI / 2, 0] },
+    { node: piece("HoardWorker"), position: [0.1, 0, 0.2] },
+    { node: piece("HoardBeacon"), position: [hx, 1.35, hz] },
+    { node: piece("HoardStop"), position: [-hx - 0.07, 0.73, -hz * 0.55] },
+    { node: piece("HoardFlag"), position: [-hx + 0.04, 0, hz - 0.04] },
   );
-  return blenderGroups("hoarding", placed, tone, { [PART.flag]: outward(-hx + 0.07, 0.72) });
+  return blenderGroups("hoarding", placed, tone, { [PART.flag]: outward(-hx + 0.07, 0.72) }, near ? CROWD_NEAR_MODEL : CROWD_MODEL);
 }
 
 /** The step plot hoardings are built at: a plot is drawn at its size rounded to this. */
@@ -1124,6 +1128,48 @@ const blenderCache = geometryCache<string>((key) => {
 export function blenderFormGeometry(form: CrowdMesh, desaturation = 0): BufferGeometry {
   return blenderCache(`${form}:${toneKey(desaturation)}`);
 }
+
+// ---------------------------------------------------------------------------
+// The near (detailed) forms (`blender/crowd/near.py`)
+// ---------------------------------------------------------------------------
+
+/**
+ * The near level of a form: the same frame, footprint, parts and paint
+ * slots as the lean form, modelled finer, for the few crowd objects nearest
+ * the camera (`LodInstances`, `Backlog.tsx`). A hoarding's near kit is laid
+ * out round its plot exactly like the lean one.
+ */
+function buildNear(form: CrowdMesh, desaturation: number, plot?: readonly [number, number]): BufferGeometry {
+  const shade = (hex: string) => desaturate(hex, desaturation);
+  const groups = plot
+    ? hoardingKit(plot[0], plot[1], shade, true)
+    : form === "hoarding"
+      ? hoardingKit(HOARDING_GROUND.w, HOARDING_GROUND.d, shade, true)
+      : form === "hoarding-kerb"
+        ? hoardingKit(HOARDING_KERB.w, HOARDING_KERB.d, shade, true)
+        : blenderGroups(form, [{ node: `${BLENDER_FORM_NODE[form]}Near` }], shade, undefined, CROWD_NEAR_MODEL);
+  return mergeBuilt(groups, shade, form);
+}
+
+const nearCache = geometryCache<string>((key) => {
+  const [form, tone, w, d] = key.split(":");
+  return buildNear(form as CrowdMesh, Number(tone), w ? [Number(w), Number(d)] : undefined);
+});
+
+/** A form's near geometry whatever the models flag says, for its tests and renders. */
+export const blenderNearFormGeometry = (form: CrowdMesh, desaturation = 0): BufferGeometry =>
+  nearCache(`${form}:${toneKey(desaturation)}`);
+
+/** A hoarding's near geometry round a plot (see `hoardingPlot`). */
+export const blenderNearHoardingPlotGeometry = (w: number, d: number, desaturation = 0): BufferGeometry =>
+  nearCache(`hoarding:${toneKey(desaturation)}:${w}:${d}`);
+
+/** What the city draws: null without the Blender models, and the lean forms alone. */
+export const nearFormGeometry = (form: CrowdMesh, desaturation = 0): BufferGeometry | null =>
+  BLENDER_MODELS ? blenderNearFormGeometry(form, desaturation) : null;
+
+export const nearHoardingPlotGeometry = (w: number, d: number, desaturation = 0): BufferGeometry | null =>
+  BLENDER_MODELS ? blenderNearHoardingPlotGeometry(w, d, desaturation) : null;
 
 const specs = new Map<CrowdMesh, FormSpec>();
 
