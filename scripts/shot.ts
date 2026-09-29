@@ -19,7 +19,10 @@
  * `stress`, or owner/repo; default `fixture`), QUERY (appended to the URL,
  * e.g. `&time=afternoon&quality=high`), WIDTH, HEIGHT, SETTLE_MS (after the
  * survey, default 14000), ANGLE (default vulkan), CHROME, NET (a regular
- * expression: prints the status of every response whose URL matches).
+ * expression: prints the status of every response whose URL matches),
+ * PROFILE_MS (profiles the main thread for that long at every pose and prints
+ * the functions with the most self time), EVAL (an expression evaluated in
+ * the page at every pose, awaited, its result printed).
  *
  * Prints the triangle and draw-call counts at every pose, and every console
  * error. The Chrome profile lives in `outDir` and is deleted on exit.
@@ -189,6 +192,28 @@ async function main(): Promise<void> {
       // only sees the last pass of the composer.
       "(() => { const p = window.__repoCity && window.__repoCity.perf; const r = window.__repoCityRenderer; return p && p.triangles ? { triangles: p.triangles, calls: p.calls } : r ? { triangles: r.info.render.triangles, calls: r.info.render.calls } : {}; })()",
     );
+    if (process.env.EVAL) console.log(`${pose.name} eval: ${JSON.stringify(await evaluate(process.env.EVAL))}`);
+    if (process.env.PROFILE_MS) {
+      await send("Profiler.enable");
+      await send("Profiler.setSamplingInterval", { interval: 200 });
+      await send("Profiler.start");
+      await sleep(Number(process.env.PROFILE_MS));
+      const { profile } = (await send("Profiler.stop")).result as unknown as {
+        profile: { nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[]; samples: number[] };
+      };
+      const byId = new Map(profile.nodes.map((n) => [n.id, n.callFrame]));
+      const self = new Map<string, number>();
+      for (const id of profile.samples) {
+        const f = byId.get(id)!;
+        const key = `${f.functionName || "(anonymous)"} ${f.url.split("/").slice(-2).join("/")}:${f.lineNumber + 1}`;
+        self.set(key, (self.get(key) ?? 0) + 1);
+      }
+      const total = profile.samples.length;
+      console.log(`${pose.name} profile, ${total} samples:`);
+      for (const [key, n] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25)) {
+        console.log(`  ${((100 * n) / total).toFixed(1).padStart(5)}%  ${key}`);
+      }
+    }
     const shot = (await send("Page.captureScreenshot", { format: "png" })).result as { data: string };
     writeFileSync(join(OUT, `${pose.name}.png`), Buffer.from(shot.data, "base64"));
     console.log(`${pose.name}: ${moved}, ${stats.triangles ?? "?"} triangles, ${stats.calls ?? "?"} draws`);

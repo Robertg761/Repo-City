@@ -1,6 +1,6 @@
 import { Matrix4, MeshStandardMaterial, Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { LOD_HIDDEN_ATTRIBUTE, NO_RAYCAST, patchLodHidden, selectNear, swapHidden } from "./lod";
+import { LOD_HIDDEN_ATTRIBUTE, sameMembers, NO_RAYCAST, patchLodHidden, selectNear, swapHidden } from "./lod";
 
 function matrices(entries: { at: [number, number, number]; scale?: number | [number, number, number] }[]): Float32Array {
   const out = new Float32Array(entries.length * 16);
@@ -78,5 +78,14 @@ describe("NO_RAYCAST", () => {
     const hits: unknown[] = [];
     NO_RAYCAST(undefined as never, hits as never);
     expect(hits).toEqual([]);
+  });
+});
+
+describe("sameMembers", () => {
+  it("compares near sets by membership, so a reordering uploads nothing", () => {
+    expect(sameMembers([3, 1, 2], [1, 2, 3])).toBe(true);
+    expect(sameMembers([], [])).toBe(true);
+    expect(sameMembers([1, 2], [1, 2, 3])).toBe(false);
+    expect(sameMembers([1, 4], [1, 2])).toBe(false);
   });
 });

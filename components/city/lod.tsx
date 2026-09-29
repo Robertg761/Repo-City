@@ -27,6 +27,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import {
+  BufferAttribute,
   BufferGeometry,
   InstancedBufferAttribute,
   InstancedMesh,
@@ -113,6 +114,13 @@ export function selectNear(
 export function swapHidden(hidden: { setX(index: number, value: number): unknown }, previous: readonly number[], next: readonly number[]): void {
   for (const i of previous) hidden.setX(i, 0);
   for (const i of next) hidden.setX(i, 1);
+}
+
+/** Whether two near sets hold the same instances, in any order. */
+export function sameMembers(a: readonly number[], b: readonly number[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((i) => set.has(i));
 }
 
 /** A geometry that shares every attribute of `source` but can carry its own instanced ones. */
@@ -233,6 +241,9 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
   }, [geometry]);
   const cameraAt = useMemo(() => new Vector3(), []);
 
+  // What the near mesh last copied, so an unchanged frame uploads nothing.
+  const copied = useRef({ chosen: [] as number[], matrix: -1, color: -1, attributes: "" });
+
   useFrame(({ camera }) => {
     const far = farRef.current;
     const nearMesh = nearRef.current;
@@ -247,33 +258,53 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       return;
     }
 
+    let next: number[] | null = null;
     if (follow && selectionRef) {
-      if (selectionRef.current !== near.current) {
-        swapHidden(hidden, near.current, selectionRef.current);
-        hidden.needsUpdate = true;
-        near.current = selectionRef.current;
-      }
+      if (selectionRef.current !== near.current) next = selectionRef.current;
     } else if (frame.current++ % SELECT_EVERY === 0) {
       camera.getWorldPosition(cameraAt);
       // Matrices are in the layer's parent frame; the city groups are not
       // transformed, so world and parent frames agree.
-      const chosen = selectNear(far.instanceMatrix.array, far.count, cameraAt, radius, nearSize, cap);
-      swapHidden(hidden, near.current, chosen);
-      hidden.needsUpdate = true;
-      near.current = chosen;
-      if (selectionRef) selectionRef.current = chosen;
+      next = selectNear(far.instanceMatrix.array, far.count, cameraAt, radius, nearSize, cap);
+      if (selectionRef) selectionRef.current = sameMembers(next, near.current) ? near.current : next;
+    }
+    // Every upload is a GPU round trip, and a city has a hundred layers:
+    // touch the hidden flags only when the set changes, not its order.
+    if (next && next !== near.current) {
+      if (!sameMembers(next, near.current)) {
+        swapHidden(hidden, near.current, next);
+        hidden.needsUpdate = true;
+      }
+      near.current = next;
     }
 
-    // Copy every frame: moving layers rewrite their far matrices each frame.
     const chosen = near.current;
-    const src = far.instanceMatrix.array;
-    const dst = nearMesh.instanceMatrix.array;
-    for (let k = 0; k < chosen.length; k++) {
-      const from = chosen[k] * 16;
-      for (let e = 0; e < 16; e++) dst[k * 16 + e] = src[from + e];
+    nearMesh.count = chosen.length;
+    // An empty mesh still costs a program switch in both passes; hide it.
+    nearMesh.visible = chosen.length > 0;
+    if (chosen.length === 0) return;
+
+    // Copy only what changed since the last copy (moving layers rewrite their
+    // far matrices every frame; still ones never do), and upload only the
+    // chosen rows.
+    const last = copied.current;
+    const fresh = last.chosen !== chosen;
+    const upload = (attribute: InstancedBufferAttribute | BufferAttribute, items: number) => {
+      attribute.clearUpdateRanges();
+      attribute.addUpdateRange(0, items * attribute.itemSize);
+      attribute.needsUpdate = true;
+    };
+    if (fresh || last.matrix !== far.instanceMatrix.version) {
+      const src = far.instanceMatrix.array;
+      const dst = nearMesh.instanceMatrix.array;
+      for (let k = 0; k < chosen.length; k++) {
+        const from = chosen[k] * 16;
+        for (let e = 0; e < 16; e++) dst[k * 16 + e] = src[from + e];
+      }
+      upload(nearMesh.instanceMatrix, chosen.length);
+      last.matrix = far.instanceMatrix.version;
     }
-    nearMesh.instanceMatrix.needsUpdate = true;
-    if (far.instanceColor) {
+    if (far.instanceColor && (fresh || last.color !== far.instanceColor.version)) {
       if (!nearMesh.instanceColor) {
         nearMesh.instanceColor = new InstancedBufferAttribute(new Float32Array(cap * 3), 3);
       }
@@ -285,19 +316,24 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
         cd[k * 3 + 1] = cs[from + 1];
         cd[k * 3 + 2] = cs[from + 2];
       }
-      nearMesh.instanceColor.needsUpdate = true;
+      upload(nearMesh.instanceColor, chosen.length);
+      last.color = far.instanceColor.version;
     }
-    for (const name of instancedAttributes) {
-      const source = geometry.getAttribute(name);
-      const target = nearShared.getAttribute(name);
-      if (!source || !target) continue;
-      const size = source.itemSize;
-      for (let k = 0; k < chosen.length; k++) {
-        for (let c = 0; c < size; c++) target.array[k * size + c] = source.array[chosen[k] * size + c];
+    const versions = instancedAttributes.map((name) => (geometry.getAttribute(name) as BufferAttribute | undefined)?.version ?? -1).join();
+    if (fresh || last.attributes !== versions) {
+      for (const name of instancedAttributes) {
+        const source = geometry.getAttribute(name);
+        const target = nearShared.getAttribute(name) as BufferAttribute | undefined;
+        if (!source || !target) continue;
+        const size = source.itemSize;
+        for (let k = 0; k < chosen.length; k++) {
+          for (let c = 0; c < size; c++) target.array[k * size + c] = source.array[chosen[k] * size + c];
+        }
+        upload(target, chosen.length);
       }
-      target.needsUpdate = true;
+      last.attributes = versions;
     }
-    nearMesh.count = chosen.length;
+    last.chosen = chosen;
   });
 
   const nearHandlers = useMemo<LodHandlers | undefined>(() => {
@@ -335,6 +371,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
           ref={nearRef}
           args={[nearShared, material, cap]}
           count={0}
+          visible={false}
           castShadow={castShadow}
           receiveShadow={receiveShadow}
           frustumCulled={false}
