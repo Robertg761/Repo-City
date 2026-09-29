@@ -81,6 +81,36 @@ Detail is sized in world metres and converted per axis (`ux`, `uy`) because a
 building is stretched to its instance size. The near tests hold it to world
 distances, not to the lean models' unit-space layer (`near-checks.ts`).
 
+The low-rise, residential and industrial archetypes, the village and town
+buildings and the civic kit have theirs too, built the other way round: a
+near script beside each lean one that imports the lean script's own constants
+and openings, so the glazing stays in the lean model's `windows` rectangles.
+
+- `buildings/detail.py` is the detailer, in world metres at the model's
+  representative instance size: frames and glazing bars, sills, lintels with
+  keystones, panelled doors with surrounds and steps, quoins, gutters,
+  downpipes, ridge tiles, oculi. `buildings/nearkit.py` (`NearDraft`) dresses
+  every opening of a `bkit.Draft` and cuts its walls into cells with grid lines
+  round the trim (the occlusion is per vertex). Scripts: `house_near.py`,
+  `parapet_near.py`, `pitched_near.py`, `warehouse_near.py`, one GLB each
+  (`building-<id>-near`, node `BuildingNear`).
+- `settlement/snear.py` swaps the lean settlement scripts' own `window`, `door`,
+  `wall`, `chimney` and `gable_roof` for richer ones (`near_cottage.py`,
+  `near_terrace.py`, `near_shopfront.py`, `near_apartment.py`,
+  `near_farmhouse.py`, `near_barn.py`), so their layout and openings carry over
+  exactly. One GLB per script (`cottage-near`, `terrace-near`, ...), nodes
+  `<Lean>Near`.
+- `civic/civic_kit_near.py` is every part of the civic kit again (`civic-kit-near`,
+  same node names and frames); `civic.ts` assembles the near building from it
+  (`buildCivic(..., { near: true })`) and `Building.tsx` swaps the two by
+  distance, since each civic building is drawn once.
+- Compare lean and near at instance size, one model per process:
+
+  ```
+  blender -b -t 2 --python blender/buildings/nearstage.py -- blender/out/near/house 4.4 4.2 4.4 blender/buildings/house.py blender/buildings/house_near.py
+  blender -b -t 2 --python blender/buildings/nearstage.py -- blender/out/near/terrace 6 5.4 5 blender/settlement/terrace.py blender/settlement/near_terrace.py
+  ```
+
 ## Loading
 
 The importer writes two files per model: `<name>.data.ts` (the model) and
