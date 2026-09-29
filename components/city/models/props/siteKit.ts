@@ -17,6 +17,8 @@ import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import { importedParts } from "../imported";
 import type { Part, Triple } from "./geometry";
 import { MODEL as SITE_KIT } from "./siteKit.model";
+import { MODEL as SITE_KIT_NEAR } from "./siteKitNear.model";
+import { detailLevel, modelFor } from "../detailLevel";
 
 /** The site is drawn on an eleven unit square (`constructionDecor.ts`'s `SITE`). */
 const SITE = 11;
@@ -32,6 +34,8 @@ export const SCAFFOLD_REACH = 5.4 / 2 + 0.45;
 /** A bay is a side's half; a lift is what the ledgers are spaced at. */
 export const SCAFFOLD_BAY = SCAFFOLD_REACH;
 export const SCAFFOLD_LIFT = 1.9;
+/** Where a near scaffold's ladders stand along the front face: a bay's quarter width. */
+const BAY_LADDER = SCAFFOLD_BAY / 2 - 0.3;
 
 /** The colours the kit is modelled in, so a caller can repaint them. */
 export const KIT_COLORS = {
@@ -46,7 +50,7 @@ export const KIT_COLORS = {
 
 /** A node's parts, coloured through `paint`. */
 export function kitNode(node: string, paint: (hex: string) => string): Part[] {
-  return importedParts(SITE_KIT, node, paint);
+  return importedParts(modelFor(SITE_KIT, SITE_KIT_NEAR, node), node, paint);
 }
 
 const scratch = { position: new Vector3(), quaternion: new Quaternion(), scale: new Vector3(), euler: new Euler() };
@@ -160,6 +164,14 @@ export function scaffoldParts(height: number, paint: (hex: string) => string): P
         const flip = (lift + index + (side < 0 ? 1 : 0)) % 2 === 0;
         parts.push(...placeNode("ScaffoldBrace", paint, at(bay, lift * SCAFFOLD_LIFT, side * reach, flip ? 0 : Math.PI)));
       });
+    }
+  }
+  if (detailLevel() === "near") {
+    // A ladder up every lift of the platforms' bay, alternating sides, the way
+    // access is stepped up a scaffold: only the near model has one.
+    for (let lift = 0; lift < lifts - 1; lift++) {
+      const side = lift % 2 === 0 ? 1 : -1;
+      parts.push(...placeNode("ScaffoldLadder", paint, at(side * BAY_LADDER, lift * SCAFFOLD_LIFT + 0.02, reach - 0.12, Math.PI)));
     }
   }
   return parts;

@@ -128,6 +128,38 @@ footprint, with the same material roles, so the swap only adds detail.
 - The lean fleet's loft sections live in `fleet.py`'s `*_shell()` functions so
   both levels loft the same sections.
 
+## Near levels of the scenes
+
+The construction sites, the street incidents and the finished houses are drawn
+a handful of times each, so their near level is not an instance swap: the whole
+scene goes near at once (`components/city/sceneLod.ts`, at most three sites and
+four incidents within reach of the camera; the quality tier scales it) and is
+drawn from the near models instead of the lean ones. The near models are in
+`blender/scenes_near/`, one script per lean script (`crane_near.py`,
+`props_near.py`, `site_near.py`, `incident_props_near.py`,
+`incident_kit_near.py`, `dressing_near.py`, and a `*_near.py` per emergency
+vehicle), with the same node names, origins, frames and markers:
+
+```
+blender/scenes_near/run.sh                    every near model: script -> GLB -> module
+blender/scenes_near/run.sh crane-near         one of them
+```
+
+`kit_near.refine()` re-runs a lean script's own builders with rounder
+cylinders and softer edges, and `Acc` collects thousands of tubes and bolts
+into one bmesh per material; `vnear.install()` swaps the vehicles' shared
+wheels, lamps, light bars, mirrors and handles for the near ones. The builders
+in TypeScript are run `atLevel("near", ...)` (`models/detailLevel.ts`): the
+helpers that place a node ask `modelFor` for the model that has it, and every
+cache keys on the level.
+
+Look at a whole scene, lean beside near, as the app assembles it:
+
+```
+EXPORT_PLY=1 pnpm vitest run blender/scenes_near/export-scenes
+blender -b -t 2 --python blender/stage.py -- blender/out/scenes/x blender/out/scenes/lean-incident-major.ply blender/out/scenes/near-incident-major.ply
+```
+
 ## Gotchas already paid for
 
 - Join evaluated meshes with `material.original` (done in `kit.finish`), or
