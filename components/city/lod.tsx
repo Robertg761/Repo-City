@@ -125,6 +125,7 @@ function shareGeometry(source: BufferGeometry): BufferGeometry {
 }
 
 export interface LodHandlers {
+  onPointerOver?: (event: ThreeEvent<PointerEvent>) => void;
   onPointerMove?: (event: ThreeEvent<PointerEvent>) => void;
   onPointerOut?: (event: ThreeEvent<PointerEvent>) => void;
   onClick?: (event: ThreeEvent<MouseEvent>) => void;
@@ -294,8 +295,9 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       if (k === undefined) return event;
       return Object.assign(Object.create(Object.getPrototypeOf(event)) as E, event, { instanceId: near.current[k] });
     };
-    const { onPointerMove, onPointerOut, onClick } = handlers;
+    const { onPointerOver, onPointerMove, onPointerOut, onClick } = handlers;
     return {
+      onPointerOver: onPointerOver && ((event) => onPointerOver(map(event))),
       onPointerMove: onPointerMove && ((event) => onPointerMove(map(event))),
       onPointerOut: onPointerOut && ((event) => onPointerOut(map(event))),
       onClick: onClick && ((event) => onClick(map(event))),

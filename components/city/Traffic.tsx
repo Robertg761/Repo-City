@@ -19,14 +19,20 @@
  * COST. One instanced draw per body type present, one more for that type's
  * lamps, and a single instanced mesh carrying every wheel in the city: about
  * thirteen draw calls for the whole fleet, whatever its size. Nothing in the
- * frame loop allocates (section 63).
+ * frame loop allocates (section 63) but the near selection, a handful of
+ * numbers every few frames.
+ *
+ * DETAIL. The few cars nearest the camera are drawn from a much richer model
+ * (`models/vehicles/near.ts`): body, lamps and wheels swap together, because
+ * the traffic picks the cars itself (`nearCars.ts`) and hands every part of
+ * a chosen car to its mesh, rather than each mesh choosing on its own.
  *
  * Traffic starts once the reveal has finished: it is step 8 of section 43.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, MeshBasicMaterial, Object3D, type InstancedMesh, type ShaderMaterial } from "three";
+import { Color, MeshBasicMaterial, Object3D, Vector3, type InstancedMesh, type ShaderMaterial } from "three";
 import type { CityModel } from "@/types/city";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import {
@@ -41,10 +47,19 @@ import {
   tractorLightsGeometry,
   wheelGeometry,
 } from "./models/vehicles/shapes";
+import {
+  nearBodyGeometry,
+  nearLightsGeometry,
+  nearTractorGeometry,
+  nearTractorLightsGeometry,
+  nearWheelGeometry,
+} from "./models/vehicles/near";
 import { tintedMaterial } from "./models/props/material";
 import { MAX_FLEET, carPose, stepTraffic, type CarPose } from "./traffic";
 import { cityFleet, specOf, type FleetBody } from "./fleet";
 import { LOW_TIER_GLOW, beamGeometry, beamMaterial } from "./glow";
+import { LodInstances, NEAR_SHARE } from "./lod";
+import { publishNearCars, selectNearCars, type NearSelection } from "./nearCars";
 import { useQuality } from "./quality";
 import { useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
@@ -65,11 +80,27 @@ const MAX_STEER = 0.6;
 /** The road surface sits a touch above the ground plane; tyres go on top. */
 const ROAD_SURFACE = 0.1;
 
+/**
+ * Cars drawn in detail at once (high tier; medium halves it, low has none) and
+ * the size (body radius over distance to the camera) they must reach. A car's
+ * radius is about 1.6, so at 0.05 it goes near within roughly 30 units: a
+ * street-level view gets the closest couple of dozen, the overview none. Each
+ * near car costs about 6,000 triangles, so the cap is 150,000 at most.
+ */
+const NEAR_CARS = 24;
+const NEAR_SIZE = 0.05;
+/** Frames between near selections; positions are copied every frame. */
+const SELECT_EVERY = 4;
+/** About the height of a car's middle above the ground. */
+const CAR_HEIGHT = 0.6;
+
 /** A tractor's front wheels are smaller than its back ones. */
 const wheelRadiusOf = (body: FleetBody, wheel: number): number =>
   body === "tractor" ? TRACTOR_SPEC.wheelRadii[wheel] : BODY_SPECS[body].wheelRadius;
 const geometryOf = (body: FleetBody) => (body === "tractor" ? tractorGeometry() : bodyGeometry(body));
 const lampsOf = (body: FleetBody) => (body === "tractor" ? tractorLightsGeometry() : lightsGeometry(body));
+const nearGeometryOf = (body: FleetBody) => (body === "tractor" ? nearTractorGeometry() : nearBodyGeometry(body));
+const nearLampsOf = (body: FleetBody) => (body === "tractor" ? nearTractorLightsGeometry() : nearLightsGeometry(body));
 
 export default function Traffic({
   city,
@@ -100,9 +131,34 @@ export default function Traffic({
     };
   }, [city]);
 
+  // Which meshes each car's parts are in, and the near selection the traffic
+  // publishes for them (`nearCars.ts`).
+  const near = useMemo(() => {
+    const groupOf = new Int32Array(cars.length);
+    const slotOf = new Int32Array(cars.length);
+    const carRadius = new Float32Array(cars.length);
+    groups.forEach((group, g) => {
+      const geometry = geometryOf(group.body);
+      if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+      const radius = geometry.boundingSphere?.radius ?? 1;
+      group.cars.forEach((index, slot) => {
+        groupOf[index] = g;
+        slotOf[index] = slot;
+        carRadius[index] = radius;
+      });
+    });
+    const bodies: NearSelection[] = groups.map(() => ({ current: [] }));
+    const wheels: NearSelection = { current: [] };
+    return { groupOf, slotOf, carRadius, bodies, wheels };
+  }, [cars, groups]);
+  /** Each car's `x, z` this frame, for the near selection. */
+  const nearAt = useRef<Float32Array>(new Float32Array(MAX_FLEET * 2));
+  const nearFrame = useRef(0);
+  const cameraAt = useMemo(() => new Vector3(), []);
+
   // One material for every body type: the paint mask lets the car's colour
   // reach the paintwork and nothing else (`models/props/material.ts`).
-  const { textureSize, anisotropy, postProcessing } = useQuality();
+  const { textureSize, anisotropy, postProcessing, tier } = useQuality();
   const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,
   }), [textureSize, anisotropy]);
@@ -150,7 +206,7 @@ export default function Traffic({
     spin.current.fill(0);
   }, [cars]);
 
-  useFrame((_, delta) => {
+  useFrame(({ camera }, delta) => {
     if (cars.length === 0) return;
     const wheels = wheelRef.current;
     const spins = spin.current;
@@ -177,6 +233,8 @@ export default function Traffic({
         const index = group.cars[slot];
         const car = cars[index];
         carPose(traffic, car, pose);
+        nearAt.current[index * 2] = pose.x;
+        nearAt.current[index * 2 + 1] = pose.z;
 
         scratch.position.set(pose.x, ROAD_SURFACE, pose.z);
         scratch.rotation.set(0, pose.angle, 0);
@@ -220,7 +278,20 @@ export default function Traffic({
     }
 
     if (wheels) wheels.instanceMatrix.needsUpdate = true;
-  });
+
+    // The cars to draw in detail, chosen from where they are now.
+    const cap = running ? Math.floor(NEAR_CARS * NEAR_SHARE[tier]) : 0;
+    if (cap > 0) {
+      if (nearFrame.current++ % SELECT_EVERY === 0) {
+        camera.getWorldPosition(cameraAt);
+        const chosen = selectNearCars(nearAt.current, near.carRadius, cars.length, cameraAt, CAR_HEIGHT, NEAR_SIZE, cap);
+        publishNearCars(chosen, near.groupOf, near.slotOf, near.bodies, near.wheels);
+      }
+    } else if (near.wheels.current.length) {
+      publishNearCars([], near.groupOf, near.slotOf, near.bodies, near.wheels);
+    }
+    // Before the meshes that follow this selection, so they copy this frame's matrices.
+  }, -1);
 
   // Every body type shares these two materials, so the first mesh that
   // carries each is the handle to write the hour through.
@@ -270,22 +341,32 @@ export default function Traffic({
     <group>
       {groups.map((group, g) => (
         <group key={group.body}>
-          <instancedMesh
+          <LodInstances
             ref={(mesh) => {
               bodyRefs.current[g] = mesh;
             }}
-            args={[geometryOf(group.body), undefined, group.cars.length]}
+            geometry={geometryOf(group.body)}
+            nearGeometry={nearGeometryOf(group.body)}
+            material={bodyMaterial}
+            count={group.cars.length}
+            maxNear={NEAR_CARS}
+            nearSize={NEAR_SIZE}
+            selection={near.bodies[g]}
+            follow
             castShadow
-            frustumCulled={false}
-          >
-            <primitive object={bodyMaterial} attach="material" />
-          </instancedMesh>
-          <instancedMesh
+          />
+          <LodInstances
             ref={(mesh) => {
               lampRefs.current[g] = mesh;
             }}
-            args={[lampsOf(group.body), lampMaterial, group.cars.length]}
-            frustumCulled={false}
+            geometry={lampsOf(group.body)}
+            nearGeometry={nearLampsOf(group.body)}
+            material={lampMaterial}
+            count={group.cars.length}
+            maxNear={NEAR_CARS}
+            nearSize={NEAR_SIZE}
+            selection={near.bodies[g]}
+            follow
           />
           <instancedMesh
             ref={(mesh) => {
@@ -299,13 +380,17 @@ export default function Traffic({
         </group>
       ))}
 
-      <instancedMesh
+      <LodInstances
         ref={wheelRef}
-        args={[wheelGeometry(), undefined, cars.length * 4]}
-        frustumCulled={false}
-      >
-        <primitive object={wheelMaterial} attach="material" />
-      </instancedMesh>
+        geometry={wheelGeometry()}
+        nearGeometry={nearWheelGeometry()}
+        material={wheelMaterial}
+        count={cars.length * 4}
+        maxNear={NEAR_CARS * 4}
+        nearSize={NEAR_SIZE}
+        selection={near.wheels}
+        follow
+      />
     </group>
   );
 }

@@ -87,14 +87,14 @@ const ARCH = "#232427";
 const TYRE = "#26282b";
 const HUB = "#b9bcc0";
 
-function vehicleSurface(part: Part): Part {
+export function vehicleSurface(part: Part): Part {
   return {
     ...part,
     surface: part.surface ?? (part.color === GLASS || part.color === HEADLIGHT || part.color === TAILLIGHT ? SURFACE.glass : part.color === TYRE ? SURFACE.fabric : SURFACE.metal),
   };
 }
 
-const mergeVehicleParts = (parts: readonly Part[]): BufferGeometry => mergeParts(parts.map(vehicleSurface));
+export const mergeVehicleParts = (parts: readonly Part[]): BufferGeometry => mergeParts(parts.map(vehicleSurface));
 
 /** Lamp colours. `Traffic.tsx` scales them with the city's lit windows. */
 export const HEADLIGHT = "#fff2cf";
@@ -427,7 +427,7 @@ export function bodyParts(kind: VehicleBody): Part[] {
   return BLENDER_MODELS ? blenderBodyParts(kind) : proceduralBodyParts(kind);
 }
 
-const FLEET_NODE: Record<VehicleBody, string> = {
+export const FLEET_NODE: Record<VehicleBody, string> = {
   hatchback: "Hatchback",
   sedan: "Sedan",
   taxi: "Taxi",
@@ -816,7 +816,7 @@ const UNLIT: Record<string, string> = {
   [SIGN]: "#b9a46a",
   "#ffb347": "#a8834a",
 };
-const unlit = (hex: string) => UNLIT[hex] ?? hex;
+export const unlit = (hex: string) => UNLIT[hex] ?? hex;
 
 /**
  * The Blender wheel (`blender/vehicles2/parts.py`) standing at a wheel

@@ -24,6 +24,7 @@ import { Color, Object3D, type InstancedMesh, type MeshStandardMaterial } from "
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
+import { nearParkedGeometry } from "./models/vehicles/near";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import {
   furnitureGeometry,
@@ -51,10 +52,15 @@ import { MEDIAN_TREE_CAP, lampCap, thinEvenly, tierOf } from "./scale";
 import { GlowField } from "./glow";
 import { useSky, useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
+import { LodInstances } from "./lod";
 import { useQuality } from "./quality";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
+
+/** Kerbside cars drawn in detail at once, per body type, and the size they must reach (`lod.tsx`). */
+const PARKED_NEAR_CARS = 12;
+const PARKED_NEAR_SIZE = 0.05;
 
 /**
  * Street lamps are the smallest thing in the city that still has to read as
@@ -431,17 +437,19 @@ export default function Props({
       ))}
 
       {parked.map((group, g) => (
-        <instancedMesh
+        <LodInstances
           key={group.body}
           ref={(mesh) => {
             parkedRefs.current[g] = mesh;
           }}
-          args={[parkedGeometry(group.body), undefined, group.cars.length]}
+          geometry={parkedGeometry(group.body)}
+          nearGeometry={nearParkedGeometry(group.body)}
+          material={parkedMaterial}
+          count={group.cars.length}
+          maxNear={PARKED_NEAR_CARS}
+          nearSize={PARKED_NEAR_SIZE}
           castShadow
-          frustumCulled={false}
-        >
-          <primitive object={parkedMaterial} attach="material" />
-        </instancedMesh>
+        />
       ))}
     </group>
   );

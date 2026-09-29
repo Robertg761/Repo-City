@@ -79,6 +79,33 @@ probe that catches import-time reads runs on its own:
 pnpm vitest run --config vitest.models.config.mts
 ```
 
+## Near levels
+
+Instanced models also have a **near** level: a much richer model of the same
+thing, drawn by `LodInstances` (`components/city/lod.tsx`) for the few
+instances closest to the camera while the lean one stays for the rest of the
+city. A near model is authored in the same frame, on the same pivot and
+footprint, with the same material roles, so the swap only adds detail.
+
+- The fleet's is `blender/fleet/near.py` (bodies and tractor), with
+  `blender/vehicles2/parts_near.py` (wheel and lamps) and
+  `blender/fleet/nearkit.py` (the finer loft and the details that follow the
+  body's skin by ray casting). One GLB, `fleet-near`:
+
+  ```
+  blender -b --python blender/export.py -- blender/fleet/near.py fleet-near
+  node scripts/import-model.ts assets/models/fleet-near.glb components/city/models/vehicles/fleetNear.model.ts
+  ```
+
+- Compare lean and near for body `n` of `near.py`'s `BODIES` (6 is the tractor):
+
+  ```
+  blender -b --python blender/stage.py -- blender/out/fleet/n blender/vehicles2/parts.py@n blender/fleet/near.py@n
+  ```
+
+- The lean fleet's loft sections live in `fleet.py`'s `*_shell()` functions so
+  both levels loft the same sections.
+
 ## Gotchas already paid for
 
 - Join evaluated meshes with `material.original` (done in `kit.finish`), or

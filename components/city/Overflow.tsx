@@ -33,6 +33,7 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { signposted } from "@/lib/city/overflow";
 import type { CityModel, Overflow as OverflowEntity } from "@/types/city";
+import { nearParkedGeometry } from "./models/vehicles/near";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import { blenderSignFaces, blenderSignFrame } from "./models/vehicles/overflowSign";
 import { BLENDER_MODELS } from "./models/modelSource";
@@ -43,6 +44,7 @@ import { HIGHLIGHT, desaturate, mix, stateTint, type SceneAtmosphere } from "./p
 import { revealScale } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
+import { LodInstances } from "./lod";
 import { useQuality } from "./quality";
 import { SURFACE } from "./textures/surface-types";
 import { buildingDetailMaterial } from "./models/buildings/material";
@@ -55,6 +57,9 @@ const scratchColor = new Color();
 const ROAD_SURFACE = 0.1;
 /** Each car in the queue lands a beat after the one ahead of it. */
 const QUEUE_STAGGER = 18;
+/** Queued cars drawn in detail at once, per body type, and the size they must reach (`lod.tsx`). */
+const QUEUE_NEAR_CARS = 12;
+const QUEUE_NEAR_SIZE = 0.05;
 
 /**
  * The signboard, in its plot's frame: `size` is `[6, 5, 1]`. The board is a
@@ -305,13 +310,17 @@ function QueueBody({
   });
 
   return (
-    <instancedMesh
+    <LodInstances
       ref={meshRef}
-      args={[parkedGeometry(group.body), material, group.cars.length]}
+      geometry={parkedGeometry(group.body)}
+      nearGeometry={nearParkedGeometry(group.body)}
+      material={material}
+      count={group.cars.length}
+      maxNear={QUEUE_NEAR_CARS}
+      nearSize={QUEUE_NEAR_SIZE}
       castShadow
       receiveShadow
-      frustumCulled={false}
-      {...handlers}
+      handlers={handlers}
     />
   );
 }
