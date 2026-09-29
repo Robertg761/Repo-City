@@ -59,6 +59,28 @@ run with `EXPORT_PLY=1`).
 - **Size:** report the brotli size of every generated module
   (`brotli -c -q 11 <file> | wc -c`).
 
+## Near levels of detail
+
+The instanced buildings also have a detailed **near** model, drawn by
+`LodInstances` (`components/city/lod.tsx`) for the few closest to the camera.
+For the towers and mid-rises it is the archetype's own script run again with a
+detailer attached (`buildings/nkit.py`, `bkit.Draft(near=...)`): every wall,
+opening and window is placed by the same calls as the lean model, so the near
+one shares its footprint and its `windows` rectangles by construction, and
+`nkit` adds frames, mullions, transoms, cornice dentils, quoins, entrance
+hardware, plant and railings on top. `buildings/near.py` exports one GLB per
+model (`assets/models/building-<id>-near.glb`, node `Building`):
+
+```
+blender -b --python blender/export.py -- blender/buildings/near.py building-tower-crown-near
+node scripts/import-model.ts assets/models/building-tower-crown-near.glb components/city/models/buildings/buildingTowerCrownNear.model.ts
+blender -b --python blender/stage.py -- blender/out/near/crown blender/buildings/near.py@0   # lean and near, side by side
+```
+
+Detail is sized in world metres and converted per axis (`ux`, `uy`) because a
+building is stretched to its instance size. The near tests hold it to world
+distances, not to the lean models' unit-space layer (`near-checks.ts`).
+
 ## Loading
 
 The importer writes two files per model: `<name>.data.ts` (the model) and

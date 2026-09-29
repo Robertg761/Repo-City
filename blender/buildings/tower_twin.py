@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bkit  # noqa: E402
+import nkit  # noqa: E402
 
 SCALE = (7.5, 28.0, 7.5)
 PLINTH = 0.012
@@ -20,13 +21,13 @@ BANDS = 12
 SPANDREL = 0.42
 
 
-def make():
-    d = bkit.Draft()
+def make(near=False):
+    d = bkit.Draft(nkit.Near(SCALE, sash="frame", post="trim", dentils=False) if near else None)
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
     head = 0.052
     band = dict(v=(0.022 + head) / 2, h=head - 0.022, depth=0.03, glass="lobby", sill="plinth", lit=False)
     ribbons = [dict(u=0, v=v, w=0.84, h=0.024, depth=0.028, glass="lobby", sill="trim", lit=False) for v in (0.09, 0.128)]
-    door = dict(u=0, v=(PLINTH + head) / 2, w=0.16, h=head - PLINTH, depth=0.042, glass="door", lit=False, sill_face=False)
+    door = dict(u=0, v=(PLINTH + head) / 2, w=0.16, h=head - PLINTH, depth=0.042, glass="door", lintel=False, lit=False, sill_face=False, lamps=False, arch=0.1)
     openings = {f: ribbons + [dict(band, u=0, w=0.84)] for f in bkit.FACES}
     openings["+z"] = ribbons + [dict(band, u=-0.26, w=0.32), door, dict(band, u=0.26, w=0.32)]
     bkit.volume(d, PLINTH, PODIUM, 0.5, 0.5, openings, 0.05)
@@ -53,8 +54,28 @@ def make():
         for u in (-0.045, 0, 0.045):
             pts = [(u - 0.004, b0, z), (u + 0.004, b0, z), (u + 0.004, b1, z), (u - 0.004, b1, z)]
             d.poly([(p[0], p[1], p[2] + (bkit.LAYER * 1.2 if z > 0 else -bkit.LAYER * 1.2)) for p in pts], "frame", (0, 0, z))
+    if near:
+        n = d.near
+        n.quoins(d, 0.5, 0.5, PLINTH, PODIUM, course=0.5, long=0.5, short=0.28)
+        n.canopy(d, "+z", 0.5, 0.0, head + 0.004, 0.34, 0.09, slab=False)
+        # A frame on the skybridge: rails top and bottom, posts between.
+        for z in (0.1, -0.1):
+            face = "+z" if z > 0 else "-z"
+            for a, b in ((b0, b0 + n.uy(0.16)), (b1 - n.uy(0.16), b1)):
+                n.fbox(d, face, abs(z), -x, x, a, b, bkit.LAYER * 1.2 - 0.001, 0.02, "frame", skip=("back", "left", "right"))
+            for u in (-x + n.ux(0.1), -0.06, 0.06, x - n.ux(0.1)):
+                n.fbox(d, face, abs(z), u - n.ux(0.05), u + n.ux(0.05), b0 + n.uy(0.16), b1 - n.uy(0.16), bkit.LAYER * 1.2 - 0.001, 0.02, "frame", skip=("back", "top", "bottom"))
+        for s in (-1, 1):
+            top = TOP + 0.04
+            n.mast(d, s * CX, 0, top, top + 0.06, 0.012)
+            n.stack(d, s * CX, s * 0.28, top, n.ux(0.12), n.uy(0.9))
+            n.fan(d, s * CX + 0.1, s * 0.1, top, n.ux(0.45))
     return d
 
 
 def build():
     return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.0)
+
+
+def build_near():
+    return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.0, near=True)

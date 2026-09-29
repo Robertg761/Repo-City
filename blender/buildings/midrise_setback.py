@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bkit  # noqa: E402
+import nkit  # noqa: E402
 
 SCALE = (5.5, 12.0, 5.5)
 PLINTH = 0.03
@@ -24,12 +25,12 @@ def lobby(front):
     band = dict(v=(0.05 + head) / 2, h=head - 0.05, depth=DEPTH + 0.01, glass="window", sill="plinth", lit=False)
     if not front:
         return [dict(band, u=0, w=0.7)]
-    door = dict(u=0, v=(PLINTH + head) / 2, w=0.14, h=head - PLINTH, depth=DEPTH + 0.02, glass="door", lit=False, sill_face=False)
+    door = dict(u=0, v=(PLINTH + head) / 2, w=0.14, h=head - PLINTH, depth=DEPTH + 0.02, glass="door", lintel=False, lit=False, sill_face=False, lamps=False, arch=0.1)
     return [dict(band, u=-0.24, w=0.3), door, dict(band, u=0.24, w=0.3)]
 
 
-def make():
-    d = bkit.Draft()
+def make(near=False):
+    d = bkit.Draft(nkit.Near(SCALE) if near else None)
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth", skip=())
     openings = {}
     for face in bkit.FACES:
@@ -45,8 +46,21 @@ def make():
     deck, ix2, _ = bkit.crown(d, UP_TOP, UP_HW, UP_HW, 0.026, 0.02, 0.04, 0.03, inset=0.07)
     d.pad(0.44, 0, terrace, 0.07, 0.6)
     d.pad(0, 0, deck, 0.46, 0.46)
+    if near:
+        n = d.near
+        n.quoins(d, BASE_HW, BASE_HW, PLINTH + 0.08, BASE_TOP - n.uy(0.3))
+        n.quoins(d, UP_HW, UP_HW, terrace + 0.03, UP_TOP - n.uy(0.3))
+        n.canopy(d, "+z", BASE_HW, 0.0, 0.12, 0.3, 0.06, slab=False)
+        # Plant round the edge of the top deck, clear of the pad in the middle.
+        n.fan(d, 0.29, 0.29, deck, n.ux(0.35))
+        n.stack(d, -0.3, -0.3, deck, n.ux(0.13), n.uy(1.0))
+        n.louvred_box(d, 0.3, -0.3, deck, 0.1, 0.08, n.uy(0.7))
     return d
 
 
 def build():
     return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.6)
+
+
+def build_near():
+    return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.6, near=True)

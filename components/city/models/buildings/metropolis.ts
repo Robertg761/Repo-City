@@ -440,7 +440,7 @@ const TOWER_ROLES: Record<string, Rgb3> = {
   metal: METAL,
 };
 
-function towerRole(role: string): Rgb3 {
+export function towerRole(role: string): Rgb3 {
   const grade = /^glass(\d)$/.exec(role);
   if (grade) return glassAt(Number(grade[1]) / 8);
   const color = TOWER_ROLES[role];

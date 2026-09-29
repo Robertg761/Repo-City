@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bkit  # noqa: E402
+import nkit  # noqa: E402
 
 SCALE = (6.0, 23.0, 6.0)
 PLINTH = 0.018
@@ -18,15 +19,15 @@ TOP = 0.86
 DEPTH = 0.035
 
 
-def make():
-    d = bkit.Draft()
+def make(near=False):
+    d = bkit.Draft(nkit.Near(SCALE) if near else None)
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
     openings = {}
     for face in bkit.FACES:
         bays = [bkit._bay(d, face, HW, u, 0.19, 0.095, TOP - 0.03, 8, DEPTH, 0.016) for u in (-0.29, 0, 0.29)]
         head = 0.07
         if face == "+z":
-            bays.append(dict(u=0, v=(PLINTH + head) / 2, w=0.19, h=head - PLINTH, depth=DEPTH + 0.02, glass="door", lit=False, sill_face=False))
+            bays.append(dict(u=0, v=(PLINTH + head) / 2, w=0.19, h=head - PLINTH, depth=DEPTH + 0.02, glass="door", lintel=False, lit=False, sill_face=False))
             for u in (-0.29, 0.29):
                 bays.append(dict(u=u, v=0.047, w=0.19, h=0.04, depth=DEPTH + 0.01, glass="window", sill="plinth", lit=False))
         else:
@@ -47,8 +48,23 @@ def make():
     d.box(0, top, 0, 0.3, 0.016, 0.3, "mech")
     d.prism_y(0, 0, 0.014, top + 0.016, 1.07, 6, "mech")
     d.pad(0.2, 0.2, top, 0.08, 0.08)
+    if near:
+        n = d.near
+        n.quoins(d, HW, HW, PLINTH, TOP - 0.02)
+        n.canopy(d, "+z", HW, 0.0, 0.075, 0.22, 0.07, slab=False)
+        # The plant on the lantern's roof, clear of the pad and the mast.
+        n.fan(d, -0.08, 0.07, top + 0.016, n.ux(0.55))
+        n.stack(d, 0.07, -0.08, top + 0.016, n.ux(0.12), n.uy(1.2))
+        n.louvred_box(d, -0.07, -0.08, top + 0.016, 0.1, 0.07, n.uy(0.9))
+        n.mast(d, 0, 0, top + 0.016, 1.07, 0.014)
+        # A guard rail round the open lantern roof.
+        n.railing(d, -ch - 0.008, ch + 0.008, -ch - 0.008, ch + 0.008, top, n.uy(1.0))
     return d
 
 
 def build():
     return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.8)
+
+
+def build_near():
+    return bkit.build_model(make, SCALE, meta_extra={"maxProps": 2}, distance=1.8, near=True)
