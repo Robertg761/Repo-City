@@ -15,6 +15,9 @@
  *     `city.constructionSites` at `dist` (default 14) and `height` (default
  *     6), `angle` radians round from +z (default 0.8)
  *
+ * Any pose may add `js`, an expression evaluated in the page after the camera
+ * moves (the scene is `window.__repoCityScene` in development).
+ *
  * Knobs: INPUT (what is typed in the repository box: `fixture`, `backlog`,
  * `stress`, or owner/repo; default `fixture`), QUERY (appended to the URL,
  * e.g. `&time=afternoon&quality=high`), WIDTH, HEIGHT, SETTLE_MS (after the
@@ -52,6 +55,8 @@ interface Pose {
   dist?: number;
   height?: number;
   angle?: number;
+  /** An expression evaluated in the page after the camera moves, before the shot (e.g. hide the near meshes). */
+  js?: string;
 }
 const POSES: Pose[] = JSON.parse(process.env.POSES ?? '[{"name":"overview"}]');
 
@@ -187,6 +192,10 @@ async function main(): Promise<void> {
       return "ok";
     })()`);
     await sleep(1500);
+    if (pose.js) {
+      await evaluate(pose.js);
+      await sleep(300);
+    }
     const stats = await evaluate<{ triangles?: number; calls?: number }>(
       // The perf overlay (`?perf=1`) counts the whole frame; renderer.info
       // only sees the last pass of the composer.
