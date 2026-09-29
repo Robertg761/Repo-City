@@ -38,7 +38,7 @@ import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
 import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
-import { useLoadNearModels, useModelsReady } from "@/components/city/models/useModels";
+import { useLoadNearModels, useLoadNearModelsOnApproach, useModelsReady } from "@/components/city/models/useModels";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -294,6 +294,7 @@ function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
     >
       <Scene city={city} aspect={aspect} />
       <ContextWatch onLost={onLost} />
+      <NearModelsOnApproach enabled={city !== null && tier !== "low"} />
 
       {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
       <PerfOverlay />
@@ -339,6 +340,12 @@ function webglAvailable(): boolean {
  * WebGL errors. Unmounted while the context is gone, everything is released
  * as a no-op, and the city comes back on a fresh canvas.
  */
+/** Fetches the near models the moment the camera comes down close enough to use one. */
+function NearModelsOnApproach({ enabled }: { enabled: boolean }) {
+  useLoadNearModelsOnApproach(enabled);
+  return null;
+}
+
 function ContextWatch({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   const gl = useThree((state) => state.gl);
 

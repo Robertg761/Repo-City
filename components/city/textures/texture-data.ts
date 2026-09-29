@@ -36,7 +36,17 @@ import {
   type Pattern,
 } from "./patterns";
 import { MODEL_SURFACE_KINDS, type SurfaceId } from "./surface-types";
-import { bakeGroundTexture, bakeModelArray, channelMean, tintOf } from "./baked-surfaces";
+import {
+  bakeGroundTexture,
+  bakeModelArray,
+  bakedGroundKind,
+  bakedModelLayerArrived,
+  channelMean,
+  deferProcedural,
+  prefetchBakedSurfaces,
+  tintOf,
+  writeFlatModelLayer,
+} from "./baked-surfaces";
 
 export type SurfaceKind =
   | "lawn" | "turf" | "meadow" | "asphalt" | "pavers" | "gravel" | "ground" | "setts"
@@ -80,6 +90,10 @@ export const SURFACE_BUMP: Record<SurfaceKind, number> = {
 };
 
 const cache = new Map<string, DataTexture>();
+
+// Fetch and decode the baked images while the app is still starting, so they
+// are usually in hand by the time a texture asks for one.
+prefetchBakedSurfaces();
 const arrayCache = new Map<number, DataArrayTexture>();
 
 /** Material-specific physical finish, independent of a model's colour. */
@@ -114,30 +128,53 @@ export function surfaceReliefPattern(pattern: Pattern): Pattern {
   return { size: pattern.size, data };
 }
 
+/** Each procedural pattern is made once per side and never written to again. */
+const patternCache = new Map<string, Pattern>();
+
+function basePattern(kind: SurfaceKind, side: number): Pattern {
+  const key = `${kind}:${side}`;
+  let pattern = patternCache.get(key);
+  if (!pattern) {
+    pattern = MAKERS[kind](side);
+    patternCache.set(key, pattern);
+  }
+  return pattern;
+}
+
+/** Model channel layout: tint R, roughness G, height B, metalness A. A new array. */
+function modelLayerData(kind: SurfaceKind, side: number): Uint8Array {
+  const color = basePattern(kind, side);
+  const pattern = surfaceReliefPattern(color);
+  const finish = MODEL_FINISH[kind];
+  // A single sample supplies tint, roughness and height to merged models.
+  for (let i = 0; i < pattern.data.length; i += 4) {
+    const tone = (color.data[i] + color.data[i + 1] + color.data[i + 2]) / (3 * 255);
+    pattern.data[i + 2] = pattern.data[i];
+    pattern.data[i] = Math.round(tone * 255);
+    if (finish) {
+      pattern.data[i + 1] = Math.round(Math.min(1, finish.roughness + (1 - tone) * finish.variation) * 255);
+      pattern.data[i + 3] = Math.round(Math.max(0, finish.metalness - (1 - tone) * 1.4) * 255);
+    } else pattern.data[i + 3] = 0;
+    if (kind === "glass") pattern.data[i + 2] = 128;
+  }
+  return pattern.data;
+}
+
 function cachedTexture(kind: SurfaceKind, size: number, anisotropy: number, variant: "color" | "relief" | "model"): DataTexture {
   const side = patternSize(size);
   const key = `${kind}:${side}:${variant}`;
   let texture = cache.get(key);
   if (!texture) {
-    // The model variant starts from the pattern itself, never from the cached
-    // colour texture, which the baked ground images replace in place.
-    const color = MAKERS[kind](side);
-    const pattern = variant === "color" ? color : surfaceReliefPattern(color);
-    if (variant === "model") {
-      // A single sample supplies tint, roughness and height to merged models.
-      for (let i = 0; i < pattern.data.length; i += 4) {
-        const finish = MODEL_FINISH[kind];
-        const tone = (color.data[i] + color.data[i + 1] + color.data[i + 2]) / (3 * 255);
-        pattern.data[i + 2] = pattern.data[i];
-        pattern.data[i] = Math.round(tone * 255);
-        if (finish) {
-          pattern.data[i + 1] = Math.round(Math.min(1, finish.roughness + (1 - tone) * finish.variation) * 255);
-          pattern.data[i + 3] = Math.round(Math.max(0, finish.metalness - (1 - tone) * 1.4) * 255);
-        } else pattern.data[i + 3] = 0;
-        if (kind === "glass") pattern.data[i + 2] = 128;
-      }
-    }
-    texture = new DataTexture(pattern.data, side, side, RGBAFormat, UnsignedByteType);
+    const color = basePattern(kind, side);
+    // The baked ground images replace the colour texture's pixels in place, so
+    // it gets its own copy; the cached pattern stays pristine for the relief
+    // and model variants.
+    const baked = variant !== "model" && bakedGroundKind(kind);
+    const data =
+      variant === "color" ? (baked ? color.data.slice() : color.data)
+      : variant === "relief" ? surfaceReliefPattern(color).data
+      : modelLayerData(kind, side);
+    texture = new DataTexture(data, side, side, RGBAFormat, UnsignedByteType);
     texture.colorSpace = NoColorSpace;
     texture.wrapS = RepeatWrapping;
     texture.wrapT = RepeatWrapping;
@@ -148,9 +185,11 @@ function cachedTexture(kind: SurfaceKind, size: number, anisotropy: number, vari
     cache.set(key, texture);
     // Ground kinds swap to their baked image when it arrives; the pattern above
     // stays if it never does.
-    if (variant !== "model") {
-      const data = texture.image.data as Uint8Array;
-      bakeGroundTexture(kind, side, variant, texture, { tint: tintOf(data), roughness: channelMean(data, 1) });
+    if (baked) {
+      bakeGroundTexture(kind, side, variant as "color" | "relief", texture, {
+        tint: tintOf(color.data),
+        roughness: channelMean(color.data, 1),
+      });
     }
   }
   if (texture.anisotropy !== anisotropy) {
@@ -180,9 +219,20 @@ export function modelSurfaceTextureArray(size: number, anisotropy = 1): DataArra
   if (!texture) {
     const stride = side * side * 4;
     const data = new Uint8Array(stride * MODEL_SURFACE_KINDS.length);
-    MODEL_SURFACE_KINDS.forEach((kind, layer) => {
-      data.set(surfaceModelTexture(kind, side, anisotropy).image.data as Uint8Array, layer * stride);
-    });
+    // In a browser every layer is replaced by its baked image, so the
+    // procedural layers are only made for a layer whose image cannot be had.
+    // Until then a layer is flat: full albedo, the material's own roughness,
+    // no relief. Node (the tests) and custom image sources keep the
+    // procedural layers from the start.
+    const deferred = deferProcedural();
+    const fill = (kind: (typeof MODEL_SURFACE_KINDS)[number], layer: number) => {
+      if (!deferred) data.set(modelLayerData(kind, side), layer * stride);
+      else if (!bakedModelLayerArrived(kind)) {
+        const finish = MODEL_FINISH[kind];
+        writeFlatModelLayer(data, layer, side, finish ? Math.min(1, finish.roughness + 0.15 * finish.variation) : 0.85, finish ? finish.metalness * 0.5 : 0);
+      }
+    };
+    MODEL_SURFACE_KINDS.forEach(fill);
     texture = new DataArrayTexture(data, side, side, MODEL_SURFACE_KINDS.length);
     texture.format = RGBAFormat;
     texture.type = UnsignedByteType;
@@ -195,7 +245,7 @@ export function modelSurfaceTextureArray(size: number, anisotropy = 1): DataArra
     texture.needsUpdate = true;
     arrayCache.set(side, texture);
     // Procedural layers first; each baked layer replaces its own as it arrives.
-    bakeModelArray(texture, side);
+    bakeModelArray(texture, side, deferred ? (layer) => data.set(modelLayerData(MODEL_SURFACE_KINDS[layer], side), layer * stride) : undefined);
   }
   if (texture.anisotropy !== anisotropy) {
     texture.anisotropy = anisotropy;

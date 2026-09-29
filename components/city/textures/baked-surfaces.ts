@@ -28,6 +28,8 @@ import { MODEL_SURFACE_KINDS } from "./surface-types";
 export interface Plane {
   size: number;
   data: Uint8Array | Uint8ClampedArray;
+  /** Row 0 is already the bottom of the picture (decoded upside down on purpose). */
+  flipped?: boolean;
 }
 
 /** Resolves to the decoded image, or null when it cannot be had. */
@@ -94,16 +96,22 @@ export function boxDownsample(source: ArrayLike<number>, from: number, to: numbe
  * BOTTOM of the picture the artist saw. Flipping once here keeps the baked
  * images upright when the shader samples them.
  */
-export function flipRows(data: Uint8Array, size: number): Uint8Array {
+export function flipRows(data: ArrayLike<number> & { subarray(a: number, b: number): ArrayLike<number> }, size: number): Uint8Array {
   const stride = size * 4;
   const out = new Uint8Array(data.length);
   for (let y = 0; y < size; y++) out.set(data.subarray(y * stride, (y + 1) * stride), (size - 1 - y) * stride);
   return out;
 }
 
-/** A baked plane at exactly `side` pixels, upright, ready to be copied. */
-export function preparePlane(plane: Plane, side: number): Uint8Array {
-  return flipRows(boxDownsample(plane.data, plane.size, side), side);
+/**
+ * A baked plane at exactly `side` pixels, upright, ready to be read. A plane
+ * that is already the right size and already flipped by the decoder is
+ * returned as it is, not copied.
+ */
+export function preparePlane(plane: Plane, side: number): Uint8Array | Uint8ClampedArray {
+  if (plane.size === side) return plane.flipped ? plane.data : flipRows(plane.data as Uint8Array, side);
+  const small = boxDownsample(plane.data, plane.size, side);
+  return plane.flipped ? small : flipRows(small, side);
 }
 
 /**
@@ -115,8 +123,8 @@ export function writeModelLayer(
   target: Uint8Array,
   layer: number,
   side: number,
-  baked: Uint8Array,
-  metalness: Uint8Array | null,
+  baked: ArrayLike<number>,
+  metalness: ArrayLike<number> | null,
 ): void {
   const stride = side * side * 4;
   const base = layer * stride;
@@ -125,6 +133,20 @@ export function writeModelLayer(
     target[base + i + 1] = baked[i + 1];
     target[base + i + 2] = baked[i + 2];
     target[base + i + 3] = metalness ? metalness[i] : 0;
+  }
+}
+
+/** A featureless layer: full albedo, one roughness, flat height, one metalness. */
+export function writeFlatModelLayer(target: Uint8Array, layer: number, side: number, roughness: number, metalness: number): void {
+  const stride = side * side * 4;
+  const base = layer * stride;
+  const rough = Math.round(roughness * 255);
+  const metal = Math.round(metalness * 255);
+  for (let i = 0; i < stride; i += 4) {
+    target[base + i] = 255;
+    target[base + i + 1] = rough;
+    target[base + i + 2] = 128;
+    target[base + i + 3] = metal;
   }
 }
 
@@ -152,7 +174,7 @@ export function channelMean(data: ArrayLike<number>, channel: number): number {
  * procedural pattern's tint. The alpha the pattern carries (asphalt's wear
  * mask) is left alone.
  */
-export function writeGroundColor(target: Uint8Array, baked: Uint8Array, tint: readonly [number, number, number]): void {
+export function writeGroundColor(target: Uint8Array, baked: ArrayLike<number>, tint: readonly [number, number, number]): void {
   for (let i = 0; i < target.length; i += 4) {
     const tone = baked[i];
     target[i] = Math.min(255, Math.round(tone * tint[0]));
@@ -166,7 +188,7 @@ export function writeGroundColor(target: Uint8Array, baked: Uint8Array, tint: re
  * `roughnessScale` rescales the baked roughness to the multiplier range the
  * procedural relief uses (1 for layers baked directly for the ground).
  */
-export function writeGroundRelief(target: Uint8Array, baked: Uint8Array, roughnessScale = 1): void {
+export function writeGroundRelief(target: Uint8Array, baked: ArrayLike<number>, roughnessScale = 1): void {
   for (let i = 0; i < target.length; i += 4) {
     target[i] = baked[i + 2];
     target[i + 1] = Math.min(255, Math.round(baked[i + 1] * roughnessScale));
@@ -179,7 +201,24 @@ export function writeGroundRelief(target: Uint8Array, baked: Uint8Array, roughne
 // Loading
 // ---------------------------------------------------------------------------
 
-/** Decodes a PNG to opaque RGBA without colour conversion, in a browser. */
+let scratch: { size: number; canvas: OffscreenCanvas | HTMLCanvasElement; context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } | null = null;
+
+function scratchContext(size: number) {
+  if (scratch?.size === size) return scratch.context;
+  const canvas: OffscreenCanvas | HTMLCanvasElement =
+    typeof OffscreenCanvas === "function" ? new OffscreenCanvas(size, size) : Object.assign(document.createElement("canvas"), { width: size, height: size });
+  const context = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!context) return null;
+  context.imageSmoothingEnabled = false;
+  scratch = { size, canvas, context };
+  return context;
+}
+
+/**
+ * Decodes an image to opaque RGBA without colour conversion, in a browser,
+ * already flipped: the canvas draws it upside down, which is exact at this
+ * size and costs no JavaScript row copy.
+ */
 async function browserSource(url: string): Promise<Plane | null> {
   if (typeof fetch !== "function" || typeof createImageBitmap !== "function") return null;
   try {
@@ -188,14 +227,13 @@ async function browserSource(url: string): Promise<Plane | null> {
     const bitmap = await createImageBitmap(await response.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
     const size = bitmap.width;
     if (bitmap.height !== size) return null;
-    const canvas: OffscreenCanvas | HTMLCanvasElement =
-      typeof OffscreenCanvas === "function" ? new OffscreenCanvas(size, size) : Object.assign(document.createElement("canvas"), { width: size, height: size });
-    const context = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    const context = scratchContext(size);
     if (!context) return null;
-    context.imageSmoothingEnabled = false;
+    context.setTransform(1, 0, 0, -1, 0, size);
     context.drawImage(bitmap, 0, 0);
+    context.setTransform(1, 0, 0, 1, 0, 0);
     bitmap.close?.();
-    return { size, data: context.getImageData(0, 0, size, size).data };
+    return { size, data: context.getImageData(0, 0, size, size).data, flipped: true };
   } catch {
     return null;
   }
@@ -204,9 +242,55 @@ async function browserSource(url: string): Promise<Plane | null> {
 let source: BakedImageSource = browserSource;
 const pending = new Set<Promise<unknown>>();
 
+/**
+ * True when baked images will replace the procedural layers in this
+ * environment (a browser, the real image source): callers may then skip
+ * building patterns that would be thrown away at once.
+ */
+export function deferProcedural(): boolean {
+  return source === browserSource && typeof window !== "undefined" && typeof createImageBitmap === "function";
+}
+
+/** Each image is fetched and decoded once, whoever asks first. */
+const images = new Map<string, Promise<Plane | null>>();
+/** Images that have arrived, readable without waiting. */
+const arrived = new Map<string, Plane>();
+
+function image(url: string): Promise<Plane | null> {
+  let promise = images.get(url);
+  if (!promise) {
+    promise = source(url).then((plane) => {
+      if (plane) arrived.set(url, plane);
+      return plane;
+    });
+    images.set(url, promise);
+  }
+  return promise;
+}
+
+/** Whether a model layer's image (and its metalness plane) is already decoded and in hand. */
+export function bakedModelLayerArrived(kind: string): boolean {
+  return arrived.has(bakedModelUrl(kind)) && (!METALNESS_LAYERS.includes(kind) || arrived.has(bakedMetalnessUrl(kind)));
+}
+
+/** Starts every fetch now, one after another so decoding never piles into one task. */
+export function prefetchBakedSurfaces(): void {
+  if (!deferProcedural()) return;
+  const urls = [
+    ...MODEL_SURFACE_KINDS.map(bakedModelUrl),
+    ...METALNESS_LAYERS.map(bakedMetalnessUrl),
+    ...BAKED_GROUND_KINDS.map(bakedGroundUrl),
+  ];
+  for (const url of urls) track(image(url).catch(() => null));
+}
+
 /** Swaps the image source (tests); pass nothing to restore the browser's. */
 export function setBakedImageSource(next?: BakedImageSource): void {
   source = next ?? browserSource;
+  images.clear();
+  arrived.clear();
+  groundPlanes.clear();
+  groundReady.clear();
 }
 
 /** Resolves once every load started so far has been applied or has failed. */
@@ -231,67 +315,105 @@ interface Uploadable {
   needsUpdate: boolean;
 }
 
-/** Re-uploads at most every 200 ms while images keep arriving. */
-const flushing = new Map<Uploadable, ReturnType<typeof setTimeout>>();
-const flushers = new Set<Uploadable>();
+/**
+ * Uploads wait for the burst of arrivals to end (60 ms of quiet, 400 ms at
+ * most), then every texture that changed goes up together: each upload
+ * regenerates the mipmaps, so one per burst is the cheapest.
+ */
+const QUIET_MS = 60;
+const LONGEST_WAIT_MS = 400;
+const waiting = new Set<Uploadable>();
+let quietTimer: ReturnType<typeof setTimeout> | undefined;
+let firstWaitAt = 0;
 function scheduleUpload(texture: Uploadable): void {
-  flushers.add(texture);
-  if (flushing.has(texture)) return;
-  flushing.set(texture, setTimeout(() => {
-    flushing.delete(texture);
-    flushers.delete(texture);
-    texture.needsUpdate = true;
-  }, 200));
+  waiting.add(texture);
+  const now = Date.now();
+  if (!quietTimer) firstWaitAt = now;
+  else clearTimeout(quietTimer);
+  quietTimer = setTimeout(flushBakedUploads, Math.max(0, Math.min(QUIET_MS, firstWaitAt + LONGEST_WAIT_MS - now)));
 }
 
-/** Uploads anything still waiting for its throttle, now. */
+/** Uploads anything still waiting, now. */
 export function flushBakedUploads(): void {
-  for (const timer of flushing.values()) clearTimeout(timer);
-  flushing.clear();
-  for (const texture of flushers) texture.needsUpdate = true;
-  flushers.clear();
+  clearTimeout(quietTimer);
+  quietTimer = undefined;
+  for (const texture of waiting) texture.needsUpdate = true;
+  waiting.clear();
 }
 
 /**
  * Replaces every model layer of `texture` (`side` pixels a side, layers in
  * `MODEL_SURFACE_KINDS` order) with its baked image as the images arrive.
  */
-export function bakeModelArray(texture: Uploadable & { image: unknown }, side: number): Promise<void> {
+export function bakeModelArray(
+  texture: Uploadable & { image: unknown },
+  side: number,
+  /** Fills a layer procedurally when its image cannot be had; absent when the layers already are. */
+  fallback?: (layer: number) => void,
+): Promise<void> {
   const data = (texture.image as { data: Uint8Array }).data;
-  const jobs = MODEL_SURFACE_KINDS.map((kind, layer) =>
-    track((async () => {
-      const [color, metal] = await Promise.all([
-        source(bakedModelUrl(kind)),
-        METALNESS_LAYERS.includes(kind) ? source(bakedMetalnessUrl(kind)) : Promise.resolve(null),
-      ]);
-      if (!usable(color, side)) return;
-      const metalness = METALNESS_LAYERS.includes(kind) ? (usable(metal, side) ? preparePlane(metal, side) : null) : null;
-      // A layer that should carry metalness but lost its plane keeps the procedural layer whole.
-      if (METALNESS_LAYERS.includes(kind) && !metalness) return;
-      writeModelLayer(data, layer, side, preparePlane(color, side), metalness);
-      scheduleUpload(texture);
-    })().catch(() => undefined)),
-  );
+  const apply = (kind: string, layer: number, color: Plane | null, metal: Plane | null): boolean => {
+    if (!usable(color, side)) return false;
+    const hasMetalness = METALNESS_LAYERS.includes(kind);
+    const metalness = hasMetalness ? (usable(metal, side) ? preparePlane(metal, side) : null) : null;
+    // A layer that should carry metalness but lost its plane keeps the procedural layer whole.
+    if (hasMetalness && !metalness) return false;
+    writeModelLayer(data, layer, side, preparePlane(color, side), metalness);
+    return true;
+  };
+  const jobs = MODEL_SURFACE_KINDS.map((kind, layer) => {
+    const colorUrl = bakedModelUrl(kind);
+    const metalUrl = METALNESS_LAYERS.includes(kind) ? bakedMetalnessUrl(kind) : null;
+    // Already decoded (prefetched): written before the first upload, no swap needed.
+    const color = arrived.get(colorUrl) ?? null;
+    if (color && (!metalUrl || arrived.has(metalUrl)) && apply(kind, layer, color, metalUrl ? arrived.get(metalUrl)! : null)) return null;
+    return track((async () => {
+      const [baked, metal] = await Promise.all([image(colorUrl), metalUrl ? image(metalUrl) : Promise.resolve(null)]);
+      if (apply(kind, layer, baked, metal)) scheduleUpload(texture);
+      else if (fallback) {
+        fallback(layer);
+        scheduleUpload(texture);
+      }
+    })().catch(() => {
+      if (fallback) {
+        fallback(layer);
+        scheduleUpload(texture);
+      }
+    }));
+  }).filter((job): job is Promise<void> => job !== null);
   return track(Promise.all(jobs).then(() => undefined));
 }
 
 export type GroundVariant = "color" | "relief";
 
-/** The baked plane for a ground kind at `side`, or null; shared by both variants. */
-const groundPlanes = new Map<string, Promise<{ plane: Uint8Array; scale: number } | null>>();
+interface GroundPlane {
+  plane: ArrayLike<number>;
+  scale: number;
+}
 
-function groundPlane(kind: string, side: number): Promise<{ plane: Uint8Array; scale: number } | null> | null {
+/** The baked plane for a ground kind at `side`, or null; shared by both variants. */
+const groundPlanes = new Map<string, Promise<GroundPlane | null>>();
+const groundReady = new Map<string, GroundPlane>();
+
+export function bakedGroundKind(kind: string): boolean {
+  return kind in GROUND_FROM_MODEL || (BAKED_GROUND_KINDS as readonly string[]).includes(kind);
+}
+
+function groundPlane(kind: string, side: number): Promise<GroundPlane | null> | null {
+  if (!bakedGroundKind(kind)) return null;
   const model = GROUND_FROM_MODEL[kind];
-  const baked = (BAKED_GROUND_KINDS as readonly string[]).includes(kind);
-  if (!model && !baked) return null;
   const key = `${kind}:${side}`;
   let promise = groundPlanes.get(key);
   if (!promise) {
-    promise = track((async () => {
-      const plane = await source(model ? bakedModelUrl(model) : bakedGroundUrl(kind));
+    const url = model ? bakedModelUrl(model) : bakedGroundUrl(kind);
+    const build = (plane: Plane | null): GroundPlane | null => {
       if (!usable(plane, side)) return null;
-      return { plane: preparePlane(plane, side), scale: model ? -1 : 1 };
-    })().catch(() => null));
+      const ready = { plane: preparePlane(plane, side), scale: model ? -1 : 1 };
+      groundReady.set(key, ready);
+      return ready;
+    };
+    const early = arrived.get(url);
+    promise = early ? Promise.resolve(build(early)) : track(image(url).then(build).catch(() => null));
     groundPlanes.set(key, promise);
   }
   return promise;
@@ -312,8 +434,7 @@ export function bakeGroundTexture(
 ): Promise<void> | null {
   const pending_ = groundPlane(kind, side);
   if (!pending_) return null;
-  return track(pending_.then((result) => {
-    if (!result) return;
+  const write = (result: GroundPlane) => {
     const target = (texture.image as { data: Uint8Array }).data;
     if (variant === "color") writeGroundColor(target, result.plane, procedural.tint);
     else {
@@ -321,6 +442,16 @@ export function bakeGroundTexture(
       const scale = result.scale < 0 ? procedural.roughness / Math.max(0.05, channelMean(result.plane, 1)) : 1;
       writeGroundRelief(target, result.plane, scale);
     }
+  };
+  // Decoded already (prefetched): written before the texture's first upload.
+  const ready = groundReady.get(`${kind}:${side}`);
+  if (ready) {
+    write(ready);
+    return null;
+  }
+  return track(pending_.then((result) => {
+    if (!result) return;
+    write(result);
     scheduleUpload(texture);
   }).catch(() => undefined));
 }
@@ -328,5 +459,6 @@ export function bakeGroundTexture(
 /** Forgets every cached ground plane (tests). */
 export function resetBakedSurfaces(): void {
   groundPlanes.clear();
+  groundReady.clear();
   flushBakedUploads();
 }

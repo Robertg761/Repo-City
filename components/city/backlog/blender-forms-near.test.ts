@@ -92,7 +92,8 @@ describe("near crowd forms", () => {
     }
   });
 
-  it("builds once per tone", () => {
+  // Builds every form at every tone: seconds, and more under a loaded full run.
+  it("builds once per tone", { timeout: 30_000 }, () => {
     for (const form of CROWD_MESHES) {
       expect(blenderNearFormGeometry(form, 0.2)).toBe(blenderNearFormGeometry(form, 0.201));
       expect(blenderNearFormGeometry(form, 0.2)).not.toBe(blenderNearFormGeometry(form, 0.8));
