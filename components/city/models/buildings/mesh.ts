@@ -47,6 +47,9 @@ export interface MeshDraft {
 export const PAINT_NONE = 0;
 export const PAINT_WALL = 1;
 export const PAINT_ACCENT = 2;
+/** City buildings under `?palette=materials` only (`facades.ts`): the roof material and the glass tint. */
+export const PAINT_ROOF = 3;
+export const PAINT_GLASS = 4;
 
 export const emptyDraft = (): MeshDraft => ({
   positions: [],

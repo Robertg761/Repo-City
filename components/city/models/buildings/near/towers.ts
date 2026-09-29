@@ -7,6 +7,7 @@ import { MODEL as TOWER_GLASS_NEAR } from "../buildingTowerGlassNear.model";
 import { MODEL as TOWER_SPIRE_NEAR } from "../buildingTowerSpireNear.model";
 import { MODEL as TOWER_STEPPED_NEAR } from "../buildingTowerSteppedNear.model";
 import { MODEL as TOWER_TWIN_NEAR } from "../buildingTowerTwinNear.model";
+import { cityMaterial } from "../cityMaterial";
 import { toGeometry } from "../geometry";
 import { towerRole } from "../metropolis";
 import { blenderRole } from "../models";
@@ -30,7 +31,7 @@ function near(id: ModelKey, model: ImportedModel, roles: (role: string) => Rgb3)
     if (!BLENDER_MODELS || !isModelLoaded(model)) return null;
     let geometry = CACHE.get(id);
     if (!geometry) {
-      geometry = toGeometry(importedDraft(model, "Building", (mat) => ({ color: roles(mat.role) })));
+      geometry = toGeometry(importedDraft(model, "Building", cityMaterial(roles)));
       CACHE.set(id, geometry);
     }
     return geometry;

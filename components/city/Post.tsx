@@ -12,9 +12,10 @@
  */
 
 import { useLayoutEffect, useRef } from "react";
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { BrightnessContrast, Bloom, EffectComposer, HueSaturation, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import type { BloomEffect } from "postprocessing";
+import { filmGrade } from "./grade";
 import { mix, type SceneAtmosphere } from "./palette";
 import type { QualitySettings } from "./quality";
 import { useSky, useSkyFrame } from "./sky";
@@ -71,6 +72,7 @@ export default function Post({
   // Built as an array rather than with inline conditionals: the composer
   // rebuilds its chain from its children, and a `false` among them is not an
   // effect it can skip.
+  const grade = filmGrade();
   const effects = [];
   if (quality.ambientOcclusion) {
     effects.push(
@@ -84,9 +86,9 @@ export default function Post({
         aoSamples={16}
         denoiseSamples={8}
         denoiseRadius={8}
-        aoRadius={2.6}
+        aoRadius={grade.aoRadius}
         distanceFalloff={1.1}
-        intensity={1.05}
+        intensity={grade.aoIntensity}
         // Neutral, with a breath of the ground bounce in it: an occlusion
         // tinted with the bounce colour turns the whole frame that colour.
         color={mix("#0a0c10", atmosphere.groundBounceColor, 0.2)}
@@ -106,7 +108,15 @@ export default function Post({
       />,
     );
   }
-  effects.push(<ToneMapping key="tone" mode={ToneMappingMode.NEUTRAL} />);
+  effects.push(
+    <ToneMapping
+      key="tone"
+      mode={grade.toneMapping === "agx" ? ToneMappingMode.AGX : ToneMappingMode.NEUTRAL}
+    />,
+  );
+  // `?grade=rich`: a little vibrance and contrast after the tone mapping.
+  if (grade.saturation !== 0) effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
+  if (grade.contrast !== 0) effects.push(<BrightnessContrast key="contrast" contrast={grade.contrast} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
 
   return (

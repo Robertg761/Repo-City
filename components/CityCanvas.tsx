@@ -33,6 +33,7 @@ import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities"
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
+import { richSky } from "@/components/city/grade";
 import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
@@ -54,7 +55,7 @@ const EMPTY_SIZE = 120;
  * overcast fill of fog 0.3 -- which drained the grass to a grey-green and
  * read as a pale veil over the whole frame.
  */
-const EMPTY_ATMOSPHERE = atmosphere(STAGE_AMBIENCE, false);
+const EMPTY_ATMOSPHERE = richSky(atmosphere(STAGE_AMBIENCE, false));
 
 /**
  * R3F 9 still builds its frame clock from `THREE.Clock`, which three r183
@@ -204,7 +205,7 @@ function Scene({ city: latest, aspect }: { city: CityModel | null; aspect: numbe
   // atmosphere they need is resolved here too. `City` resolves the same one
   // from the same model: it is a pure function of it (`palette.ts`).
   const scene = useMemo(
-    () => (city ? atmosphere(city.ambience, city.repository.archived) : EMPTY_ATMOSPHERE),
+    () => (city ? richSky(atmosphere(city.ambience, city.repository.archived)) : EMPTY_ATMOSPHERE),
     [city],
   );
 

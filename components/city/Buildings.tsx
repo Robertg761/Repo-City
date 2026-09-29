@@ -49,7 +49,18 @@ import {
   propTankGeometry,
   windowPanelGeometry,
 } from "./models/buildings/geometry";
-import { ACCENT_ATTRIBUTE, buildingDetailMaterial, settlementMaterial } from "./models/buildings/material";
+import {
+  ACCENT_ATTRIBUTE,
+  GLASS_ATTRIBUTE,
+  ROOF_ATTRIBUTE,
+  SURFACES_ATTRIBUTE,
+  buildingDetailMaterial,
+  cityPaintMaterial,
+  settlementMaterial,
+} from "./models/buildings/material";
+import { weather } from "./models/buildings/facades";
+import { MATERIALS_PALETTE } from "./look";
+import { BLENDER_MODELS } from "./models/modelSource";
 import { LodInstances } from "./lod";
 import { nearSizeAt, propBlockNearGeometry, propTankNearGeometry } from "./models/props/near";
 import { useQuality } from "./quality";
@@ -97,6 +108,14 @@ const BUILDING_NEAR_MIN = 4;
  */
 const BUILDING_NEAR_DISTANCE = 64;
 const PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE] as const;
+const CITY_PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE, ROOF_ATTRIBUTE, GLASS_ATTRIBUTE, SURFACES_ATTRIBUTE] as const;
+/** The attribute and its item size, per instance, that a city building's paint fills. */
+const CITY_ATTRIBUTE_SIZES: readonly (readonly [string, number])[] = [
+  [ACCENT_ATTRIBUTE, 3],
+  [ROOF_ATTRIBUTE, 3],
+  [GLASS_ATTRIBUTE, 3],
+  [SURFACES_ATTRIBUTE, 2],
+];
 const NO_ATTRIBUTES = [] as const;
 
 /**
@@ -135,18 +154,23 @@ function ArchetypeInstances({
   // A settlement model paints its walls and its accents per instance; the
   // city's archetypes shade the district colour, as they always have.
   const painted = instances.length > 0 && instances[0].paint !== undefined;
+  // `?palette=materials`: the city's own archetypes take a facade, a roof and
+  // a glass tint per instance (`facades.ts`).
+  const cityPainted = instances.length > 0 && instances[0].city !== undefined;
   const geometry = useMemo(() => {
     const shared = archetypeGeometry(group.model);
-    if (!painted) return shared;
+    if (!painted && !cityPainted) return shared;
     // The accent is a per-instance attribute on the geometry, so each mesh
     // gets its own shallow copy rather than writing into the shared one.
     const own = shared.clone();
-    own.setAttribute(
-      ACCENT_ATTRIBUTE,
-      new InstancedBufferAttribute(new Float32Array(Math.max(1, instances.length) * 3), 3),
-    );
+    for (const [name, size] of cityPainted ? CITY_ATTRIBUTE_SIZES : ([[ACCENT_ATTRIBUTE, 3]] as const)) {
+      own.setAttribute(
+        name,
+        new InstancedBufferAttribute(new Float32Array(Math.max(1, instances.length) * size), size),
+      );
+    }
     return own;
-  }, [group.model, painted, instances.length]);
+  }, [group.model, painted, cityPainted, instances.length]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
   const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model, nearVersion]);
   const near = useMemo(() => {
@@ -167,32 +191,54 @@ function ArchetypeInstances({
     };
   }, [nearGeometry, geometry, instances]);
   const material = useMemo(
-    () => painted
+    () => cityPainted
+      ? cityPaintMaterial({ flatShading: true, roughness: 0.82, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
+      : painted
       ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
       : buildingDetailMaterial({ flatShading: true, roughness: 0.82, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true }),
-    [painted, textureSize, anisotropy],
+    [painted, cityPainted, textureSize, anisotropy],
   );
   useEffect(
     () => () => {
-      if (painted) geometry.dispose();
+      if (painted || cityPainted) geometry.dispose();
     },
-    [geometry, painted],
+    [geometry, painted, cityPainted],
   );
   useEffect(() => () => material.dispose(), [material]);
+  // Health drains a settlement or district colour as it always has; on the
+  // materials palette it weathers instead (`facades.weather`).
   const baseColors = useMemo(
     () =>
       instances.map((instance) =>
-        desaturate(
-          instance.paint?.wall ?? buildingColor(instance.building.colorIndex),
-          atmosphere.desaturation,
-        ),
+        instance.city
+          ? weather(instance.city.wall, atmosphere.desaturation)
+          : desaturate(
+              instance.paint?.wall ?? buildingColor(instance.building.colorIndex),
+              atmosphere.desaturation,
+            ),
       ),
     [instances, atmosphere.desaturation],
   );
   const accentColors = useMemo(
     () =>
       instances.map((instance) =>
-        instance.paint ? desaturate(instance.paint.accent, atmosphere.desaturation) : null,
+        instance.city
+          ? weather(instance.city.accent, atmosphere.desaturation)
+          : instance.paint
+            ? desaturate(instance.paint.accent, atmosphere.desaturation)
+            : null,
+      ),
+    [instances, atmosphere.desaturation],
+  );
+  const cityColors = useMemo(
+    () =>
+      instances.map((instance) =>
+        instance.city
+          ? {
+              roof: weather(instance.city.roof, atmosphere.desaturation),
+              glass: weather(instance.city.glass, atmosphere.desaturation),
+            }
+          : null,
       ),
     [instances, atmosphere.desaturation],
   );
@@ -238,6 +284,9 @@ function ArchetypeInstances({
     const mesh = meshRef.current;
     if (!mesh) return;
     const accent = geometry.getAttribute(ACCENT_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const roof = geometry.getAttribute(ROOF_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const glass = geometry.getAttribute(GLASS_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const surfaces = geometry.getAttribute(SURFACES_ATTRIBUTE) as InstancedBufferAttribute | undefined;
     for (let i = 0; i < instances.length; i++) {
       const instance = instances[i];
       const b = instance.building;
@@ -247,7 +296,7 @@ function ArchetypeInstances({
       // A little hue and value drift inside the district's own colour: a block
       // of twelve buildings should not be twelve copies (PLAN.md section 4).
       // A settlement wall already has its own colour, so it drifts less.
-      const drift = instance.paint ? 0.5 : 1;
+      const drift = instance.paint || instance.city ? 0.5 : 1;
       scratchColor.offsetHSL(instance.hueShift * drift, instance.satShift * drift, instance.lightShift * drift);
       mesh.setColorAt(i, scratchColor);
       const accentHex = accentColors[i];
@@ -255,11 +304,23 @@ function ArchetypeInstances({
         scratchColor.set(stateTint(accentHex, hovered, selected));
         accent.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
       }
+      const city = cityColors[i];
+      if (city && roof && glass && surfaces) {
+        // The roof and the glass follow hover and selection like the wall.
+        scratchColor.set(stateTint(city.roof, hovered, selected));
+        roof.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
+        scratchColor.set(stateTint(city.glass, hovered, selected));
+        glass.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
+        surfaces.setXY(i, instance.city?.wallSurface ?? 0, instance.city?.roofSurface ?? 0);
+      }
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (accent) accent.needsUpdate = true;
+    if (roof) roof.needsUpdate = true;
+    if (glass) glass.needsUpdate = true;
+    if (surfaces) surfaces.needsUpdate = true;
     // `material` too: a new one remounts the mesh without its colours.
-  }, [instances, baseColors, accentColors, geometry, material, hoveredId, selectedId]);
+  }, [instances, baseColors, accentColors, cityColors, geometry, material, hoveredId, selectedId]);
 
   return (
     // Vertex colours carry the roof, cornice, door and window shading; the
@@ -273,7 +334,7 @@ function ArchetypeInstances({
       count={instances.length}
       maxNear={near.cap}
       nearSize={near.size}
-      instancedAttributes={painted ? PAINTED_ATTRIBUTES : NO_ATTRIBUTES}
+      instancedAttributes={cityPainted ? CITY_PAINTED_ATTRIBUTES : painted ? PAINTED_ATTRIBUTES : NO_ATTRIBUTES}
       handlers={handlers}
       castShadow
       receiveShadow
@@ -553,6 +614,7 @@ export default function Buildings({
         litShare: 1,
         settlement: tier,
         roads: network,
+        materials: MATERIALS_PALETTE && BLENDER_MODELS,
       }),
     [buildings, tier, network],
   );
