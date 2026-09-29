@@ -460,15 +460,13 @@ export function groundDetailPattern(size: number, seed = "ground"): Pattern {
 }
 
 /** Lime render with exposed running-bond masonry and fine mineral pores. */
-export function facadePattern(size: number, seed = "facade"): Pattern {
+export function facadePattern(size: number, seed = "facade", { courses = 8, columns = 4 } = {}): Pattern {
   const side = patternSize(size);
   const prng = prngFromString(`texture:${seed}`);
   const grain = grainField(side, prng);
   const weather = noiseField(side, 5, prng);
   const chips = noiseField(side, 27, prng);
   const pits = ellipseField(side, prng, 180, [0.002, 0.008]);
-  const courses = 8;
-  const columns = 4;
   const shades = Array.from({ length: courses * columns }, () => prng.range(-0.028, 0.025));
   return pack(side, (i, x, y) => {
     const cy = y / side * courses;
@@ -624,9 +622,13 @@ export function plasterPattern(size: number, seed = "plaster"): Pattern {
   });
 }
 
-/** The brick alias keeps the facade API while giving authored masonry its own seed. */
+/**
+ * The brick layer's stand-in until the baked image arrives, laid to the same
+ * bond: 24 courses of 9 bricks over the 2 unit tile (`blender/textures/
+ * model_layers.py`), which is what a brick's 7.5 by 22 cm face comes to.
+ */
 export function brickPattern(size: number, seed = "brick"): Pattern {
-  return facadePattern(size, seed);
+  return facadePattern(size, seed, { courses: 24, columns: 9 });
 }
 
 /** Larger limestone ashlar blocks, chipped joints, mineral veins and worn crowns. */

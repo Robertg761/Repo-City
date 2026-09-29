@@ -1,8 +1,9 @@
 /**
  * How a city archetype's Blender material role becomes a draft colour, by
- * look. By default it is the role's multiplier on the district colour, as it
- * always was; under `?palette=materials` it also carries the paint channel
- * (`facades.ts`), so walls, roofs, glass and accents take their own colours.
+ * look. On the classic palette (`?palette=classic`) it is the role's multiplier
+ * on the district colour, as it always was; by default it also carries the
+ * paint channel (`facades.ts`), so walls, roofs, glass and accents take their
+ * own colours.
  */
 
 import { MATERIALS_PALETTE } from "../../look";

@@ -61,7 +61,7 @@ export interface BuildingInstance {
    */
   paint?: { wall: string; accent: string };
   /**
-   * Under `?palette=materials` the city's archetypes carry a paint too: the
+   * Under the material palette the city's archetypes carry a paint too: the
    * facade, accent, roof and glass, and the surface layer of the wall and the
    * roof (`facades.ts`). `Buildings` draws these with the city paint material.
    */
@@ -153,7 +153,7 @@ export interface PlanOptions {
   windowCap?: number;
   /** Hard cap on rooftop props. */
   propCap?: number;
-  /** `?palette=materials`: paint the city's archetypes from real materials (`facades.ts`). */
+  /** the material palette: paint the city's archetypes from real materials (`facades.ts`). */
   materials?: boolean;
 }
 

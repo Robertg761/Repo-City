@@ -35,6 +35,7 @@ import { useFrame } from "@react-three/fiber";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import { richSky } from "./grade";
+import { setSkyReflection } from "./textures/sky-reflection";
 import type { SceneAtmosphere } from "./palette";
 import {
   TRANSITION_MS,
@@ -117,9 +118,12 @@ class SkyState implements LiveSky {
   constructor(
     public atmosphere: SceneAtmosphere,
     public phase: number,
-  ) {}
+  ) {
+    setSkyReflection(atmosphere);
+  }
 
   show(atmosphere: SceneAtmosphere, phase: number, moving: boolean): void {
+    setSkyReflection(atmosphere);
     this.atmosphere = atmosphere;
     this.phase = phase;
     this.moving = moving;

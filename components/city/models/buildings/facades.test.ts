@@ -18,7 +18,7 @@ import { planBuildings } from "./placement";
 import { desaturate, hexToRgb, mix } from "../../palette";
 import { SURFACE } from "../../textures/surface-types";
 import { blenderRole } from "./models";
-import { readLook } from "../../look";
+import { LOOK, MATERIALS_PALETTE, RICH_GRADE, readLook } from "../../look";
 import { RICH, filmGrade, richSky } from "../../grade";
 import { atmosphere } from "../../palette";
 import { nightSky } from "../../timeOfDay";
@@ -59,12 +59,28 @@ const CITY_MODELS: ModelKey[] = [...CITY_ARCHETYPE_IDS, "tower-glass", "tower-tw
 const HEX = /^#[0-9a-f]{6}$/;
 
 describe("look switches", () => {
-  it("reads palette and grade from the query, defaulting to the current look", () => {
-    expect(readLook("")).toEqual({ palette: "default", grade: "default" });
-    expect(readLook("?palette=materials")).toEqual({ palette: "materials", grade: "default" });
-    expect(readLook("?grade=rich&quality=high")).toEqual({ palette: "default", grade: "rich" });
+  it("reads palette and grade from the query, defaulting to the material palette and the rich grade", () => {
+    expect(readLook("")).toEqual({ palette: "materials", grade: "rich" });
+    expect(readLook("?quality=high")).toEqual({ palette: "materials", grade: "rich" });
     expect(readLook("?palette=materials&grade=rich")).toEqual({ palette: "materials", grade: "rich" });
-    expect(readLook("?palette=nonsense&grade=")).toEqual({ palette: "default", grade: "default" });
+    expect(readLook("?palette=classic")).toEqual({ palette: "classic", grade: "rich" });
+    expect(readLook("?grade=classic&quality=high")).toEqual({ palette: "materials", grade: "classic" });
+    expect(readLook("?palette=classic&grade=classic")).toEqual({ palette: "classic", grade: "classic" });
+    expect(readLook("?palette=nonsense&grade=")).toEqual({ palette: "materials", grade: "rich" });
+  });
+
+  it("is what node and the server see: the new look, with the classic one a URL away", () => {
+    expect(LOOK).toEqual({ palette: "materials", grade: "rich" });
+    expect(MATERIALS_PALETTE).toBe(true);
+    expect(RICH_GRADE).toBe(true);
+  });
+
+  it("makes the rich grade and the material paint the defaults of their pure functions", () => {
+    const day = atmosphere({ warmth: 0.6, saturation: 0.7, fog: 0.2, trafficDensity: 0.5, pedestrianDensity: 0.5, litWindowShare: 0.6 }, false);
+    expect(richSky(day)).not.toBe(day);
+    expect(filmGrade().saturation).toBeGreaterThan(0);
+    expect(cityMaterial(() => [0.5, 0.5, 0.5])({ role: "roof" } as never).paint).toBe(PAINT_ROOF);
+    expect(cityMaterial(() => [0.5, 0.5, 0.5], false)({ role: "roof" } as never)).toEqual({ color: [0.5, 0.5, 0.5] });
   });
 });
 
@@ -174,6 +190,42 @@ describe("planning with the materials palette", () => {
   });
 });
 
+describe("a palette that is not gloomy", () => {
+  const luma = (hex: string) => {
+    const [r, g, b] = hexToRgb(hex);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const saturation = (hex: string) => {
+    const [r, g, b] = hexToRgb(hex);
+    const hi = Math.max(r, g, b);
+    return hi === 0 ? 0 : (hi - Math.min(r, g, b)) / hi;
+  };
+
+  it("keeps even the darkest facade and roof a mid tone, so a shaded wall still has colour to show", () => {
+    for (const [family, list] of Object.entries(FACADES)) {
+      for (const facade of list) expect(luma(facade.hex), `${family}/${facade.id}`).toBeGreaterThan(0.36);
+    }
+    for (const roof of Object.values(ROOFS)) expect(luma(roof.hex), roof.id).toBeGreaterThan(0.36);
+  });
+
+  it("keeps glass light, and bronze quiet beside blue, green and smoke", () => {
+    for (const tint of GLASS_TINTS) expect(luma(tint.hex), tint.id).toBeGreaterThan(0.5);
+    const bronze = GLASS_TINTS.find((t) => t.id === "bronze")!;
+    expect(saturation(bronze.hex)).toBeLessThan(0.16);
+    for (const tint of GLASS_TINTS.filter((t) => t.id !== "bronze")) {
+      expect(saturation(tint.hex), tint.id).toBeGreaterThan(saturation(bronze.hex));
+    }
+  });
+
+  it("does not let the dark foot of a curtain wall's glass go black: it still catches the sky", () => {
+    for (const role of ["glass", "glass0", "glass1", "lobby"]) {
+      const darkest = rolePaint(role, [0.1, 0.1, 0.1]);
+      expect(darkest.paint).toBe(PAINT_GLASS);
+      expect(darkest.color[0], role).toBeGreaterThanOrEqual(0.6);
+    }
+  });
+});
+
 describe("rich grade", () => {
   const AMBIENCE = { warmth: 0.6, saturation: 0.7, fog: 0.2, trafficDensity: 0.5, pedestrianDensity: 0.5, litWindowShare: 0.6 };
   const day = atmosphere(AMBIENCE, false);
@@ -199,6 +251,21 @@ describe("rich grade", () => {
     const [hr, , hb] = hexToRgb(rich.background);
     expect(hb - hr).toBeGreaterThan(hexToRgb(day.background)[2] - hexToRgb(day.background)[0]);
     expect(rich.skyHorizonColor).toBe(rich.background);
+  });
+
+  it("gives the shade a fill worth having: a stronger, lighter sky and bounce than the classic look's", () => {
+    const rich = richSky(day, true);
+    expect(rich.hemiIntensity).toBeGreaterThan(day.hemiIntensity * 1.6);
+    expect(rich.sunIntensity / rich.hemiIntensity).toBeLessThan(day.sunIntensity / day.hemiIntensity);
+    // Not flat: a lit face is still at least twice a shaded one.
+    expect(rich.sunIntensity / rich.hemiIntensity).toBeGreaterThan(1.8);
+    const lift = (hex: string) => {
+      const [r, g, b] = hexToRgb(hex);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    expect(lift(rich.groundBounceColor)).toBeGreaterThan(lift(day.groundBounceColor));
+    // The ambient occlusion is a little gentler, so the fill is not eaten in the corners.
+    expect(filmGrade(true).aoIntensity).toBeLessThan(1.25);
   });
 
   it("leaves the moon's light alone at night", () => {

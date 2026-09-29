@@ -183,6 +183,32 @@ describe.each(FAMILIES)("the near level of $id", (family) => {
   }, 120_000);
 });
 
+/**
+ * The glazed towers keep their character when the near level swaps in: the
+ * lean model reads as bands of glass between spandrels, and the near one used
+ * to cast every transom, glazing bead and corner post in the spandrel's wall
+ * material, so a glass shaft turned into a stone wall with punched windows.
+ * The hardware is metal now (`nkit.Near.curtain`), which shows as more metal
+ * and no more plaster.
+ */
+describe.each(["tower-glass", "tower-twin", "tower-spire"] as ModelKey[])("the near level of %s keeps its curtain wall glazed", (id) => {
+  const family = FAMILIES.find((f) => f.id === id)!;
+  const lean = toneBySurface(draftOf(family.lean, family.roles), family.scale);
+  const near = toneBySurface(draftOf(family.near, family.roles), family.scale);
+  const area = (m: typeof lean, surface: number) => m.get(surface)?.area ?? 0;
+
+  it("has all of the lean model's glass", () => {
+    expect(area(near, SURFACE.glass)).toBeGreaterThanOrEqual(area(lean, SURFACE.glass) * 0.999);
+  });
+
+  it("adds no wall to it: its frames, beads and posts are metal", () => {
+    expect(area(near, SURFACE.plaster)).toBeLessThanOrEqual(area(lean, SURFACE.plaster) * 1.05);
+    expect(area(near, SURFACE.metal)).toBeGreaterThan(area(lean, SURFACE.metal) * 1.5);
+    // Stone (quoins, sills, the podium's dressing) may grow, but not into a second facade.
+    expect(area(near, SURFACE.stone)).toBeLessThan(area(lean, SURFACE.stone) * 1.4);
+  });
+});
+
 describe("archetypeNearGeometry", () => {
   afterEach(() => {
     vi.doUnmock("../modelSource");

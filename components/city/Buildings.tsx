@@ -154,7 +154,7 @@ function ArchetypeInstances({
   // A settlement model paints its walls and its accents per instance; the
   // city's archetypes shade the district colour, as they always have.
   const painted = instances.length > 0 && instances[0].paint !== undefined;
-  // `?palette=materials`: the city's own archetypes take a facade, a roof and
+  // The material palette (the default): the city's own archetypes take a facade, a roof and
   // a glass tint per instance (`facades.ts`).
   const cityPainted = instances.length > 0 && instances[0].city !== undefined;
   const geometry = useMemo(() => {

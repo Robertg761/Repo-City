@@ -14,7 +14,7 @@ import { RICH_GRADE } from "./look";
 
 export type Rgb = [number, number, number];
 
-/** `?grade=rich` (`grade.ts`): the ground's own colours, where the current look is the default. */
+/** The rich grade's ground colours (`grade.ts`), against the classic look's. */
 const rich = <T>(current: T, richer: T): T => (RICH_GRADE ? richer : current);
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);

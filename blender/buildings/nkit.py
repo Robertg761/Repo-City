@@ -433,7 +433,14 @@ class Near:
     def curtain(self, d, y0, y1, hx, hz, bands, mullions, spandrel, cx=0.0, cz=0.0, proud=0.014, mproud=0.022, mt=0.022, sleeve="frame"):
         """A transom capping every storey's glass, a pressure cap where each
         mullion crosses it, a glazing bar across each cell of a tall storey,
-        and a chamfered post at each corner with a collar every third storey."""
+        and a chamfered post at each corner with a collar every third storey.
+
+        The glazing hardware is metal, and slim: on a stone spandrel (`sleeve`
+        "wall") it takes the sash's role, not the wall's, so the cells read as
+        panes of glass in a frame and not as holes punched in stone. The
+        spandrels and the proud mullions are the lean model's own (`bkit.curtain`)
+        and keep its role."""
+        hardware = self.sash if sleeve == "wall" else sleeve
         band = (y1 - y0) / bands
         ty = self.uy(0.09)
         cap_w, cap_h = mt + 0.008, self.uy(0.15)
@@ -445,22 +452,22 @@ class Near:
             for face in FACES:
                 half = hx if face in ("+z", "-z") else hz
                 plane = hz if face in ("+z", "-z") else hx
-                self.fbox(d, face, plane, -half, half, top - ty * 1.2, top - 0.001, 0, STAND, sleeve, cx, cz, skip=("back", "left", "right"))
+                self.fbox(d, face, plane, -half, half, top - ty * 0.6, top - 0.001, 0, STAND, hardware, cx, cz, skip=("back", "left", "right"))
                 posts = [-half + 2 * half * k / (mullions + 1) for k in range(1, mullions + 1)]
                 for u in posts:
-                    self.fbox(d, face, plane, u - cap_w / 2, u + cap_w / 2, top - cap_h * 1.4, top - cap_h * 0.4, mproud * 0.4, mproud + 0.008, sleeve, cx, cz, skip=("back", "bottom"))
+                    self.fbox(d, face, plane, u - cap_w / 2, u + cap_w / 2, top - cap_h * 1.4, top - cap_h * 0.4, mproud * 0.4, mproud + 0.008, hardware, cx, cz, skip=("back", "bottom"))
                 if bars:
                     # Between the mullions' faces, so the bar butts into each.
                     edges = [-half] + [e for u in posts for e in (u - mt / 2, u + mt / 2)] + [half]
                     for a, b in zip(edges[0::2], edges[1::2]):
-                        self.fbox(d, face, plane, a, b, mid - ty * 0.3, mid + ty * 0.3, 0, 0.012, sleeve, cx, cz, skip=("back", "left", "right"))
+                        self.fbox(d, face, plane, a, b, mid - ty * 0.3, mid + ty * 0.3, 0, 0.012, hardware, cx, cz, skip=("back", "left", "right"))
         # A glazing bead round every cell's glass, clear of the lit window
         # in it (a tenth of the cell in from each mullion).
-        bd, bdy = self.ux(0.035), self.uy(0.03)
-        gasket = sleeve
+        bd, bdy = self.ux(0.03), self.uy(0.025)
+        gasket = hardware
         for i in range(bands):
             lo = y0 + band * i + band * spandrel + self.uy(0.02)
-            hi = y0 + band * (i + 1) - ty * 1.2 - self.uy(0.02)
+            hi = y0 + band * (i + 1) - ty * 0.6 - self.uy(0.02)
             if (hi - lo) * self.sy < 0.4:
                 continue
             for face in FACES:
@@ -470,11 +477,11 @@ class Near:
                 edges = [-half] + [e for u in posts for e in (u - mt / 2, u + mt / 2)] + [half]
                 for a, b in zip(edges[0::2], edges[1::2]):
                     # The corner posts stand over the first and last cell's ends.
-                    a += self.ux(0.03) + (proud + 0.012 if a == -half else 0.0)
-                    b -= self.ux(0.03) + (proud + 0.012 if b == half else 0.0)
+                    a += self.ux(0.03) + (proud + 0.006 if a == -half else 0.0)
+                    b -= self.ux(0.03) + (proud + 0.006 if b == half else 0.0)
                     if (b - a) * self.sx < 0.5 or (self.skip_bead and self.skip_bead(face, cx, cz, a, b, lo, hi)):
                         continue
-                    dp = 0.017
+                    dp = 0.0155
                     self.fbox(d, face, plane, a, b, lo, lo + bdy, 0, dp, gasket, cx, cz, skip=("back", "left", "right", "bottom"))
                     self.fbox(d, face, plane, a, b, hi - bdy, hi, 0, dp, gasket, cx, cz, skip=("back", "left", "right", "top"))
                     self.fbox(d, face, plane, a, a + bd, lo + bdy, hi - bdy, 0, dp, gasket, cx, cz, skip=("back", "left", "top", "bottom"))
@@ -482,14 +489,14 @@ class Near:
         # A chamfered post at each corner of every storey's glass, standing
         # clear of the sleeves that wrap the corner and stopping short of the
         # next one, so no sleeve face is buried in it.
-        a = proud + 0.012
-        c = 0.011
+        a = proud + 0.006
+        c = 0.006
         for i in range(bands):
             lo = y0 + band * i + band * spandrel
             hi = y0 + band * (i + 1)
             for sx_ in (1, -1):
                 for sz_ in (1, -1):
-                    self.chamfered(d, cx + sx_ * hx, cz + sz_ * hz, a, c, lo, hi, sleeve, bottom=True, top=i < bands - 1)
+                    self.chamfered(d, cx + sx_ * hx, cz + sz_ * hz, a, c, lo, hi, hardware, bottom=True, top=i < bands - 1)
 
     def chamfered(self, d, x, z, a, c, y0, y1, role, bottom=False, top=True):
         """A square post of half-width `a` with each corner cut by `c`."""

@@ -23,7 +23,7 @@ import type { ModelDetailOptions } from "../../textures/texture-data";
 /** The per-instance accent colour, a `vec3` `InstancedBufferAttribute`. */
 export const ACCENT_ATTRIBUTE = "instanceAccent";
 
-/** The per-instance roof colour, glass tint and (wall, roof) surface layers of a city building under `?palette=materials`. */
+/** The per-instance roof colour, glass tint and (wall, roof) surface layers of a city building under the material palette. */
 export const ROOF_ATTRIBUTE = "instanceRoof";
 export const GLASS_ATTRIBUTE = "instanceGlass";
 export const SURFACES_ATTRIBUTE = "instanceSurfaces";
@@ -81,7 +81,7 @@ const CITY_SURFACE_OVERRIDE =
   `rcDetailSurface = surface;\n  if ( paint > 0.5 && paint < 1.5 ) rcDetailSurface = ${SURFACES_ATTRIBUTE}.x;\n  else if ( paint > 2.5 && paint < 3.5 ) rcDetailSurface = ${SURFACES_ATTRIBUTE}.y;`;
 
 /**
- * The city archetypes under `?palette=materials`: `settlementMaterial`'s paint
+ * The city archetypes under the material palette: `settlementMaterial`'s paint
  * switch with two more channels (3 the roof, 4 the glass) and a per-instance
  * override of the wall's and the roof's textured surface, so a brick building
  * is brick-textured and a copper roof metal. One program for every city

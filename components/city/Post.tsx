@@ -114,7 +114,7 @@ export default function Post({
       mode={grade.toneMapping === "agx" ? ToneMappingMode.AGX : ToneMappingMode.NEUTRAL}
     />,
   );
-  // `?grade=rich`: a little vibrance and contrast after the tone mapping.
+  // The rich grade: a little vibrance and contrast after the tone mapping.
   if (grade.saturation !== 0) effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
   if (grade.contrast !== 0) effects.push(<BrightnessContrast key="contrast" contrast={grade.contrast} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
