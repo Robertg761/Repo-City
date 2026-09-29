@@ -21,6 +21,38 @@ import snear  # noqa: E402
 
 SCALES = {"thatch": (4.2, 3.6, 4.0), "tile": (4.0, 4.2, 3.8)}
 HALF_W, HALF_D = lean.HALF_W, lean.HALF_D
+#: Vertices along each long edge of a thatch ring: one per bundle of the course's butt.
+MIDS = 9
+
+
+def loft_bundles(m, rings, mats, hints, tones, axis):
+    """`skit.loft_rings`, the courses of thatch laid in bundles: the quads of
+    a course alternate between two shades of straw, a different pair
+    of neighbours on each course, so the courses read as separate handfuls."""
+    x0, x1, z0, _ = axis
+    for k in range(len(rings) - 1):
+        lo, hi = rings[k], rings[k + 1]
+        n = len(lo)
+        for i in range(n):
+            j = (i + 1) % n
+            pts = [lo[i], lo[j], hi[j], hi[i]]
+            c = skit.centroid(pts)
+            if hints[k] == "up":
+                out = (0, 1, 0)
+            elif hints[k] == "down":
+                out = (0, -1, 0)
+            else:
+                ax = min(max(c[0], x0), x1)
+                out = (c[0] - ax, 0, c[2] - z0)
+            mat = mats[k]
+            if mat is tones[0] and k >= 4:
+                # (Courses only; the eave and the soffit stay one shade.)
+                mat = tones[1] if (i + (k // 2) * 2) % 5 in (0, 1) else tones[0]
+            if k >= 4 and hints[k] == "out" and mats[k] is tones[0]:
+                # A bundle: four facets round a crown a hand's width off the course.
+                snear._pillow(m, pts, mat, 0.009, out=out)
+            else:
+                m.face(pts, mat, out=out)
 
 
 def thatch(m, M, wall_top):
@@ -48,7 +80,7 @@ def thatch(m, M, wall_top):
                     out.append((x, y + dy, math.copysign(abs(zs) + g, zs)))
         return out
 
-    def contour(t, grow=0.0, lift=0.0, mids=1, dip=None):
+    def contour(t, grow=0.0, lift=0.0, mids=MIDS, dip=None, zig=0.0):
         belly = 0.016 * math.sin(math.pi * min(t, 1.0))
         a = r + (out_a - r) * (1 - t) + belly + grow
         b = out_b * (1 - t) + belly + grow
@@ -56,22 +88,25 @@ def thatch(m, M, wall_top):
         dip_at = None
         if dip:
             dip_at = lambda i: (out_b * dip, -(apex - eave) * dip) if i % 2 == 1 else (0.0, 0.0)  # noqa: E731
+        elif zig:
+            # Each bundle's butt a little lower than the next: the course's edge steps along.
+            dip_at = lambda i: (0.0, -zig * ((i * 5) % 3) / 2)  # noqa: E731
         return ring(a, b, y, min(0.08, b * 0.8), mids, dip_at)
 
-    step = 0.0042
-    soffit = ring(HALF_W - 0.006, HALF_D - 0.006, wall_top - 0.035, 0.004, 1)
-    under = ring(out_a - 0.02, out_b - 0.02, eave - thick, 0.05, 1)
-    lip = ring(out_a + 0.008, out_b + 0.008, eave - thick * 0.45, 0.065, 1)
+    step = 0.005
+    soffit = ring(HALF_W - 0.006, HALF_D - 0.006, wall_top - 0.035, 0.004, MIDS)
+    under = ring(out_a - 0.02, out_b - 0.02, eave - thick, 0.05, MIDS)
+    lip = ring(out_a + 0.008, out_b + 0.008, eave - thick * 0.45, 0.065, MIDS, lambda i: (0.0, -0.006 * (i % 2)))
     rings = [soffit, under, lip, contour(0.0)]
-    courses = 7
+    courses = 8
     for k in range(1, courses + 1):
         t = 0.8 * k / courses
         # Each course ends in a rolled butt: back to the slope, then out.
-        rings += [contour(t, grow=step * (k - 1)), contour(t, grow=step * k, lift=0.002)]
+        rings += [contour(t, grow=step * (k - 1), zig=0.005), contour(t, grow=step * k, lift=0.002)]
     T, D = M["thatch"], M["thatchDark"]
     mats = [D, D, T, T] + [T] * (2 * courses - 1)
     hints = ["down", "out", "out", "out"] + ["out"] * (2 * courses - 1)
-    skit.loft_rings(m, rings, mats[: len(rings) - 1], hints[: len(rings) - 1], axis=(-r, r, 0.0, 0.0))
+    loft_bundles(m, rings, mats[: len(rings) - 1], hints[: len(rings) - 1], (M["thatch"], M["thatchLight"]), axis=(-r, r, 0.0, 0.0))
     m.face(soffit, D, out=(0, -1, 0))
 
     g2 = step * courses
@@ -96,13 +131,14 @@ def thatch(m, M, wall_top):
 
 
 def lantern(m):
-    """A carriage lamp on the wall beside the door."""
+    """A carriage lamp on the wall beside the door, a plate with a number over the door."""
     d = snear.det(m)
-    u = -0.06
-    plane = HALF_D
-    d.wbox("+z", plane, u - d.U("+z", 0.04), u + d.U("+z", 0.04), 0.31 - d.V(0.1), 0.31 + d.V(0.1), 0.0, d.O("+z", 0.03), "metal")
-    d.wbox("+z", plane, u - d.U("+z", 0.07), u + d.U("+z", 0.07), 0.3 - d.V(0.09), 0.3 + d.V(0.09), d.O("+z", 0.06), d.O("+z", 0.15), "glass")
-    d.wbox("+z", plane, u - d.U("+z", 0.09), u + d.U("+z", 0.09), 0.3 + d.V(0.09), 0.3 + d.V(0.13), d.O("+z", 0.045), d.O("+z", 0.16), "metal")
+    d.lamp("+z", HALF_D, -0.06, 0.31, arm=0.1, glass="glass")
+    snear.plinth_stones(m, HALF_W + lean.PLINTH_OUT, HALF_D + lean.PLINTH_OUT, lean.PLINTH, gaps={"+z": [(-0.015, 0.27)]})
+    thatch = m.name == "CottageThatch"
+    # (The tiled cottage's shuttered window is at the front left: no quoins there.)
+    d.quoins(HALF_W, HALF_D, 0.05, 0.4 if thatch else 0.45, proj=0.024, height=0.22, long_=0.34, short=0.18,
+             corners=[(-1, 1), (-1, -1), (1, -1)] if thatch else [(-1, -1), (1, -1)])
 
 
 def build():
@@ -117,7 +153,7 @@ def build():
         obj, _ = lean.build_cottage(M, roof)
         objs.append(obj)
     for obj, roof in zip(objs, SCALES):
-        snear.bake([obj], scale=SCALES[roof])
+        snear.bake([obj], scale=SCALES[roof], lean_glb="cottage.glb")
         print("TRIS", obj.name, skit.triangles(obj))
     snear.rename(objs)
     return objs

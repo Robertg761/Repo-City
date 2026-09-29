@@ -67,6 +67,15 @@ def main():
         "street": stage.camera("street", Vector((centre.x, 0, sy * 0.32)), span * 1.35, -12, 3),
         "high": stage.camera("high", Vector((centre.x, 0, sy * 0.35)), span * 2.1, -38, 48),
     }
+    # Close views of the near model alone (the last group, drawn to the right).
+    nlo, nhi = stage.bounds([o for o in groups[-1]])
+    ncx = (nlo.x + nhi.x) / 2
+    nspan = max(nhi.x - nlo.x, nhi.y - nlo.y)
+    views["door"] = stage.camera("door", Vector((ncx, 0, sy * 0.16)), nspan * 0.95, -18, 8)
+    views["roof"] = stage.camera("roof", Vector((ncx, 0, sy * 0.82)), nspan * 1.05, -32, 30)
+    views["eave"] = stage.camera("eave", Vector((ncx, 0, sy * 0.6)), nspan * 1.2, -50, 6)
+    views["side"] = stage.camera("side", Vector((ncx, 0, sy * 0.4)), nspan * 1.6, 62, 12)
+    views["upper"] = stage.camera("upper", Vector((ncx, 0, sy * 0.5)), nspan * 0.9, -14, 4)
     chosen = [(k, v) for k, v in views.items() if only is None or k in only]
     stage.render(prefix, chosen, size=(1200, 640), samples=32)
 

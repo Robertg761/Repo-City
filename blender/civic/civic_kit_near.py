@@ -336,8 +336,12 @@ def roll_door(M):
     slats = 20
     for i in range(slats):
         y0, y1 = 0.055 + 0.865 * i / slats, 0.055 + 0.865 * (i + 1) / slats
-        parts.append(ck.face("slat", [(-0.4, y0, 0.05), (0.4, y0, 0.05), (0.4, y1, 0.02), (-0.4, y1, 0.02)], M["door"], (0, 0.3, 1)))
-        parts.append(ck.face("lip", [(-0.4, y0, 0.02), (0.4, y0, 0.02), (0.4, y0, 0.05), (-0.4, y0, 0.05)], M["doorDark"], (0, -1, 0)))
+        h_ = y1 - y0
+        # A rolled section: a flat face, a bead at its head and an under-lip.
+        parts.append(ck.face("slat", [(-0.4, y0 + h_ * 0.08, 0.05), (0.4, y0 + h_ * 0.08, 0.05), (0.4, y0 + h_ * 0.62, 0.046), (-0.4, y0 + h_ * 0.62, 0.046)], M["door"], (0, 0, 1)))
+        parts.append(ck.face("bead", [(-0.4, y0 + h_ * 0.62, 0.046), (0.4, y0 + h_ * 0.62, 0.046), (0.4, y0 + h_ * 0.82, 0.058), (-0.4, y0 + h_ * 0.82, 0.058)], M["door"], (0, 0.5, 1)))
+        parts.append(ck.face("bead", [(-0.4, y0 + h_ * 0.82, 0.058), (0.4, y0 + h_ * 0.82, 0.058), (0.4, y1, 0.05), (-0.4, y1, 0.05)], M["doorDark"], (0, -0.5, 1)))
+        parts.append(ck.face("lip", [(-0.4, y0, 0.02), (0.4, y0, 0.02), (0.4, y0 + h_ * 0.08, 0.05), (-0.4, y0 + h_ * 0.08, 0.05)], M["doorDark"], (0, -1, 0.3)))
     parts.append(box("handle", (0.2, 0.03, 0.04), (0, 0.12, 0.075), M["metal"], bev=0.0))
     # Vision slits in the top slats.
     for k in range(6):
@@ -372,6 +376,14 @@ def door(M):
         parts.append(box("pull", (0.02, 0.16, 0.03), (x, h * 0.36, 0.085), M["metal"], bev=0.0))
     for x in (-0.55, 0.55):
         parts.append(box("bracket", (0.05, 0.18, 0.1), (x * 0.94, h * 0.9 + 0.02, 0.08), M["trim"], bev=0.0))
+    # Hinges on the outer stiles, a kick plate, a letterbox and a knocker.
+    for y in (0.22, h * 0.36, h * 0.66):
+        for x in (-0.395, 0.395):
+            parts.append(box("hinge", (0.09, 0.05, 0.03), (x, y, 0.06), M["metal"], bev=0.0))
+    parts.append(box("kick", (0.5, 0.12, 0.012), (0, 0.11, 0.064), M["metal"], bev=0.0))
+    parts.append(box("letterbox", (0.22, 0.05, 0.02), (0, h * 0.5, 0.078), M["metal"], bev=0.0))
+    parts.append(box("knockPlate", (0.07, 0.11, 0.015), (0, h * 0.58, 0.075), M["metal"], bev=0.0))
+    parts.append(box("knocker", (0.04, 0.07, 0.03), (0, h * 0.58 - 0.02, 0.098), M["metal"], bev=0.0))
     return parts
 
 

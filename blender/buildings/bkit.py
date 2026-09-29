@@ -64,6 +64,10 @@ ROLES = {
     "lobby": ("#636e7c", "glass"),
     "metal": ("#c1bfbb", "metal"),
     "core": ("#ece3d4", "plaster"),
+    # Near levels only (`nearkit.py`): plants and brass, coloured in lowrise.ts.
+    "leaf": ("#5b7a4a", "foliage"),
+    "bloom": ("#c9636b", "foliage"),
+    "brass": ("#b08d4a", "metal"),
 }
 for i in range(9):
     ROLES[f"glass{i}"] = ("#7f9ab4", "glass")

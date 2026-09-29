@@ -19,13 +19,16 @@ import nearkit  # noqa: E402
 from warehouse import DEPTH, HW, PLINTH, SCALE, TOP  # noqa: E402
 
 
-def ribs(d, face, openings, half, y0, y1, pitch=0.36, proj=0.022, width=0.055):
+def ribs(d, face, openings, half, y0, y1, pitch=0.24, proj=0.022, width=0.05):
     """Vertical ribs of the cladding across a wall, cut where an opening (and
     its dressing) is."""
     det = d.det
     n = int(2 * half * (SCALE[0] if face in ("+z", "-z") else SCALE[2]) / pitch)
     for k in range(n):
         u = -half + (k + 0.5) * 2 * half / n
+        # Not where a downpipe and its hopper stand on the long walls.
+        if face in ("+x", "-x") and min(abs(u - 0.426), abs(u + 0.426)) < det.U(face, 0.2):
+            continue
         spans = [(y0, y1)]
         for o in openings:
             ow = o["w"] / 2 + det.U(face, 0.22)
@@ -47,9 +50,13 @@ def roll_up(d, face, o):
     rail = det.U(face, 0.12)
     n = max(6, int((v1 - v0 - det.V(0.12)) * SCALE[1] / 0.085))
     h = (v1 - v0 - det.V(0.12)) / n
+    og = g * (SCALE[0] if face in ("+x", "-x") else SCALE[2])
+    hm = h * SCALE[1]
     for k in range(n):
         ya = v0 + det.V(0.12) + h * k
-        W(u0 + rail, u1 - rail, ya, ya + h * 0.92, g, g + det.O(face, 0.024), "mech", ("back", "left", "right", "bottom"))
+        # Each slat a rolled section: a flat face, a bead at its top and a shadowed under-lip.
+        det.profile(face, HW, u0 + rail, u1 - rail, ya,
+                    [(og, 0.0), (og + 0.028, 0.0), (og + 0.028, hm * 0.62), (og + 0.04, hm * 0.74), (og + 0.04, hm * 0.9), (og, hm * 0.9)], "mech", skip=(5,))
     # Vision panels in the top slats.
     top = v1 - h * 1.9
     for k in range(5):
@@ -68,11 +75,58 @@ def roll_up(d, face, o):
         W(ua - det.U(face, 0.1), ua + det.U(face, 0.1), PLINTH, PLINTH + det.V(0.45), 0.0, det.O(face, 0.12), "mech", ("back", "bottom"))
 
 
+def turbine(d, x, z, y, r=0.2):
+    """A roof turbine ventilator: a neck, then a ribbed dome of twelve vanes."""
+    det = d.det
+    det.cyl(x, z, y, y + det.V(0.18), 0.09, "mech", n=10, top=True)
+    n = 12
+    rings = [(0.16, 0.0), (r * 1.15, 0.09), (r * 1.05, 0.2), (r * 0.55, 0.29)]
+    base = y + det.V(0.18)
+    pts = [[(x + det.X(rr) * math.cos(2 * math.pi * k / n), base + det.V(hh), z + det.Z(rr) * math.sin(2 * math.pi * k / n)) for k in range(n)] for rr, hh in rings]
+    for a, b in zip(pts, pts[1:]):
+        for k in range(n):
+            j = (k + 1) % n
+            mid = (a[k][0] + a[j][0]) / 2 - x, 0.4, (a[k][2] + a[j][2]) / 2 - z
+            d.poly([a[k], a[j], b[j], b[k]], "mech" if k % 2 else "railing", mid)
+    d.poly(pts[-1], "mech", (0, 1, 0))
+
+
+def ladder(d, face, u, y0, y1):
+    """A fixed roof ladder on stand-off brackets: two stiles and a rung a foot."""
+    det = d.det
+    off = 0.14
+    for du in (-0.24, 0.24):
+        uu = u + det.U(face, du)
+        det.wbox(face, HW, uu - det.U(face, 0.022), uu + det.U(face, 0.022), y0, y1, det.O(face, off), det.O(face, off + 0.045), "railing", skip=("back", "bottom"))
+    y = y0 + det.V(0.3)
+    while y < y1 - det.V(0.2):
+        det.wbox(face, HW, u - det.U(face, 0.218), u + det.U(face, 0.218), y, y + det.V(0.03), det.O(face, off + 0.005), det.O(face, off + 0.04), "railing", skip=("back", "left", "right"))
+        y += det.V(0.3)
+    for y in (y0 + det.V(0.5), (y0 + y1) / 2, y1 - det.V(0.7)):
+        for du in (-0.24, 0.24):
+            uu = u + det.U(face, du)
+            det.wbox(face, HW, uu - det.U(face, 0.015), uu + det.U(face, 0.015), y, y + det.V(0.05), 0.0, det.O(face, off), "railing", skip=("back", "top"))
+
+
+def sign(d, face, y, mat="trim"):
+    """A signboard between the high windows: a framed board and raised lettering."""
+    det = d.det
+    hw = 0.2
+    det.wbox(face, HW, -hw, hw, y - det.V(0.2), y + det.V(0.2), 0.0, det.O(face, 0.05), mat)
+    letters = [0.11, 0.14, 0.11, 0.11, 0.15, 0.12, 0.13]
+    total = sum(letters) + 0.05 * (len(letters) - 1)
+    u = -det.U(face, total) / 2
+    for w in letters:
+        wu = det.U(face, w)
+        det.wbox(face, HW, u, u + wu, y - det.V(0.11), y + det.V(0.11), det.O(face, 0.05), det.O(face, 0.085), "doorDark", skip=("back",))
+        u += wu + det.U(face, 0.05)
+
+
 def make():
     d = nearkit.NearDraft(SCALE)
     det = d.det
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
-    high = dict(w=0.14, h=0.09, depth=DEPTH, glass="window", sill="trim", near={"bars": (2, 1), "fw": 0.045})
+    high = dict(w=0.14, h=0.09, depth=DEPTH, glass="window", sill="trim", near={"bars": (3, 1), "fw": 0.045, "arch": False, "keystone": False})
     door = dict(u=0, v=(PLINTH + 0.4) / 2, w=0.38, h=0.4 - PLINTH, depth=0.06, glass="door", lit=False, sill_face=False, sill="plinth",
                 near={"plain_door": True})
     ends = [door] + bkit.grid([-0.33, 0.33], [0.52], **high)
@@ -93,6 +147,43 @@ def make():
         for u in (-0.2, 0.2):
             # A brace from the wall to the canopy's lip.
             d.box(u, 0.43 - det.V(0.36), s * (HW + det.Z(0.05)), det.X(0.05), det.V(0.36), det.Z(0.05), "mech", skip=("-z",) if s > 0 else ("+z",))
+    # A steel dock leveller in front of each roll-up door: a chequer plate with its hinged lip,
+    # a rubber bumper each side, and a floodlight on the wall beside it.
+    for face in ("+z", "-z"):
+        s = 1 if face == "+z" else -1
+        lw = 0.19
+        det.wbox(face, HW, -lw, lw, PLINTH, PLINTH + det.V(0.06), det.O(face, 0.0), det.O(face, 0.42), "mech", skip=("back", "bottom"))
+        for k in range(1, 10):
+            uk = -lw + 2 * lw * k / 10
+            det.wbox(face, HW, uk - det.U(face, 0.012), uk + det.U(face, 0.012), PLINTH + det.V(0.06), PLINTH + det.V(0.082), det.O(face, 0.05), det.O(face, 0.4), "railing", skip=("back", "bottom"))
+        det.wbox(face, HW, -lw, lw, PLINTH, PLINTH + det.V(0.03), det.O(face, 0.42), det.O(face, 0.5), "railing", skip=("back", "bottom", "top"))
+        for su in (-1, 1):
+            ub = su * (lw + det.U(face, 0.2))
+            det.wbox(face, HW, ub - det.U(face, 0.1), ub + det.U(face, 0.1), PLINTH + det.V(0.05), PLINTH + det.V(0.4), det.O(face, 0.12), det.O(face, 0.2), "doorDark", skip=("back",))
+        det.lamp(face, HW, 0.3, 0.37, arm=0.1)
+    # The plinth in concrete blocks (not across the roll-up doors' levellers).
+    det.brick_box(0.5, 0.5, 0.0, PLINTH, proud=0.024, kind="block", tones=("plinth", "plinth@88", "plinth", "plinth@94"), gaps={"+z": [(-0.24, 0.24)], "-z": [(-0.24, 0.24)]})
+    for face in ("+z", "-z"):
+        sign(d, face, 0.52)
+    ladder(d, "-x", 0.36, PLINTH, TOP - det.V(0.03))
+    # Louvred grilles low on the -x wall: a frame and slats standing off it.
+    for u in (-0.31, -0.07):
+        w_, h_ = det.U("-x", 0.36), det.V(0.24)
+        det.wbox("-x", HW, u - w_ - det.U("-x", 0.05), u + w_ + det.U("-x", 0.05), 0.27 - h_ - det.V(0.05), 0.27 + h_ + det.V(0.05), det.O("-x", 0.0), det.O("-x", 0.06), "railing")
+        for k in range(7):
+            v = 0.27 - h_ + (2 * h_ - det.V(0.04)) * k / 6
+            det.wbox("-x", HW, u - w_, u + w_, v, v + det.V(0.04), det.O("-x", 0.06), det.O("-x", 0.11), "mech", skip=("back", "left", "right"))
+    # Corner flashings, a meter box with its conduit and a canopy over the personnel door.
+    for sx in (1, -1):
+        for sz in (1, -1):
+            d.box(sx * (HW + det.X(0.012)), PLINTH, sz * (HW + det.Z(0.012)), det.X(0.14), TOP - PLINTH - det.V(0.03), det.Z(0.14), "trim", skip=("+y",))
+    det.wbox("+x", HW, 0.15 - det.U("+x", 0.2), 0.15 + det.U("+x", 0.2), 0.16, 0.16 + det.V(0.5), 0.0, det.O("+x", 0.12), "railing")
+    det.wbox("+x", HW, 0.15 - det.U("+x", 0.16), 0.15 + det.U("+x", 0.16), 0.16 + det.V(0.05), 0.16 + det.V(0.45), det.O("+x", 0.12), det.O("+x", 0.15), "mech", skip=("back",))
+    det.cyl(HW + det.X(0.03), -0.15, 0.16 + det.V(0.5), 0.5 - det.V(0.08), 0.02, "railing", n=6, top=False)
+    # Gutters under the eaves band on the long sides, with a hopper and a downpipe each end.
+    for face, spans in (("+x", [(-(HW - 0.02), HW - 0.02)]), ("-x", [(-(HW - 0.02), 0.31), (0.41, HW - 0.02)])):
+        for a, b in spans:
+            det.gutter_run(face, HW, a, b, TOP - det.V(0.03), w=0.09, brackets=False)
     # The eaves band, then five teeth on it covering it exactly.
     band_h = 0.025
     d.box(0, TOP, 0, 1.0, band_h, 1.0, "trim", bottom=True, skip=("+y",))
@@ -144,11 +235,17 @@ def make():
         det.cyl(x, z, foot, foot + det.V(0.08), 0.19, "mech", n=10)
         det.cyl(x, z, foot + det.V(0.08), y0 + 0.19, 0.13, "mech", n=10)
         det.cyl(x, z, y0 + 0.19, y0 + 0.225, 0.2, "mech", n=10, r1=0.13)
-    # Downpipes at the front corners, on the ends' walls.
-    for sx, sz in ((1, 1), (-1, -1)):
-        det.downpipe(sx * (HW - det.X(0.25)), sz * (HW + det.Z(0.03)), PLINTH, TOP, r=0.05)
+    for tooth, z in ((0, -0.3), (2, 0.3), (4, 0.05)):
+        turbine(d, -0.5 + w * (tooth + 0.5), z, y0 + rise * 0.5 - det.V(0.06))
+    # Downpipes from the gutters, a hopper at the head of each, at the ends of both long walls.
+    gy = TOP - det.V(0.03) - det.V(0.09)
+    for face, sx in (("+x", 1), ("-x", -1)):
+        for sz in (1, -1):
+            zc = sz * (HW - det.Z(0.35))
+            det.downpipe(sx * (HW + det.X(0.02)), zc, PLINTH, gy - det.V(0.24), r=0.05)
+            det.hopper(face, HW - det.X(0.005), -zc if sx > 0 else zc, gy - det.V(0.07))
     return d
 
 
 def build():
-    return nearkit.build_near(make, SCALE, "BuildingNear", distance=1.6)
+    return nearkit.build_near(make, SCALE, "BuildingNear", distance=1.6, lean_glb="building-warehouse-sawtooth.glb")

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import apartment as lean  # noqa: E402
 import kit  # noqa: E402
+import near_shopfront  # noqa: E402
 import shopfront  # noqa: E402
 import skit  # noqa: E402
 import snear  # noqa: E402
@@ -45,6 +46,12 @@ def flats_extras(retail):
         for x, z in ((-0.37, 0.36), (0.38, -0.37), (-0.37, -0.02)):
             d.cyl(x, z, ROOF, ROOF + d.V(0.5), 0.07, "metal", n=8)
             d.cyl(x, z, ROOF + d.V(0.5), ROOF + d.V(0.56), 0.1, "metal", n=8)
+        # A rooftop air-conditioning unit clear of the pad, and a dish on a mast.
+        d.ac_unit(-0.24, 0.22, ROOF, w=0.9, d=0.5, h=0.55, grille="glass")
+        d.dish_roof("+z", -0.37, ROOF, -0.36, r=0.28, mast=0.4, feed=0.18, dep=0.09)
+        if retail:
+            near_shopfront.SCALE_CUR[:] = SCALES[True]
+            near_shopfront.dress_shop(m, HD + lean.OUT, HW, base - 0.006)
         # Downpipes at the front corners.
         for s in (-1, 1):
             d.downpipe(s * (HW - d.X(0.15)), HD + lean.OUT + d.Z(0.05), base + 0.001, ROOF - 0.03, r=0.04)
@@ -64,7 +71,7 @@ def build():
         obj, _ = lean.build_block(M, retail)
         objs.append(obj)
     for obj, retail in zip(objs, (False, True)):
-        snear.bake([obj], scale=SCALES[retail])
+        snear.bake([obj], scale=SCALES[retail], lean_glb="apartment-low.glb")
         print("TRIS", obj.name, skit.triangles(obj))
     snear.rename(objs)
     return objs

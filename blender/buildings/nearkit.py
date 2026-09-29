@@ -20,6 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bkit  # noqa: E402
+import tone  # noqa: E402
 from detail import Detail  # noqa: E402
 
 # Semantic names -> the city's Blender roles (models.ts maps them on). A tone
@@ -39,6 +40,14 @@ PALETTE = {
     "deck": "deck",
     "glass": "glass",
     "window": "window",
+    "stoneDark": "trim@84",
+    "brick": "wallSoft@88",
+    "brickDark": "wallSoft@74",
+    "railing": "mech@72",
+    "leaf": "leaf",
+    "bloom": "bloom",
+    "brass": "brass",
+    "lamp": "brass@100",
 }
 
 
@@ -53,6 +62,10 @@ class NearDraft(bkit.Draft):
         self.cell = (1.1, 0.9)
         #: Heights of extra grid lines on every wall (the edges of a belt course).
         self.vlines = []
+
+    def poly(self, pts, role, facing=None):
+        """As `bkit.Draft.poly`, the palette's semantic names accepted as roles."""
+        super().poly(pts, PALETTE.get(role, role), facing)
 
     def facade(self, face, plane, u0, u1, v0, v1, openings, role="wall", cx=0.0, cz=0.0, vbreaks=(), ubreaks=(), merge=True, dress=True):
         plain = [{k: v for k, v in o.items() if k != "ledge"} for o in openings]
@@ -77,7 +90,7 @@ class NearDraft(bkit.Draft):
             if o["glass"] == "door":
                 ex, lo_, hi_ = 0.13, 0.0, 0.36
             else:
-                ex, lo_, hi_ = 0.1, 0.06, 0.22
+                ex, lo_, hi_ = 0.1, 0.11, 0.3
             for uu in (o["u"] - o["w"] / 2 - det.U(face, ex), o["u"] + o["w"] / 2 + det.U(face, ex)):
                 if u0 < uu < u1 and free_u(uu):
                     ub.append(uu)
@@ -111,11 +124,11 @@ class NearDraft(bkit.Draft):
                 return
             self.det.door(face, plane, o, cx, cz, **style.get("door", {}))
         elif o["glass"] in ("window", "glass", "lobby"):
-            opts = {k: v for k, v in style.items() if k in ("fw", "bars", "sill", "lintel", "jambs", "shutters", "sill_ext")}
+            opts = {k: v for k, v in style.items() if k in ("fw", "bars", "sill", "lintel", "jambs", "shutters", "sill_ext", "rail", "soldier", "box", "arch", "keystone", "lintel_ext", "lite")}
             self.det.window(face, plane, o, cx, cz, **opts)
 
 
-    def gable(self, ridge, half_a, half_b, eave_y, ridge_y, t, courses=0, lap=0.0, cap=0.0, roof="roof", slate=0.3, **kw):
+    def gable(self, ridge, half_a, half_b, eave_y, ridge_y, t, courses=0, lap=0.0, cap=0.0, roof="roof", slate=0.3, sparse=False, **kw):
         """The lean gable, its roof courses cut into slates: each course is a
         row of separate quads, staggered a half slate against the row below
         and each a slightly different shade of the roof, so the joints show
@@ -147,12 +160,35 @@ class NearDraft(bkit.Draft):
             for j, (f0, f1) in enumerate(zip(cuts, cuts[1:])):
                 q = [lerp(p0, p1, f0), lerp(p0, p1, f1), lerp(p3, p2, f1), lerp(p3, p2, f0)]
                 tone = tones[(k * 3 + j * 7 + (k * j) % 5) % len(tones)]
-                self.faces.append((q, f"{roof}@{tone}"))
-                self.tags.append(self.tag)
+                if (j + k) % 2 == 0 or not sparse:
+                    self.pillow(q, f"{roof}@{tone}", 0.0045 + 0.0045 * (((k * 5 + j * 3) % 4) / 3))
+                else:
+                    self.faces.append((q, f"{roof}@{tone}"))
+                    self.tags.append(self.tag)
         return slope
 
+    def pillow(self, q, role, lift):
+        """A slate as four facets round a crown `lift` metres above the
+        middle of its face, so each catches the light on its own; the edges
+        stay in the plane of the slope, so neighbours share every vertex."""
+        m = [(p[0] * self.scale[0], p[1] * self.scale[1], p[2] * self.scale[2]) for p in q]
+        a = (m[1][0] - m[0][0], m[1][1] - m[0][1], m[1][2] - m[0][2])
+        b = (m[3][0] - m[0][0], m[3][1] - m[0][1], m[3][2] - m[0][2])
+        n = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+        ln = (n[0] ** 2 + n[1] ** 2 + n[2] ** 2) ** 0.5
+        if ln < 1e-12:
+            self.faces.append((q, role))
+            self.tags.append(self.tag)
+            return
+        if n[1] < 0:
+            n = (-n[0], -n[1], -n[2])
+        c = [sum(p[i] for p in q) / 4 + n[i] / ln * lift / self.scale[i] for i in range(3)]
+        for i in range(4):
+            self.faces.append(([q[i], q[(i + 1) % 4], tuple(c)], role))
+            self.tags.append(self.tag)
 
-def build_near(make, scale, name, distance=1.2, samples=16, floor=0.7):
+
+def build_near(make, scale, name, distance=1.2, samples=48, floor=0.75, lean_glb=None):
     """Run a near script: build the draft, bake, and write nothing the lean
     model does not already publish (its windows and roof pads are the lean
     model's; the near level only dresses them)."""
@@ -163,4 +199,6 @@ def build_near(make, scale, name, distance=1.2, samples=16, floor=0.7):
     obj = d.mesh(name)
     print("TRIS", name, d.triangles(), "WINDOWS", len(d.windows))
     bkit.bake(obj, scale, distance=distance, floor=floor, samples=samples)
+    if lean_glb:
+        tone.match(obj, lean_glb, "Building", scale)
     return [obj]
