@@ -31,7 +31,9 @@ import {
   InstancedBufferAttribute,
   InstancedMesh,
   Vector3,
+  type Intersection,
   type Material,
+  type Raycaster,
 } from "three";
 import { useQuality, type QualityTier } from "./quality";
 
@@ -124,6 +126,9 @@ function shareGeometry(source: BufferGeometry): BufferGeometry {
   return geometry;
 }
 
+/** A raycast that hits nothing: the near mesh's, when the far one does the picking. */
+export const NO_RAYCAST: (raycaster: Raycaster, intersects: Intersection[]) => void = () => {};
+
 export interface LodHandlers {
   onPointerOver?: (event: ThreeEvent<PointerEvent>) => void;
   onPointerMove?: (event: ThreeEvent<PointerEvent>) => void;
@@ -154,6 +159,14 @@ export interface LodInstancesProps {
   instancedAttributes?: readonly string[];
   /** Pointer handlers; near-mesh events are mapped back to the far instance id. */
   handlers?: LodHandlers;
+  /**
+   * The far mesh's own picking, for a layer that does not use three's per-
+   * triangle `InstancedMesh.raycast` (the crowd's box table). A far instance
+   * that is drawn near keeps its far matrix, so this still finds it, by its
+   * far id and with no mapping; the near mesh is then not raycast at all
+   * (no second hit on the same object, no triangle tests over its detail).
+   */
+  raycast?: (raycaster: Raycaster, intersects: Intersection[]) => void;
   castShadow?: boolean;
   receiveShadow?: boolean;
   frustumCulled?: boolean;
@@ -176,6 +189,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
     selection,
     follow = false,
     handlers,
+    raycast,
     castShadow = false,
     receiveShadow = false,
     frustumCulled = false,
@@ -313,6 +327,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
         receiveShadow={receiveShadow}
         frustumCulled={frustumCulled}
         renderOrder={renderOrder}
+        {...(raycast ? { raycast } : {})}
         {...handlers}
       />
       {nearShared && (
@@ -324,6 +339,7 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
           receiveShadow={receiveShadow}
           frustumCulled={false}
           renderOrder={renderOrder}
+          {...(raycast ? { raycast: NO_RAYCAST } : {})}
           {...nearHandlers}
         />
       )}

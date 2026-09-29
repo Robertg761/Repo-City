@@ -1,6 +1,6 @@
 import { Matrix4, MeshStandardMaterial, Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { LOD_HIDDEN_ATTRIBUTE, patchLodHidden, selectNear, swapHidden } from "./lod";
+import { LOD_HIDDEN_ATTRIBUTE, NO_RAYCAST, patchLodHidden, selectNear, swapHidden } from "./lod";
 
 function matrices(entries: { at: [number, number, number]; scale?: number | [number, number, number] }[]): Float32Array {
   const out = new Float32Array(entries.length * 16);
@@ -70,5 +70,13 @@ describe("swapHidden", () => {
     expect(Array.from(flags)).toEqual([0, 1, 0, 1, 0]);
     swapHidden(hidden, [1, 3], [3, 4]);
     expect(Array.from(flags)).toEqual([0, 0, 0, 1, 1]);
+  });
+});
+
+describe("NO_RAYCAST", () => {
+  it("hits nothing, so a layer with its own picking is found once, on its far mesh", () => {
+    const hits: unknown[] = [];
+    NO_RAYCAST(undefined as never, hits as never);
+    expect(hits).toEqual([]);
   });
 });

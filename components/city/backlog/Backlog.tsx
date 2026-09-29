@@ -19,6 +19,15 @@
  * `castShadow` is off: fifteen hundred small casters would cost a shadow pass
  * for shapes a couple of pixels wide. They still receive the city's shadows.
  *
+ * NEAR LEVEL. Each form mesh is a `LodInstances` (`lod.tsx`): the lean form
+ * for every instance, and a 1,500 to 3,000 triangle form (`near.py`) for the
+ * few nearest the camera. The per-instance attributes the shader reads
+ * (phase, mask and reveal, both paints, wear) are mirrored onto the near mesh,
+ * and its colour (state, hover, selection) is copied from the far one every
+ * frame, so a near form is painted, animated and lit exactly like its lean self.
+ * Picking stays on the far mesh (`raycast`): a form that is drawn near keeps
+ * its far pick box, so hover and click find it by its own id.
+ *
  * PICKING. Each form mesh raycasts through `pick.ts`: a box per instance and a
  * slab test, reported as three's own `InstancedMesh` hits, so hover, click and
  * the inspector go through `useInstanceHandlers(ids)` exactly as buildings do.
@@ -46,15 +55,24 @@ import {
 import type { CityModel } from "@/types/city";
 import { useCityStore } from "@/store/useCityStore";
 import { HIGHLIGHT, SELECT_LIFT, desaturate, mix, type SceneAtmosphere } from "../palette";
+import { LodInstances, NEAR_SHARE } from "../lod";
 import { useQuality, type QualitySettings } from "../quality";
 import { useSkyFrame } from "../sky";
 import { useInstanceHandlers } from "../useEntity";
 import { useRevealClock } from "../useReveal";
-import { HOARDING_GROUND, formGeometry, hoardingPlot, hoardingPlotGeometry } from "./forms";
+import {
+  HOARDING_GROUND,
+  formGeometry,
+  hoardingPlot,
+  hoardingPlotGeometry,
+  nearFormGeometry,
+  nearHoardingPlotGeometry,
+} from "./forms";
 import { BLENDER_MODELS } from "../models/modelSource";
 import {
   CROWD_CLOCK,
   DATA_ATTRIBUTE,
+  INSTANCE_ATTRIBUTES,
   PAINT_A_ATTRIBUTE,
   PAINT_B_ATTRIBUTE,
   PHASE_ATTRIBUTE,
@@ -70,6 +88,30 @@ import { useDevBacklog } from "./useDevBacklog";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
+
+/**
+ * How close a form must be to the camera to be drawn in detail, in world
+ * units from its centre at scale 1 (a form is scaled by its heat, 0.9 to
+ * 1.25, and goes near that much sooner or later). The inspector frames a
+ * clicked crowd object from 16 units plus three radii (`CROWD_STANDOFF` in
+ * `entities.ts`), about 20, so the object you are looking at is always near;
+ * a street-level view a little wider takes in the few forms along the block;
+ * the overview, which sits 1.45 city sizes out and never nearer than 24, takes
+ * none. `LodInstances` measures projected size (radius over distance), so the
+ * threshold for a form is its radius over this distance.
+ */
+const NEAR_DISTANCE = 30;
+
+/**
+ * Most forms of one kind drawn near at once. A crowd is dense along a block
+ * but a 30 unit circle holds a handful of the fifteen hundred (about four in
+ * a metropolis); six per kind leaves room for a cluster, and caps the worst
+ * case at a dozen kinds of 3,000 triangles times six, well under the fleet's.
+ * Scaffolds are big and hoardings come in one kind per plot size, so their caps
+ * are lower.
+ */
+const NEAR_MAX = 6;
+const NEAR_MAX_LARGE = 4;
 
 /** Where the crowd's clock stops for a viewer who asked for less motion. */
 const STILL_TIME = 0.4;
@@ -177,9 +219,20 @@ function FormInstances({
   }, [group, count, atmosphere.desaturation, plot]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
-  const { textureSize, anisotropy } = useQuality();
+  const { tier, textureSize, anisotropy } = useQuality();
   const material = useMemo(() => crowdMaterial({}, { textureSize, anisotropy }), [textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
+
+  // The detailed level, built only where the tier draws it.
+  const nearGeometry = useMemo(() => {
+    if (NEAR_SHARE[tier] === 0) return null;
+    return plot
+      ? nearHoardingPlotGeometry(plot[0], plot[1], atmosphere.desaturation)
+      : nearFormGeometry(group.form, atmosphere.desaturation);
+  }, [tier, plot, group.form, atmosphere.desaturation]);
+  const large = group.form === "scaffold" || group.form === "hoarding" || group.form === "hoarding-kerb";
+  // Every form goes near at the same distance, whatever its size.
+  const nearSize = (geometry.boundingSphere?.radius ?? 1) / NEAR_DISTANCE;
 
   const pick = useMemo(() => pickTable(group.items), [group]);
   const raycast = useMemo(
@@ -227,14 +280,19 @@ function FormInstances({
   }, [hovered, selected, group, indexOf, geometry]);
 
   return (
-    <instancedMesh
+    <LodInstances
       ref={meshRef}
-      args={[geometry, material, count]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={count}
+      maxNear={large ? NEAR_MAX_LARGE : NEAR_MAX}
+      nearSize={nearSize}
+      instancedAttributes={INSTANCE_ATTRIBUTES}
       receiveShadow
-      castShadow={false}
       frustumCulled={false}
       raycast={raycast}
-      {...handlers}
+      handlers={handlers}
     />
   );
 }

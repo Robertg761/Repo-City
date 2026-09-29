@@ -53,6 +53,13 @@ export const PAINT_B_ATTRIBUTE = "instancePaintB";
  */
 export const WEAR_ATTRIBUTE = "instanceWear";
 
+/**
+ * Every per-instance attribute the crowd shader reads: what the near level
+ * (`LodInstances`) has to mirror onto its own mesh, or a near form would be
+ * drawn with the wrong paint, mask and reveal.
+ */
+export const INSTANCE_ATTRIBUTES = [PHASE_ATTRIBUTE, DATA_ATTRIBUTE, PAINT_A_ATTRIBUTE, PAINT_B_ATTRIBUTE, WEAR_ATTRIBUTE] as const;
+
 /** How fast each lamp part blinks, in the `effects.tsx` sense: pulses per second times two. */
 export const BLINK_RATE: Record<number, number> = {
   [PART.beacon]: 2.6,

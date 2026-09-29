@@ -128,6 +128,25 @@ footprint, with the same material roles, so the swap only adds detail.
 - The lean fleet's loft sections live in `fleet.py`'s `*_shell()` functions so
   both levels loft the same sections.
 
+- The crowd's is `blender/crowd/near.py` (with `blender/crowd/nearparts.py`:
+  turned shapes, banded cones, wheels, and the worker, beacon, stop board and
+  flag in detail): every form the backlog crowd draws, up to 3,000 triangles
+  each, one GLB, `crowd-near`. A hoarding's near kit is laid out round its plot
+  by `hoardingKit(..., near)` in `components/city/backlog/forms.ts`, like the
+  lean one.
+
+  ```
+  blender -b --python blender/export.py -- blender/crowd/near.py crowd-near
+  node scripts/import-model.ts assets/models/crowd-near.glb components/city/backlog/crowdNear.model.ts
+  ```
+
+  Compare form `n` of `FORMS` in `near.py` (fire, collision, wreck, roadblock,
+  pothole, signpost, van, scaffold, trench, survey), lean on the left:
+
+  ```
+  blender -b --python blender/stage.py -- blender/out/crowd/n blender/crowd/near.py@n
+  ```
+
 ## Gotchas already paid for
 
 - Join evaluated meshes with `material.original` (done in `kit.finish`), or
