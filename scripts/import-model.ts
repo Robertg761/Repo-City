@@ -140,8 +140,15 @@ function main() {
         }
       }
       // Quantise to 16 bits over the node's bounds and share equal corners.
-      const lo = [0, 1, 2].map((a) => Math.min(...corners.map((p) => p[a])));
-      const hi = [0, 1, 2].map((a) => Math.max(...corners.map((p) => p[a])));
+      // (Loops, not `Math.min(...corners)`: a detailed node has more corners than a call takes arguments.)
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      for (const p of corners) {
+        for (let a = 0; a < 3; a++) {
+          if (p[a] < lo[a]) lo[a] = p[a];
+          if (p[a] > hi[a]) hi[a] = p[a];
+        }
+      }
       const scale = hi.map((h, a) => (h - lo[a]) / 65535 || 1);
       const unique = new Map<string, number>();
       const qpos: number[] = [];

@@ -15,7 +15,7 @@
 import type { BufferGeometry } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { SURFACE } from "../../textures/surface-types";
-import { importedMarkers, importedSlots } from "../imported";
+import { importedMarkers, importedSlots, type ImportedModel } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 import { MODEL as FIRE_STATION } from "./fireStation.model";
@@ -245,11 +245,20 @@ export function fireStation(level: number): FireLayout {
  * Every slot carries baked occlusion in its vertex colour.
  */
 export function blenderFire(level: number): FireLayout {
+  return blenderFireFrom(level, FIRE_STATION, "");
+}
+
+/**
+ * The same station from a model whose nodes are `Station<level><suffix>` and
+ * `Engine<suffix>` (the near level, `near.ts`). The engine spots and roof
+ * lamps are the lean model's markers, which every level shares.
+ */
+export function blenderFireFrom(level: number, model: ImportedModel, suffix: string): FireLayout {
   const engines = importedMarkers(FIRE_STATION, `Station${level}.engine.`);
   const lamps = importedMarkers(FIRE_STATION, "Engine.lamp.");
-  const lists: Record<string, BufferGeometry[]> = importedSlots(FIRE_STATION, `Station${level}`);
+  const lists: Record<string, BufferGeometry[]> = importedSlots(model, `Station${level}${suffix}`);
   if (engines.length) {
-    for (const [slot, list] of Object.entries(importedSlots(FIRE_STATION, "Engine", engines))) {
+    for (const [slot, list] of Object.entries(importedSlots(model, `Engine${suffix}`, engines))) {
       (lists[slot] ??= []).push(...list);
     }
   }

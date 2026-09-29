@@ -209,6 +209,37 @@ EXPORT_PLY=1 pnpm vitest run blender/scenes_near/export-scenes
 blender -b -t 2 --python blender/stage.py -- blender/out/scenes/x blender/out/scenes/lean-incident-major.ply blender/out/scenes/near-incident-major.ply
 ```
 
+- **The landmarks'** near levels are not instanced: each landmark is drawn
+  once, so its near model replaces the lean one outright wherever the quality
+  tier is not `low` (`components/city/Landmark.tsx`, `models/landmarks/near.ts`).
+  Each is the lean script's own parts plus a great deal drawn over them
+  (`blender/landmarks/*_near.py`, 20,000 to 60,000 triangles), through
+  `blender/landmarks/nkit.py` (`Acc`: geometry gathered straight into one mesh
+  per material, in local frames; `openings()` and `slopes()` read the lean
+  mesh's glass boxes and roof faces so every window and roof is treated;
+  `courses()` and `ribs()` lay masonry and cladding only where a ray finds the
+  wall) and `blender/landmarks/ndetail.py` (windows, lancets, slates,
+  balusters, fluted columns, clocks, lettering, lamps, benches, paving, gravel,
+  foliage, guard rails, downpipes). The near GLB carries no markers: the lean
+  models' markers (lamps, engine spots, anchors) serve both levels.
+
+  ```
+  blender -b --python blender/export.py -- blender/landmarks/townhall_near.py town-hall-near
+  node scripts/import-model.ts assets/models/town-hall-near.glb components/city/models/landmarks/townHallNear.model.ts
+  ```
+
+  The pairs are `townhall_near` / `town-hall-near`, `fire_near` (three levels
+  and the engine) / `fire-station-near`, `info_near` / `info-centre-near`,
+  `power_near` (plant, both chimneys, bare yard) / `power-station-near`,
+  `station_near` / `transit-station-near`, `train_near` (train and both
+  pantographs) / `transit-train-near`, `chapel_near` / `village-chapel-near`,
+  `village_fire_near` / `village-fire-near`, `halt_near` / `village-halt-near`,
+  `substation_near` / `village-substation-near`. Compare a lean and a near
+  level with `stage.py`: `blender -b --python blender/stage.py -- blender/out/x
+  blender/landmarks/info.py@3 blender/landmarks/info_near.py@3`. A landmark's
+  Part component paints only the slots the lean model uses: a near model must
+  not add a colour slot (the village fire station has no green, so no foliage).
+
 ## Gotchas already paid for
 
 - Join evaluated meshes with `material.original` (done in `kit.finish`), or
