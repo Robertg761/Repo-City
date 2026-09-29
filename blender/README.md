@@ -94,6 +94,24 @@ and openings, so the glazing stays in the lean model's `windows` rectangles.
   round the trim (the occlusion is per vertex). Scripts: `house_near.py`,
   `parapet_near.py`, `pitched_near.py`, `warehouse_near.py`, one GLB each
   (`building-<id>-near`, node `BuildingNear`).
+- The second pass at these (`detail.py`, `nearkit.py`, `snear.py`) adds sash windows
+  with meeting rails and horns, sloped sills on aprons, flat arches of jointed
+  stones with keystones, architraves, planted window boxes, doors with hinges,
+  knockers and numbers on nosed steps, bargeboards, finials, corbelled dentil
+  courses, water tables, brick and block plinths (`bricks`, laid course by
+  course in stretcher bond), roof slates and tiles as pillows of four facets
+  (`pillow`; the settlement's are cut by `snear._sliced_prism`, courses
+  staggered, risers cut at the same joints), brick and ashlar walls with
+  mortar set behind them (`snear.brick_wall`), roof plant (air-conditioning
+  unit, dish) and rainwater hoppers. Every detail keeps at least 2 cm off any
+  face it overlaps (the near checks fail it otherwise), and rooftop plant stays
+  under the lean model's height plus the outline tolerance.
+- `buildings/tone.py` holds the near model's tone to the lean one's: after the
+  bake it reads the lean model's GLB, takes each material role's mean shade
+  (occlusion times the material's tone, as the importer multiplies them) and
+  bends the near occlusion by a power law per role until the means agree, so
+  the swap does not flash darker or lighter. `lowrise.test.ts` checks it (mean
+  plaster and slate shade within 5 % of the lean model's).
 - `settlement/snear.py` swaps the lean settlement scripts' own `window`, `door`,
   `wall`, `chimney` and `gable_roof` for richer ones (`near_cottage.py`,
   `near_terrace.py`, `near_shopfront.py`, `near_apartment.py`,

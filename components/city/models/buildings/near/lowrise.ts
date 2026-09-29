@@ -33,8 +33,20 @@ import { MODEL as TERRACE_NEAR } from "../terraceNear.model";
 /** Window and door frames: painted metal, near white, as the towers' mullions. */
 const FRAME: Rgb3 = surfaceColor([1.02, 1.02, 1.02], SURFACE.metal);
 
+/**
+ * Roles only the near levels use: window-box foliage and blooms, tinted like
+ * the walls by the instance colour (so kept pale enough to survive it), and
+ * brass fittings.
+ */
+const NEAR_ROLES: Record<string, Rgb3> = {
+  frame: FRAME,
+  leaf: surfaceColor([0.62, 0.82, 0.5], SURFACE.foliage),
+  bloom: surfaceColor([1.0, 0.62, 0.66], SURFACE.foliage),
+  brass: surfaceColor([0.95, 0.8, 0.5], SURFACE.metal),
+};
+
 function nearRole(role: string): Rgb3 {
-  return role === "frame" ? FRAME : blenderRole(role);
+  return NEAR_ROLES[role] ?? blenderRole(role);
 }
 
 function toGeometry(draft: MeshDraft): BufferGeometry {

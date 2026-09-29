@@ -29,6 +29,10 @@ def extras(m):
     lhd = 0.26
     d.wbox("-x", -lx0 + 0.0, -lhd - 0.025, lhd + 0.025, 0.31 - d.V(0.06) - d.V(0.05), 0.31 - d.V(0.06), 0.0, d.O("-x", 0.09), "metal", skip=("back",))
     d.downpipe(lx0 - d.X(0.06), lhd + 0.03, 0.0, 0.31 - d.V(0.11), r=0.04)
+    snear.plinth_stones(m, HW + lean.PLINTH_OUT, HD + lean.PLINTH_OUT, lean.PLINTH, cx=CX, gaps={"+z": [(-0.16, 0.16)]})
+    # Quoins up the main block, a lamp by the door and a downpipe with a hopper at the front corner.
+    d.quoins(HW, HD, 0.045, 0.6, proj=0.024, height=0.24, long_=0.36, short=0.2, cx=CX, corners=[(1, -1), (-1, -1)])
+    d.lamp("+z", HD, 0.11, 0.2, cx=CX, arm=0.1, glass="glass")
 
 
 def build():
@@ -38,7 +42,7 @@ def build():
     snear.patch(lean)
     snear.EXTRAS["Farmhouse"] = extras
     obj, _ = lean.build_farmhouse(M)
-    snear.bake([obj])
+    snear.bake([obj], lean_glb="farmhouse.glb")
     print("TRIS", obj.name, skit.triangles(obj))
     snear.rename([obj])
     return [obj]

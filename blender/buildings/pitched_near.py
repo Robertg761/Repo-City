@@ -23,18 +23,20 @@ LAP = 0.0028
 
 def make():
     d = nearkit.NearDraft(SCALE)
+    d.cell = (1.6, 1.3)
     det = d.det
     d.vlines = [0.288, 0.322, 0.4885, 0.5215]
     d.box(0, 0, 0, 0.97, PLINTH, 0.97, "plinth")
     slope = lambda b: RIDGE_Y - (RIDGE_Y - EAVE_Y) * abs(b) / EAVE_B  # noqa: E731
     wall_top = slope(HW) - T * 0.5
-    win = dict(w=0.15, h=0.1, depth=DEPTH, glass="window", sill="trim")
+    win = dict(w=0.15, h=0.1, depth=DEPTH, glass="window", sill="trim", near={"lite": True})
+    boxed = dict(win, near={"lite": False, "box": dict(plants=("leaf", "leaf", "bloom", "leaf"), seed=3)})
     front_cols = bkit.spread(3, HW * 2 * 0.64)
     side_cols = bkit.spread(2, HW * 2 * 0.5)
-    front = bkit.grid(front_cols, ROWS[1:], **win) + bkit.grid([front_cols[0], front_cols[2]], ROWS[:1], **win)
+    front = bkit.grid(front_cols, ROWS[1:], **win) + bkit.grid([front_cols[0], front_cols[2]], ROWS[:1], **boxed)
     head = ROWS[0] + 0.05
     front.append(dict(u=0, v=(PLINTH + head) / 2, w=0.15, h=head - PLINTH, depth=DEPTH + 0.015, glass="door", lit=False, sill_face=False,
-                      near={"door": {"head": False, "from_o": 0.485 - HW, "limit": 0.55, "step_reach": 0.5}}))
+                      near={"door": {"head": False, "from_o": 0.485 - HW, "limit": 0.55, "step_reach": 0.5, "number": 3}}))
     back = bkit.grid(front_cols, ROWS, **win)
     side = bkit.grid(side_cols, ROWS, **win)
     d.core(PLINTH, wall_top, HW - DEPTH - 0.025, HW - DEPTH - 0.025)
@@ -43,18 +45,21 @@ def make():
         base = [bkit.face_point(face, HW, u, wall_top) for u in d.last_top]
         d.poly(base + [bkit.face_point(face, HW, 0, RIDGE_Y - T)], "wall", bkit.outward(face))
         # A round attic light in the gable, over the top row of windows.
-        det.oculus(face, HW, 0.0, 0.795, 0.3)
+        det.oculus(face, HW, 0.0, 0.795, 0.3, bars=4)
     for face in ("+x", "-x"):
         d.facade(face, HW, -HW, HW, PLINTH, wall_top, side)
-    d.gable("z", VERGE_A, EAVE_B, EAVE_Y, RIDGE_Y, T, courses=COURSES, lap=LAP, cap=0)
-    det.ridge_tiles(0, 0.0, RIDGE_Y, VERGE_A - det.Z(0.06), tile=0.34, half_w=0.1, rise=0.08, mat="roofLight", along_x=False)
+    d.gable("z", VERGE_A, EAVE_B, EAVE_Y, RIDGE_Y, T, courses=COURSES, lap=LAP, cap=0, slate=0.55)
+    det.ridge_tiles(0, 0.0, RIDGE_Y, VERGE_A - det.Z(0.44), tile=0.34, half_w=0.1, rise=0.08, mat="roofLight", along_x=False)
 
     # A hood over the door on corbels.
     hy = head + 0.025
     d.box(0, hy, HW + 0.04, 0.24, 0.016, 0.08, "trim", bottom=True)
     for s in (-1, 1):
         u = s * 0.108
-        d.box(u, hy - det.V(0.2), HW + det.Z(0.035), det.X(0.05), det.V(0.2), det.Z(0.07), "trim", skip=("-z",))
+        det.profile("+z", HW, u - det.U("+z", 0.03), u + det.U("+z", 0.03), hy - det.V(0.24),
+                    [(0.0, 0.0), (0.03, 0.0), (0.03, 0.12), (0.19, 0.17), (0.19, 0.24), (0.0, 0.24)], "trim", skip=(5,))
+    det.lamp("+z", HW, 0.125, 0.16, arm=0.1)
+    det.lamp("+z", HW, -0.125, 0.16, arm=0.1)
 
     # Dormers: a window in a cheeked box under a flat lid, as the lean model has them.
     for s, zc in ((1, 0.14), (-1, -0.14)):
@@ -72,17 +77,24 @@ def make():
         d.box((x_front + back_x) / 2 + s * 0.012, y1, -zc if s > 0 else zc, abs(back_x - x_front) + 0.024, 0.014, wz + 0.03, "roofLight", bottom=True)
 
     det.quoins(HW, HW, PLINTH, wall_top - 0.01, proj=0.024, height=0.3, long_=0.3, short=0.2)
-    det.band(HW, HW, 0.302, 0.32, 0.03, "trim", gaps={"+z": [(-0.1, 0.1)]}, corner_gap=0.5)
-    det.band(HW, HW, 0.5, 0.518, 0.03, "trim", corner_gap=0.5)
+    belt = [(0.0, 0.0), (0.05, 0.0), (0.05, 0.035), (0.032, 0.05), (0.032, 0.126), (0.0, 0.126)]
+    det.profile_band(HW, HW, 0.302, belt, "trim", gaps={"+z": [(-0.1, 0.1)]}, corner_gap=0.5)
+    det.profile_band(HW, HW, 0.5, belt, "trim", corner_gap=0.5)
+    det.brick_box(0.485, 0.485, 0.0, PLINTH, proud=0.024, kind="block", gaps={"+z": [(-0.32, 0.32)]})
+    # Stone water table over the plinth, and finials on the ridge with bargeboards on the verges.
+    det.profile_band(HW, HW, PLINTH, [(0.0, 0.0), (0.038, 0.0), (0.038, 0.06), (0.0, 0.12)], "trim", corner_gap=0.5, gaps={"+z": [(-0.14, 0.14)]})
+    det.bargeboard("z", VERGE_A, EAVE_B, EAVE_Y, RIDGE_Y, mat="trim", drop=0.24, lap=LAP, eave_short=0.16)
+    for sgn in (-1, 1):
+        det.finial(0.0, sgn * (VERGE_A - det.Z(0.3)), RIDGE_Y + det.V(0.06), mat="roofLight", h=0.26, r=0.06)
 
     # Gutters along the eaves, downpipes at the front corners.
     for face in ("+x", "-x"):
         det.gutter_run(face, EAVE_B, -(VERGE_A - 0.012), VERGE_A - 0.012, EAVE_Y - det.V(0.02))
     gy = EAVE_Y - det.V(0.02) - det.V(0.08)
     for sx, sz in ((1, 1), (-1, -1)):
-        det.downpipe(sx * (EAVE_B + det.X(0.05)), sz * (VERGE_A - det.Z(0.1)), 0.0, gy, r=0.036)
+        det.downpipe(sx * (EAVE_B + det.X(0.05)), sz * (VERGE_A - det.Z(0.1)), 0.0, gy - det.V(0.24), r=0.036)
     return d
 
 
 def build():
-    return nearkit.build_near(make, SCALE, "BuildingNear", distance=1.6)
+    return nearkit.build_near(make, SCALE, "BuildingNear", distance=1.6, lean_glb="building-lowrise-pitched.glb")

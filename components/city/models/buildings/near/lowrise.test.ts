@@ -10,6 +10,7 @@ import {
   NEAR_LIP,
   NEAR_NARROWEST,
   NEAR_WITHIN,
+  cross,
   dot,
   firstHit,
   insideTri,
@@ -66,6 +67,24 @@ const SETTLEMENT: Partial<Record<ModelKey, () => ArchetypeModel>> = {
 };
 const leanModel = (id: ModelKey): ArchetypeModel => (SETTLEMENT[id] ?? (() => blenderArchetypeModel(id)))();
 
+/** Area (world units, at the instance size) and mean shade (vertex colour, which already holds the baked occlusion) of one surface. */
+function surfaceShade(draft: MeshDraft, scale: readonly [number, number, number], surface: number): { area: number; mean: number } {
+  let sum = 0;
+  let area = 0;
+  for (let t = 0; t < draft.indices.length; t += 3) {
+    const ids = [draft.indices[t], draft.indices[t + 1], draft.indices[t + 2]];
+    if (draft.surface![ids[0]] !== surface) continue;
+    const p = ids.map((i): V => [draft.positions[i * 3] * scale[0], draft.positions[i * 3 + 1] * scale[1], draft.positions[i * 3 + 2] * scale[2]]);
+    const c = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+    const a = Math.hypot(...c) / 2;
+    let shade = 0;
+    for (const i of ids) shade += (draft.colors[i * 3] + draft.colors[i * 3 + 1] + draft.colors[i * 3 + 2]) / 3;
+    sum += (shade / 3) * a;
+    area += a;
+  }
+  return { area, mean: area ? sum / area : 0 };
+}
+
 function bounds(draft: MeshDraft): { lo: V; hi: V } {
   const lo: V = [Infinity, Infinity, Infinity];
   const hi: V = [-Infinity, -Infinity, -Infinity];
@@ -98,6 +117,22 @@ describe("the near low-rise models", () => {
       expect(near.surface?.length).toBe(near.positions.length / 3);
       expect(near.paint === undefined).toBe(lean.draft.paint === undefined);
       expect(Math.max(...near.indices)).toBeLessThan(near.positions.length / 3);
+    });
+
+    it("keeps the lean model's tone: walls and roofs as light as the lean model's, on the same surfaces", () => {
+      // The swap must not flash darker (or lighter): the baked occlusion is
+      // matched to the lean model's per material role (`blender/buildings/tone.py`),
+      // and the walls stay plaster (a near wall in stone or brick would carry
+      // much stronger relief and a darker shade than the lean one).
+      for (const surface of [SURFACE.plaster, SURFACE.slate]) {
+        const a = surfaceShade(lean.draft, scale, surface);
+        const b = surfaceShade(near, scale, surface);
+        if (a.area < 1) continue;
+        expect(b.mean / a.mean, `surface ${surface}: lean ${a.mean.toFixed(3)}, near ${b.mean.toFixed(3)}`).toBeGreaterThan(0.95);
+        expect(b.mean / a.mean, `surface ${surface}: lean ${a.mean.toFixed(3)}, near ${b.mean.toFixed(3)}`).toBeLessThan(1.05);
+        // No wall of the lean model turns into another material.
+        expect(b.area / a.area, `surface ${surface} area`).toBeGreaterThan(0.6);
+      }
     });
 
     it("keeps the lean model's outline", () => {
