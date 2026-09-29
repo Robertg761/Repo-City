@@ -132,7 +132,7 @@ export const PART = {
   hazard: 7,
   /**
    * Weeds that come up round a long-neglected issue: flat on the ground
-   * while it is fresh, grown to full height by its wear (`instanceWear`).
+   * while it is fresh, grown to full height by its wear (`instancePhaseWear.y`).
    */
   weed: 8,
 } as const;

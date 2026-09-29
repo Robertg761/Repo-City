@@ -250,7 +250,7 @@ export const WEAR_FULL = 540;
 export const STALE_WEAR = 0.6;
 
 /**
- * An issue's weathering, -1..1, for the `instanceWear` attribute: how old and
+ * An issue's weathering, -1..1, for the `instancePhaseWear` attribute (y): how old and
  * idle it is, signed by its form's style (positive rusts, negative fades).
  * 0 for forms that do not weather this way.
  */

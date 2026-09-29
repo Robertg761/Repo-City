@@ -76,7 +76,7 @@ import {
   PAINT_A_ATTRIBUTE,
   PAINT_B_ATTRIBUTE,
   PHASE_ATTRIBUTE,
-  WEAR_ATTRIBUTE,
+  PHASE_WEAR_ATTRIBUTE,
   crowdMaterial,
   haloMaterial,
   linearRgb,
@@ -186,11 +186,10 @@ function FormInstances({
       ? hoardingPlotGeometry(plot[0], plot[1], atmosphere.desaturation)
       : formGeometry(group.form, atmosphere.desaturation)
     ).clone();
-    const phase = new Float32Array(count);
+    const phaseWear = new Float32Array(count * 2);
     const data = new Float32Array(count * 3);
     const paintA = new Float32Array(count * 3);
     const paintB = new Float32Array(count * 3);
-    const wear = new Float32Array(count);
     // Paint is toned with the city, like every colour baked into the forms.
     const toned = new Map<string, [number, number, number]>();
     const linear = (hex: string) => {
@@ -202,19 +201,18 @@ function FormInstances({
       return hit;
     };
     group.items.forEach((item, i) => {
-      phase[i] = item.phase;
+      phaseWear[i * 2] = item.phase;
+      phaseWear[i * 2 + 1] = item.wear;
       data[i * 3] = item.mask;
       data[i * 3 + 1] = item.appearAt;
       data[i * 3 + 2] = item.glow;
       paintA.set(linear(item.paint[0]), i * 3);
       paintB.set(linear(item.paint[1]), i * 3);
-      wear[i] = item.wear;
     });
-    own.setAttribute(PHASE_ATTRIBUTE, new InstancedBufferAttribute(phase, 1));
+    own.setAttribute(PHASE_WEAR_ATTRIBUTE, new InstancedBufferAttribute(phaseWear, 2));
     own.setAttribute(DATA_ATTRIBUTE, new InstancedBufferAttribute(data, 3));
     own.setAttribute(PAINT_A_ATTRIBUTE, new InstancedBufferAttribute(paintA, 3));
     own.setAttribute(PAINT_B_ATTRIBUTE, new InstancedBufferAttribute(paintB, 3));
-    own.setAttribute(WEAR_ATTRIBUTE, new InstancedBufferAttribute(wear, 1));
     return own;
   }, [group, count, atmosphere.desaturation, plot]);
   useEffect(() => () => geometry.dispose(), [geometry]);

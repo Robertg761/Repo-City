@@ -10,11 +10,14 @@
  *            ground at its own `appearAt`, so the backlog ripples outward
  *            with no CPU work per instance at all.
  *
- * Per instance the forms carry `instancePhase` (0..1, so neighbouring fires
- * do not flicker in step) and `instanceCrowd`: the optional-part mask, the
+ * Per instance the forms carry `instancePhaseWear`: x the phase (0..1, so
+ * neighbouring fires do not flicker in step), y how weathered it is
+ * (wear, below); and `instanceCrowd`: the optional-part mask, the
  * reveal time and a 0..1 glow from the item's heat. `instancePaintA` and
- * `instancePaintB` are the colours its painted panels take, and
- * `instanceWear` how weathered it is (`WEAR_ATTRIBUTE`). Per vertex they carry
+ * `instancePaintB` are the colours its painted panels take. Phase and wear
+ * share one attribute because a form's program is at WebGL's floor of 16
+ * attribute slots (the instance matrix alone takes four, and the levels of
+ * detail add one). Per vertex they carry
  * `crowd` (`forms.ts`): which part the vertex belongs to and its weight.
  *
  * Three materials share those uniforms: the lit crowd material (a
@@ -40,25 +43,27 @@ export const CROWD_CLOCK = {
   uReveal: { value: 0 },
 };
 
-/** Per-instance attributes the crowd shader reads. */
+/** Per-instance attributes the crowd shaders read; the smoke has a phase of its own. */
 export const PHASE_ATTRIBUTE = "instancePhase";
+/** A form's phase (x) and wear (y, see below) in one slot. */
+export const PHASE_WEAR_ATTRIBUTE = "instancePhaseWear";
 export const DATA_ATTRIBUTE = "instanceCrowd";
 /** The instance's two paint colours, linear RGB, for body paint slots 1 and 2. */
 export const PAINT_A_ATTRIBUTE = "instancePaintA";
 export const PAINT_B_ATTRIBUTE = "instancePaintB";
-/**
- * How weathered the instance is, -1..1: its magnitude is how old and idle it
- * is, its sign the kind of weathering. Positive rusts (cars, barriers, posts,
- * skips); negative bleaches and dusts (a hole in the road, survey pegs).
+/*
+ * Wear, how weathered the instance is, -1..1: its magnitude is how old and
+ * idle it is, its sign the kind of weathering. Positive rusts (cars,
+ * barriers, posts, skips); negative bleaches and dusts (a hole in the road,
+ * survey pegs).
  */
-export const WEAR_ATTRIBUTE = "instanceWear";
 
 /**
  * Every per-instance attribute the crowd shader reads: what the near level
  * (`LodInstances`) has to mirror onto its own mesh, or a near form would be
  * drawn with the wrong paint, mask and reveal.
  */
-export const INSTANCE_ATTRIBUTES = [PHASE_ATTRIBUTE, DATA_ATTRIBUTE, PAINT_A_ATTRIBUTE, PAINT_B_ATTRIBUTE, WEAR_ATTRIBUTE] as const;
+export const INSTANCE_ATTRIBUTES = [PHASE_WEAR_ATTRIBUTE, DATA_ATTRIBUTE, PAINT_A_ATTRIBUTE, PAINT_B_ATTRIBUTE] as const;
 
 /** How fast each lamp part blinks, in the `effects.tsx` sense: pulses per second times two. */
 export const BLINK_RATE: Record<number, number> = {
@@ -84,11 +89,10 @@ float crowdPulse( float rate, float phase ) {
 
 export const CROWD_VERTEX_PARS = /* glsl */ `
 attribute vec2 ${CROWD_ATTRIBUTE};
-attribute float instancePhase;
+attribute vec2 instancePhaseWear;
 attribute vec3 instanceCrowd;
 attribute vec3 instancePaintA;
 attribute vec3 instancePaintB;
-attribute float instanceWear;
 uniform float uTime;
 uniform float uReveal;
 varying vec3 vCrowdGlow;
@@ -107,7 +111,8 @@ float crowdBit( float mask, float bit ) {
 export const CROWD_VERTEX_BODY = /* glsl */ `
 float crowdPart = ${CROWD_ATTRIBUTE}.x;
 float crowdWeight = ${CROWD_ATTRIBUTE}.y;
-float crowdPhase = instancePhase;
+float crowdPhase = instancePhaseWear.x;
+float crowdWearSigned = instancePhaseWear.y;
 
 float crowdShown = 1.0;
 if ( crowdPart > 0.5 && crowdPart < 4.5 ) crowdShown = crowdBit( instanceCrowd.x, crowdPart - 1.0 );
@@ -117,11 +122,11 @@ if ( crowdPart < 0.5 && crowdWeight > 0.5 ) vColor.rgb *= crowdWeight < 1.5 ? in
 
 // Age: rust in patches on metal and paint, or a bleached, dusty fade.
 // Dark glass, tyres and holes hardly change; bright paint shows it most.
-float crowdWear = abs( instanceWear );
+float crowdWear = abs( crowdWearSigned );
 if ( crowdPart < 0.5 && crowdWear > 0.0 ) {
   float luma = dot( vColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
   float speck = fract( sin( dot( position, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );
-  if ( instanceWear > 0.0 ) {
+  if ( crowdWearSigned > 0.0 ) {
     float amount = crowdWear * smoothstep( 0.03, 0.25, luma ) * ( 0.3 + 0.7 * speck );
     vec3 rust = vec3( 0.3, 0.11, 0.04 ) * ( 0.75 + 0.5 * speck );
     vColor.rgb = mix( vColor.rgb, rust, amount * 0.7 );

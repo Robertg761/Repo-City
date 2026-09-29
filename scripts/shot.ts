@@ -185,7 +185,9 @@ async function main(): Promise<void> {
     })()`);
     await sleep(1500);
     const stats = await evaluate<{ triangles?: number; calls?: number }>(
-      "(() => { const r = window.__repoCityRenderer; return r ? { triangles: r.info.render.triangles, calls: r.info.render.calls } : {}; })()",
+      // The perf overlay (`?perf=1`) counts the whole frame; renderer.info
+      // only sees the last pass of the composer.
+      "(() => { const p = window.__repoCity && window.__repoCity.perf; const r = window.__repoCityRenderer; return p && p.triangles ? { triangles: p.triangles, calls: p.calls } : r ? { triangles: r.info.render.triangles, calls: r.info.render.calls } : {}; })()",
     );
     const shot = (await send("Page.captureScreenshot", { format: "png" })).result as { data: string };
     writeFileSync(join(OUT, `${pose.name}.png`), Buffer.from(shot.data, "base64"));
