@@ -77,8 +77,24 @@ const scratchColor = new Color();
 
 /** Most buildings of one archetype drawn in detail at once (high tier). */
 const BUILDING_NEAR_CAP = 24;
-/** Projected size (radius over distance) past which a building is drawn in detail. */
-const BUILDING_NEAR_SIZE = 0.05;
+/**
+ * The near models run to thousands of triangles (and cast shadows too), so an
+ * archetype's cap is what fits this many at once: a 15,000-triangle tower
+ * gets eight, a 3,000-triangle house the full cap.
+ */
+const BUILDING_NEAR_TRIANGLES = 120_000;
+const BUILDING_NEAR_MIN = 4;
+/**
+ * How close to the camera, in world units, a building of its archetype's usual
+ * size is drawn in detail. `LodInstances` picks by radius over distance, and a
+ * tower's radius is its height, so one size for every archetype would draw the
+ * spire in detail from across the whole overview and the house only from a
+ * few units; this is the same distance for all, scaled by the size each
+ * archetype's instances have. At 64 a 7.5 wide tower spans a few degrees of the
+ * view and its window frames are a few pixels: closer than the overview
+ * (about 160 out), where nothing is drawn in detail.
+ */
+const BUILDING_NEAR_DISTANCE = 64;
 const PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE] as const;
 const NO_ATTRIBUTES = [] as const;
 
@@ -130,6 +146,23 @@ function ArchetypeInstances({
     return own;
   }, [group.model, painted, instances.length]);
   const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model]);
+  const near = useMemo(() => {
+    if (!nearGeometry) return { cap: 0, size: 0 };
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere?.radius ?? 1;
+    let scale = 0;
+    for (const instance of instances) {
+      const [w, , d] = instance.building.size;
+      scale += Math.max(w, instance.height, d);
+    }
+    scale /= Math.max(1, instances.length);
+    const triangles = (nearGeometry.index?.count ?? nearGeometry.getAttribute("position").count) / 3;
+    const cap = Math.floor(BUILDING_NEAR_TRIANGLES / Math.max(1, triangles));
+    return {
+      cap: Math.min(BUILDING_NEAR_CAP, Math.max(BUILDING_NEAR_MIN, cap)),
+      size: (radius * scale) / BUILDING_NEAR_DISTANCE,
+    };
+  }, [nearGeometry, geometry, instances]);
   const material = useMemo(
     () => painted
       ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
@@ -235,8 +268,8 @@ function ArchetypeInstances({
       nearGeometry={nearGeometry}
       material={material}
       count={instances.length}
-      maxNear={BUILDING_NEAR_CAP}
-      nearSize={BUILDING_NEAR_SIZE}
+      maxNear={near.cap}
+      nearSize={near.size}
       instancedAttributes={painted ? PAINTED_ATTRIBUTES : NO_ATTRIBUTES}
       handlers={handlers}
       castShadow

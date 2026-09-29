@@ -102,10 +102,17 @@ def _dot(a, b):
 
 
 class Draft:
-    def __init__(self):
+    def __init__(self, near=None):
         self.faces = []
         self.windows = []
         self.pads = []
+        # A near-level detailer (`nkit.Near`): the same script builds the lean
+        # draft with `near=None` and the detailed one with it, so every window,
+        # pad and plane is placed by the same calls and the two agree exactly.
+        self.near = near
+        #: What made each face (`nkit` names its methods here), for debugging.
+        self.tags = []
+        self.tag = "lean"
 
     # -- primitives ---------------------------------------------------------
 
@@ -119,6 +126,7 @@ class Draft:
             if _dot(n, facing) < 0:
                 pts = pts[::-1]
         self.faces.append((pts, role))
+        self.tags.append(self.tag)
 
     def box(self, x, y, z, w, h, d, role, top=None, bottom=False, skip=()):
         """An axis-aligned box, `y` its BASE (as `addBox`). `skip` names faces
@@ -372,18 +380,26 @@ class Draft:
                     side = _sub(f0[k], f0[1 - k])
                     self.poly([b0[k], f0[k], f1[k], b1[k]], lrole, side)
             if o.get("lit", True):
-                self.window(face, plane - o["depth"], o["u"], o["v"], o.get("lit_w", o["w"]), o.get("lit_h", o["h"]), cx, cz)
+                self.window(face, plane - o["depth"], o["u"], o["v"], o.get("lit_w", o["w"]), o.get("lit_h", o["h"]), cx, cz,
+                            whole="lit_w" not in o and "lit_h" not in o)
+            if self.near and not o.get("bay"):
+                self.near.opening(self, face, plane, o, cx, cz)
         return us, vs
 
-    def window(self, face, glass_plane, u, v, w, h, cx=0.0, cz=0.0):
+    def window(self, face, glass_plane, u, v, w, h, cx=0.0, cz=0.0, whole=False, frame=True):
         """Publish a window for the lit-window pass: the dark pane of `mesh.ts`
-        sits PANEL_LIFT off `plane`, so `plane` is the glass minus the lift."""
+        sits PANEL_LIFT off `plane`, so `plane` is the glass minus the lift.
+        `whole` says the window is its opening's whole glass (the near level
+        frames it inside its rectangle rather than round it); `frame=False`
+        leaves it unframed (a curtain wall's cells are framed by its mullions)."""
         panel = {"facing": face, "u": round(u, 6), "v": round(v, 6), "w": round(w, 6), "h": round(h, 6),
                  "plane": round(glass_plane - PANEL_LIFT, 6)}
         if cx or cz:
             panel["cx"] = round(cx, 6)
             panel["cz"] = round(cz, 6)
         self.windows.append(panel)
+        if self.near and frame:
+            self.near.light(self, face, glass_plane, u, v, w, h, cx, cz, inside=whole)
 
     # -- output ---------------------------------------------------------------
 
@@ -452,13 +468,14 @@ def bake(obj, scale, distance=1.2, floor=0.55, samples=96):
                     data[li].color = (0.9, 0.9, 0.9, 1)
 
 
-def build_model(make, scale, meta_extra=None, name="Building", distance=1.2):
-    """Run an archetype script: build the draft, bake, write the sidecar."""
+def build_model(make, scale, meta_extra=None, name="Building", distance=1.2, near=False):
+    """Run an archetype script: build the draft, bake, write the sidecar.
+    With `near`, `make(True)` builds the detailed level (`near.py`)."""
     kit.reset()
-    d = make()
+    d = make(True) if near else make()
     obj = d.mesh(name)
     print("TRIS", name, d.triangles(), "WINDOWS", len(d.windows))
-    bake(obj, scale, distance=distance)
+    bake(obj, scale, distance=distance, samples=16 if near else 96)
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) >= 2 and argv[0].endswith(".py"):
         meta = {"windows": d.windows, "roofPads": d.pads, "maxProps": 0}
@@ -502,10 +519,12 @@ def _bay(d, face, plane, u, w, v0, v1, lights, depth, spandrel, cx=0.0, cz=0.0, 
         lo = v0 + h * k + (spandrel / 2 if k > 0 else 0)
         hi = v0 + h * (k + 1) - (spandrel / 2 if k < lights - 1 else 0)
         d.window(face, g, u, (lo + hi) / 2, w * 0.9, (hi - lo) * 0.9, cx, cz)
-    return dict(u=u, v=(v0 + v1) / 2, w=w, h=v1 - v0, depth=depth, glass=glass, lit=False)
+    if d.near:
+        d.near.bay(d, face, plane, u, w, v0, v1, lights, depth, spandrel, cx, cz)
+    return dict(u=u, v=(v0 + v1) / 2, w=w, h=v1 - v0, depth=depth, glass=glass, lit=False, bay=True)
 
 
-def fins(d, face, plane, us, y0, y1, t, proud, back, role="trim", cx=0.0, cz=0.0, back_face=False):
+def fins(d, face, plane, us, y0, y1, t, proud, back, role="trim", cx=0.0, cz=0.0, back_face=False, capital=True):
     """Vertical fins down a facade: `proud` in front of the wall and `back`
     behind it (to the glass), so where a fin crosses an opening it stands on
     the glass rather than floating in front of a hole."""
@@ -520,6 +539,8 @@ def fins(d, face, plane, us, y0, y1, t, proud, back, role="trim", cx=0.0, cz=0.0
         if back_face:
             # Flush on the wall: closes the fin over the wall it hides.
             d.poly([P(a, y0, -back), P(b, y0, -back), P(b, y1, -back), P(a, y1, -back)], role, tuple(-c for c in out))
+    if d.near and capital:
+        d.near.fins(d, face, plane, us, y0, y1, t, proud, cx, cz)
 
 
 def volume(d, y0, y1, hx, hz, openings, depth, cx=0.0, cz=0.0, role="wall", core_gap=0.01):
@@ -543,6 +564,8 @@ def crown(d, y, hx, hz, cornice_h, proj, parapet_h, parapet_t, cx=0.0, cz=0.0, i
     d.flat_roof(top, (ox, oz), (ix, iz), deck=deck, edge=cornice, inset=inset, cx=cx, cz=cz)
     if parapet_h > 0:
         d.ring(top, parapet_h, (ox, oz), (ix, iz), coping, cx=cx, cz=cz)
+    if d.near:
+        d.near.crown(d, y, hx, hz, cornice_h, proj, parapet_h, parapet_t, cx, cz)
     return top, ix, iz
 
 
@@ -592,7 +615,7 @@ def curtain(d, y0, y1, hx, hz, bands, mullions, spandrel, grade=(0.0, 1.0), cx=0
         half = hx if face in ("+z", "-z") else hz
         plane = hz if face in ("+z", "-z") else hx
         posts = [-half + 2 * half * k / (mullions + 1) for k in range(1, mullions + 1)]
-        fins(d, face, plane, posts, y0, y1, mt, mproud, 0.0, sleeve, cx, cz)
+        fins(d, face, plane, posts, y0, y1, mt, mproud, 0.0, sleeve, cx, cz, capital=False)
         if face not in lit_faces:
             continue
         cell = 2 * half / (mullions + 1)
@@ -603,7 +626,9 @@ def curtain(d, y0, y1, hx, hz, bands, mullions, spandrel, grade=(0.0, 1.0), cx=0
             v = y0 + band * i + band * spandrel + glass_h / 2
             for k in range(mullions + 1):
                 u = -half + cell * (k + 0.5)
-                d.window(face, plane, u, v, cell * 0.8, glass_h * 0.78, cx, cz)
+                d.window(face, plane, u, v, cell * 0.8, glass_h * 0.78, cx, cz, frame=False)
+    if d.near:
+        d.near.curtain(d, y0, y1, hx, hz, bands, mullions, spandrel, cx, cz, proud, mproud, mt, sleeve)
     return y1
 
 
@@ -612,9 +637,11 @@ def lobby(d, y0, y1, hw, depth, glass="lobby", cx=0.0, cz=0.0):
     in the middle of the front one, and the core behind."""
     foot, head = y0 + (y1 - y0) * 0.22, y0 + (y1 - y0) * 0.86
     band = dict(v=(foot + head) / 2, h=head - foot, depth=depth, glass=glass, sill="plinth", lit=False)
-    door = dict(u=0, v=(y0 + head) / 2, w=0.16, h=head - y0, depth=depth + 0.012, glass="door", lit=False, sill_face=False)
+    door = dict(u=0, v=(y0 + head) / 2, w=0.16, h=head - y0, depth=depth + 0.012, glass="door", lit=False, sill_face=False, lamps=False, arch=0.1)
     w = hw * 2 * 0.8
     side = (w - 0.2) / 2
     openings = {f: [dict(band, u=0, w=w)] for f in FACES}
     openings["+z"] = [dict(band, u=-(0.1 + side / 2), w=side), door, dict(band, u=0.1 + side / 2, w=side)]
     volume(d, y0, y1, hw, hw, openings, depth + 0.02, cx, cz)
+    if d.near:
+        d.near.lobby(d, y0, y1, hw, depth, cx, cz)
