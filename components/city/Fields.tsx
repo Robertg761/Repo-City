@@ -32,18 +32,31 @@ import {
   type Placed,
 } from "./models/buildings/farmland";
 import { tintedMaterial } from "./models/props/material";
+import { baleNearGeometry, nearSizeAt, treeNearGeometry } from "./models/props/near";
 import { SPECIES_LEAF, treeGeometry } from "./models/props/trees";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import { revealScale } from "./reveal";
 import { useRevealClock } from "./useReveal";
 import { useStreetMaterial } from "./textures/surfaces";
 import { useQuality } from "./quality";
+import { LodInstances } from "./lod";
 import { buildingDetailMaterial } from "./models/buildings/material";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
 
 const HEDGE_GREEN = "#4f7a3f";
+
+/**
+ * The bales and the hedgerow trees have near models (crop rows and hedges do
+ * not: they are stretched ten to twenty times along their run, and a detailed
+ * model stretched like that would smear its detail). A bale is detailed
+ * within 16 units of the camera, a tree within 26, the closest dozen of each.
+ */
+const BALE_NEAR_CAP = 12;
+const BALE_NEAR_DISTANCE = 16;
+const TREE_NEAR_CAP = 12;
+const TREE_NEAR_DISTANCE = 26;
 
 interface Instance extends Placed {
   scale: [number, number, number];
@@ -58,6 +71,7 @@ function Instances({
   roughness = 1,
   tinted = false,
   surfaceMaterial,
+  near,
 }: {
   geometry: BufferGeometry;
   instances: readonly Instance[];
@@ -67,6 +81,8 @@ function Instances({
   /** Paint only the masked part (a tree's crown), not the whole instance. */
   tinted?: boolean;
   surfaceMaterial?: Material;
+  /** A detailed model for the closest few, and how far away it takes over. */
+  near?: { geometry: BufferGeometry | null; cap: number; distance: number };
 }) {
   const meshRef = useRef<InstancedMesh>(null);
   const { textureSize, anisotropy } = useQuality();
@@ -99,15 +115,29 @@ function Instances({
   }, [instances, y, material, surfaceMaterial]);
 
   if (instances.length === 0) return null;
+  if (!near) {
+    return (
+      <instancedMesh
+        ref={meshRef}
+        args={[geometry, material ?? surfaceMaterial, instances.length]}
+        castShadow={shadows}
+        receiveShadow
+        raycast={() => null}
+      />
+    );
+  }
   return (
-    <instancedMesh
+    <LodInstances
       ref={meshRef}
-      args={[geometry, material ?? surfaceMaterial, instances.length]}
+      geometry={geometry}
+      nearGeometry={near.geometry}
+      material={(material ?? surfaceMaterial) as Material}
+      count={instances.length}
+      maxNear={near.cap}
+      nearSize={nearSizeAt(geometry, near.distance)}
       castShadow={shadows}
       receiveShadow
-      raycast={() => null}
-    >
-    </instancedMesh>
+    />
   );
 }
 
@@ -187,13 +217,24 @@ export default function Fields({
         <Instances key={crop} geometry={rowGeometry(crop)} instances={list} y={0.005} roughness={crop === 0 ? 0.9 : 1} />
       ))}
       <Instances geometry={hedgeGeometry()} instances={layers.hedges} shadows roughness={0.95} />
-      <Instances geometry={baleGeometry()} instances={layers.bales} shadows roughness={0.9} />
+      <Instances
+        geometry={baleGeometry()}
+        instances={layers.bales}
+        shadows
+        roughness={0.9}
+        near={{ geometry: baleNearGeometry(), cap: BALE_NEAR_CAP, distance: BALE_NEAR_DISTANCE }}
+      />
       <Instances
         geometry={treeGeometry("broadleaf", atmosphere.desaturation)}
         instances={layers.trees}
         shadows
         tinted
         y={HEDGE_HEIGHT * 0.1}
+        near={{
+          geometry: treeNearGeometry("broadleaf", atmosphere.desaturation),
+          cap: TREE_NEAR_CAP,
+          distance: TREE_NEAR_DISTANCE,
+        }}
       />
     </group>
   );

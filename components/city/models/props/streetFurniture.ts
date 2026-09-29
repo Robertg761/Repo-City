@@ -485,18 +485,15 @@ export const LAMP_HEAD_Y = LAMP_HEIGHT + 0.09;
 let blenderLamp: { pole: BufferGeometry; head: BufferGeometry } | undefined;
 
 /**
- * The Blender street lamp: a pole (plinth, collar and lantern roof) centred
- * half way up, where the procedural cylinder's centre is, and the lantern
- * glass centred on the halo's anchor, so both instance the way the procedural
- * pole and head do. The pole's vertex colour is only its shade: `Props.tsx`
+ * The Blender street lamp: a pole (plinth, collar and lantern roof) and the
+ * lantern glass, both standing on the ground under the lamp's position, so
+ * one matrix places both and the two meshes go near together (`LodInstances`
+ * picks by matrix). The pole's vertex colour is only its shade: `Props.tsx`
  * colours it with the lamp post's material, as before.
  */
 export function blenderLampGeometry(): { pole: BufferGeometry; head: BufferGeometry } {
-  // Both nodes are modelled standing on the ground; shift each onto its
-  // instance origin, as the procedural cylinder and box are centred.
-  const at = (node: string, y: number) =>
-    mergeParts(importedParts(FURNITURE_MODEL, node, () => "#ffffff").map((part) => ({ ...part, position: [0, -y, 0] as Vec3 })));
-  return blenderLamp ??= { pole: at("LampPole", LAMP_HEIGHT / 2), head: at("LampHead", LAMP_HEAD_Y) };
+  const at = (node: string) => mergeParts(importedParts(FURNITURE_MODEL, node, () => "#ffffff"));
+  return blenderLamp ??= { pole: at("LampPole"), head: at("LampHead") };
 }
 
 /** The lamp `Props.tsx` draws: the Blender one by default, else none (its own primitives). */
