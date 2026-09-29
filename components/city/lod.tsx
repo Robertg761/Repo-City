@@ -107,6 +107,12 @@ export function selectNear(
   return picked.slice(0, max).map((p) => p.index);
 }
 
+/** Un-hides the far instances that were near and hides those that now are. */
+export function swapHidden(hidden: { setX(index: number, value: number): unknown }, previous: readonly number[], next: readonly number[]): void {
+  for (const i of previous) hidden.setX(i, 0);
+  for (const i of next) hidden.setX(i, 1);
+}
+
 /** A geometry that shares every attribute of `source` but can carry its own instanced ones. */
 function shareGeometry(source: BufferGeometry): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -119,6 +125,7 @@ function shareGeometry(source: BufferGeometry): BufferGeometry {
 }
 
 export interface LodHandlers {
+  onPointerOver?: (event: ThreeEvent<PointerEvent>) => void;
   onPointerMove?: (event: ThreeEvent<PointerEvent>) => void;
   onPointerOut?: (event: ThreeEvent<PointerEvent>) => void;
   onClick?: (event: ThreeEvent<MouseEvent>) => void;
@@ -135,6 +142,14 @@ export interface LodInstancesProps {
   maxNear: number;
   /** Projected size (radius over distance) past which an instance is drawn in detail. */
   nearSize?: number;
+  /**
+   * Shares one selection between the parts of a single object (a person's body
+   * and head, which move by separate matrices and would otherwise pick their
+   * near sets independently). The first part publishes what it chose here; the
+   * others pass `follow` and draw exactly that set, so mount the publisher first.
+   */
+  selection?: { current: number[] };
+  follow?: boolean;
   /** Per-instance attributes on `geometry` (e.g. `instanceAccent`) to mirror onto the near mesh. */
   instancedAttributes?: readonly string[];
   /** Pointer handlers; near-mesh events are mapped back to the far instance id. */
@@ -158,6 +173,8 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
     maxNear,
     nearSize = 0.06,
     instancedAttributes = [],
+    selection,
+    follow = false,
     handlers,
     castShadow = false,
     receiveShadow = false,
@@ -216,15 +233,21 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       return;
     }
 
-    if (frame.current++ % SELECT_EVERY === 0) {
+    if (follow && selection) {
+      if (selection.current !== near.current) {
+        swapHidden(hidden, near.current, selection.current);
+        hidden.needsUpdate = true;
+        near.current = selection.current;
+      }
+    } else if (frame.current++ % SELECT_EVERY === 0) {
       camera.getWorldPosition(cameraAt);
       // Matrices are in the layer's parent frame; the city groups are not
       // transformed, so world and parent frames agree.
       const chosen = selectNear(far.instanceMatrix.array, far.count, cameraAt, radius, nearSize, cap);
-      for (const i of near.current) hidden.setX(i, 0);
-      for (const i of chosen) hidden.setX(i, 1);
+      swapHidden(hidden, near.current, chosen);
       hidden.needsUpdate = true;
       near.current = chosen;
+      if (selection) selection.current = chosen;
     }
 
     // Copy every frame: moving layers rewrite their far matrices each frame.
@@ -272,8 +295,9 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
       if (k === undefined) return event;
       return Object.assign(Object.create(Object.getPrototypeOf(event)) as E, event, { instanceId: near.current[k] });
     };
-    const { onPointerMove, onPointerOut, onClick } = handlers;
+    const { onPointerOver, onPointerMove, onPointerOut, onClick } = handlers;
     return {
+      onPointerOver: onPointerOver && ((event) => onPointerOver(map(event))),
       onPointerMove: onPointerMove && ((event) => onPointerMove(map(event))),
       onPointerOut: onPointerOut && ((event) => onPointerOut(map(event))),
       onClick: onClick && ((event) => onClick(map(event))),

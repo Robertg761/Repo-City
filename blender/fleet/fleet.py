@@ -59,6 +59,11 @@ BODIES = ["hatchback", "sedan", "taxi", "van", "pickup", "bus"]
 NODE = {k: k[0].upper() + k[1:] for k in BODIES}
 
 
+def loft_of(name, shell, M):
+    sections, side, caps, centre_y = shell
+    return build_loft(name, sections, side, caps, M, centre_y)
+
+
 def sec(z, *pts):
     """A section: z, then (x, y) pairs from the sill up."""
     return (z, [(pts[i], pts[i + 1]) for i in range(0, len(pts), 2)])
@@ -139,7 +144,9 @@ def bumper_caps(end, band):
 # ---------------------------------------------------------------------------
 
 
-def hatchback(M):
+def hatchback_shell():
+    """The body's loft: `(sections, side_mat, cap_mat, centre_y)`, shared with
+    the near model (`near.py`), which lofts the same sections finer."""
     spec = SPECS["hatchback"]
     h = spec["length"] / 2
     ROOF_Y = 1.1
@@ -153,7 +160,14 @@ def hatchback(M):
         sec(h, 0.465, 0.2, 0.485, 0.3, 0.48, 0.43, 0.4, 0.45),
     ]
     top = {0: "glass", 1: "roof", 2: "glass", 3: "paint", 4: "paint"}
-    parts = [build_loft("body", sections, side_mats({1, 2}, top), bumper_caps, M)]
+    return sections, side_mats({1, 2}, top), bumper_caps, 0.6
+
+
+def hatchback(M):
+    spec = SPECS["hatchback"]
+    h = spec["length"] / 2
+    ROOF_Y = 1.1
+    parts = [loft_of("body", hatchback_shell(), M)]
     parts += arches(spec, 0.17, 0.54, M)
     upper = lerp_x((0.51, 0.66), (0.39, ROOF_Y))
     for s in (-1, 1):
@@ -174,7 +188,7 @@ def hatchback(M):
 # ---------------------------------------------------------------------------
 
 
-def sedan(M, taxi=False):
+def sedan_shell():
     spec = SPECS["sedan"]
     h = spec["length"] / 2
     ROOF_Y = 1.065
@@ -190,7 +204,14 @@ def sedan(M, taxi=False):
         sec(h, 0.5, 0.2, 0.52, 0.31, 0.51, 0.41, 0.42, 0.43),
     ]
     top = {0: "paint", 1: "paint", 2: "glass", 3: "roof", 4: "glass", 5: "paint", 6: "paint"}
-    parts = [build_loft("body", sections, side_mats({2, 3, 4}, top), bumper_caps, M)]
+    return sections, side_mats({2, 3, 4}, top), bumper_caps, 0.6
+
+
+def sedan(M, taxi=False):
+    spec = SPECS["sedan"]
+    h = spec["length"] / 2
+    ROOF_Y = 1.065
+    parts = [loft_of("body", sedan_shell(), M)]
     parts += arches(spec, 0.18, 0.56, M)
     upper = lerp_x((0.55, 0.62), (0.42, ROOF_Y))
     for s in (-1, 1):
@@ -220,7 +241,7 @@ def sedan(M, taxi=False):
 # ---------------------------------------------------------------------------
 
 
-def van(M):
+def van_shell():
     spec = SPECS["van"]
     h = spec["length"] / 2
     TOP = 1.52
@@ -249,7 +270,14 @@ def van(M):
     def caps(end, band):
         return "trim" if band == 0 else ("roof" if band == 3 else "paint")
 
-    parts = [build_loft("body", sections, side, caps, M, centre_y=0.8)]
+    return sections, side, caps, 0.8
+
+
+def van(M):
+    spec = SPECS["van"]
+    h = spec["length"] / 2
+    TOP = 1.52
+    parts = [loft_of("body", van_shell(), M)]
     parts += arches(spec, 0.2, 0.6, M)
     for s in (-1, 1):
         # The stripe down the load box: the ambulance's is red.
@@ -275,13 +303,15 @@ def van(M):
 # ---------------------------------------------------------------------------
 
 
-def pickup(M):
+PICKUP_BACK = -0.36
+
+
+def pickup_shell():
+    """The cab's loft; the bed's tub is `pickup_tub_shell`."""
     spec = SPECS["pickup"]
     h = spec["length"] / 2
     ROOF_Y = 1.24
-    BED = 0.74
-    RAIL = 1.02
-    back = -0.36
+    back = PICKUP_BACK
     sill, bump = (0.555, 0.23), (0.57, 0.37)
     sections = [
         # The cab only: its back wall stands on the bed's front.
@@ -298,8 +328,15 @@ def pickup(M):
             return "paint"
         return "trim" if band == 0 else "paint"
 
-    parts = [build_loft("cab", sections, side_mats({0, 1}, top), caps, M)]
-    # The bed: a tub whose walls have inner faces, on the same sill line.
+    return sections, side_mats({0, 1}, top), caps, 0.6
+
+
+def pickup_tub_shell():
+    spec = SPECS["pickup"]
+    h = spec["length"] / 2
+    RAIL = 1.02
+    back = PICKUP_BACK
+    sill, bump = (0.555, 0.23), (0.57, 0.37)
     tub = [
         sec(-h, 0.55, 0.23, 0.57, 0.37, 0.57, RAIL, 0.5, RAIL),
         sec(-h + 0.08, *sill, *bump, 0.57, RAIL, 0.5, RAIL),
@@ -318,7 +355,19 @@ def pickup(M):
             return None
         return "trim" if band == 0 else ("paint" if band == 1 else None)
 
-    parts.append(build_loft("tub", tub, tub_side, tub_caps, M))
+    return tub, tub_side, tub_caps, 0.6
+
+
+def pickup(M):
+    spec = SPECS["pickup"]
+    h = spec["length"] / 2
+    ROOF_Y = 1.24
+    BED = 0.74
+    RAIL = 1.02
+    back = PICKUP_BACK
+    parts = [loft_of("cab", pickup_shell(), M)]
+    # The bed: a tub whose walls have inner faces, on the same sill line.
+    parts.append(loft_of("tub", pickup_tub_shell(), M))
     # The inner walls, the tailgate's inner face and the floor; the cab's back
     # wall is the bulkhead.
     inner = 0.5
@@ -347,7 +396,7 @@ def pickup(M):
 # ---------------------------------------------------------------------------
 
 
-def bus(M):
+def bus_shell():
     spec = SPECS["bus"]
     h = spec["length"] / 2
     W = 0.58
@@ -367,7 +416,14 @@ def bus(M):
             return ["panel", "paint", "glass", "roof"][band]
         return ["panel", "paint", "glass", "roof"][band]
 
-    parts = [build_loft("body", sections, side, caps, M, centre_y=1.0)]
+    return sections, side, caps, 1.0
+
+
+def bus(M):
+    spec = SPECS["bus"]
+    h = spec["length"] / 2
+    W = 0.58
+    parts = [loft_of("body", bus_shell(), M)]
     parts += arches(spec, 0.22, 0.68, M)
     upper = lerp_x((W, 1.04), (0.57, 1.6))
     for s in (-1, 1):

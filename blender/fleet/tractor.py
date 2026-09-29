@@ -39,7 +39,7 @@ def sec(z, *pts):
     return (z, [(pts[i], pts[i + 1]) for i in range(0, len(pts), 2)])
 
 
-def mudguard(side, M):
+def mudguard(side, M, degrees=(15, 50, 90, 125, 160)):
     """A curved guard over a rear wheel: a band of five facets round the tyre,
     from the axle's height in front to the lamp bracket behind."""
     import bmesh
@@ -50,7 +50,7 @@ def mudguard(side, M):
     hub_y = r
     inner, outer = r + 0.05, r + 0.11
     half = 0.16
-    angles = [math.radians(a) for a in (15, 50, 90, 125, 160)]
+    angles = [math.radians(a) for a in degrees]
     ring = [(math.cos(a), math.sin(a)) for a in angles]
     bm = bmesh.new()
 
@@ -87,17 +87,13 @@ def mudguard(side, M):
     return obj
 
 
-def tractor(M):
-    parts = []
-    # Chassis and engine block, under the bonnet.
-    parts.append(lidless_box("chassis", (0.5, 0.3, 1.96), (0, 0.55, 0.28), M["trim"]))
-    # The bonnet: a loft from the cab to the grille, tapering a touch.
+def bonnet_shell():
+    """The bonnet's loft `(sections, side_mat, cap_mat, centre_y)`, shared with the near model."""
     bonnet = [
         sec(-0.1, 0.28, 0.62, 0.28, 1.02, 0.22, 1.14),
         sec(1.1, 0.28, 0.62, 0.28, 1.02, 0.22, 1.12),
         sec(NOSE, 0.28, 0.62, 0.28, 0.98, 0.2, 1.05),
     ]
-    top = {0: "paint", 1: "paint"}
 
     def side(s, strip):
         return "paint"
@@ -107,7 +103,26 @@ def tractor(M):
             return None  # against the cab
         return "arch" if band == 0 else "paint"
 
-    parts.append(build_loft("bonnet", bonnet, side, caps, M, centre_y=0.85))
+    return bonnet, side, caps, 0.85
+
+
+def roof_shell():
+    roof = [
+        sec(CAB_Z - 0.56, 0.4, 1.79, 0.4, 1.83, 0.36, 1.86),
+        sec(CAB_Z - 0.52, 0.42, 1.79, 0.42, 1.84, 0.38, 1.87),
+        sec(CAB_Z + 0.52, 0.42, 1.79, 0.42, 1.84, 0.38, 1.87),
+        sec(CAB_Z + 0.56, 0.4, 1.79, 0.4, 1.83, 0.36, 1.86),
+    ]
+    return roof, lambda s, strip: "roof", lambda end, band: "roof", 1.8
+
+
+def tractor(M):
+    parts = []
+    # Chassis and engine block, under the bonnet.
+    parts.append(lidless_box("chassis", (0.5, 0.3, 1.96), (0, 0.55, 0.28), M["trim"]))
+    # The bonnet: a loft from the cab to the grille, tapering a touch.
+    bs, bside, bcaps, bcy = bonnet_shell()
+    parts.append(build_loft("bonnet", bs, bside, bcaps, M, centre_y=bcy))
     # Grille slats between the lamps, and louvres down the bonnet's flanks.
     for y in (0.7, 0.78, 0.86, 0.94):
         parts.append(face_panel("slat", 0, y, NOSE + 0.004, 0.2, 0.025, M["hub"], 1))
@@ -124,13 +139,8 @@ def tractor(M):
     parts.append(carkit.drop_faces(kit.box("glass", (0.54, 0.74, 0.92), (0, 1.42, CAB_Z), M["glass"], bev=0.0), lambda n: abs(n.z) > 0.9))
     for x, z in ((0.28, 0.04), (-0.28, 0.04), (0.28, -0.94), (-0.28, -0.94)):
         parts.append(carkit.drop_faces(kit.box("post", (0.06, 0.78, 0.06), (x, 1.42, z), M["paint"], bev=0.0), lambda n: abs(n.z) > 0.9))
-    roof = [
-        sec(CAB_Z - 0.56, 0.4, 1.79, 0.4, 1.83, 0.36, 1.86),
-        sec(CAB_Z - 0.52, 0.42, 1.79, 0.42, 1.84, 0.38, 1.87),
-        sec(CAB_Z + 0.52, 0.42, 1.79, 0.42, 1.84, 0.38, 1.87),
-        sec(CAB_Z + 0.56, 0.4, 1.79, 0.4, 1.83, 0.36, 1.86),
-    ]
-    parts.append(build_loft("roof", roof, lambda s, strip: "roof", lambda end, band: "roof", M, centre_y=1.8))
+    rs, rside, rcaps, rcy = roof_shell()
+    parts.append(build_loft("roof", rs, rside, rcaps, M, centre_y=rcy))
     parts.append(carkit.quad("roofUnder", [(-0.42, 1.79, CAB_Z - 0.52), (0.42, 1.79, CAB_Z - 0.52), (0.42, 1.79, CAB_Z + 0.52), (-0.42, 1.79, CAB_Z + 0.52)], M["trim"], (0, -1, 0)))
     # Mudguards over the big wheels, and the tail lamps' brackets on their backs.
     for s in (-1, 1):
