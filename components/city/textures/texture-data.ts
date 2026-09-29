@@ -36,6 +36,7 @@ import {
   type Pattern,
 } from "./patterns";
 import { MODEL_SURFACE_KINDS, type SurfaceId } from "./surface-types";
+import { bakeGroundTexture, bakeModelArray, channelMean, tintOf } from "./baked-surfaces";
 
 export type SurfaceKind =
   | "lawn" | "turf" | "meadow" | "asphalt" | "pavers" | "gravel" | "ground" | "setts"
@@ -118,10 +119,9 @@ function cachedTexture(kind: SurfaceKind, size: number, anisotropy: number, vari
   const key = `${kind}:${side}:${variant}`;
   let texture = cache.get(key);
   if (!texture) {
-    const color = variant === "color" ? MAKERS[kind](side) : {
-      size: side,
-      data: surfaceTexture(kind, side, anisotropy).image.data as Uint8Array,
-    };
+    // The model variant starts from the pattern itself, never from the cached
+    // colour texture, which the baked ground images replace in place.
+    const color = MAKERS[kind](side);
     const pattern = variant === "color" ? color : surfaceReliefPattern(color);
     if (variant === "model") {
       // A single sample supplies tint, roughness and height to merged models.
@@ -146,6 +146,12 @@ function cachedTexture(kind: SurfaceKind, size: number, anisotropy: number, vari
     texture.generateMipmaps = true;
     texture.needsUpdate = true;
     cache.set(key, texture);
+    // Ground kinds swap to their baked image when it arrives; the pattern above
+    // stays if it never does.
+    if (variant !== "model") {
+      const data = texture.image.data as Uint8Array;
+      bakeGroundTexture(kind, side, variant, texture, { tint: tintOf(data), roughness: channelMean(data, 1) });
+    }
   }
   if (texture.anisotropy !== anisotropy) {
     texture.anisotropy = anisotropy;
@@ -188,6 +194,8 @@ export function modelSurfaceTextureArray(size: number, anisotropy = 1): DataArra
     texture.generateMipmaps = true;
     texture.needsUpdate = true;
     arrayCache.set(side, texture);
+    // Procedural layers first; each baked layer replaces its own as it arrives.
+    bakeModelArray(texture, side);
   }
   if (texture.anisotropy !== anisotropy) {
     texture.anisotropy = anisotropy;

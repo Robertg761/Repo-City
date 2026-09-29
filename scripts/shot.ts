@@ -18,7 +18,8 @@
  * Knobs: INPUT (what is typed in the repository box: `fixture`, `backlog`,
  * `stress`, or owner/repo; default `fixture`), QUERY (appended to the URL,
  * e.g. `&time=afternoon&quality=high`), WIDTH, HEIGHT, SETTLE_MS (after the
- * survey, default 14000), ANGLE (default vulkan), CHROME.
+ * survey, default 14000), ANGLE (default vulkan), CHROME, NET (a regular
+ * expression: prints the status of every response whose URL matches).
  *
  * Prints the triangle and draw-call counts at every pose, and every console
  * error. The Chrome profile lives in `outDir` and is deleted on exit.
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
   let id = 0;
   const pending = new Map<number, (value: { result?: Record<string, unknown> }) => void>();
   const errors: string[] = [];
+  const net = process.env.NET ? new RegExp(process.env.NET) : null;
   ws.addEventListener("message", (event) => {
     const msg = JSON.parse(String(event.data));
     if (msg.method === "Runtime.exceptionThrown") {
@@ -120,6 +122,9 @@ async function main(): Promise<void> {
       errors.push(
         `error: ${msg.params.args.map((a: { value?: unknown; description?: string }) => String(a.value ?? a.description ?? "")).join(" ").slice(0, 300)}`,
       );
+    }
+    if (net && msg.method === "Network.responseReceived" && net.test(msg.params.response.url)) {
+      console.log(`${msg.params.response.status} ${msg.params.response.url.replace(BASE, "")}`);
     }
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id)!(msg);
@@ -139,6 +144,7 @@ async function main(): Promise<void> {
 
   await send("Page.enable");
   await send("Runtime.enable");
+  if (net) await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
   await send("Page.navigate", { url: `${BASE}/?${process.env.QUERY ?? ""}` });
 
