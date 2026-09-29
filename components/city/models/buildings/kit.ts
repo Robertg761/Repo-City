@@ -650,10 +650,19 @@ interface SettlementMeta {
 export function importedArchetype(model: ImportedModel, node: string, id: ModelKey): ArchetypeModel {
   const meta = (model.meta as Record<string, SettlementMeta> | undefined)?.[node];
   if (!meta) throw new Error(`importedArchetype: no meta for ${node}`);
-  const draft = importedDraft(model, node, (mat) => {
+  const draft = importedSettlementDraft(model, node);
+  return { id, draft, windows: meta.windows, roofPads: meta.roofPads, maxProps: meta.maxProps };
+}
+
+/**
+ * The draft of a settlement model node (or of its near level, which has no
+ * meta of its own: the lit windows are the lean model's): `wall` takes the
+ * instance's wall colour, `accent` its accent, every other role its own.
+ */
+export function importedSettlementDraft(model: ImportedModel, node: string) {
+  return importedDraft(model, node, (mat) => {
     if (mat.role === "wall") return { color: [1, 1, 1], paint: PAINT_WALL };
     if (mat.role === "accent") return { color: [1, 1, 1], paint: PAINT_ACCENT };
     return { color: linear(mat.hex), paint: PAINT_NONE };
   });
-  return { id, draft, windows: meta.windows, roofPads: meta.roofPads, maxProps: meta.maxProps };
 }

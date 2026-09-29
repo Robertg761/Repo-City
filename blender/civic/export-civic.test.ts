@@ -2,7 +2,7 @@
  * Writes the civic buildings to PLYs, procedural and kit-built, so Blender can
  * render them side by side under the same light. The kit build is assembled
  * in TypeScript (`civic.ts`), so this is the only way to see it outside the
- * app. Spike tooling, only when asked:
+ * app; `near` is the same building from the near kit. Spike tooling, only when asked:
  * `EXPORT_PLY=1 pnpm vitest run blender/civic/export-civic`.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -61,9 +61,10 @@ test.skipIf(!process.env.EXPORT_PLY)("export the civic buildings", () => {
   const glass = rgb(WINDOW_COLOR);
   for (const [size, plot] of Object.entries(PLOTS)) {
     for (const kind of KINDS) {
-      for (const models of ["procedural", "blender"] as const) {
-        const { body, glow } = buildCivic(kind, plot, PALETTE, { models });
-        const n = ply([{ draft: body }, { draft: glow, tint: glass }], `blender/out/civic/${models === "blender" ? "kit" : "proc"}-${kind}-${size}.ply`);
+      for (const models of ["procedural", "blender", "near"] as const) {
+        const { body, glow } = buildCivic(kind, plot, PALETTE, models === "near" ? { models: "blender", near: true } : { models });
+        const tag = models === "blender" ? "kit" : models === "near" ? "near" : "proc";
+        const n = ply([{ draft: body }, { draft: glow, tint: glass }], `blender/out/civic/${tag}-${kind}-${size}.ply`);
         console.log(`${size} ${kind} ${models}: ${body.indices.length / 3} body, ${n} with glass`);
       }
     }

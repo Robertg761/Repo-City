@@ -38,6 +38,7 @@ import { SURFACE } from "../../textures/surface-types";
 import { importedDraft } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CIVIC_KIT } from "./civicKit.model";
+import { MODEL as CIVIC_KIT_NEAR } from "./civicKitNear.model";
 
 export interface CivicPalette {
   wall: Rgb3;
@@ -106,7 +107,7 @@ interface KitMeta {
 const kit = (): KitMeta => CIVIC_KIT.meta as KitMeta;
 
 /** The palette a build is authored in, and whether it builds from the kit. */
-type Authored = CivicPalette & { kit?: boolean };
+type Authored = CivicPalette & { kit?: boolean; near?: boolean };
 
 type KitPart =
   | "ColumnBase" | "ColumnShaft" | "ColumnCapital" | "Pediment" | "Steps3" | "Steps4" | "StepCheek"
@@ -157,7 +158,10 @@ function roleColor(p: CivicPalette, role: string, container?: Rgb3): Rgb3 {
 
 /** Add one kit part to a draft at a placement. */
 function addPart(draft: MeshDraft, p: CivicPalette, part: KitPart, place: Placement): void {
-  const source = importedDraft(CIVIC_KIT, part, (mat) => ({ color: roleColor(p, mat.role, place.container) }));
+  // The near kit has every part again on the same node names, origins and
+  // frames, in finer detail (`blender/civic/civic_kit_near.py`).
+  const model = (p as Authored).near ? CIVIC_KIT_NEAR : CIVIC_KIT;
+  const source = importedDraft(model, part, (mat) => ({ color: roleColor(p, mat.role, place.container) }));
   const s = place.s ?? 1;
   const sx = s * (place.sx ?? 1);
   const sy = s * (place.sy ?? 1);
@@ -277,6 +281,51 @@ function addKitLantern(drafts: CivicDrafts, p: CivicPalette, x: number, y: numbe
   addPart(drafts.glow, p, "LanternGlow", { at: [x, y, z], s: diameter });
 }
 
+/**
+ * A window's frame and glazing bars at the near level: real bars standing off
+ * the wall (the lean level paints them flat), a bar every half metre across
+ * and a transom every half metre up, and a projecting lintel with a keystone.
+ * Everything stands clear of the warm glass (two layers off the wall) by more
+ * than a layer, so the lit pane shows between the bars and is never fought.
+ */
+function addNearFrame(
+  draft: MeshDraft,
+  palette: Authored,
+  spec: { facing: Facing; u: number; v: number; w: number; h: number; plane: number; cx?: number; cz?: number },
+  frame: number,
+): void {
+  const { facing, cx, cz } = spec;
+  const alongX = facing === "+z" || facing === "-z";
+  const box = (u: number, v: number, w: number, h: number, d0: number, d1: number) => {
+    const [x, , z] = onWall(facing, u, 0, spec.plane + (d0 + d1) / 2, cx, cz);
+    addBox(draft, {
+      x,
+      z,
+      y: v - h / 2,
+      w: alongX ? w : d1 - d0,
+      d: alongX ? d1 - d0 : w,
+      h,
+      color: palette.trim,
+      surface: SURFACE.stone,
+    });
+  };
+  const near = CIVIC_LAYER * 2.5;
+  const far = CIVIC_LAYER * 6;
+  // The frame: head and cill full width, the stiles between them.
+  const fw = spec.w + frame * 2;
+  box(spec.u, spec.v + spec.h / 2 + frame / 2, fw, frame, 0, far);
+  box(spec.u, spec.v - spec.h / 2 - frame / 2, fw, frame, 0, far);
+  for (const side of [-1, 1]) box(spec.u + (side * (spec.w + frame)) / 2, spec.v, frame, spec.h, 0, far);
+  // Bars: as many across and up as keep a pane under half a metre.
+  const cols = Math.max(1, Math.round(spec.w / 0.5));
+  const rows = Math.max(2, Math.round(spec.h / 0.5));
+  for (let c = 1; c < cols; c++) box(spec.u - spec.w / 2 + (spec.w * c) / cols, spec.v, frame * 0.6, spec.h, near, far - CIVIC_LAYER);
+  for (let r = 1; r < rows; r++) box(spec.u, spec.v - spec.h / 2 + (spec.h * r) / rows, spec.w, frame * 0.6, near + CIVIC_LAYER, far - CIVIC_LAYER * 2);
+  // A lintel over the head, and its keystone.
+  box(spec.u, spec.v + spec.h / 2 + frame + 0.05, fw + 0.16, 0.1, 0, far + CIVIC_LAYER);
+  box(spec.u, spec.v + spec.h / 2 + frame + 0.09, frame * 2.4, 0.18, far + CIVIC_LAYER, far + CIVIC_LAYER * 3);
+}
+
 /** A window: a dark pane in the wall, and warm glass just in front of it. */
 function addWindow(
   drafts: CivicDrafts,
@@ -312,13 +361,17 @@ function addWindow(
     }
   }
   const plane = spec.plane + CIVIC_LAYER * 3;
-  for (const side of [-1, 1]) {
-    addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
-    addPanel(drafts.body, { ...spec, v: spec.v + side * (spec.h + frame) / 2, w: spec.w, h: frame, plane }, palette.trim);
+  if (palette.near) {
+    addNearFrame(drafts.body, palette, spec, frame);
+  } else {
+    for (const side of [-1, 1]) {
+      addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
+      addPanel(drafts.body, { ...spec, v: spec.v + side * (spec.h + frame) / 2, w: spec.w, h: frame, plane }, palette.trim);
+    }
+    // Proud glazing bars remain visible in front of the warm glass at night.
+    addPanel(drafts.body, { ...spec, w: frame * 0.7, plane }, palette.trim);
+    addPanel(drafts.body, { ...spec, h: frame * 0.7, plane }, palette.trim);
   }
-  // Proud glazing bars remain visible in front of the warm glass at night.
-  addPanel(drafts.body, { ...spec, w: frame * 0.7, plane }, palette.trim);
-  addPanel(drafts.body, { ...spec, h: frame * 0.7, plane }, palette.trim);
   if (spec.lit !== false) {
     addPanel(
       drafts.glow,
@@ -1206,16 +1259,19 @@ function addPlinth(draft: MeshDraft, plot: CivicPlot, p: CivicPalette): void {
  * Build one civic building at its reserved plot size. `models` picks the
  * procedural build or the one assembled from the Blender kit; by default it
  * follows `BLENDER_MODELS` (`../modelSource`): the kit in the app, the
- * procedural build in tests unless they ask.
+ * procedural build in tests unless they ask. `near` assembles the same
+ * building from the near kit's finer parts (only with the Blender kit): the
+ * app draws it in place of the lean one when the camera is close.
  */
 export function buildCivic(
   kind: LandmarkFile,
   plot: CivicPlot,
   palette: CivicPalette,
-  options: { models?: "procedural" | "blender" } = {},
+  options: { models?: "procedural" | "blender"; near?: boolean } = {},
 ): CivicDrafts {
   const authored: Authored = {
     kit: (options.models ?? (BLENDER_MODELS ? "blender" : "procedural")) === "blender",
+    near: options.near === true,
     wall: surfaceColor(palette.wall, SURFACE.plaster),
     stone: surfaceColor(palette.stone, SURFACE.stone),
     roof: surfaceColor(palette.roof, SURFACE.slate),
