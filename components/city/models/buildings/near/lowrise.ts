@@ -4,6 +4,7 @@ import { importedDraft, isModelLoaded, type ImportedModel } from "../../imported
 import { BLENDER_MODELS } from "../../modelSource";
 import type { ModelKey } from "../archetypes";
 import { surfaceColor, type MeshDraft, type Rgb3 } from "../mesh";
+import { cityMaterial } from "../cityMaterial";
 import { importedSettlementDraft } from "../kit";
 import { blenderRole } from "../models";
 import { MODEL as APARTMENT_NEAR } from "../apartmentLowNear.model";
@@ -51,7 +52,7 @@ function toGeometry(draft: MeshDraft): BufferGeometry {
 
 /** A city archetype's near draft: the lean model's roles, plus `frame`. */
 function cityDraft(model: ImportedModel, node = "BuildingNear"): MeshDraft {
-  return importedDraft(model, node, (mat) => ({ color: nearRole(mat.role) }));
+  return importedDraft(model, node, cityMaterial(nearRole));
 }
 
 /** The Blender near builders, whatever the flag says (for tests). */

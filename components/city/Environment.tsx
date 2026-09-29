@@ -25,6 +25,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { ContactShadows } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
+  AgXToneMapping,
   BackSide,
   BufferAttribute,
   BufferGeometry,
@@ -42,6 +43,7 @@ import {
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "./entities";
+import { filmGrade } from "./grade";
 import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
 import {
   GREEN_GRASS,
@@ -496,7 +498,7 @@ function Film({
 }) {
   const camera = useThree((state) => state.camera);
   const sky = useSky();
-  const toneMapping = composed ? NoToneMapping : NeutralToneMapping;
+  const toneMapping = composed ? NoToneMapping : filmGrade().toneMapping === "agx" ? AgXToneMapping : NeutralToneMapping;
 
   // Written from the frame loop rather than an effect: the renderer belongs
   // to R3F, and the comparison costs a great deal less than a re-render.

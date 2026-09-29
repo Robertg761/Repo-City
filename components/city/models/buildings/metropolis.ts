@@ -55,6 +55,7 @@ import {
 import type { ArchetypeModel, RoofPad } from "./models";
 import type { ModelKey } from "./archetypes";
 import { importedDraft, type ImportedModel } from "../imported";
+import { cityMaterial } from "./cityMaterial";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as TOWER_GLASS_MODEL } from "./buildingTowerGlass.model";
 import { MODEL as TOWER_TWIN_MODEL } from "./buildingTowerTwin.model";
@@ -411,7 +412,7 @@ export function importedArchetype(
   maxProps?: number,
 ): ArchetypeModel {
   const meta = model.meta as ArchetypeMeta;
-  const draft = importedDraft(model, "Building", (mat) => ({ color: roles(mat.role) }));
+  const draft = importedDraft(model, "Building", cityMaterial(roles));
   return {
     id,
     draft,

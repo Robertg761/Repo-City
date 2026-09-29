@@ -34,6 +34,7 @@ import {
 import { useFrame } from "@react-three/fiber";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
+import { richSky } from "./grade";
 import type { SceneAtmosphere } from "./palette";
 import {
   TRANSITION_MS,
@@ -72,7 +73,7 @@ export const STAGE_AMBIENCE: Ambience = {
 const SkyContext = createContext<LiveSky | null>(null);
 
 const fallback: LiveSky = {
-  atmosphere: autoSky(STAGE_AMBIENCE, false),
+  atmosphere: richSky(autoSky(STAGE_AMBIENCE, false)),
   version: 0,
   phase: 1,
   moving: false,
@@ -92,9 +93,11 @@ const prefersStill = (): boolean =>
 function settledSky(setting: TimeSetting, ambience: Ambience, archived: boolean): SceneAtmosphere {
   // Auto is resolved by its own function so it is `atmosphere()` exactly,
   // not the same thing to within floating point.
-  return setting === "auto"
-    ? autoSky(ambience, archived)
-    : skyAt(ambience, archived, targetPhase(setting, ambience, archived));
+  return richSky(
+    setting === "auto"
+      ? autoSky(ambience, archived)
+      : skyAt(ambience, archived, targetPhase(setting, ambience, archived)),
+  );
 }
 
 interface Trip {
@@ -182,7 +185,7 @@ export function SkyProvider({
       live.show(settledSky(setting, ambience, archived), target, false);
     } else {
       const phase = phaseAlong(current.from, current.to, elapsed);
-      live.show(skyAt(ambience, archived, phase), wrapPhase(phase), true);
+      live.show(richSky(skyAt(ambience, archived, phase)), wrapPhase(phase), true);
     }
   }, -2);
 
