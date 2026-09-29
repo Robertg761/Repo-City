@@ -19,7 +19,7 @@ describe("deferred near models", () => {
     }
   });
 
-  it("keeps them out of loadModels and fetches them in loadNearModels, one bump each", async () => {
+  it("keeps them out of loadModels and fetches them in loadNearModels, announcing them in batches", async () => {
     const { lazyModel, loadModels, loadNearModels, modelsLoaded, nearModelsLoaded, nearModelsVersion, isModelLoaded } = await import("./imported");
     const fetched: string[] = [];
     const load = (key: string) => async () => {
@@ -45,9 +45,10 @@ describe("deferred near models", () => {
     await loadNearModels();
     off();
     expect(fetched).toEqual(["lean", "a", "b"]);
-    expect(nearModelsVersion()).toBe(before + 2);
-    // The first bump comes with A alone in: consumers rebuild one model at a time.
-    expect(seen).toEqual([1, 2]);
+    // Two models are fewer than a batch: one announcement when all are in.
+    expect(nearModelsVersion()).toBe(before + 1);
+    // Consumers rebuild once, with both in, not once per model.
+    expect(seen).toEqual([2]);
     expect(nearModelsLoaded()).toBe(true);
     expect(nearA.nodes).toEqual([]);
   });

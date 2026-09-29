@@ -228,7 +228,9 @@ export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** How long the next near model waits after the last landed, so the consumers' rebuilds are separate tasks with frames between. */
+/** Near models announced per consumer rebuild. */
+const NEAR_BATCH = 12;
+/** How long the next near model waits after the last landed, so downloads and rebuilds are separate tasks with frames between. */
 const NEAR_GAP_MS = 60;
 
 let nearLoading: Promise<void> | null = null;
@@ -245,6 +247,14 @@ export function loadNearModels(): Promise<void> {
   nearLoading ??= (async () => {
     const pending = [...REGISTRY.values()].filter((entry) => entry.deferred && entry.data === null);
     const failed: ModelEntry[] = [];
+    // Every landing re-renders every consumer, so announce them in batches:
+    // a handful of rebuilds instead of one per model.
+    let unannounced = 0;
+    const announce = () => {
+      if (unannounced === 0) return;
+      unannounced = 0;
+      landed();
+    };
     const fetchOne = async (entry: ModelEntry, retry: boolean) => {
       try {
         entry.data ??= (await entry.load()).DATA;
@@ -253,12 +263,14 @@ export function loadNearModels(): Promise<void> {
         else failed.push(entry);
         return;
       }
-      landed();
+      if (++unannounced >= NEAR_BATCH) announce();
       await new Promise((resolve) => setTimeout(resolve, NEAR_GAP_MS));
       await yieldToMain();
     };
     for (const entry of pending) await fetchOne(entry, false);
+    announce();
     for (const entry of failed) await fetchOne(entry, true);
+    announce();
   })();
   return nearLoading;
 }
