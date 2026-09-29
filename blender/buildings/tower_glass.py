@@ -56,6 +56,8 @@ def make(near=False):
             d.poly([at(x - w, -HX), at(x + w, -HX), at(x + w, HX), at(x - w, HX)], "frame", norm)
         for z in (HX - 0.02, -HX + 0.02):
             n.prism(d, HX - 0.03, z, n.ux(0.05), 1.0 - 0.004, 1.0 + n.uy(1.6), 6, "metal")
+        # The window-cleaning gantry parked on the high wall's coping.
+        n.bmu(d, HX - 0.01, -0.22, 0.22, 1.0 + 0.004)
     return d
 
 

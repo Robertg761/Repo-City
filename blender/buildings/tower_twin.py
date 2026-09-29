@@ -22,7 +22,14 @@ SPANDREL = 0.42
 
 
 def make(near=False):
-    d = bkit.Draft(nkit.Near(SCALE, sash="frame", post="trim", dentils=False) if near else None)
+    d = bkit.Draft(nkit.Near(SCALE, sash="mech", post="trim", dentils=False) if near else None)
+    if near:
+        # Dark frames, like the lean model's metal; the towers have no window role.
+        d.near.remap = {"window": "lobby"}
+        # The skybridge fills the storey between the towers' inner walls (below).
+        step = (TOP - (PODIUM + 0.012)) / BANDS
+        bridge = (PODIUM + 0.012 + step * (BANDS // 2 + SPANDREL), PODIUM + 0.012 + step * (BANDS // 2 + 1))
+        d.near.skip_bead = lambda face, cx, cz, u0, u1, v0, v1: face == ("+x" if cx < 0 else "-x") and v1 > bridge[0] and v0 < bridge[1] and u1 > -0.1 and u0 < 0.1
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
     head = 0.052
     band = dict(v=(0.022 + head) / 2, h=head - 0.022, depth=0.03, glass="lobby", sill="plinth", lit=False)
@@ -70,6 +77,9 @@ def make(near=False):
             n.mast(d, s * CX, 0, top, top + 0.06, 0.012)
             n.stack(d, s * CX, s * 0.28, top, n.ux(0.12), n.uy(0.9))
             n.fan(d, s * CX + 0.1, s * 0.1, top, n.ux(0.45))
+            n.tank(d, s * CX - 0.05, s * 0.16, top, 0.35, 0.8)
+        # The podium's name over the entrance band.
+        n.sign(d, "+z", 0.5, 0.0, 0.1495, "CENTRE", 0.28)
     return d
 
 

@@ -25,6 +25,8 @@ STAGES = [
 
 def make(near=False):
     d = bkit.Draft(nkit.Near(SCALE) if near else None)
+    if near:
+        d.near.no_corbel = {("+z", 0.0)}
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
     y = PLINTH
     for k, (hw, top, us, bw, lights) in enumerate(STAGES):
@@ -58,6 +60,7 @@ def make(near=False):
         n.fan(d, -0.1, 0.02, y, n.ux(0.5))
         n.stack(d, -0.14, -0.14, y, n.ux(0.12), n.uy(1.2))
         n.louvred_box(d, 0.0, 0.14, y, 0.14, 0.1, n.uy(0.9))
+        n.tank(d, 0.15, 0.13, y, 0.55, 1.1, ladder=(0, -1))
     return d
 
 

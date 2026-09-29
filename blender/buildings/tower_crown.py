@@ -21,6 +21,8 @@ DEPTH = 0.035
 
 def make(near=False):
     d = bkit.Draft(nkit.Near(SCALE) if near else None)
+    if near:
+        d.near.no_corbel = {("+z", 0.0)}
     d.box(0, 0, 0, 1.0, PLINTH, 1.0, "plinth")
     openings = {}
     for face in bkit.FACES:
@@ -57,6 +59,7 @@ def make(near=False):
         n.stack(d, 0.07, -0.08, top + 0.016, n.ux(0.12), n.uy(1.2))
         n.louvred_box(d, -0.07, -0.08, top + 0.016, 0.1, 0.07, n.uy(0.9))
         n.mast(d, 0, 0, top + 0.016, 1.07, 0.014)
+        n.rigging(d, 0, 0, top + 0.016, top + 0.016 + 0.05, 0.15, phase=0.0)
         # A guard rail round the open lantern roof.
         n.railing(d, -ch - 0.008, ch + 0.008, -ch - 0.008, ch + 0.008, top, n.uy(1.0))
     return d

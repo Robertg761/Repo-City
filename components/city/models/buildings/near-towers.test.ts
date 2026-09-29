@@ -30,6 +30,7 @@ import {
   panelPoint,
   slivers,
   sub,
+  toneBySurface,
   tris,
   visibleFights,
   withLitPanes,
@@ -96,6 +97,23 @@ describe.each(FAMILIES)("the near level of $id", (family) => {
     expect(near.normals.length).toBe(near.positions.length);
     expect(near.surface?.length).toBe(near.positions.length / 3);
     expect(Math.max(...near.indices)).toBeLessThan(near.positions.length / 3);
+  });
+
+  it("reads as bright as the lean model from afar: walls and glass, surface by surface", () => {
+    // The near level swaps in for the lean one among lean neighbours: the
+    // occlusion baked into its finer cells and its relief must not darken it.
+    // `blender/buildings/tone.py` matches it per material role; metal is left
+    // out, being mostly plant and frames the lean model has little of.
+    const leanTone = toneBySurface(lean, family.scale);
+    const nearTone = toneBySurface(near, family.scale);
+    for (const surface of [SURFACE.plaster, SURFACE.stone, SURFACE.concrete, SURFACE.glass]) {
+      const theirs = leanTone.get(surface);
+      const mine = nearTone.get(surface);
+      if (!theirs || !mine || theirs.area < 1) continue;
+      const what = `surface ${surface}: lean ${theirs.tone.toFixed(3)}, near ${mine.tone.toFixed(3)}`;
+      expect(mine.tone / theirs.tone, what).toBeGreaterThan(0.95);
+      expect(mine.tone / theirs.tone, what).toBeLessThan(1.05);
+    }
   });
 
   it("stands on the lean model's footprint and to its height", () => {
