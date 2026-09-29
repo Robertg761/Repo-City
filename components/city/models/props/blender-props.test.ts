@@ -121,17 +121,17 @@ describe("Blender street furniture", () => {
     }
   });
 
-  it("stands the lamp's pole and lantern on the procedural lamp's instance origins", () => {
+  it("stands the lamp's pole and lantern on the ground under the lamp, one origin for both", () => {
     const { pole, head } = blenderLampGeometry();
     expect(triangleCount(pole)).toBeLessThanOrEqual(56);
     expect(triangleCount(head)).toBeLessThanOrEqual(16);
     const p = bounds(pole);
-    // The pole's instance stands at half its height, as the cylinder's does.
-    expect(p.min.y).toBeCloseTo(-LAMP_HEIGHT / 2, 3);
-    expect(p.max.y + LAMP_HEIGHT / 2).toBeLessThan(LAMP_HEAD_Y + 0.25);
+    expect(p.min.y).toBeCloseTo(0, 3);
+    expect(p.max.y).toBeGreaterThan(LAMP_HEIGHT);
+    expect(p.max.y).toBeLessThan(LAMP_HEAD_Y + 0.25);
     // The lantern is centred on the halo's anchor.
     const h = bounds(head);
-    expect((h.min.y + h.max.y) / 2).toBeCloseTo(0, 1);
+    expect((h.min.y + h.max.y) / 2).toBeCloseTo(LAMP_HEAD_Y, 1);
     expect(Math.abs(h.min.x + h.max.x)).toBeLessThan(1e-3);
     expect(Math.abs(h.min.z + h.max.z)).toBeLessThan(1e-3);
     // Pole colour comes from the material: the vertex colour is shade only.

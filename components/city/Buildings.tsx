@@ -50,6 +50,7 @@ import {
 } from "./models/buildings/geometry";
 import { ACCENT_ATTRIBUTE, buildingDetailMaterial, settlementMaterial } from "./models/buildings/material";
 import { LodInstances } from "./lod";
+import { nearSizeAt, propBlockNearGeometry, propTankNearGeometry } from "./models/props/near";
 import { useQuality } from "./quality";
 import {
   litWindowCount,
@@ -80,6 +81,14 @@ const BUILDING_NEAR_CAP = 24;
 const BUILDING_NEAR_SIZE = 0.05;
 const PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE] as const;
 const NO_ATTRIBUTES = [] as const;
+
+/**
+ * Rooftop plant in detail: the closest few of a kind, within this many units
+ * of the camera for a unit-sized one (they are small and there are many; only
+ * a street-level view looks up at a roof this close).
+ */
+const ROOF_PROP_NEAR_CAP = 32;
+const ROOF_PROP_NEAR_DISTANCE = 14;
 
 /** Below this the instance is scaled to nothing rather than drawn as a speck. */
 const VISIBLE = 0.002;
@@ -376,11 +385,14 @@ function RoofProps({
   plan,
   props,
   geometry,
+  nearGeometry,
   atmosphere,
 }: {
   plan: CityBuildingPlan;
   props: PropInstance[];
   geometry: ReturnType<typeof propBlockGeometry>;
+  /** The detailed model for the closest few, or null to draw only the lean one. */
+  nearGeometry: ReturnType<typeof propBlockGeometry> | null;
   atmosphere: SceneAtmosphere;
 }) {
   const meshRef = useRef<InstancedMesh>(null);
@@ -463,14 +475,16 @@ function RoofProps({
   if (props.length === 0) return null;
 
   return (
-    <instancedMesh
+    <LodInstances
       ref={meshRef}
-      args={[geometry, undefined, props.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={props.length}
+      maxNear={ROOF_PROP_NEAR_CAP}
+      nearSize={nearSizeAt(geometry, ROOF_PROP_NEAR_DISTANCE)}
       castShadow
-      frustumCulled={false}
-    >
-      <primitive object={material} attach="material" />
-    </instancedMesh>
+    />
   );
 }
 
@@ -529,12 +543,14 @@ export default function Buildings({
         plan={plan}
         props={blockProps}
         geometry={propBlockGeometry()}
+        nearGeometry={propBlockNearGeometry()}
         atmosphere={atmosphere}
       />
       <RoofProps
         plan={plan}
         props={tankProps}
         geometry={propTankGeometry()}
+        nearGeometry={propTankNearGeometry()}
         atmosphere={atmosphere}
       />
     </group>
