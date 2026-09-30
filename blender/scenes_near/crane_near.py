@@ -390,10 +390,15 @@ def build():
     M = palette()
     tower = finish(mast(M) + [], "CraneMast")
     arm = finish(jib(M), "CraneJib")
+    # The lean crane's pallet of bricks, on its slings from the hook's eye.
+    cargo = finish(lean.load(M), "CraneLoad")
     arm.location.z = JIB_Y
-    kit.bake_ao([tower, arm], distance=0.6, floor=0.55)
+    cargo.location.z = JIB_Y
+    kit.bake_ao([tower, arm, cargo], distance=0.6, floor=0.55)
     arm.location.z = 0
-    return [tower, arm, marker("crane.hook", HOOK)]
+    cargo.location.z = 0
+    hook = lean.split_hook(arm)
+    return [tower, arm, hook, cargo, marker("crane.hook", HOOK)]
 
 
 def preview(n):
@@ -402,8 +407,10 @@ def preview(n):
     objs = build()
     if n == 1:
         bpy.data.objects.remove(objs[0], do_unlink=True)
-        objs[1].location.z = 3.2
+        for o in objs[1:4]:
+            o.location.z = 3.2
         return objs[1:]
-    objs[1].location.z = JIB_Y
-    objs[1].rotation_euler.z = 0.5
+    for o in objs[1:4]:
+        o.location.z = JIB_Y
+        o.rotation_euler.z = 0.5
     return objs

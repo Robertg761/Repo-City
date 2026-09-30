@@ -181,8 +181,11 @@ describe("the near scenes", () => {
   it("keeps every incident inside the scene budget, well over the lean one", () => {
     const counts: Record<string, number[]> = {};
     for (const state of ["minor", "collision", "stale", "major"] as IncidentState[]) {
-      const lean = triangleCount(incidents.incidentDecor(state, 0, 0.2).geometry);
-      const near = triangleCount(incidents.incidentDecor(state, 0, 0.2, "near").geometry);
+      // The crew are drawn on their own (they work), so they count with the scene.
+      const total = (decor: ReturnType<typeof incidents.incidentDecor>) =>
+        triangleCount(decor.geometry) + decor.crew.reduce((sum, member) => sum + triangleCount(member.geometry), 0);
+      const lean = total(incidents.incidentDecor(state, 0, 0.2));
+      const near = total(incidents.incidentDecor(state, 0, 0.2, "near"));
       counts[state] = [lean, near];
       expect(near, state).toBeLessThanOrEqual(SCENE_BUDGET);
       expect(near, state).toBeGreaterThan(lean * 3.5);

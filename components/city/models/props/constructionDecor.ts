@@ -686,7 +686,7 @@ function cranePaint(state: ConstructionState, tone: number): (hex: string) => st
 }
 
 /** The Blender crane's tower, or its jib in the jib's turning frame. */
-export function blenderCraneGeometry(piece: "CraneMast" | "CraneJib", state: ConstructionState, tone: number): BufferGeometry {
+export function blenderCraneGeometry(piece: "CraneMast" | "CraneJib" | "CraneHook" | "CraneLoad", state: ConstructionState, tone: number): BufferGeometry {
   return mergeParts(importedParts(modelFor(CRANE, CRANE_NEAR, piece), piece, cranePaint(state, tone)));
 }
 
@@ -753,4 +753,33 @@ export function constructionDecor(
   level: DetailLevel = "lean",
 ): BufferGeometry {
   return builder(`${BLENDER_MODELS ? level : "lean"}:${state}:${toneKey(desaturation)}`);
+}
+
+/**
+ * Where the hoist lines leave the trolley, in the jib's frame: the hook and
+ * its load swing about this point (`LINE_TOP` in `blender/incidents/crane.py`).
+ */
+export const HOOK_PIVOT: Triple = [5.4, -0.05, 0];
+
+const hangerBuilder = geometryCache<string>((key) => {
+  const [level, piece, state, tone] = key.split(":");
+  return atLevel(level as DetailLevel, () =>
+    blenderCraneGeometry(piece as "CraneHook" | "CraneLoad", state as ConstructionState, Number(tone)),
+  );
+});
+
+/**
+ * The crane's hook block on its lines, or the pallet slung from it, in the
+ * jib's frame, for the site to swing about `HOOK_PIVOT`. With the Blender
+ * models only: the procedural jib carries its hook baked in, and nothing
+ * swings.
+ */
+export function craneHangerGeometry(
+  piece: "CraneHook" | "CraneLoad",
+  state: ConstructionState,
+  desaturation: number,
+  level: DetailLevel = "lean",
+): BufferGeometry | null {
+  if (!BLENDER_MODELS) return null;
+  return hangerBuilder(`${level}:${piece}:${state}:${toneKey(desaturation)}`);
 }

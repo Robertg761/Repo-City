@@ -59,7 +59,6 @@ import {
   Float32BufferAttribute,
   IcosahedronGeometry,
   Matrix4,
-  TetrahedronGeometry,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { IncidentForm, WorksForm } from "@/types/analysis";
@@ -434,12 +433,38 @@ function fire(tone: (hex: string) => string): Built {
 /** Where the collision's two cars stand, and where each one's hazard lamps blink. */
 const STRUCK: Pose = { x: 0.5, z: 0.14, yaw: -0.05 };
 const STRIKER: Pose = { x: -0.25, z: -0.2, yaw: 0.36 };
-const lampAt = (pose: Pose, back: number, up: number): Triple => [
-  pose.x - Math.sin(pose.yaw) * back,
-  up,
-  pose.z - Math.cos(pose.yaw) * back,
+/** A lamp lens: one triangle, facing +z, `w` wide at its base and `h` tall. */
+function lensTriangle(w: number, h: number): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute([-w / 2, -h / 2, 0, w / 2, -h / 2, 0, 0, h / 2, 0], 3),
+  );
+  geometry.setAttribute("normal", new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute([0, 0, 1, 0, 0.5, 1], 2));
+  return geometry;
+}
+
+/**
+ * A corner indicator of a car standing at `pose`: `side` -1/1 across, `along`
+ * the car's own z (front positive), `up` above the road. The same four
+ * corners in `blender/crowd/cars.py` (`CORNERS`).
+ */
+const lampAt = (pose: Pose, side: number, along: number, up: number): Triple => {
+  const cos = Math.cos(pose.yaw);
+  const sin = Math.sin(pose.yaw);
+  return [pose.x + side * cos + along * sin, up, pose.z - side * sin + along * cos];
+};
+/** Front indicators and rear tail-lamp corners, `[side, along, up]` in the car's frame. */
+const CAR_CORNERS: [number, number, number][] = [
+  [-0.36, 1.1, 0.36],
+  [0.36, 1.1, 0.36],
+  [-0.38, -1.12, 0.46],
+  [0.38, -1.12, 0.46],
 ];
-const COLLISION_LAMPS: Triple[] = [lampAt(STRUCK, 1.1, 0.5), lampAt(STRIKER, 1.1, 0.5)];
+const COLLISION_LAMPS: Triple[] = [STRUCK, STRIKER].flatMap((pose) =>
+  CAR_CORNERS.map(([side, along, up]) => lampAt(pose, side, along, up)),
+);
 
 function collision(tone: (hex: string) => string): Built {
   // A crash, not two parked cars: the striker's nose is buried in the struck
@@ -471,15 +496,20 @@ function collision(tone: (hex: string) => string): Built {
       painted(2, [posed(struck.paint, struckAt)]),
       {
         part: PART.hazard,
-        parts: COLLISION_LAMPS.map((position) => ({
-          geometry: new TetrahedronGeometry(0.15, 0),
-          color: HAZARD_LAMP,
-          position,
-        })),
+        // Flat lenses at the corners, the front pair facing forward and the
+        // rear pair back (one triangle each), turned with their car.
+        parts: [STRUCK, STRIKER].flatMap((pose) =>
+          CAR_CORNERS.map(([side, along, up]) => ({
+            geometry: lensTriangle(0.22, 0.14),
+            color: HAZARD_LAMP,
+            position: lampAt(pose, side, along, up),
+            rotation: [0, pose.yaw + (along > 0 ? 0 : Math.PI), 0] as Triple,
+          })),
+        ),
       },
     ],
     spec: {
-      lamps: COLLISION_LAMPS.map((position) => ({ position, color: HAZARD_LAMP, part: PART.hazard, size: 1.3 })),
+      lamps: COLLISION_LAMPS.map((position) => ({ position, color: HAZARD_LAMP, part: PART.hazard, size: 1.15 })),
       smoke: null,
     },
   };

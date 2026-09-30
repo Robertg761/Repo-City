@@ -43,7 +43,7 @@ describe("incident decor", () => {
   it("keeps the lights out of the ground and the air", () => {
     for (const state of INCIDENTS) {
       for (const light of incidentDecor(state, 0, 0.2).lights) {
-        expect(light.position[1]).toBeGreaterThan(0.8);
+        expect(light.position[1]).toBeGreaterThan(light.flash ? 0.8 : 0.25);
         expect(light.position[1]).toBeLessThan(4);
       }
     }
@@ -270,5 +270,27 @@ describe("construction decor", () => {
       expect(triangleCount(craneMastGeometry(state, 0.2))).toBeLessThan(160);
       expect(triangleCount(craneJibGeometry(state, 0.2))).toBeLessThan(160);
     }
+  });
+});
+
+describe("hazard lamps on collision wrecks", () => {
+  it("puts four corner lamps on each wreck, in step, off the car's centre", async () => {
+    const { incidentDecor } = await import("./incidentDecor");
+    const lights = incidentDecor("collision", 0, 0, "lean").lights;
+    const hazards = lights.filter((l) => l.flash !== true);
+    expect(hazards.length).toBe(8);
+    for (const group of [hazards.slice(0, 4), hazards.slice(4, 8)]) {
+      expect(new Set(group.map((l) => l.sync)).size).toBe(1);
+      const cx = group.reduce((a, l) => a + l.position[0], 0) / 4;
+      const cz = group.reduce((a, l) => a + l.position[2], 0) / 4;
+      for (const l of group) expect(Math.hypot(l.position[0] - cx, l.position[2] - cz)).toBeGreaterThan(0.4);
+    }
+  });
+
+  it("alternates the two lamps of a light bar half a cycle apart", async () => {
+    const { incidentDecor } = await import("./incidentDecor");
+    const bars = incidentDecor("collision", 0, 0, "lean").lights.filter((l) => l.flash === true);
+    expect(bars.length).toBeGreaterThanOrEqual(2);
+    expect(bars.every((l) => l.flash)).toBe(true);
   });
 });

@@ -43,6 +43,7 @@ import {
   MeshBasicMaterial,
   PlaneGeometry,
   RingGeometry,
+  Vector3,
   type BufferGeometry,
   type Group,
 } from "three";
@@ -59,6 +60,8 @@ import {
   SHELL_HEIGHT,
   SITE,
   constructionDecor,
+  HOOK_PIVOT,
+  craneHangerGeometry,
   craneJibGeometry,
   craneMastGeometry,
 } from "./models/props/constructionDecor";
@@ -73,6 +76,8 @@ import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, type BatchKind } from "./batching";
 import { FACADES } from "./models/buildings/facades";
 import { craneSwing } from "./reveal";
+import { gust, newHanger, slewAt, stepHanger } from "./craneMotion";
+import { placePhase } from "./phase";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
 import { buildingDetailMaterial } from "./models/buildings/material";
@@ -162,6 +167,8 @@ const RIBBON = batchKind("site:ribbon", () => ({
     new MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, toneMapped: false }),
 }));
 
+const scratchCrane = new Vector3();
+
 /** Where a crane's opening sweep starts, in radians. */
 const SWING_FROM = -1.5;
 
@@ -178,20 +185,45 @@ function Crane({
   level: DetailLevel;
 }) {
   const jib = useRef<Group>(null);
+  const hanger = useRef<Group>(null);
   const moving = state === "active";
   const revealClock = useRevealClock();
+  const swinging = useRef(newHanger());
+  const last = useRef<number | null>(null);
+  // Each crane keeps its own rhythm: the heading it starts from and its gusts.
+  const phase = useRef(0);
+  const hook = craneHangerGeometry("CraneHook", state, atmosphere.desaturation, level);
+  const cargo = moving ? craneHangerGeometry("CraneLoad", state, atmosphere.desaturation, level) : null;
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     if (!jib.current) return;
+    if (!phase.current) {
+      const at = jib.current.getWorldPosition(scratchCrane);
+      phase.current = 0.5 + placePhase(at.x, at.y, at.z) * 6.28;
+    }
+    const t = clock.elapsedTime;
     // Construction is the last thing to arrive (PLAN.md section 43, step 7):
     // every crane sweeps once as its site lands, which is what makes the
     // reveal end on movement rather than on a set of frozen toys. After the
-    // sweep an active crane keeps turning slowly and the rest hold still.
+    // sweep an active crane slews to and fro, slowing to a stop at each end,
+    // and the rest hold still.
     const swing = craneSwing(performance.now(), revealClock.current, appearAt);
-    const idle = moving ? clock.elapsedTime * 0.22 : 0.9;
+    const slew = moving ? slewAt(t, phase.current) : { angle: 0.9, accel: 0 };
     // The sweep eases from a quarter turn back into wherever the idle
     // behaviour has reached, so it never jumps when it hands over.
-    jib.current.rotation.y = swing >= 1 ? idle : SWING_FROM + swing * (idle - SWING_FROM);
+    jib.current.rotation.y = swing >= 1 ? slew.angle : SWING_FROM + swing * (slew.angle - SWING_FROM);
+    if (!hanger.current) return;
+    if (!moving || last.current === null) {
+      last.current = t;
+      return;
+    }
+    // While the opening sweep runs the jib's own acceleration is the sweep's,
+    // not the slew's; the hook simply hangs until it is over.
+    const dt = t - last.current;
+    last.current = t;
+    const h = swinging.current;
+    stepHanger(h, Math.min(dt, delta + 0.05), swing >= 1 ? slew.accel : 0, swing >= 1 ? gust(t, phase.current) : 0);
+    hanger.current.rotation.set(h.side, 0, h.along);
   });
 
   const lean = state === "abandoned" ? 0.09 : 0;
@@ -205,6 +237,17 @@ function Crane({
         <BatchPart
           kind={mergedKind("jib", craneJibGeometry(state, atmosphere.desaturation, level), CRANE_SURFACE, false)}
         />
+        {hook && (
+          // The hook and its load hang from the trolley's lines: the group
+          // sits at that point and swings about it; the models are drawn in
+          // the jib's frame, so they are set back by the pivot.
+          <group ref={hanger} position={HOOK_PIVOT}>
+            <group position={[-HOOK_PIVOT[0], -HOOK_PIVOT[1], -HOOK_PIVOT[2]]}>
+              <BatchPart kind={mergedKind("hook", hook, CRANE_SURFACE, false)} />
+              {cargo && <BatchPart kind={mergedKind("cargo", cargo, CRANE_SURFACE, true)} />}
+            </group>
+          </group>
+        )}
       </group>
     </group>
   );
