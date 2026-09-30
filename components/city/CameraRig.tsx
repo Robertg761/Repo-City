@@ -14,12 +14,13 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { CameraControlsImpl } from "@react-three/drei";
 import { Box3, Vector3 } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import { isTouring } from "@/lib/client/tourState";
 import type { CityModel, Vec3 } from "@/types/city";
+import { COLLISION_PAD, pushOut, worldFor } from "./cameraCollision";
 import { useTourDirector } from "@/components/tour/useTourDirector";
 import {
   cameraBoundary,
@@ -274,10 +275,52 @@ export default function CameraRig({
   }, [controls, camera, city, selectedId, overviewNonce, touring]);
 
   useTourDirector(isRigControls(controls) ? controls : null, city, aspect);
+  useCameraCollision(isRigControls(controls) ? controls : null, city);
   useCameraDebugHandle(controls);
   usePinchAsDolly();
 
   return null;
+}
+
+const HERE = new Vector3();
+const THERE = new Vector3();
+const AIM = new Vector3();
+const AIM_END = new Vector3();
+const SPOT: Vec3 = [0, 0, 0];
+const SPOT_END: Vec3 = [0, 0, 0];
+const PUSHED: Vec3 = [0, 0, 0];
+const PUSHED_END: Vec3 = [0, 0, 0];
+
+/**
+ * Keeps the camera out of the buildings however it is steered (`cameraCollision.ts`).
+ * Runs after the controls have moved it, so the frame that draws is already
+ * clear. The eased end of a glide is tested too: a fly-to whose straight path
+ * clips a tower slides round it and still arrives, and a drag into a wall
+ * stops at the wall instead of winding up a turn it has to unwind later.
+ * The tour flies a path planned clear of everything, and is left alone.
+ */
+function useCameraCollision(controls: RigControls | null, city: CityModel | null): void {
+  useFrame(() => {
+    if (!controls || !city) return;
+    const obstacles = worldFor(city);
+    if (isTouring(useCityStore.getState().tour)) return;
+    const position = controls.getPosition(HERE, false);
+    SPOT[0] = position.x;
+    SPOT[1] = position.y;
+    SPOT[2] = position.z;
+    const moved = pushOut(obstacles, SPOT, PUSHED, COLLISION_PAD);
+    const end = controls.getPosition(THERE, true);
+    SPOT_END[0] = end.x;
+    SPOT_END[1] = end.y;
+    SPOT_END[2] = end.z;
+    const endMoved = pushOut(obstacles, SPOT_END, PUSHED_END, COLLISION_PAD);
+    if (!moved && !endMoved) return;
+    const aim = controls.getTarget(AIM, false);
+    const aimEnd = controls.getTarget(AIM_END, true);
+    const gliding = end.distanceToSquared(position) > 1e-4 || aimEnd.distanceToSquared(aim) > 1e-4;
+    void controls.setLookAt(...PUSHED, aim.x, aim.y, aim.z, false);
+    if (gliding) void controls.setLookAt(PUSHED_END[0], PUSHED_END[1], PUSHED_END[2], aimEnd.x, aimEnd.y, aimEnd.z, true);
+  });
 }
 
 /**
@@ -343,6 +386,12 @@ function useCameraDebugHandle(controls: unknown): void {
           rect.left + ((v.x + 1) / 2) * rect.width,
           rect.top + ((1 - v.y) / 2) * rect.height,
         ];
+      },
+      /** Whether a camera at this point would be pushed by the collision (dev check). */
+      pushed(x: number, y: number, z: number) {
+        const city = useCityStore.getState().city;
+        if (!city) return false;
+        return pushOut(worldFor(city), [x, y, z], [0, 0, 0], COLLISION_PAD);
       },
       lookAt(px: number, py: number, pz: number, tx: number, ty: number, tz: number) {
         return controls.setLookAt(px, py, pz, tx, ty, tz, false);
