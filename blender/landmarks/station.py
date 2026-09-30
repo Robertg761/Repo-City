@@ -113,8 +113,20 @@ def concourse(M):
     cuts = [box("frontCut", (4.6, 2.8, 0.5), (x, base + 1.5, 2.6), M["recess"], bev=0.0)]
     for s in (-1, 1):
         cuts.append(box("sideCut", (0.5, 1.6, 3.0), (x + s * 3.0, base + 2.35, 0), M["recess"], bev=0.0))
+    # The back wall: a staff door with a window either side of it, and a vent above.
+    cuts.append(box("backDoorCut", (1.1, 1.8, 0.4), (x, base + 1.35, -2.6), M["recess"], bev=0.0))
+    for s in (-1, 1):
+        cuts.append(box("backCut", (0.9, 1.2, 0.4), (x + s * 1.85, base + 2.0, -2.6), M["recess"], bev=0.0))
     cut_many(body, cuts)
     parts.append(body)
+    parts.append(box("backDoor", (1.1, 1.8, 0.05), (x, base + 1.35, -2.48), M["accent"], bev=0.0))
+    parts.append(box("backHood", (1.6, 0.1, 0.6), (x, base + 2.45, -2.9), M["roof"], bev=0.03))
+    for s in (-1, 1):
+        parts.append(box("backGlass", (0.9, 1.2, 0.04), (x + s * 1.85, base + 2.0, -2.5), M["glass"], bev=0.0))
+        parts.append(box("backSill", (1.06, 0.08, 0.14), (x + s * 1.85, base + 1.36, -2.66), M["roof"], bev=0.0))
+    parts.append(box("backVentFrame", (1.4, 0.5, 0.06), (x, base + 3.4, -2.63), M["roof"], bev=0.0))
+    for k in range(4):
+        parts.append(box("backVentSlat", (1.24, 0.05, 0.05), (x, base + 3.24 + k * 0.11, -2.66), M["dark"], bev=0.0))
     parts.append(box("plinth", (6.14, 0.4, 5.34), (x, base + 0.2, 0), M["roofDark"], bev=0.03))
     # The glass front with its mullions and doors.
     parts.append(box("front", (4.6, 2.8, 0.05), (x, base + 1.5, 2.42), M["glass"], bev=0.0))
@@ -198,7 +210,21 @@ def portal(M):
     x = (x0 + x1) / 2
     parts = []
     wall = box("headwall", (depth, 4.1, 4.4), (x, 2.05, TRACK_A), M["wall"], bev=0.05, cell=1.4)
+    # The back of the headwall, facing the plot's end: a service door under a
+    # hood, a louvred vent and an accent sign plate over it, and a lamp.
+    # Everything is set into the wall: the plot ends at x1.
+    cut_many(wall, [
+        box("backDoorCut", (0.5, 2.2, 1.0), (x1, 1.1, TRACK_A), M["dark"], bev=0.0),
+        box("backVentCut", (0.3, 0.6, 1.3), (x1, 3.1, TRACK_A), M["dark"], bev=0.0),
+        box("backSignCut", (0.16, 0.36, 1.1), (x1, 3.62, TRACK_A), M["dark"], bev=0.0),
+    ])
     parts.append(wall)
+    parts.append(box("backDoor", (0.05, 2.2, 1.0), (x1 - 0.2, 1.1, TRACK_A), M["accent"], bev=0.0))
+    parts.append(box("backHood", (0.06, 0.1, 1.3), (x1 - 0.03, 2.3, TRACK_A), M["roof"], bev=0.0))
+    for k in range(4):
+        parts.append(box("backSlat", (0.05, 0.05, 1.2), (x1 - 0.1, 2.9 + k * 0.14, TRACK_A), M["steel"], bev=0.0))
+    parts.append(box("backSign", (0.04, 0.36, 1.1), (x1 - 0.07, 3.62, TRACK_A), M["accent"], bev=0.0))
+    parts.append(box("backLamp", (0.06, 0.22, 0.2), (x1 - 0.03, 2.55, TRACK_A + 0.95), M["steel"], bev=0.0))
     # The dark mouth, a round-headed arch on the face, and voussoirs round it.
     parts.append(box("mouth", (0.06, 2.6, 2.3), (PORTAL_X + 0.03, 1.6, TRACK_A), M["dark"], bev=0.0))
     parts.append(cyl("mouthArch", 1.15, 0.06, (PORTAL_X + 0.03, 2.9, TRACK_A), M["dark"], axis="x", verts=12))

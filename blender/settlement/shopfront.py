@@ -101,6 +101,14 @@ def shop_front(m, M, plane, half_w, top, holes, v0=0.0):
     return window
 
 
+def side_course(m, v0, v1, proud, mat):
+    """A plinth or string course on the two side walls and the back, the
+    front's own trim (pilasters, riser, fascia) being its own."""
+    m.wall_box("-z", HALF_D, -HALF_W - proud, HALF_W + proud, v0, v1, proud, mat, skip=("back",))
+    for facing in ("+x", "-x"):
+        m.wall_box(facing, HALF_W, -HALF_D, HALF_D, v0, v1, proud, mat, skip=("back", "left", "right"))
+
+
 def build_shop(M, storeys):
     m = Mesh("Shopfront" if storeys == 2 else "ShopfrontTall")
     wall_top = 0.76 if storeys == 2 else 0.82
@@ -115,9 +123,24 @@ def build_shop(M, storeys):
         for u in (-0.2, 0.2):
             windows.append(window(m, M, "-z", HALF_D, u, v, 0.13, win_h, bars="sash", holes=holes["-z"]))
     door(m, M, "-z", HALF_D, 0.0, 0.0, 0.13, shop_top * 0.8, mat=M["door"], holes=holes["-z"], step=False, floor=False)
+    # The side gables stand free on a town street, so they are dressed: a sash
+    # window in each bay of every floor (two at street level, small under the
+    # shop's fascia line), and the courses below carry round them.
+    side_rows = [(shop_top * 0.5, shop_top * 0.42, (-0.2, 0.2) if storeys == 2 else (0.0,))] + [(v, win_h, (-0.27, 0.0, 0.27) if storeys == 2 else (-0.2, 0.2)) for v in rows]
+    for facing in ("+x", "-x"):
+        for v, h, us in side_rows:
+            for u in us:
+                windows.append(window(m, M, facing, HALF_W, u, v, 0.13, h, bars="sash", holes=holes[facing]))
+    course_v = [shop_top]
+    for v in course_v:
+        side_course(m, v, v + 0.014, 0.012, M["stone"])
+    side_course(m, 0.0, 0.05, 0.014, M["stone"])
     roof_y = wall_top + 0.008
     for facing, plane, half in (("+z", HALF_D, HALF_W), ("-z", HALF_D, HALF_W), ("+x", HALF_W, HALF_D), ("-x", HALF_W, HALF_D)):
-        wall(m, facing, plane, -half, half, 0.0, roof_y, holes[facing], M["wall"], cuts=(0.15, wall_top - 0.05, wall_top - 0.03))
+        cuts = (0.15, wall_top - 0.05, wall_top - 0.03)
+        if facing != "+z":
+            cuts += (0.05, *course_v, *(v + 0.014 for v in course_v))
+        wall(m, facing, plane, -half, half, 0.0, roof_y, holes[facing], M["wall"], cuts=cuts)
     # A cornice round the top of the wall, clear under the eaves' slates.
     skit.band(m, HALF_W, HALF_D, wall_top - 0.05, wall_top - 0.03, 0.014, M["frame"])
     gable_roof(m, M, y=roof_y, w=HALF_W * 2, d=HALF_D * 2, rise=1 - wall_top - 0.06, overhang=0.024, thickness=0.03,

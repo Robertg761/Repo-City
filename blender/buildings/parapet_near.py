@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bkit  # noqa: E402
 import nearkit  # noqa: E402
-from lowrise_parapet import DEPTH, HW, PLINTH, SCALE, TOP  # noqa: E402
+from lowrise_parapet import CROWN, DEPTH, HW, PLINTH, SCALE, TOP  # noqa: E402
 
 
 # The stallriser's top: the wall grid's own line under the shop windows' sills.
@@ -97,7 +97,7 @@ def make():
     belt = [(0.0, 0.0), (0.05, 0.0), (0.05, 0.028), (0.03, 0.044), (0.03, 0.066), (0.052, 0.08), (0.052, 0.106), (0.0, 0.106)]
     det.profile_band(HW, HW, 0.5955, belt, "trim", corner_gap=0.5)
     det.quoins(HW, HW, 0.4, TOP - det.V(0.17), proj=0.024, height=0.24, long_=0.36, short=0.22)
-    deck, ix, iz = bkit.crown(d, TOP, HW, HW, 0.035, 0.022, 0.05, 0.03, inset=0)
+    deck, ix, iz = bkit.crown(d, TOP, HW, HW, *CROWN, inset=0)
     d.pad(0, 0, deck, 0.62, 0.62)
 
     # Dentils under the cornice.

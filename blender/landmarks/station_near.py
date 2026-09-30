@@ -25,7 +25,7 @@ DECK, PLATFORM_Y, TRACK_A, TRACK_B, TRACK_X, TRACK_HALF, PORTAL_X = (
     lean.DECK, lean.PLATFORM_Y, lean.TRACK_A, lean.TRACK_B, lean.TRACK_X, lean.TRACK_HALF, lean.PORTAL_X,
 )
 
-REPLACED = ("clockRim", "clockFace", "hand", "letters", "seat", "seatBack", "seatLeg", "lampPost", "lampGlass", "lampHat", "insulator", "bin", "voussoir")
+REPLACED = ("backSill", "clockRim", "clockFace", "hand", "letters", "seat", "seatBack", "seatLeg", "lampPost", "lampGlass", "lampHat", "insulator", "bin", "voussoir")
 
 
 def windows(acc, obj, M):
@@ -178,6 +178,24 @@ def portal(acc, obj, M):
         for s in (-1, 1):
             for j in range(4):
                 acc.box(M["roof"], (0.3, 0.3, 0.13), (s * 1.44, -1.5 + j * 0.36, 0.06))
+
+
+    # The back of the headwall: the service door's architrave, panels and handle, the sign's lettering.
+    # (all inside the plot, in the recess the lean model cuts)
+    with acc.at((13.0, 1.1, TRACK_A), math.pi / 2):
+        for py in (0.55, -0.55):
+            acc.box(M["dark"], (0.66, 0.85, 0.03), (0, py, -0.16))
+        acc.box(M["steel"], (0.05, 0.2, 0.06), (0.36, -0.05, -0.15))
+    with acc.at((13.0, 3.62, TRACK_A), math.pi / 2):
+        nd.letters(acc, M["wall"], "LINE 1", 0.16, pos=(0, 0, -0.05), depth=0.015)
+
+
+    # The concourse's rear door.
+    with acc.at((-9.4, DECK + 0.15 + 1.35, -2.6), math.pi):
+        acc.rect_frame(M["wall"], -0.55, 0.55, -0.9, 0.9, [(0, 0), (0, 0.04), (0.03, 0.04), (0.03, 0.07), (0.08, 0.07), (0.08, 0.02), (0.1, 0.02), (0.1, 0)], z=0.0)
+        for py in (0.55, -0.55):
+            acc.box(M["dark"], (0.72, 0.7, 0.03), (0, py * 0.8, -0.075))
+        acc.box(M["steel"], (0.05, 0.2, 0.06), (0.4, -0.05, -0.05))
 
 
 def signals(acc, M):

@@ -229,7 +229,7 @@ function onWall(facing: Facing, u: number, v: number, plane: number, cx = 0, cz 
 function addProfile(
   draft: MeshDraft,
   profile: readonly (readonly [number, number])[],
-  spec: { y: number; w: number; d: number; cx?: number; cz?: number; scale?: number },
+  spec: { y: number; w: number; d: number; cx?: number; cz?: number; scale?: number; skip?: number[] },
   color: Rgb3,
 ): void {
   const k = spec.scale ?? 1;
@@ -242,7 +242,8 @@ function addProfile(
     [0, -1, -1, 0],
     [-1, 0, 0, 1],
   ];
-  for (const [nx, nz, ux, uz] of sides) {
+  for (const [i, [nx, nz, ux, uz]] of sides.entries()) {
+    if (spec.skip?.includes(i)) continue;
     const halfU = nx === 0 ? spec.w / 2 : spec.d / 2;
     const halfN = nx === 0 ? spec.d / 2 : spec.w / 2;
     const at = (along: number, o: number, y: number): [number, number, number] => [
@@ -257,6 +258,16 @@ function addProfile(
       addQuad(draft, at(-1, o0 * k, y0 * k), at(1, o0 * k, y0 * k), at(1, o1 * k, y1 * k), at(-1, o1 * k, y1 * k), color);
     }
   }
+}
+
+/**
+ * The stone base course round a block's foot (kit builds): the plinth's
+ * chamfered cap carried up the walls, so the sides and back stand on the same
+ * base as the front.
+ */
+function addBaseCourse(draft: MeshDraft, p: Authored, spec: { y: number; w: number; d: number; cx?: number; cz?: number }, front = false): void {
+  // The front has its own door and steps, so the course skips it unless asked.
+  if (p.kit) addProfile(draft, kit().profiles.plinthCap, { ...spec, skip: front ? [] : [0] }, p.trim);
 }
 
 /** A column from the kit: base and capital at one scale, the shaft stretched. */
@@ -358,7 +369,9 @@ function addWindow(
     // sized, stretched only along the wall.
     const span = spec.w + frame * 2 + 0.1;
     const { facing, cx, cz, u, plane } = spec;
-    addPart(drafts.body, palette, "Sill", { at: onWall(facing, u, spec.v - spec.h / 2 - frame, plane, cx, cz), facing, sx: span });
+    // A tall window gets a deeper, heavier sill, or its slit reads as cut in the wall.
+    const heavy = spec.h > 1.2 ? 1.8 : 1;
+    addPart(drafts.body, palette, "Sill", { at: onWall(facing, u, spec.v - spec.h / 2 - frame, plane, cx, cz), facing, sx: span, sy: heavy, sz: heavy });
     if (spec.hood) {
       addPart(drafts.body, palette, "Hood", { at: onWall(facing, u, spec.v + spec.h / 2 + frame, plane, cx, cz), facing, sx: span });
     }
@@ -563,6 +576,10 @@ function library(plot: CivicPlot, p: Authored): CivicDrafts {
       d: d * 0.82,
       color: p.wall,
     });
+    const wingX = side * (w / 2 + wingW / 2 - 0.05);
+    addBaseCourse(body, p, { y: base, w: wingW, d: d * 0.82, cx: wingX, cz: -d * 0.04 }, true);
+    // The wing's own cornice, under its roof slab.
+    if (p.kit) addProfile(body, kit().profiles.cornice, { y: base + wingH - 0.15, w: wingW, d: d * 0.82, cx: wingX, cz: -d * 0.04, scale: 0.5 }, p.trim);
     addBox(body, {
       x: side * (w / 2 + wingW / 2 - 0.05),
       y: base + wingH,
@@ -581,12 +598,14 @@ function library(plot: CivicPlot, p: Authored): CivicDrafts {
         v: base + wingH * 0.55,
         w: d * 0.16,
         h: wingH * 0.45,
+        hood: true,
         plane: wingW / 2,
       });
     }
   }
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   // A band course, halfway up, right round the block.
   if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.52, w, d }, p.trim);
   else addBox(body, { y: base + h * 0.52, w: w + 0.16, h: 0.18, d: d + 0.16, color: p.trim });
@@ -707,6 +726,7 @@ function clockHall(plot: CivicPlot, p: Authored): CivicDrafts {
   const body = drafts.body;
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.44, w, d }, p.trim);
   else addBox(body, { y: base + h * 0.44, w: w + 0.14, h: 0.16, d: d + 0.14, color: p.trim });
 
@@ -850,6 +870,7 @@ function archive(plot: CivicPlot, p: Authored): CivicDrafts {
   const body = drafts.body;
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   // Buttresses: an archive is a building that holds weight.
   if (p.kit) {
     for (let i = -1; i <= 1; i++) {
@@ -1020,6 +1041,7 @@ function warehouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const shedD = d * 0.78;
 
   addBox(body, { y: base, w, h: shedH, d: shedD, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d: shedD });
   // A barrel roof, built as a fan of facets: nothing else in the city has one.
   const facets = 9;
   const radius = w * 0.5;
@@ -1153,6 +1175,7 @@ function flagHouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const wallH = h * 0.78;
 
   addBox(body, { y: base, w, h: wallH, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   addBox(body, { y: base + wallH, w: w + 0.3, h: 0.18, d: d + 0.3, color: p.trim });
   addGable(body, { y: base + wallH + 0.18, w: w + 0.3, h: h * 0.34, d: d + 0.3, color: p.roof, ridge: "x" });
 

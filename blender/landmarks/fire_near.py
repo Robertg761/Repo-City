@@ -208,6 +208,19 @@ def station_details(acc, hall, M, level):
                 nd.window(acc, o["w"], o["h"], o["wall"], sash, glass_front=o["thick"] / 2 + 0.004, style="plain",
                           bars=(1, 6) if tall else None, sill=True, lintel=not tall)
 
+    # The rear door: an architrave, two raised panels, a lever handle, kick plate and a crew sign;
+    # the louvred vents get a slat's depth.
+    rdx = lean.rear_door_x(level)
+    with acc.at((rdx, DECK + 1.1, HALL_Z0), nkit.facing("-z")):
+        acc.rect_frame(trim, -0.6, 0.6, -1.1, 1.15, [(0, 0), (0, 0.04), (0.03, 0.04), (0.03, 0.06), (0.08, 0.06), (0.08, 0.02), (0.1, 0.02), (0.1, 0)], z=0.0)
+        for py, ph in ((0.55, 0.75), (-0.5, 0.75)):
+            acc.box(M["redDeep"], (0.72, ph, 0.03), (0, py - 0.1, -0.06))
+        acc.box(steel, (0.16, 0.04, 0.05), (0.32, -0.05, -0.04))
+        acc.box(steel, (0.9, 0.2, 0.03), (0, -0.95, -0.06))
+    with acc.at((rdx, DECK + 2.95, HALL_Z0 - 0.02), nkit.facing("-z")):
+        acc.box(trim, (0.5, 0.2, 0.05), (0, 0.0, 0.0))
+        nd.letters(acc, red, "CREW", 0.09, pos=(0, 0.0, 0.03), depth=0.015)
+
     # Brick courses over every wall, the joints as raised lines.
     brick = S("wall", 0.93)
     nkit.courses(acc, hall, brick, ("wall",), pitch=0.08, thick=0.062, lift=0.0025, sample=0.2, min_area=1.5, y_min=DECK + 0.45)

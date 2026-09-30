@@ -179,7 +179,7 @@ def make():
                     [(0.0, 0.0), (0.03, 0.0), (0.03, 0.12), (0.19, 0.17), (0.19, 0.24), (0.0, 0.24)], "trim", skip=(5,))
     det.lamp("+z", HW, 0.123, 0.33, arm=0.1)
     # A satellite dish on the back wall, under the eaves.
-    det.dish("-z", HW, -0.34, 0.53, r=0.22, arm=0.08, feed=0.1, dep=0.06)
+    det.dish("-z", HW, 0.0, 0.56, r=0.2, arm=0.14, feed=0.1, dep=0.06)
     return d
 
 

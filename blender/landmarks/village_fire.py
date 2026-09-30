@@ -88,6 +88,11 @@ def hall(M):
         cuts.append(box("winCut", (0.4, 0.8, 0.7), (X + W / 2, 2.0, z), M["recess"], bev=0.0))
         cuts.append(box("winCut", (0.4, 0.8, 0.7), (X - W / 2, 2.0, z - 0.4 if z < -2 else -2.0), M["recess"], bev=0.0))
     cuts.append(box("doorCut", (0.4, 1.9, 0.9), (X - W / 2, 0.12 + 0.95, -0.4), M["recess"], bev=0.0))
+    # The rear: a back door with two windows either side of it.
+    back = Z0 - D / 2
+    cuts.append(box("rearDoorCut", (0.9, 1.9, 0.4), (X, 0.12 + 0.95, back), M["recess"], bev=0.0))
+    for dx in (-1.35, 1.35):
+        cuts.append(box("winCut", (0.7, 0.8, 0.4), (X + dx, 2.0, back), M["recess"], bev=0.0))
     cut_many(body, cuts)
     parts.append(body)
     parts.append(box("plinth", (W + 0.1, 0.3, D + 0.1), (X, 0.15, Z0), M["stone"], bev=0.02))
@@ -123,6 +128,14 @@ def hall(M):
         parts.append(box("sill", (0.16, 0.08, 0.86), (fx - 0.05, 1.56, z), M["stone"], bev=0.0))
     parts.append(box("sideDoor", (0.05, 1.9, 0.9), (X - W / 2 + 0.12, 0.12 + 0.95, -0.4), M["red"], bev=0.0))
     parts.append(box("doorHood", (0.4, 0.08, 1.2), (X - W / 2 - 0.2, 2.25, -0.4), M["roof"], bev=0.02))
+    for dx in (-1.35, 1.35):
+        parts.append(box("winGlass", (0.7, 0.8, 0.04), (X + dx, 2.0, back + 0.12), M["glass"], bev=0.0))
+        parts.append(box("winBar", (0.04, 0.8, 0.04), (X + dx, 2.0, back + 0.1), M["trim"], bev=0.0))
+        parts.append(box("winBar", (0.7, 0.04, 0.04), (X + dx, 2.0, back + 0.1), M["trim"], bev=0.0))
+        parts.append(box("sill", (0.86, 0.08, 0.16), (X + dx, 1.56, back - 0.05), M["stone"], bev=0.0))
+    parts.append(box("rearDoor", (0.9, 1.9, 0.05), (X, 0.12 + 0.95, back + 0.12), M["red"], bev=0.0))
+    parts.append(box("rearDoorHood", (1.2, 0.08, 0.24), (X, 2.25, back - 0.12), M["roof"], bev=0.02))
+    parts.append(box("rearStep", (1.1, 0.12, 0.24), (X, 0.18, back - 0.12), M["stone"], bev=0.02))
     # Gutters and downpipes.
     for side in (-1, 1):
         parts.append(box("gutter", (0.1, 0.1, D + 0.5), (X + side * (W / 2 + 0.3), H - 0.18, Z0), M["steel"], bev=0.0))
@@ -135,6 +148,9 @@ def hall(M):
     # The round window in the front gable.
     parts.append(cyl("roundel", 0.36, 0.08, (X, H + 0.55, FRONT + 0.02), M["trim"], axis="z", verts=12))
     parts.append(cyl("roundelGlass", 0.27, 0.06, (X, H + 0.55, FRONT + 0.05), M["glass"], axis="z", verts=12))
+    # And one in the rear gable, over the back door.
+    parts.append(cyl("roundel", 0.36, 0.08, (X, H + 0.55, back - 0.02), M["trim"], axis="z", verts=12))
+    parts.append(cyl("roundelGlass", 0.27, 0.06, (X, H + 0.55, back - 0.05), M["glass"], axis="z", verts=12))
     return parts
 
 

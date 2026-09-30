@@ -307,3 +307,17 @@ describe("the check itself", () => {
     expect(inwardFaces(flipped).length).toBe(2);
   });
 });
+
+describe("the Blender high-street shops' side walls", () => {
+  // A town shopfront stands alone, so its gables are seen: windows on both sides.
+  for (const storeys of [2, 3] as const) {
+    it(`carry windows on both side walls (${storeys} storeys)`, () => {
+      const model = call(town, "blenderShopfront", storeys);
+      if (!model) return;
+      const { windows } = model();
+      for (const facing of ["+x", "-x"] as const) {
+        expect(windows.filter((w) => w.facing === facing).length).toBeGreaterThanOrEqual(storeys === 2 ? 3 : 3);
+      }
+    });
+  }
+});

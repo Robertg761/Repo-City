@@ -55,6 +55,13 @@ def make(near=False):
             d.poly(pts, "roof", bkit.outward(face))
     d.slab(deck + ph, 0.01, pw / 2 + 0.015, pd / 2 + 0.015, "mech", cx=px, cz=pz)
     d.pad(0.24, -0.25, deck, 0.3, 0.26)
+    if not near:
+        # The near level's plant, as plain boxes on the same footprints: three
+        # condensers behind the plant room, an air handler and a tank.
+        for x in (-0.36, -0.22, -0.08):
+            d.box(x, deck, -0.32, 0.11, 0.044, 0.09, "mech")
+        d.box(0.29, deck, 0.15, 0.12, 0.057, 0.09, "mech")
+        d.box(-0.34, deck, 0.34, 0.145, 0.064, 0.145, "mech")
     if near:
         n = d.near
         n.canopy(d, "+z", HW, 0.0, 0.095, 0.3, 0.06, slab=False)
