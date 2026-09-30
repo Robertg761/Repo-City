@@ -35,6 +35,7 @@ import { BatchPart } from "./Batch";
 import { useSkyFrame } from "./sky";
 import { batchKind, patchExtras, withExtras, type BatchHandle, type BatchKind } from "./batching";
 import { BLENDER_MODELS } from "./models/modelSource";
+import { placePhase } from "./phase";
 import { beaconMastGeometry } from "./models/props/incidentKit";
 
 /**
@@ -56,18 +57,7 @@ export function lampMaterial(): MeshStandardMaterial {
 
 const scratchWorld = new Vector3();
 
-/**
- * A steady 0..1 offset for an effect, from where it stands in the world.
- * Every effect used to run off the one scene clock, so every beacon in the
- * city flashed on the same beat and every smoke column breathed in step,
- * which read as one machine rather than a city of separate emergencies.
- * The offset comes from the world position, so it is stable across frames
- * and the same on every visit to the same city.
- */
-export function placePhase(x: number, y: number, z: number): number {
-  const h = Math.sin(x * 12.9898 + y * 4.1414 + z * 78.233) * 43758.5453;
-  return h - Math.floor(h);
-}
+export { placePhase };
 
 /** `placePhase` of an object once it is in the scene, or null before then. */
 function worldPhase(object: Object3D | null | undefined): number | null {
@@ -244,29 +234,50 @@ export function Smoke({
   );
 }
 
+const smooth01 = (x: number, a: number, b: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * One lamp's brightness, 0..1, at clock time `t`. `rate` is pulses per two
+ * seconds, `offset` a phase in cycles (`sync`, or the lamp's place in the
+ * world). `flash` squares the wave up, so an emergency lamp is mostly on or
+ * mostly off, as a strobe is, instead of breathing like a nightlight.
+ */
+export function lampPulse(t: number, rate: number, offset: number, flash: boolean): number {
+  const wave = 0.5 + 0.5 * Math.sin((t * rate + offset * 2) * Math.PI);
+  return flash ? smooth01(wave, 0.35, 0.7) : wave;
+}
+
 /** A blinking emergency or warning lamp. */
 export function BlinkLight({
   position,
   color,
   rate = 2.4,
   radius = 0.34,
+  sync,
+  flash = false,
 }: {
   position: [number, number, number];
   color: string;
   rate?: number;
   radius?: number;
+  /** A shared phase in cycles: lamps of one vehicle pass the same number and blink together. */
+  sync?: number;
+  flash?: boolean;
 }) {
   const handle = useRef<BatchHandle>(null);
-  const offset = useRef<number | null>(null);
+  const offset = useRef<number | null>(sync ?? null);
 
   useFrame(({ clock }) => {
     const lamp = handle.current;
     if (!lamp?.object) return;
     offset.current ??= worldPhase(lamp.object);
-    const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
+    const pulse = lampPulse(clock.elapsedTime, rate, offset.current ?? 0, flash);
     // Capped near 1.3: past that the emissive bloomed into a flat orb.
-    lamp.glow = 0.3 + pulse * 1.0;
-    lamp.object.scale.setScalar(radius * (0.85 + pulse * 0.25));
+    lamp.glow = flash ? 0.15 + pulse * 1.2 : 0.3 + pulse * 1.0;
+    lamp.object.scale.setScalar(radius * (flash ? 0.9 + pulse * 0.1 : 0.85 + pulse * 0.25));
   });
 
   return <BatchPart kind={LAMP} handle={handle} position={position} scale={radius} color={color} />;
@@ -285,6 +296,8 @@ export function Glow({
   rate = 2.4,
   strength = 0.42,
   nightOnly = false,
+  sync,
+  flash = false,
 }: {
   position: [number, number, number];
   color: string;
@@ -293,9 +306,12 @@ export function Glow({
   strength?: number;
   /** A lamp's glow, which has no business showing in daylight; a beacon's stays faintly. */
   nightOnly?: boolean;
+  /** The phase of the lamp it surrounds, in cycles (`BlinkLight`'s `sync`). */
+  sync?: number;
+  flash?: boolean;
 }) {
   const handle = useRef<BatchHandle>(null);
-  const offset = useRef<number | null>(null);
+  const offset = useRef<number | null>(sync ?? null);
   const night = useRef(0);
   useSkyFrame((atmosphere) => {
     night.current = atmosphere.nightness;
@@ -306,7 +322,7 @@ export function Glow({
     if (!glow?.object) return;
     // The same offset as the lamp it surrounds: both are placed at one point.
     offset.current ??= worldPhase(glow.object);
-    const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
+    const pulse = lampPulse(clock.elapsedTime, rate, offset.current ?? 0, flash);
     const hour = nightOnly ? smoothstep01(night.current, 0.2, 0.7) : 0.4 + 0.6 * night.current;
     glow.opacity = strength * (0.32 + pulse) * hour;
     glow.visible = hour > 0.01;
@@ -336,20 +352,22 @@ export function Beacon({
   rate = 2.4,
   height = 4,
   glowRadius = 0.9,
+  sync,
 }: {
   position: [number, number, number];
   color: string;
   rate?: number;
   height?: number;
   glowRadius?: number;
+  sync?: number;
 }) {
   return (
     <group position={position}>
       {/* The mast, and a small hood over the lamp so the mast reads as
           equipment rather than as a pin stuck in the road. */}
       <BatchPart kind={mastKind(height)} />
-      <BlinkLight position={[0, height + 0.24, 0]} color={color} rate={rate} radius={0.32} />
-      <Glow position={[0, height + 0.24, 0]} color={color} radius={glowRadius} rate={rate} />
+      <BlinkLight position={[0, height + 0.24, 0]} color={color} rate={rate} radius={0.26} sync={sync} flash />
+      <Glow position={[0, height + 0.24, 0]} color={color} radius={glowRadius} rate={rate} sync={sync} flash />
     </group>
   );
 }

@@ -120,6 +120,20 @@ def tetra(name, pos, size, mat):
     return kit._object(name, bm, mat)
 
 
+def lamp_quad(name, pos, w, h, mat, facing=1):
+    """A small flat lamp lens, 1 triangle, in the car's frame, facing along
+    +z (`facing` 1) or -z: a corner indicator."""
+    bm = bmesh.new()
+    x, y, z = pos
+    pts = [(x - w / 2, y - h / 2, z), (x + w / 2, y - h / 2, z), (x, y + h / 2, z)]
+    face = bm.faces.new([bm.verts.new(B(p)) for p in pts])
+    face.normal_update()
+    # App +z is Blender -y.
+    if (face.normal.y < 0) != (facing > 0):
+        face.normal_flip()
+    return kit._object(name, bm, mat)
+
+
 def top_quad(name, z0, z1, y0, y1, half0, half1, mat, lift=0.008, x=0.0):
     """A quad lying on the car's top between two sections: a crazed
     windscreen, a rust patch through the bonnet."""

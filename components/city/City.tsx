@@ -127,7 +127,7 @@ export default function City({
       <LandProvider city={city} aspect={aspect} terrainColor={atmosphere.terrainColor} enabled={RICH_LAND}>
       {RICH_LAND ? (
         <>
-          <LandTerrain />
+          <LandTerrain fallback={<Terrain size={size} atmosphere={atmosphere} aspect={aspect} />} />
           <Landscape city={city} atmosphere={atmosphere} />
         </>
       ) : (

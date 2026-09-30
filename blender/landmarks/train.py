@@ -44,17 +44,39 @@ def palette():
         "band": S("body", 0.62),
         "gear": S("gear"),
         "wheel": S("gear", 0.8),
+        "spoke": S("gear", 1.7),
         "glass": S("glass", emission=0.3),
     }
 
 
 def bogie(M, cx, reach):
-    """A two-axle bogie centred where the procedural set has its axle."""
+    """A two-axle bogie centred where the procedural set has its axle. The
+    wheelsets are not part of it: `Wheelset` is its own node, drawn at each
+    `Train.axle.<i>` marker, so the running train can turn them."""
     parts = [box("bogieFrame", (reach * 2 + 0.7, 0.3, 1.5), (cx, AXLE_Y + 0.06, 0), M["gear"], bev=0.0)]
-    for dx in (-reach, reach):
-        # One capped cylinder per axle: its end caps are the two wheels.
-        parts.append(cyl("axle", WHEEL_R, GAUGE * 2 + 0.2, (cx + dx, AXLE_Y, 0), M["wheel"], axis="z", verts=10))
     parts.append(box("spring", (0.3, 0.18, 1.62), (cx, AXLE_Y + 0.28, 0), M["gear"], bev=0.0))
+    return parts
+
+
+def axle_xs():
+    """Where every axle of the set stands along x, in marker order."""
+    xs = []
+    for cx, _length, reach in (LOCO,) + CARS:
+        for dx in (-reach, reach):
+            xs += [cx + dx - 0.37, cx + dx + 0.37]
+    return sorted(xs)
+
+
+def wheelset(M):
+    """One axle with its two wheels, centred on the origin, turning about z.
+    One capped cylinder (its end caps are the wheels) with two crossed
+    two crossed bars on each outer face, so the turn can be seen."""
+    parts = [cyl("axle", WHEEL_R, GAUGE * 2 + 0.2, (0, 0, 0), M["wheel"], axis="z", verts=10)]
+    for s in (-1, 1):
+        z = s * (GAUGE + 0.1 + 0.014)
+        # Two bars crossed: four spokes, which is as much as the triangle budget of twelve wheelsets allows.
+        for k in range(2):
+            parts.append(box("spoke", (WHEEL_R * 1.7, 0.07, 0.03), (0, 0, z), M["spoke"], bev=0.0, rot=(0, 0, k * math.pi / 2)))
     return parts
 
 
@@ -208,6 +230,8 @@ def build():
     kit.reset()
     M = palette()
     body = finish(train(M), "Train")
+    wheels = finish(wheelset(M), "Wheelset")
+    axles = [kit.marker(f"Train.axle.{i:02d}", (x, AXLE_Y, 0)) for i, x in enumerate(axle_xs())]
     up = finish(pantograph(M, True), "PantographRaised")
     down = finish(pantograph(M, False), "PantographLowered")
     # Each pantograph is baked with the train under it but not with the other:
@@ -218,14 +242,26 @@ def build():
         kit.bake_ao([obj], distance=0.4, floor=0.6)
         for h in hidden:
             h.hide_render = False
-    return [body, up, down]
+    kit.bake_ao([wheels], distance=0.4, floor=0.6)
+    return [body, wheels, up, down] + axles
 
 
 def preview(raised=1):
     objs = build()
     drop = "PantographLowered" if raised else "PantographRaised"
-    keep = [o for o in objs if o.name != drop]
+    wheels = next(o for o in objs if o.name == "Wheelset")
+    keep = []
     for obj in objs:
-        if obj not in keep:
+        if obj.type != "MESH":
+            continue
+        if obj.name == drop:
             bpy.data.objects.remove(obj, do_unlink=True)
+        elif obj is not wheels:
+            keep.append(obj)
+    # The wheelsets stand at the axle markers.
+    for marker in [o for o in objs if o.name.startswith("Train.axle.")]:
+        copy = bpy.data.objects.new(f"wheels@{marker.name}", wheels.data)
+        copy.location = marker.location
+        bpy.context.scene.collection.objects.link(copy)
+        keep.append(copy)
     return keep

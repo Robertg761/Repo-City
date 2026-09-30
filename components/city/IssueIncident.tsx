@@ -54,8 +54,9 @@ import type { Incident } from "@/types/city";
 import { HAZARD_RED, WARNING_ORANGE, desaturate, mix, stateTint, type SceneAtmosphere } from "./palette";
 import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
-import { Beacon, BlinkLight, Smoke } from "./effects";
-import { FIRE_AT, glowTexture, incidentDecor, variantFor } from "./models/props/incidentDecor";
+import { placePhase } from "./phase";
+import { Beacon, BlinkLight, Glow, Smoke } from "./effects";
+import { FIRE_AT, ROAD_SURFACE, glowTexture, incidentDecor, variantFor, type DecorCrew, type DecorLight } from "./models/props/incidentDecor";
 import { flameGeometry, patchGeometry } from "./models/props/incidentKit";
 import { BLENDER_MODELS } from "./models/modelSource";
 import { qualitySettings, useQuality } from "./quality";
@@ -330,6 +331,63 @@ function Fire({
   );
 }
 
+/**
+ * A crew member at work: he leans into the job and back, turns a little to
+ * look, and his weight shifts, each one out of step with the next. All about
+ * his feet, so he never leaves the ground. Still for a viewer who asked for
+ * less motion.
+ */
+function Worker({ crew, tint, still }: { crew: DecorCrew; tint: string; still: boolean }) {
+  const ref = useRef<BatchHandle>(null);
+  const phase = useRef<number | null>(null);
+
+  useFrame(({ clock }) => {
+    const worker = ref.current?.object;
+    if (!worker || still) return;
+    phase.current ??= placePhase(crew.position[0], crew.position[1], crew.position[2]) * Math.PI * 2;
+    const t = clock.elapsedTime * 1.5 + phase.current;
+    // Mostly a slow lean with a quicker, smaller effort on top of it.
+    worker.rotation.x = 0.07 + Math.sin(t) * 0.05 + Math.sin(t * 2.3) * 0.02;
+    worker.rotation.y = crew.rotationY + Math.sin(t * 0.5) * 0.12;
+    worker.rotation.z = Math.sin(t * 0.7 + 1) * 0.025;
+  });
+
+  return (
+    <BatchPart
+      kind={decorKind(crew.geometry)}
+      handle={ref}
+      position={crew.position}
+      rotation-y={crew.rotationY}
+      color={tint}
+    />
+  );
+}
+
+/** A decor lamp with a soft halo that shares its blink. */
+function Lamp({ light }: { light: DecorLight }) {
+  return (
+    <>
+      <BlinkLight
+        position={light.position}
+        color={light.color}
+        rate={light.rate}
+        radius={light.radius}
+        sync={light.sync}
+        flash={light.flash}
+      />
+      <Glow
+        position={light.position}
+        color={light.color}
+        radius={light.radius * 4.5}
+        rate={light.rate}
+        sync={light.sync}
+        flash={light.flash}
+        strength={0.3}
+      />
+    </>
+  );
+}
+
 export default function IssueIncident({
   incident,
   atmosphere,
@@ -380,14 +438,12 @@ export default function IssueIncident({
 
         <BatchPart kind={decorKind(decor.geometry)} color={tint} />
 
+        {decor.crew.map((crew, i) => (
+          <Worker key={i} crew={crew} tint={tint} still={still} />
+        ))}
+
         {decor.lights.map((light, i) => (
-          <BlinkLight
-            key={i}
-            position={light.position}
-            color={light.color}
-            rate={light.rate}
-            radius={light.radius}
-          />
+          <Lamp key={i} light={light} />
         ))}
 
         {incident.state === "minor" && (
@@ -399,7 +455,7 @@ export default function IssueIncident({
             <HazardRing radius={3} color={HAZARD_RED} opacity={0.42} rate={still ? 0 : 2.6} />
             {/* The emergency response, raised so the blink clears the wreck and
                 survives being three pixels wide from the overview. */}
-            <Beacon position={[2.4, 0, 1.8]} color="#4f8bff" rate={2.4} height={4.2} />
+            <Beacon position={[2.4, ROAD_SURFACE, 1.8]} color="#4f8bff" rate={2.4} height={4.2} />
           </>
         )}
 
@@ -429,7 +485,7 @@ export default function IssueIncident({
               puffs={8}
               opacity={0.42}
             />
-            <Beacon position={[3.2, 0, 2.4]} color="#ff4d4d" rate={3} height={4.4} glowRadius={1.25} />
+            <Beacon position={[3.2, ROAD_SURFACE, 2.4]} color="#ff4d4d" rate={3} height={4.4} glowRadius={1.25} />
           </>
         )}
       </BatchEntity>

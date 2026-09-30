@@ -25,6 +25,8 @@ import { BoxGeometry, Color, CylinderGeometry, MeshStandardMaterial, Object3D, t
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
+import { groundUnder } from "./carDynamics";
+import { useLand } from "./landscape/LandProvider";
 import { nearParkedGeometry } from "./models/vehicles/near";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import {
@@ -61,6 +63,8 @@ const scratch = new Object3D();
 const scratchColor = new Color();
 
 /** Kerbside cars drawn in detail at once, per body type, and the size they must reach (`lod.tsx`). */
+/** A parked car's tyres sink a hair into the ground they stand on (`carDynamics.ts`). */
+const PARKED_SINK = 0.003;
 const PARKED_NEAR_CARS = 12;
 const PARKED_NEAR_SIZE = 0.05;
 
@@ -146,11 +150,19 @@ export default function Props({
   atmosphere: SceneAtmosphere;
 }) {
   const nearVersion = useNearModels();
+  // Where parked cars stand: a district's plate, or the terrain beyond it.
+  const sample = useLand()?.terrain?.sample ?? null;
+  const rects = useMemo(() => city.districts.map((district) => district.rect), [city]);
   const treeRefs = useRef<(InstancedMesh | null)[]>([]);
   const poleRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
   const furnitureRefs = useRef<(InstancedMesh | null)[]>([]);
   const parkedRefs = useRef<(InstancedMesh | null)[]>([]);
+  // Development only: the parked cars' meshes, for measuring how they stand.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __repoCityParked?: unknown }).__repoCityParked = () => parkedRefs.current;
+  }, []);
   const clock = useRevealClock();
   const { textureSize, anisotropy } = useQuality();
   const settled = useRef(false);
@@ -362,7 +374,11 @@ export default function Props({
       group.cars.forEach((car, i) => {
         const grow = revealScale(now, clock.current, 940 + i * 11);
         if (grow < 1) done = false;
-        scratch.position.set(car.position[0], 0.1, car.position[2]);
+        scratch.position.set(
+          car.position[0],
+          groundUnder(rects, sample, car.position[0], car.position[2]) - PARKED_SINK,
+          car.position[2],
+        );
         scratch.rotation.set(0, car.rotationY, 0);
         scratch.scale.setScalar(grow);
         scratch.updateMatrix();
@@ -379,7 +395,7 @@ export default function Props({
   // quality change, which rebuilds the materials and remounts the meshes.
   useEffect(() => {
     settled.current = false;
-  }, [city, atmosphere.desaturation, treeMaterial, parkedMaterial, furnitureMaterial]);
+  }, [city, sample, atmosphere.desaturation, treeMaterial, parkedMaterial, furnitureMaterial]);
 
   // Per-instance colour: the crowns carry their seeded leaf tint, the parked
   // cars their paint. Everything else is coloured in its merged geometry.
@@ -462,6 +478,7 @@ export default function Props({
             ground
             falloff={1.3}
             strength={(a) => a.lampPool * 0.24}
+            ramp={(a) => a.lampPool}
             appearAt={lampsLitAt}
           />
           <GlowField
@@ -470,6 +487,7 @@ export default function Props({
             color={LAMP_LIGHT}
             falloff={2.4}
             strength={(a) => a.lampPool * 0.42}
+            ramp={(a) => a.lampPool}
             appearAt={lampsLitAt}
           />
         </>

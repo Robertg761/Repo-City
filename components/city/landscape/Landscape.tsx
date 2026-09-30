@@ -75,7 +75,7 @@ const tint = new Color();
  * the page (KHR_parallel_shader_compile), so the piece appears a moment late
  * and nothing stalls.
  */
-function Precompiled({ children }: { children: ReactNode }) {
+function Precompiled({ children, onGrow }: { children: ReactNode; onGrow?: (t: number) => void }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   const scene = useThree((s) => s.scene);
@@ -83,6 +83,20 @@ function Precompiled({ children }: { children: ReactNode }) {
   // Without the extension the compile would block anyway (and three warns): just draw.
   const parallel = gl.extensions.has("KHR_parallel_shader_compile");
   const [shown, setShown] = useState(!parallel);
+  // The piece grows out of the plate instead of snapping in: its height scales up from the ground over `LAND_GROW_MS`.
+  const grownAt = useRef<number | null>(null);
+  const finished = useRef(false);
+  useFrame(() => {
+    const group = ref.current;
+    if (!group || !shown) return;
+    grownAt.current ??= performance.now();
+    if (finished.current) return;
+    const t = Math.min(1, (performance.now() - grownAt.current) / LAND_GROW_MS);
+    if (t >= 1) finished.current = true;
+    const k = landGrow(t);
+    if (group.scale.y !== k) group.scale.y = k;
+    onGrow?.(t);
+  });
   useEffect(() => {
     const group = ref.current;
     if (!group || !parallel) return;
@@ -96,10 +110,27 @@ function Precompiled({ children }: { children: ReactNode }) {
     };
   }, [gl, camera, scene, parallel]);
   return (
-    <group ref={ref} visible={shown}>
+    <group ref={ref} visible={shown} scale={[1, LAND_GROW_FROM, 1]}>
       {children}
     </group>
   );
+}
+
+/** How long a piece of the land takes to rise, and the height it starts from (the flat plate it grows out of). */
+const LAND_GROW_MS = 900;
+const LAND_GROW_FROM = 0.02;
+/** Ease-out from the plate's flatness to full relief. */
+export function landGrow(t: number): number {
+  const inv = 1 - Math.min(1, Math.max(0, t));
+  return LAND_GROW_FROM + (1 - LAND_GROW_FROM) * (1 - inv * inv * inv);
+}
+
+/** Fades the ground in by `t` (0..1); true once it is whole and opaque again. */
+function fadeGround(material: MeshStandardMaterial, t: number): boolean {
+  const done = t >= 1;
+  material.transparent = !done;
+  material.opacity = done ? 1 : landGrow(t);
+  return done;
 }
 
 /** Mounts its children `at` frames after it did, one heavy piece a frame. */
@@ -137,14 +168,28 @@ function useGroundMaterial(): MeshStandardMaterial | null {
   return material;
 }
 
-export function LandTerrain() {
+/**
+ * `fallback` stands in while the land is still being planned and baked (a few
+ * hundred milliseconds into a city's arrival), so the city never rises out of
+ * an empty sky.
+ */
+export function LandTerrain({ fallback = null }: { fallback?: ReactNode } = {}) {
   const land = useLand();
   const ground = useLandGround();
   const actions = useCityStore((s) => s.actions);
 
   const material = useGroundMaterial();
 
-  if (!land?.terrain || !material || !ground?.control) return null;
+  // The rich ground fades in over the plate it replaces, and the plate goes once it has: no snap from one to the other.
+  const [risen, setRisen] = useState(false);
+  const rise = useMemo(() => {
+    if (!material) return null;
+    return (t: number) => {
+      if (fadeGround(material, t)) setRisen(true);
+    };
+  }, [material]);
+
+  if (!land?.terrain || !material || !ground?.control) return <>{fallback}</>;
 
   const clearSelection = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -157,7 +202,9 @@ export function LandTerrain() {
   };
 
   return (
-    <Precompiled>
+    <>
+    {!risen && fallback}
+    <Precompiled onGrow={rise ?? undefined}>
       <mesh
         geometry={land.terrain.geometry}
         material={material}
@@ -167,6 +214,7 @@ export function LandTerrain() {
         onPointerMove={clearHover}
       />
     </Precompiled>
+    </>
   );
 }
 

@@ -29,9 +29,11 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DataTexture,
+  Euler,
   IcosahedronGeometry,
   LinearFilter,
   RGBAFormat,
+  Vector3,
   type BufferGeometry,
 } from "three";
 import type { IncidentState } from "@/types/analysis";
@@ -44,7 +46,8 @@ import {
   type EmergencyKind,
   type EmergencyLight,
 } from "../vehicles/emergency";
-import { parkedGeometry } from "../vehicles/shapes";
+import { BODY_SPECS, parkedGeometry, type VehicleBody } from "../vehicles/shapes";
+import { placePhase } from "../../phase";
 import { blenderNearParked } from "../vehicles/near";
 import { atLevel, detailLevel, modelFor, type DetailLevel } from "../detailLevel";
 import { importedParts } from "../imported";
@@ -55,6 +58,22 @@ import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
 import { debrisPiece, hoseCoilParts, hoseParts, potholeParts, scorchParts, skidParts, spoilParts, tapeParts, weedParts } from "./incidentKit";
+
+/**
+ * The top of the carriageway above the ground plate (`Roads.tsx`: a box
+ * 0.08 tall standing on it). Everything that STANDS on the road -- the
+ * vehicles, wrecks, cones, crew, barricades and signs -- is set on this, so a
+ * tyre's tread meets the tarmac instead of sinking 8 cm into it; the flat
+ * things laid ON it (skid marks, hose, the burnt patch) were already drawn
+ * relative to it.
+ */
+export const ROAD_SURFACE = 0.08;
+
+const lift = (parts: Part[]): Part[] =>
+  parts.map((part) => {
+    const [x, y, z] = part.position ?? [0, 0, 0];
+    return { ...part, position: [x, y + ROAD_SURFACE, z] as Triple };
+  });
 
 /** Just above the dark patch the incident draws on the tarmac. */
 const DECAL_Y = 0.135;
@@ -69,11 +88,23 @@ export const FIRE_AT: [number, number] = [0, 0];
 export interface DecorLight extends EmergencyLight {
   /** Already in the incident's frame. */
   position: Triple;
+  /** The phase the vehicle's lamps share, in cycles: one vehicle blinks as one. */
+  sync?: number;
+  /** A strobe rather than a pulse. */
+  flash?: boolean;
+}
+
+/** A crew member, drawn on his own so he can work: feet at `position`. */
+export interface DecorCrew {
+  position: Triple;
+  rotationY: number;
+  geometry: BufferGeometry;
 }
 
 export interface IncidentDecor {
   geometry: BufferGeometry;
   lights: DecorLight[];
+  crew: DecorCrew[];
 }
 
 export interface Placement {
@@ -107,7 +138,7 @@ function vehicleAt(kind: EmergencyKind, place: Placement, tone: number, ladderYa
     {
       geometry: mergeParts(emergencyParts(kind, tone, ladderYaw)),
       color: "#ffffff",
-      position: place.position,
+      position: [place.position[0], place.position[1] + ROAD_SURFACE, place.position[2]],
       rotation: [0, place.rotationY, 0],
     },
   ];
@@ -129,11 +160,48 @@ function toVehicle(place: Placement, x: number, z: number): [number, number] {
   return [dx * cos - dz * sin, dx * sin + dz * cos];
 }
 
-/** That vehicle's lamps, moved into the incident's frame. */
+/**
+ * That vehicle's lamps, moved into the incident's frame. A light bar's lamps
+ * share one rate and alternate (half a cycle apart), as the two sides of a
+ * real bar do; a lone lamp is a strobe. The lenses are a little smaller than
+ * the markers' spheres, which were drawn wider than the bar.
+ */
 function lightsAt(kind: EmergencyKind, place: Placement): DecorLight[] {
-  return EMERGENCY_LIGHTS[kind].map((light) => {
+  const lamps = EMERGENCY_LIGHTS[kind];
+  const base = placePhase(place.position[0], place.position[1], place.position[2]);
+  return lamps.map((light, i) => {
     const [x, z] = toIncident(place, light.position[0], light.position[2]);
-    return { ...light, position: [x, place.position[1] + light.position[1], z] as Triple };
+    return {
+      ...light,
+      rate: lamps[0].rate,
+      radius: light.radius * 0.62,
+      position: [x, place.position[1] + ROAD_SURFACE + light.position[1], z] as Triple,
+      sync: base + (i % 2) * 0.5,
+      flash: true,
+    };
+  });
+}
+
+/**
+ * A wrecked car's four hazard lamps: the body's own headlamp and taillamp
+ * positions (`BODY_SPECS`), carried by the wreck's rotation and tilt, so a
+ * tipped car's lamps tip with it. They blink together.
+ */
+const scratchLamp = new Vector3();
+const scratchTurn = new Euler();
+function wreckLights(body: VehicleBody, position: Triple, rotationY: number, tilt: number, tone: number): DecorLight[] {
+  const spec = BODY_SPECS[body];
+  scratchTurn.set(0, rotationY, tilt, "XYZ");
+  const sync = placePhase(position[0], position[1], position[2]);
+  return [...spec.headlights, ...spec.taillights].map(([x, y, z]) => {
+    scratchLamp.set(x, y, z).applyEuler(scratchTurn);
+    return {
+      position: [position[0] + scratchLamp.x, position[1] + scratchLamp.y, position[2] + scratchLamp.z] as Triple,
+      color: desaturate("#ffae3a", tone * 0.4),
+      rate: 2.6,
+      radius: 0.06,
+      sync,
+    };
   });
 }
 
@@ -337,7 +405,15 @@ function weeds(spread: number, color: string, count: number): Part[] {
   return parts;
 }
 
+/** A crew member's place, before his geometry (which depends on the tone and level). */
+interface CrewSpot {
+  position: Triple;
+  rotationY: number;
+  helmet: string;
+}
+
 interface Scene {
+  crew: CrewSpot[];
   parts: Part[];
   lights: DecorLight[];
   vehicles: ParkedService[];
@@ -352,25 +428,26 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
   const lights: DecorLight[] = [];
   const vehicles: ParkedService[] = [];
   const clutter: Clutter[] = [];
+  const crew: CrewSpot[] = [];
 
   // Everything that stands on the ground goes through these, so the layout
   // the tests check is the layout that is drawn.
   const mark = (x: number, z: number, radius: number, what: string) =>
     clutter.push({ x, z, radius, what });
   const addCone = (x: number, z: number, color: string) => {
-    parts.push(...cone([x, 0, z], color, tone));
+    parts.push(...lift(cone([x, 0, z], color, tone)));
     mark(x, z, 0.32, "cone");
   };
   const addCrew = (x: number, z: number, rotationY: number, helmet: string) => {
-    parts.push(
-      ...figureParts({ position: [x, 0, z], color: shade(WORKER_YELLOW), rotationY, helmet }),
-    );
+    // Not merged into the scene: each worker is his own small piece, so he can
+    // lean into his work (`IssueIncident.tsx`).
+    crew.push({ position: [x, ROAD_SURFACE, z], rotationY, helmet });
     mark(x, z, 0.22, "crew");
   };
   // The Blender props take the scene's shading, so a stale scene's fade too.
   const paint = state === "stale" ? faded : shade;
   const addBarricade = (place: Placement, color: string, stripe: string, lean = 0) => {
-    parts.push(...barricade(place, color, stripe, lean, paint));
+    parts.push(...lift(barricade(place, color, stripe, lean, paint)));
     // Along its length, so a vehicle cannot stand across the middle of it.
     for (const along of [-1.3, -0.65, 0, 0.65, 1.3]) {
       mark(
@@ -381,8 +458,12 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       );
     }
   };
-  const addWreck = (part: Part) => {
+  const addWreck = (wrecked: Part, hazard?: VehicleBody) => {
+    const part = lift([wrecked])[0];
     parts.push(part);
+    if (hazard) {
+      lights.push(...wreckLights(hazard, part.position!, part.rotation![1], part.rotation![2], tone));
+    }
     const [x, , z] = part.position!;
     mark(x, z, 1.5, "wreck");
   };
@@ -421,14 +502,15 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       addCone(spot[0], spot[1], shade(WARNING_ORANGE));
     }
     const sign: Placement = { position: [1.7 * flip, 0, 2.2], rotationY: 0.4 * flip };
-    parts.push(...worksSign(sign, shade(WARNING_ORANGE), 0, tone));
+    parts.push(...lift(worksSign(sign, shade(WARNING_ORANGE), 0, tone)));
     // The board is wider than its post, and stands at a cab's height.
     mark(sign.position[0], sign.position[2], 0.85, "sign");
     lights.push({
-      position: [sign.position[0], SIGN_LAMP_Y, sign.position[2]],
+      position: [sign.position[0], SIGN_LAMP_Y + ROAD_SURFACE, sign.position[2]],
       color: WARNING_ORANGE,
       rate: 1.1,
       radius: 0.2,
+      flash: true,
     });
 
     if (detailLevel() === "near") {
@@ -448,13 +530,14 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
 
     addCrew(0.9 * flip, 1.1, -2.2, shade("#f0d44a"));
     addCrew(-0.9 * flip, 1.9, 1.6, shade("#f0d44a"));
-    return { parts, lights, vehicles, clutter };
+    return { parts, lights, vehicles, clutter, crew };
   }
 
   if (state === "collision") {
-    addWreck(wreck([-1.2 * flip, 0.02, 0.5], 0.5 * flip, 0, shade("#5f8fb0")));
+    addWreck(wreck([-1.2 * flip, 0.02, 0.5], 0.5 * flip, 0, shade("#5f8fb0")), "sedan");
     addWreck(
       wreck([1.3 * flip, 0.02, -0.7], -0.95 * flip, 0.08 * flip, shade("#c9c3b4"), "hatchback"),
+      "hatchback",
     );
     // The braking that led to it, printed on the road.
     parts.push(
@@ -469,7 +552,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
 
     park("police", { position: [-1.45 * flip, 0, 4.8], rotationY: Math.PI + 0.1 });
     park("ambulance", { position: [1.45 * flip, 0, -5], rotationY: -0.05 });
-    return { parts, lights, vehicles, clutter };
+    return { parts, lights, vehicles, clutter, crew };
   }
 
   if (state === "stale") {
@@ -506,10 +589,10 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       [0.2, 3.25, 0.55],
       [2.4 * flip, 3.35, 0.62],
     ] as [number, number, number][]) {
-      lights.push({ position: [x, 1.15, z], color: faded(WARNING_ORANGE), rate, radius: 0.15 });
+      lights.push({ position: [x, 1.15 + ROAD_SURFACE, z], color: faded(WARNING_ORANGE), rate, radius: 0.15, flash: true });
     }
     const sign: Placement = { position: [-2.3 * flip, 0, -2.4], rotationY: -0.5 * flip };
-    parts.push(...worksSign(sign, faded(WARNING_ORANGE), 0.17 * flip, tone, faded));
+    parts.push(...lift(worksSign(sign, faded(WARNING_ORANGE), 0.17 * flip, tone, faded)));
     mark(sign.position[0], sign.position[2], 0.85, "sign");
     parts.push(...weeds(2.6, faded(mix(TREE_LEAF, "#9aa36a", 0.4)), detailLevel() === "near" ? 16 : 9));
 
@@ -521,7 +604,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     // The tow truck, backed up to the barricade line with its wheel-lift down
     // and its hook over the tape: it came, and nobody let it through.
     park("tow", { position: [-1.4 * flip, 0, 6.05], rotationY: 0.06 * flip });
-    return { parts, lights, vehicles, clutter };
+    return { parts, lights, vehicles, clutter, crew };
   }
 
   // major: the city is on fire.
@@ -558,7 +641,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
   ] as [number, number, number][]) {
     addCrew(x, z, facing, shade("#f2d43c"));
   }
-  return { parts, lights, vehicles, clutter };
+  return { parts, lights, vehicles, clutter, crew };
 }
 
 const sceneCache = new Map<string, Scene>();
@@ -597,8 +680,25 @@ export function incidentDecor(
   return {
     geometry: decorGeometryCache(`${at}:${state}:${side}:${toneKey(desaturation)}`),
     lights: atLevel(at, () => scene(state, side, tone).lights),
+    crew: atLevel(at, () =>
+      scene(state, side, tone).crew.map((spot) => ({
+        position: spot.position,
+        rotationY: spot.rotationY,
+        geometry: crewGeometry(`${at}:${spot.helmet}:${toneKey(desaturation)}`),
+      })),
+    ),
   };
 }
+
+/** One worker at the origin facing +z, in the crew's hi-vis and a helmet. */
+const crewGeometry = geometryCache<string>((key) => {
+  const [level, helmet, tone] = key.split(":");
+  return atLevel(level as DetailLevel, () =>
+    mergeParts(
+      figureParts({ position: [0, 0, 0], color: desaturate(WORKER_YELLOW, Number(tone)), rotationY: 0, helmet }),
+    ),
+  );
+});
 
 /**
  * Where the vehicles are parked and what else stands on the ground, for the

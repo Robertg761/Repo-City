@@ -17,13 +17,31 @@ import lowpoly as lp  # noqa: E402
 from kit import finish  # noqa: E402
 
 # Where forms.ts stands the collision's cars (STRUCK, STRIKER), and where
-# each one's hazard lamps blink (`lampAt(pose, 1.1, 0.5)`).
+# each one's hazard lamps blink (`CAR_CORNERS`).
 STRUCK = dict(x=0.5, z=0.14, yaw=-0.05)
 STRIKER = dict(x=-0.25, z=-0.2, yaw=0.36)
 
 
-def lamp_at(p, back=1.1, up=0.5):
-    return (p["x"] - math.sin(p["yaw"]) * back, up, p["z"] - math.cos(p["yaw"]) * back)
+# The four corner indicators, (side, along, up) in the car's frame; the same
+# numbers as `CAR_CORNERS` in forms.ts.
+CORNERS = [(-0.36, 1.1, 0.36), (0.36, 1.1, 0.36), (-0.38, -1.12, 0.46), (0.38, -1.12, 0.46)]
+
+
+def lamp_at(p, corner):
+    side, along, up = corner
+    c, s = math.cos(p["yaw"]), math.sin(p["yaw"])
+    return (p["x"] + side * c + along * s, up, p["z"] - side * s + along * c)
+
+
+def lamps(p):
+    return [lamp_at(p, c) for c in CORNERS]
+
+
+def lenses(M):
+    """The four corner lamps as flat lenses in a car's own frame: the front
+    pair face forward, the rear pair back. 4 triangles."""
+    return [cc.lamp_quad("hazard", (side, up, along), 0.22, 0.14, M["hazard"], 1 if along > 0 else -1)
+            for side, along, up in CORNERS]
 
 
 def palette():
@@ -89,6 +107,7 @@ def collision(M):
     slant in the struck car's flank, its front end crushed short and buckled
     up; hazard lamps on both, a warning triangle behind."""
     struck = [cc.body("struck", M, "paintB", "carGlass"), *cc.wheels(M)]
+    struck += lenses(M)
     cc.pose(struck, **STRUCK)
     # The striker's nose crushed: the front two sections pulled back and the
     # bonnet shoved up into a crease.
@@ -97,12 +116,12 @@ def collision(M):
     cc.SECTIONS[4] = (0.98, (0.43, 0.2), (0.44, 0.5), (0.3, 0.66))
     striker = [cc.body("striker", M, "paintA", "carGlass"), *cc.wheels(M), crease(M["paintA"])]
     cc.SECTIONS[:] = saved
+    striker += lenses(M)
     cc.pose(striker, **STRIKER)
     parts = [
         *struck,
         *striker,
         *warning_triangle("warn", 0.46, (STRUCK["x"] + 0.05, 0, -1.42), -0.2, M["warnTri"]),
-        *[cc.tetra(f"hazard{i}", lamp_at(p), 0.087, M["hazard"]) for i, p in enumerate((STRUCK, STRIKER))],
     ]
     return finish(parts, "Collision")
 

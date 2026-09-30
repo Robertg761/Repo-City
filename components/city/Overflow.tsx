@@ -41,6 +41,7 @@ import { BLENDER_MODELS } from "./models/modelSource";
 import { mergeParts, type Part } from "./models/props/geometry";
 import { CAR_PAINT_PATTERN, tintedMaterial } from "./models/props/material";
 import { queueBody } from "./blockages";
+import { ROAD_TOP } from "./carDynamics";
 import { HIGHLIGHT, desaturate, mix, stateTint, type SceneAtmosphere } from "./palette";
 import { revealScale } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
@@ -54,8 +55,8 @@ import { useTiledSurfaceDetail } from "./textures/surfaces";
 const scratch = new Object3D();
 const scratchColor = new Color();
 
-/** Tyres on the carriageway, as `Traffic.tsx` stands its cars. */
-const ROAD_SURFACE = 0.1;
+/** Tyres on the carriageway, a hair sunk so they never hang above it (`carDynamics.ts`). */
+const ROAD_SURFACE = ROAD_TOP - 0.003;
 /** Each car in the queue lands a beat after the one ahead of it. */
 const QUEUE_STAGGER = 18;
 /** Queued cars drawn in detail at once, per body type, and the size they must reach (`lod.tsx`). */
