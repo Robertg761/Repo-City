@@ -25,13 +25,15 @@ import {
   CylinderGeometry,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  PlaneGeometry,
   SphereGeometry,
   Vector3,
   type Object3D,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { BatchPart } from "./Batch";
-import { batchKind, withExtras, type BatchHandle, type BatchKind } from "./batching";
+import { useSkyFrame } from "./sky";
+import { batchKind, patchExtras, withExtras, type BatchHandle, type BatchKind } from "./batching";
 import { BLENDER_MODELS } from "./models/modelSource";
 import { beaconMastGeometry } from "./models/props/incidentKit";
 
@@ -97,19 +99,56 @@ const PUFF = batchKind("fx:puff", () => ({
     ),
 }));
 
+/**
+ * The halo round a lamp: a camera-facing quad with a soft radial falloff, not
+ * a sphere. A flat additive sphere is a hard-edged disc that hides whatever it
+ * covers; this fades smoothly to nothing at its rim. Billboarded in the
+ * vertex shader from the instance's centre and scale, so it stays one instanced
+ * draw for every halo in the city.
+ */
 const GLOW = batchKind("fx:glow", () => ({
-  geometry: () => new SphereGeometry(1, 12, 10),
-  material: () =>
-    withExtras(
-      new MeshBasicMaterial({
-        color: "#ffffff",
-        transparent: true,
-        depthWrite: false,
-        blending: AdditiveBlending,
-        toneMapped: false,
-      }),
-      { opacity: true },
-    ),
+  geometry: () => new PlaneGeometry(2, 2),
+  material: () => {
+    const material = new MeshBasicMaterial({
+      color: "#ffffff",
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      toneMapped: false,
+      fog: false,
+    });
+    material.onBeforeCompile = (shader) => {
+      patchExtras(shader, { opacity: true });
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying float vHaloR;")
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvHaloR = length( position.xy );")
+        .replace(
+          "#include <project_vertex>",
+          `mat4 haloModel = modelMatrix;
+#ifdef USE_INSTANCING
+haloModel = modelMatrix * instanceMatrix;
+#endif
+float haloScale = length( haloModel[0].xyz );
+vec4 mvPosition = viewMatrix * vec4( haloModel[3].xyz, 1.0 );
+mvPosition.xy += position.xy * haloScale;
+gl_Position = projectionMatrix * mvPosition;`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nvarying float vHaloR;")
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>
+{
+  float haloFade = 1.0 - smoothstep( 0.0, 1.0, vHaloR );
+  diffuseColor.a *= haloFade * haloFade;
+  if ( diffuseColor.a < 0.004 ) discard;
+}`,
+        );
+    };
+    material.customProgramCacheKey = () => "fx-glow-billboard";
+    return material;
+  },
+  pickable: false,
 }));
 
 const SPARK = batchKind("fx:spark", () => ({
@@ -225,12 +264,18 @@ export function BlinkLight({
     if (!lamp?.object) return;
     offset.current ??= worldPhase(lamp.object);
     const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
-    lamp.glow = 0.25 + pulse * 2.6;
+    // Capped near 1.3: past that the emissive bloomed into a flat orb.
+    lamp.glow = 0.3 + pulse * 1.0;
     lamp.object.scale.setScalar(radius * (0.85 + pulse * 0.25));
   });
 
   return <BatchPart kind={LAMP} handle={handle} position={position} scale={radius} color={color} />;
 }
+
+const smoothstep01 = (x: number, a: number, b: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
 
 /** The soft halo around a warning lamp. Additive, so it reads against sky. */
 export function Glow({
@@ -238,16 +283,23 @@ export function Glow({
   color,
   radius = 1,
   rate = 2.4,
-  strength = 0.3,
+  strength = 0.42,
+  nightOnly = false,
 }: {
   position: [number, number, number];
   color: string;
   radius?: number;
   rate?: number;
   strength?: number;
+  /** A lamp's glow, which has no business showing in daylight; a beacon's stays faintly. */
+  nightOnly?: boolean;
 }) {
   const handle = useRef<BatchHandle>(null);
   const offset = useRef<number | null>(null);
+  const night = useRef(0);
+  useSkyFrame((atmosphere) => {
+    night.current = atmosphere.nightness;
+  });
 
   useFrame(({ clock }) => {
     const glow = handle.current;
@@ -255,7 +307,9 @@ export function Glow({
     // The same offset as the lamp it surrounds: both are placed at one point.
     offset.current ??= worldPhase(glow.object);
     const pulse = 0.5 + 0.5 * Math.sin((clock.elapsedTime * rate + (offset.current ?? 0) * 2) * Math.PI);
-    glow.opacity = strength * (0.32 + pulse);
+    const hour = nightOnly ? smoothstep01(night.current, 0.2, 0.7) : 0.4 + 0.6 * night.current;
+    glow.opacity = strength * (0.32 + pulse) * hour;
+    glow.visible = hour > 0.01;
     glow.object.scale.setScalar(radius * (0.8 + pulse * 0.4));
   });
 
@@ -353,7 +407,7 @@ export function Sparks({
           }}
           position={position}
           color={color}
-          glow={3}
+          glow={1.8}
           visible={false}
         />
       ))}

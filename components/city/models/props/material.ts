@@ -37,6 +37,9 @@ export interface SwayOptions {
   base: number;
 }
 
+/** How much of the metal layer's mottling vehicle paint keeps. */
+export const CAR_PAINT_PATTERN = 0.3;
+
 /**
  * The city's one wind: a clock uniform, in seconds, that every swaying
  * material reads. `Props.tsx` advances it once a frame.
@@ -115,6 +118,6 @@ export function tintedMaterial(
       );
     }
   };
-  material.customProgramCacheKey = () => `${sway ? "tinted-sway" : organic ? "tinted-organic" : "tinted"}${finish.surfaceAttribute ? "-surfaces" : ""}`;
+  material.customProgramCacheKey = () => `${sway ? "tinted-sway" : organic ? "tinted-organic" : "tinted"}${finish.surfaceAttribute ? "-surfaces" : ""}${finish.patternStrength !== undefined ? `-p${finish.patternStrength}` : ""}`;
   return material;
 }

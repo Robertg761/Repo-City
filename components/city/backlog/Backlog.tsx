@@ -327,14 +327,14 @@ function Halos({ halos }: { halos: readonly HaloSpec[] }) {
   const mesh = useRef<Mesh>(null);
   useSkyFrame((atmosphere) => {
     const node = mesh.current;
-    if (node) (node.material as ShaderMaterial).uniforms.uStrength.value = HALO_STRENGTH + atmosphere.nightness * 0.4;
+    if (node) (node.material as ShaderMaterial).uniforms.uStrength.value = HALO_STRENGTH + atmosphere.nightness * 0.45;
   }, material);
 
   return <mesh ref={mesh} geometry={geometry} material={material} frustumCulled={false} renderOrder={3} />;
 }
 
 /** The halos' daytime strength (`haloMaterial`'s default). */
-const HALO_STRENGTH = 0.55;
+const HALO_STRENGTH = 0.14;
 
 /** Smoke over the fires: every puff in the city in one instanced mesh. */
 function Smoke({ puffs }: { puffs: readonly PuffSpec[] }) {

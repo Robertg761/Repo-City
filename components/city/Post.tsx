@@ -18,6 +18,7 @@ import type { BloomEffect } from "postprocessing";
 import { filmGrade } from "./grade";
 import { mix, type SceneAtmosphere } from "./palette";
 import type { QualitySettings } from "./quality";
+import { ShadowToe, toeLift, type ShadowToeEffect } from "./shadowToe";
 import { useSky, useSkyFrame } from "./sky";
 
 /** Bloom strength for an hour. Auto's is exactly what it always was. */
@@ -65,19 +66,26 @@ export default function Post({
   // most at night, when the lights are what the city is made of.
   const sky = useSky();
   const bloom = useRef<BloomEffect>(null);
+  const toe = useRef<ShadowToeEffect>(null);
+  const ao = useRef<{ configuration: { intensity: number } }>(null);
+  const grade = filmGrade();
   useSkyFrame((live) => {
     if (bloom.current) bloom.current.intensity = bloomIntensity(live);
+    if (toe.current) toe.current.lift = toeLift(live.evening, live.nightness);
+    // Occlusion on top of a low sun and a bluish fill is what left the shaded
+    // faces black: ease it off as the light goes.
+    if (ao.current) ao.current.configuration.intensity = grade.aoIntensity * (1 - 0.3 * Math.max(live.evening, live.nightness));
   });
 
   // Built as an array rather than with inline conditionals: the composer
   // rebuilds its chain from its children, and a `false` among them is not an
   // effect it can skip.
-  const grade = filmGrade();
   const effects = [];
   if (quality.ambientOcclusion) {
     effects.push(
       <N8AO
         key="ao"
+        ref={ao as never}
         // Full resolution, with twice the denoise samples of the "low" preset
         // over a tighter radius. At half resolution the occlusion is sampled
         // on a grid coarser than a tower's mullions, and the upsample drew
@@ -117,6 +125,7 @@ export default function Post({
   // The rich grade: a little vibrance and contrast after the tone mapping.
   if (grade.saturation !== 0) effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
   if (grade.contrast !== 0) effects.push(<BrightnessContrast key="contrast" contrast={grade.contrast} />);
+  effects.push(<ShadowToe key="toe" ref={toe} lift={toeLift(sky.atmosphere.evening, sky.atmosphere.nightness)} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
 
   return (

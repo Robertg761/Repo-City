@@ -53,6 +53,7 @@ import {
   WARNING_ORANGE,
   WINDOW_COLOR,
   desaturate,
+  litWindowGlow,
   mix,
   stateTint,
   type SceneAtmosphere,
@@ -119,7 +120,7 @@ const TRIM = mix(CIVIC_COLOR, "#ffffff", 0.75);
 const CONCRETE_GREY = mix(CONCRETE, "#7f8683", 0.55);
 const SLATE = "#8c9ea3";
 const STEEL = "#7d8689";
-const DARK_STEEL = "#414950";
+const DARK_STEEL = "#59626a";
 const SIGN_BLUE = "#4d8fce";
 const TRANSIT_BLUE = "#4489b4";
 const VERDIGRIS = "#7fb1a8";
@@ -237,7 +238,7 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
     <group>
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.hull} color={skin.tint(PALE)} roughness={0.82} />
-      <Part geometry={slots.cold} color={skin.tint("#6f6a64")} roughness={0.95} />
+      <Part geometry={slots.cold} color={skin.tint("#857f78")} roughness={0.95} />
       <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
       <Part geometry={slots.hazard} color={skin.tint(HAZARD_RED)} roughness={0.7} />
       <Part
@@ -365,7 +366,7 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.6} />
       <Part geometry={slots.steel} color={skin.tint(DARK_STEEL)} roughness={0.5} metalness={0.25} />
       <Part geometry={slots.metal} color={skin.tint(STEEL)} roughness={0.45} metalness={0.35} />
-      <Part geometry={slots.dark} color={skin.tint("#2b2f33")} roughness={0.8} />
+      <Part geometry={slots.dark} color={skin.tint("#4d5359")} roughness={0.8} />
       <Part geometry={slots.green} color={skin.tint(TREE_LEAF)} roughness={0.95} />
       <Part geometry={slots.blue} color={skin.tint("#3d5068")} roughness={0.25} metalness={0.2} />
       <Part
@@ -406,7 +407,7 @@ function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       />
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.8} rate={0.2} strength={0.16} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.8} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -503,7 +504,7 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
 
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.9} rate={0.2} strength={0.18} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.9} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -569,7 +570,7 @@ function Chapel({ skin }: { skin: Skin }) {
         roughness={0.3}
         cast={false}
       />
-      {skin.glow > 0.45 && <Glow position={lamp} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />}
+      {skin.glow > 0.45 && <Glow position={lamp} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.36} nightOnly />}
     </group>
   );
 }
@@ -622,7 +623,7 @@ function Halt({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       />
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -646,7 +647,7 @@ function Substation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       <Part geometry={slots.hull} color={skin.tint(mix(PALE, "#b8c2bf", 0.5))} roughness={0.7} />
       <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
       <Part geometry={slots.hazard} color={skin.tint(WARNING_ORANGE)} roughness={0.7} />
-      <Part geometry={slots.dark} color={skin.tint("#4a4e52")} roughness={0.8} />
+      <Part geometry={slots.dark} color={skin.tint("#69717a")} roughness={0.8} />
       <Part geometry={slots.wood} color={skin.tint(OAK)} roughness={0.9} />
       <Part geometry={slots.glass} color={skin.tint("#9fb9c4")} roughness={0.3} metalness={0.1} />
       <mesh position={anchors.lamp}>
@@ -708,7 +709,7 @@ export default function LandmarkPiece({
 
   // Lit with the city's windows, and more at night: the power plant, the
   // fire station and the station are landmarks after dark too (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.45);
+  const glow = useSkyValue((a) => litWindowGlow(a) + a.nightness * 0.05);
   const skin: Skin = {
     wall: tint(CIVIC_COLOR),
     roof: tint(CIVIC_ROOF),
