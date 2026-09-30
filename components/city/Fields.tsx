@@ -17,7 +17,7 @@
 import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type Group, type InstancedMesh, type BufferGeometry, type Material } from "three";
+import { Color, Object3D, type Group, type InstancedMesh, type BufferGeometry, type Material, type MeshStandardMaterial } from "three";
 import type { CityModel } from "@/types/city";
 import {
   CROP_GROUND,
@@ -39,6 +39,7 @@ import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import { revealScale } from "./reveal";
 import { useRevealClock } from "./useReveal";
 import { useStreetMaterial } from "./textures/surfaces";
+import { useSkyFrame } from "./sky";
 import { useQuality } from "./quality";
 import { LodInstances } from "./lod";
 import { buildingDetailMaterial } from "./models/buildings/material";
@@ -72,6 +73,7 @@ function Instances({
   roughness = 1,
   tinted = false,
   surfaceMaterial,
+  nightFill,
   near,
 }: {
   geometry: BufferGeometry;
@@ -82,6 +84,8 @@ function Instances({
   /** Paint only the masked part (a tree's crown), not the whole instance. */
   tinted?: boolean;
   surfaceMaterial?: Material;
+  /** A green fill that comes up at night (moon and sky bounce), for a thing that would otherwise read solid black. */
+  nightFill?: string;
   /** A detailed model for the closest few, and how far away it takes over. */
   near?: { geometry: BufferGeometry | null; cap: number; distance: number };
 }) {
@@ -96,6 +100,12 @@ function Instances({
     [tinted, roughness, geometry, surfaceMaterial, textureSize, anisotropy],
   );
   useEffect(() => () => material?.dispose(), [material]);
+  useSkyFrame((sky) => {
+    const live = meshRef.current?.material;
+    if (!nightFill || !live || Array.isArray(live) || !("emissive" in live)) return;
+    (live as MeshStandardMaterial).emissive.set(nightFill);
+    (live as MeshStandardMaterial).emissiveIntensity = sky.nightness * 0.45;
+  }, material);
 
   useEffect(() => {
     const mesh = meshRef.current;
@@ -218,7 +228,7 @@ export default function Fields({
       {[...layers.rows.entries()].map(([crop, list]) => (
         <Instances key={crop} geometry={rowGeometry(crop)} instances={list} y={0.005} roughness={crop === 0 ? 0.9 : 1} />
       ))}
-      <Instances geometry={hedgeGeometry()} instances={layers.hedges} shadows roughness={0.95} />
+      <Instances geometry={hedgeGeometry()} instances={layers.hedges} shadows roughness={0.95} nightFill="#24421a" />
       <Instances
         geometry={baleGeometry()}
         instances={layers.bales}

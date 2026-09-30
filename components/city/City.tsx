@@ -29,6 +29,9 @@ import Props from "./Props";
 import Roads from "./Roads";
 import SelectionRing from "./SelectionRing";
 import Terrain from "./Terrain";
+import LandProvider from "./landscape/LandProvider";
+import Landscape, { LandTerrain } from "./landscape/Landscape";
+import { RICH_LAND } from "./look";
 import Traffic from "./Traffic";
 import { REFERENCE_ASPECT } from "./entities";
 import { splitBuildings } from "./instances";
@@ -121,7 +124,15 @@ export default function City({
           in the live hour's colours (`sky.tsx`). */}
       <Lighting size={size} />
 
-      <Terrain size={size} atmosphere={atmosphere} aspect={aspect} />
+      <LandProvider city={city} aspect={aspect} terrainColor={atmosphere.terrainColor} enabled={RICH_LAND}>
+      {RICH_LAND ? (
+        <>
+          <LandTerrain />
+          <Landscape city={city} atmosphere={atmosphere} />
+        </>
+      ) : (
+        <Terrain size={size} atmosphere={atmosphere} aspect={aspect} />
+      )}
       <Fields city={city} atmosphere={atmosphere} />
 
       {city.districts.map((district) => (
@@ -164,6 +175,7 @@ export default function City({
       <Pedestrians city={city} startAt={trafficStart} atmosphere={atmosphere} />
 
       <SelectionRing city={city} />
+      </LandProvider>
       </BatchProvider>
     </RevealContext.Provider>
   );

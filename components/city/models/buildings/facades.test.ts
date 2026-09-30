@@ -60,17 +60,20 @@ const HEX = /^#[0-9a-f]{6}$/;
 
 describe("look switches", () => {
   it("reads palette and grade from the query, defaulting to the material palette and the rich grade", () => {
-    expect(readLook("")).toEqual({ palette: "materials", grade: "rich" });
-    expect(readLook("?quality=high")).toEqual({ palette: "materials", grade: "rich" });
-    expect(readLook("?palette=materials&grade=rich")).toEqual({ palette: "materials", grade: "rich" });
-    expect(readLook("?palette=classic")).toEqual({ palette: "classic", grade: "rich" });
-    expect(readLook("?grade=classic&quality=high")).toEqual({ palette: "materials", grade: "classic" });
-    expect(readLook("?palette=classic&grade=classic")).toEqual({ palette: "classic", grade: "classic" });
-    expect(readLook("?palette=nonsense&grade=")).toEqual({ palette: "materials", grade: "rich" });
+    expect(readLook("")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
+    expect(readLook("?quality=high")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
+    expect(readLook("?palette=materials&grade=rich")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
+    expect(readLook("?palette=classic")).toEqual({ palette: "classic", grade: "rich", land: "rich" });
+    expect(readLook("?grade=classic&quality=high")).toEqual({ palette: "materials", grade: "classic", land: "rich" });
+    expect(readLook("?palette=classic&grade=classic")).toEqual({ palette: "classic", grade: "classic", land: "rich" });
+    expect(readLook("?land=classic")).toEqual({ palette: "materials", grade: "rich", land: "classic" });
+    expect(readLook("?land=rich")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
+    expect(readLook("?land=nonsense")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
+    expect(readLook("?palette=nonsense&grade=")).toEqual({ palette: "materials", grade: "rich", land: "rich" });
   });
 
   it("is what node and the server see: the new look, with the classic one a URL away", () => {
-    expect(LOOK).toEqual({ palette: "materials", grade: "rich" });
+    expect(LOOK).toEqual({ palette: "materials", grade: "rich", land: "rich" });
     expect(MATERIALS_PALETTE).toBe(true);
     expect(RICH_GRADE).toBe(true);
   });

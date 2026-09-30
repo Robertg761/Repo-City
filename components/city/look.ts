@@ -14,8 +14,13 @@
  *                      distance haze, a gentle saturation and contrast grade,
  *                      stronger occlusion and figure-ground on the ground
  *                      (`grade.ts`).
+ *   ?land=classic      the flat green field the city used to stand on. By
+ *                      default the rich landscape (`landscape/`): rolling land,
+ *                      irregular fields and hedgerows, woods, banked rivers and
+ *                      ponds, the city's own houses and trees, roads to the
+ *                      horizon, richer ground and close-up grass.
  *
- * Both richer looks are the default. Read in the browser only, at module
+ * All three richer looks are the default. Read in the browser only, at module
  * load; tests (node) and the server see the defaults, and tests that need the
  * classic look call `readLook("?palette=classic&grade=classic")` or pass the
  * switch to the pure function under test.
@@ -24,6 +29,7 @@
 export interface Look {
   palette: "materials" | "classic";
   grade: "rich" | "classic";
+  land: "rich" | "classic";
 }
 
 export function readLook(search: string): Look {
@@ -31,6 +37,7 @@ export function readLook(search: string): Look {
   return {
     palette: params.get("palette") === "classic" ? "classic" : "materials",
     grade: params.get("grade") === "classic" ? "classic" : "rich",
+    land: params.get("land") === "classic" ? "classic" : "rich",
   };
 }
 
@@ -38,3 +45,4 @@ export const LOOK: Look = readLook(typeof window === "undefined" ? "" : window.l
 
 export const MATERIALS_PALETTE = LOOK.palette === "materials";
 export const RICH_GRADE = LOOK.grade === "rich";
+export const RICH_LAND = LOOK.land === "rich";
