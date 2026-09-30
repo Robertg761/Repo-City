@@ -237,10 +237,11 @@ def bale(F):
         for i, (rr, dz) in enumerate(((0.44, 0.02), (0.34, 0.02), (0.24, 0.02), (0.14, 0.015))):
             nxt = prev + dz * s
             parts.append(lp.tube(f"step{i}", (0, foot, prev), (0, foot, nxt), rr, rr * 0.99, dark if i % 2 else straw, sides=sides, turn=turn))
-            parts.append(lp.tube(f"tread{i}", (0, foot, nxt), (0, foot, nxt + 0.0005 * s), rr, rr * 0.7, dark if i % 2 == 0 else straw, sides=sides, turn=turn))
+            # Each tread runs in to the next step's radius (the last to the
+            # axis), so no gap opens onto the hollow drum, which bakes black.
+            inner = (0.34, 0.24, 0.14, 0.0005)[i]
+            parts.append(lp.tube(f"tread{i}", (0, foot, nxt), (0, foot, nxt + 0.0005 * s), rr, inner, dark if i % 2 == 0 else straw, sides=sides, turn=turn))
             prev = nxt
-        # Close the dish over the last step.
-        parts.append(lp.tube("dish", (0, foot, prev), (0, foot, prev + 0.001 * s), 0.1, 0.1, dark, sides=sides, cap1=True, turn=turn))
     # Twine: four bands round the barrel.
     for z in (-0.24, -0.08, 0.08, 0.24):
         parts.append(lp.tube("twine", (0, foot, z - 0.012), (0, foot, z + 0.012), r + 0.008, r + 0.008, twine, sides=sides, turn=turn))

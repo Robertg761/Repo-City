@@ -87,7 +87,7 @@ def broadleaf(M):
     for i, (a, b) in enumerate([((0.3, 2.1, 0.06), (0.86, 2.4, 0.4)), ((-0.28, 2.15, -0.1), (-0.85, 2.45, -0.05)),
                                 ((0.4, 2.3, 0.0), (0.8, 2.15, -0.4)), ((-0.15, 2.4, -0.2), (-0.35, 2.85, -0.55))]):
         parts.append(limb(f"twig{i}", a, b, 0.045, 0.02, bark, sides=4, seed=10 + i))
-    parts.append(crown_core("core", BROADLEAF, 0.84, leaf, 520, 1.0))
+    parts.append(crown_core("core", BROADLEAF, 0.92, leaf, 520, 1.0))
     parts += nk.clumps("clump", BROADLEAF, 44, 0.2, 0.34, leaf, seed=4.0, bias=0.4)
     return finish(parts, "TreeBroadleafNear")
 
@@ -114,7 +114,7 @@ def conifer(M):
         for k in range(tips * 2):
             a = 2 * math.pi * k / (tips * 2)
             tip = k % 2 == 0
-            rr = r * (0.9 if tip else 0.68)
+            rr = r * (1.0 if tip else 0.72)
             rim.append((math.cos(a) * rr, math.sin(a) * rr, -0.06 if tip else 0.08))
         parts.append(lp.cone(f"core{i}", rim, y0, y1, leaf, under=under, turn=i * 0.37))
         # Fronds in rings, each ring a little higher and shorter than the last
@@ -144,8 +144,8 @@ def conifer(M):
 
 POPLAR = [
     ((-0.04, 1.95, 0.06), 1.0, (0.56, 0.9, 0.56)),
-    ((0, 3.05, 0), 1.0, (0.62, 1.7, 0.62)),
-    ((0.06, 4.4, 0.04), 1.0, (0.44, 1.12, 0.44)),
+    ((0, 3.05, 0), 1.0, (0.66, 1.7, 0.66)),
+    ((0.06, 4.4, 0.04), 1.0, (0.5, 1.12, 0.5)),
     ((-0.26, 2.75, 0.18), 0.5, (0.7, 1.1, 0.7)),
     ((0.24, 3.85, -0.14), 0.44, (0.7, 1.25, 0.7)),
 ]
@@ -158,8 +158,8 @@ def poplar(M):
     for i, (a, b) in enumerate([((0, 1.35, 0), (0.22, 2.3, 0.06)), ((0, 1.45, 0), (-0.2, 2.5, -0.08)),
                                 ((0, 1.5, 0), (0.05, 2.7, 0.2))]):
         parts.append(limb(f"limb{i}", a, b, 0.05, 0.028, bark, sides=4, seed=i))
-    parts.append(crown_core("core", POPLAR, 0.8, leaf, 460, 3.0))
-    parts += nk.clumps("clump", POPLAR, 46, 0.18, 0.3, leaf, seed=7.0, squash=(0.9, 1.1, 0.9), bias=0.2)
+    parts.append(crown_core("core", POPLAR, 0.78, leaf, 460, 3.0))
+    parts += nk.clumps("clump", POPLAR, 46, 0.16, 0.26, leaf, seed=7.0, squash=(0.9, 1.1, 0.9), bias=0.0)
     # The lean crown ends in a point: a few small clumps stacked up to it.
     for i, (y, r) in enumerate([(5.22, 0.2), (5.02, 0.26), (4.86, 0.3)]):
         parts.append(nk.lump(f"tip{i}", (0.06, y, 0.04), r, leaf, (0.85, 1.25, 0.85), i * 1.1, 0.16, 40.0 + i))
@@ -167,10 +167,12 @@ def poplar(M):
 
 
 BIRCH = [
-    ((0.22, 2.62, 0.1), 0.66, (1, 0.85, 1)),
-    ((-0.24, 3.2, -0.12), 0.72, (1, 0.88, 1)),
-    ((0.48, 3.15, -0.38), 0.48, (1, 0.9, 1)),
-    ((0.12, 3.86, 0.06), 0.54, (1, 0.9, 1)),
+    ((0.2, 2.68, 0.08), 0.6, (1, 0.85, 1)),
+    ((-0.22, 3.0, -0.1), 0.6, (1, 0.88, 1)),
+    ((0.36, 3.12, -0.3), 0.5, (1, 0.9, 1)),
+    ((0.04, 3.62, 0.06), 0.54, (1, 0.9, 1)),
+    ((-0.3, 3.4, 0.24), 0.42, (1, 0.9, 1)),
+    ((0.32, 3.4, 0.26), 0.42, (1, 0.9, 1)),
 ]
 
 
@@ -179,11 +181,11 @@ def birch(M):
     drooping twigs, and a loose crown of small clumps with the sky between."""
     pale, mark, leaf = M["birch"], M["mark"], M["leaf"]
     rnd = random.Random(31)
-    parts = [bole("trunk", 0.115, 0.06, 2.75, pale, sides=6, seed=5.0, rings=7), *roots(M, pale, 0.065, n=3)]
+    parts = [bole("trunk", 0.12, 0.08, 2.75, pale, sides=6, seed=5.0, rings=7), *roots(M, pale, 0.065, n=3)]
     # The lean model's two bands, and lenticels between them: short dark
     # dashes half way round the trunk at irregular heights.
     def radius_at(y):
-        return (0.115 + (0.06 - 0.115) * y / 2.75) * 0.97
+        return (0.12 + (0.08 - 0.12) * y / 2.75) * 0.97
     for y0, y1 in ((0.72, 0.8), (1.34, 1.41)):
         parts.append(lp.tube("band", (0, y0, 0), (0, y1, 0), radius_at(y0) * 1.02, radius_at(y1) * 1.02, mark, sides=6))
     for i in range(16):
@@ -204,8 +206,8 @@ def birch(M):
         ang = rnd.uniform(0, 6.28)
         e = (s[0] + math.cos(ang) * 0.32, s[1] - 0.12, s[2] + math.sin(ang) * 0.32)
         parts.append(limb(f"twig{i}", s, e, 0.02, 0.008, pale, sides=3, sag=-0.03, seed=20 + i))
-    parts.append(crown_core("core", BIRCH, 0.68, leaf, 260, 5.0))
-    parts += nk.clumps("clump", BIRCH, 44, 0.14, 0.26, leaf, seed=9.0, squash=(1.0, 0.7, 1.0), bias=0.3)
+    parts.append(crown_core("core", BIRCH, 0.95, leaf, 300, 5.0))
+    parts += nk.clumps("clump", BIRCH, 46, 0.14, 0.24, leaf, seed=9.0, squash=(1.0, 0.7, 1.0), bias=0.3)
     return finish(parts, "TreeBirchNear")
 
 

@@ -118,15 +118,13 @@ def bush(M):
         ((-0.05, 0.76, 0.1), 0.28, (1, 0.9, 1)),
         ((0.12, 0.3, -0.36), 0.28, (1, 0.9, 1)),
     ]
-    parts = [lp.blobs("core", [(c, r * 0.88, sq) for c, r, sq in ell], M["leaf"], wobble=0.08, seed=7.0, decimate=150)]
+    parts = [lp.blobs("core", [(c, r * 0.93, sq) for c, r, sq in ell], M["leaf"], wobble=0.08, seed=7.0, decimate=150)]
+    # No bare stems under it: the lean bush sits on the ground with none.
     # Big clumps over the hull, then a scatter of small ones between them.
     parts += nk.clumps("clump", ell, 9, 0.12, 0.19, M["leaf"], seed=12.0, squash=(1, 0.8, 1), bias=0.5, alt=M["leaf2"])
     parts += nk.clumps("bud", ell, 14, 0.06, 0.09, M["leaf"], seed=31.0, squash=(1, 0.8, 1), bias=0.3, sub=1, alt=M["leaf2"])
     # A dark clump low on one side, as the lean bush has.
     parts.append(nk.lump("dark", (-0.44, 0.36, 0.16), 0.2, M["leaf2"], (1, 0.9, 1), 0.4, 0.16, 9.0))
-    # Bare stems where the bush meets the ground.
-    for i, a in enumerate((0.4, 2.2, 3.8, 5.3)):
-        parts.append(lp.tube(f"stem{i}", (math.cos(a) * 0.05, 0, math.sin(a) * 0.05), (math.cos(a) * 0.16, 0.28, math.sin(a) * 0.16), 0.022, 0.014, M["wood"], sides=4))
     return finish(parts, "BushNear")
 
 

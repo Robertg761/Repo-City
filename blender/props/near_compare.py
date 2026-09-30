@@ -61,6 +61,8 @@ def main():
         "close": (span * 1.7, -24, 14),
         "mid": (span * 2.8, -28, 24),
         "far": (span * 6.0, -30, 50),
+        "side": (span * 1.6, 90, 3),
+        "top": (span * 1.6, -20, 60),
     }
     names = os.environ.get("VIEWS", "close,mid").split(",")
     views = [(n, stage.camera(n, centre, *all_views[n])) for n in names]

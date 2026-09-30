@@ -104,10 +104,16 @@ def bin_(M):
     # The slats: dark vertical strips proud of each face of the body.
     # They lean with the body's taper, just proud of each face.
     lean = math.atan(0.04 * math.cos(math.pi / 8) / 0.65)
+    # Two to a face (the near bin has sixteen), none behind the label.
     for i in range(8):
         a = i * math.pi / 4
         r = (0.22 + 0.04 * (0.4 - 0.07) / 0.65) * math.cos(math.pi / 8) + 0.004
-        parts.append(lp.panel("slot", 0.05, 0.5, (math.sin(a) * r, 0.4, math.cos(a) * r), M["slot"], rot=(lean, a, 0)))
+        for s in (-1, 1):
+            if i == 0:
+                continue
+            off = 0.05 * s
+            parts.append(lp.panel("slot", 0.05, 0.5, (math.sin(a) * r + math.cos(a) * off, 0.4, math.cos(a) * r - math.sin(a) * off),
+                                  M["slot"], rot=(lean, a, 0)))
     parts.append(lp.panel("label", 0.17, 0.16, (0, 0.5, 0.2295), M["label"], rot=(lean, 0, 0)))
     return finish(parts, "Bin")
 
@@ -184,6 +190,9 @@ def lamp(M):
         lp.cone("roof", [(0.21, 0.21, 0), (-0.21, 0.21, 0), (-0.21, -0.21, 0), (0.21, -0.21, 0)],
                 LAMP_HEAD_Y + 0.08, LAMP_HEAD_Y + 0.2, dark),
     ]
+    # The finial the near lamp ends in, and a cast ring up the shaft.
+    parts.append(lp.tube("finial", (0, LAMP_HEAD_Y + 0.2, 0), (0, LAMP_HEAD_Y + 0.24, 0), 0.03, 0.012, dark, sides=4, cap1=True))
+    parts.append(lp.tube("ring", (0, 1.35, 0), (0, 1.39, 0), 0.09, 0.09, dark, sides=6))
     post = finish(parts, "LampPole")
     glass = lp.tube("glass", (0, LAMP_HEAD_Y - 0.09, 0), (0, LAMP_HEAD_Y + 0.08, 0), 0.11, 0.17, M["glass"],
                     sides=4, cap0=True, turn=math.pi / 4)

@@ -123,7 +123,7 @@ describe("Blender street furniture", () => {
 
   it("stands the lamp's pole and lantern on the ground under the lamp, one origin for both", () => {
     const { pole, head } = blenderLampGeometry();
-    expect(triangleCount(pole)).toBeLessThanOrEqual(56);
+    expect(triangleCount(pole)).toBeLessThanOrEqual(72);
     expect(triangleCount(head)).toBeLessThanOrEqual(16);
     const p = bounds(pole);
     expect(p.min.y).toBeCloseTo(0, 3);

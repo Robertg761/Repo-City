@@ -163,18 +163,18 @@ def body(M):
     for side in (-1, 1):
         arm = [
             (0.288, 0.05, 0.048, side * 0.16, 0.0),
-            (0.245, 0.046, 0.044, side * 0.172, 0.0),
-            (0.185, 0.043, 0.041, side * 0.181, 0.002),
-            (0.12, 0.041, 0.039, side * 0.185, 0.006),
-            (0.07, 0.039, 0.039, side * 0.187, 0.012),
-            (0.02, 0.037, 0.036, side * 0.19, 0.018),
-            (-0.03, 0.036, 0.035, side * 0.191, 0.022),
+            (0.245, 0.046, 0.044, side * 0.1578, 0.0),
+            (0.185, 0.043, 0.041, side * 0.1561, 0.002),
+            (0.12, 0.041, 0.039, side * 0.1553, 0.006),
+            (0.07, 0.039, 0.039, side * 0.1549, 0.012),
+            (0.02, 0.037, 0.036, side * 0.1544, 0.018),
+            (-0.03, 0.036, 0.035, side * 0.1542, 0.022),
         ]
         parts.append(loft(f"sleeve{side}", arm, M["clothes"], sides=10, caps=(True, False)))
-        parts.append(loft(f"cuff{side}", [(-0.02, 0.041, 0.04, side * 0.191, 0.021), (-0.035, 0.041, 0.04, side * 0.191, 0.022),
-                                          (-0.062, 0.039, 0.038, side * 0.192, 0.024)],
+        parts.append(loft(f"cuff{side}", [(-0.02, 0.041, 0.04, side * 0.1542, 0.021), (-0.035, 0.041, 0.04, side * 0.1542, 0.022),
+                                          (-0.062, 0.039, 0.038, side * 0.1540, 0.024)],
                           M["clothes_dark"], sides=10, caps=(False, True)))
-        cx, cz = side * 0.192, 0.026
+        cx, cz = side * 0.1540, 0.026
         parts.append(loft(f"palm{side}", [(-0.062, 0.025, 0.02, cx, cz), (-0.085, 0.03, 0.02, cx, cz + 0.002),
                                           (-0.105, 0.029, 0.018, cx, cz + 0.004)], M["hands"], sides=8))
         for i, dx in enumerate((-0.0225, -0.0075, 0.0075, 0.0225)):
@@ -185,9 +185,9 @@ def body(M):
         parts.append(lp.tube(f"thumb{side}", (cx - side * 0.026, -0.072, cz + 0.006),
                              (cx - side * 0.03, -0.112, cz + 0.02), 0.009, 0.0065, M["hands"], sides=4, cap1=True))
     # A watch on the left wrist.
-    parts.append(loft("watchband", [(-0.048, 0.042, 0.041, -0.192, 0.024), (-0.064, 0.042, 0.041, -0.192, 0.025)],
+    parts.append(loft("watchband", [(-0.048, 0.042, 0.041, -0.1540, 0.024), (-0.064, 0.042, 0.041, -0.1540, 0.025)],
                       M["strap"], sides=10, caps=(False, False)))
-    parts.append(box("watch", (0.03, 0.03, 0.012), (-0.192, -0.056, 0.066), M["zip"], bev=0.003))
+    parts.append(box("watch", (0.03, 0.03, 0.012), (-0.1540, -0.056, 0.066), M["zip"], bev=0.003))
 
     # --- Legs: trousers with a knee and a cuff, then the shoes.
     for side in (-1, 1):
