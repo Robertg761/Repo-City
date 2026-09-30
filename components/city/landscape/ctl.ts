@@ -19,8 +19,9 @@
 
 import type { CityModel } from "@/types/city";
 import { plazaRect } from "../groundwork";
+import { convexDistance } from "./fields";
 import { fbm, hash01, smooth01 } from "./noise";
-import { PLOT_MARGIN, type LandscapePlan } from "./plan";
+import { PLOT_MARGIN, pondEdge, type LandscapePlan } from "./plan";
 
 export const CTL_SIZE = 512;
 /** The map's side is the plot's side times this: the plot and the apron round it. */
@@ -149,23 +150,15 @@ function rasters(city: CityModel, plan: LandscapePlan, c: Control): Rasters {
       const a = river.pts[i];
       const b = river.pts[i + 1];
       const f = segDistance(a.x, a.z, b.x, b.z);
-      stampDistance(c, r.water, a.x, a.z, b.x, b.z, (x, z) => f(x, z) - river.width / 2, 6);
+      // The bank counts as water: no grass tufts on the mud.
+      stampDistance(c, r.water, a.x, a.z, b.x, b.z, (x, z) => f(x, z) - river.width / 2 - river.spec.bank * 0.85, 6 + river.spec.bank);
     }
   }
   for (const pond of plan.ponds) {
-    const cs = Math.cos(pond.yaw);
-    const sn = Math.sin(pond.yaw);
-    stampDistance(c, r.water, pond.x, pond.z, pond.x, pond.z, (x, z) => {
-      const dx = x - pond.x;
-      const dz = z - pond.z;
-      const u = (dx * cs - dz * sn) / pond.rx;
-      const v = (dx * sn + dz * cs) / pond.rz;
-      return (Math.hypot(u, v) - 1) * Math.min(pond.rx, pond.rz);
-    }, Math.max(pond.rx, pond.rz) * 1.5);
+    stampDistance(c, r.water, pond.x, pond.z, pond.x, pond.z, (x, z) => pondEdge(pond, x, z) - pond.spec.bank * 0.85, Math.max(pond.rx, pond.rz) * 1.5 + pond.spec.bank);
   }
   for (const f of plan.fields) {
-    const d = rectDistance(f.x, f.z, f.w / 2, f.d / 2, f.yaw);
-    stampDistance(c, r.field, f.x, f.z, f.x, f.z, d, Math.hypot(f.w, f.d));
+    stampDistance(c, r.field, f.x, f.z, f.x, f.z, (x, z) => convexDistance(f.poly, x, z), f.radius + 2);
   }
   // The model's own fields (a village's, inside the plot), hedges and all.
   for (const f of city.props.fields ?? []) {

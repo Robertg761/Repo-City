@@ -47,10 +47,11 @@ describe("the grass", () => {
 });
 
 describe("the switch", () => {
-  it("?land=rich turns the rich landscape on, and anything else leaves the current look", () => {
+  it("the rich landscape is the default, and ?land=classic is the way back to the flat field", () => {
     expect(readLook("?land=rich").land).toBe("rich");
-    expect(readLook("").land).toBe("classic");
+    expect(readLook("").land).toBe("rich");
     expect(readLook("?land=classic").land).toBe("classic");
+    expect(readLook("?land=whatever").land).toBe("rich");
     expect(readLook("?land=rich&grade=classic").grade).toBe("classic");
   });
 });

@@ -19,9 +19,9 @@
  * The landscape is also the "nothing here" click target: clicking it clears
  * the selection (PLAN.md section 6).
  *
- * `?land=rich` (`look.ts`) replaces both planes, for a city, with the rolling
- * land of `landscape/` (`LandTerrain`, which is the click target then too); this
- * file still draws the empty stage before a city is surveyed.
+ * By default (`look.ts`) the rolling land of `landscape/` replaces both planes,
+ * for a city and for the empty stage once the models are in (`LandTerrain`,
+ * which is the click target then too); `?land=classic` keeps these two planes.
  */
 
 import { useMemo, useRef } from "react";

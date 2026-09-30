@@ -5,24 +5,26 @@ import {
   DECK_TOP,
   TERRAIN_RINGS,
   TERRAIN_SECTORS,
-  barnGeometry,
-  blockGeometry,
-  broadleafGeometry,
+  WATER_LIFT,
+  buildBanks,
+  buildBarrier,
   buildBridges,
   buildFields,
-  buildHedges,
-  buildPond,
+  buildHedgeTubes,
   buildRibbon,
   buildTerrain,
   buildTowers,
-  canopyGeometry,
-  coniferGeometry,
-  houseGeometry,
+  buildWater,
   roadHeight,
+  roadTexture,
   terrainPainter,
   windowTextures,
 } from "./build";
+import { bankDepth, trenchDepth } from "./water";
 import { GROUND_Y, planLandscape } from "./plan";
+import { MODEL as TREES } from "../models/props/trees.model";
+
+void TREES;
 
 const city = tierCity("city");
 const plan = planLandscape(city);
@@ -99,8 +101,7 @@ describe("ribbons, ponds and bridges", () => {
     expect(buildRibbon([{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 20, z: 0 }], 4, () => 0, { from: 1 }).getAttribute("position").count).toBe(4);
   });
 
-  it("a pond is a fan, and a road climbs onto a bridge's deck over the river", () => {
-    expect(buildPond(0, 0, 10, 6, 0.3, 0.1, "#ffffff").getIndex()!.count).toBe(28 * 3);
+  it("a road climbs onto a bridge's deck over the river, and the deck rests on the banks", () => {
     const b = plan.bridges[0];
     const y = roadHeight(plan, terrain.sample);
     expect(y(b.x, b.z)).toBeGreaterThan(DECK_TOP - 0.01);
@@ -110,50 +111,149 @@ describe("ribbons, ponds and bridges", () => {
     expect(y(fx, fz)).toBeCloseTo(terrain.sample(fx, fz) + 0.09, 6);
     const g = buildBridges(plan);
     expect(g.getAttribute("position").count).toBeGreaterThan(plan.bridges.length * 100);
+    // The abutments stand inside the span, from the bank's foot to the deck.
+    g.computeBoundingBox();
+    expect(g.boundingBox!.min.y).toBeLessThan(GROUND_Y - 0.4);
+    expect(g.boundingBox!.max.y).toBeGreaterThan(DECK_TOP);
+  });
+
+  it("a motorway has a central barrier: three crisp strips, as high as the model's", () => {
+    const pts = [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 20, z: 4 }];
+    const g = buildBarrier(pts, () => 0, 0);
+    expect(g.getAttribute("position").count).toBe(3 * 3 * 2);
+    g.computeBoundingBox();
+    expect(g.boundingBox!.max.y).toBeCloseTo(0.55 - 0.04, 2);
+    expect(buildBarrier(pts, () => 0, 2).getAttribute("position")).toBeUndefined();
+  });
+
+  it("the motorway's road texture has a hard shoulder and solid edge lines, the street's a dashed middle", () => {
+    const m = roadTexture("motorway").image.data as Uint8Array;
+    const s = roadTexture("street").image.data as Uint8Array;
+    const at = (d: Uint8Array, u: number, v: number) => d[(Math.floor(v * 64) * 64 + Math.floor(u * 64)) * 4];
+    // The middle of the street has a line in the dashed half, and the motorway's does not (a barrier stands there).
+    expect(at(s, 0.5, 0.1)).toBeGreaterThan(at(s, 0.3, 0.1) + 40);
+    expect(at(m, 0.5, 0.1)).toBeLessThan(at(m, 0.055, 0.1));
+    // Solid edge lines: lit at every height.
+    for (const v of [0.05, 0.3, 0.6, 0.9]) expect(at(m, 0.055, v)).toBeGreaterThan(at(m, 0.5, v) + 40);
+  });
+});
+
+describe("water and its banks", () => {
+  it("the bank falls from the level land to the water, steepest in the middle", () => {
+    const spec = plan.rivers[0].spec;
+    expect(bankDepth(spec.bank, spec)).toBe(0);
+    expect(bankDepth(0, spec)).toBeCloseTo(spec.drop, 6);
+    let last = -1;
+    for (let d = spec.bank; d >= 0; d -= spec.bank / 20) {
+      const depth = bankDepth(d, spec);
+      expect(depth).toBeGreaterThanOrEqual(last);
+      last = depth;
+    }
+    // The terrain's trench is always at least as deep, so the exact banks show through it.
+    for (let d = -5; d < spec.bank * 2; d += 0.7) expect(trenchDepth(d, spec, 5)).toBeGreaterThanOrEqual(bankDepth(d, spec, 5));
+  });
+
+  it("the bank mesh dips to the waterline and its colours darken there", () => {
+    const g = buildBanks(plan, paint);
+    const pos = g.getAttribute("position");
+    const col = g.getAttribute("color");
+    expect(pos.count).toBeGreaterThan(500);
+    let low = Infinity;
+    let darkest = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      low = Math.min(low, pos.getY(i));
+      darkest = Math.min(darkest, col.getX(i) + col.getY(i) + col.getZ(i));
+    }
+    expect(low).toBeLessThan(GROUND_Y - plan.rivers[0].spec.drop);
+    expect(darkest).toBeLessThan(0.6);
+    // Faces up.
+    const idx = g.getIndex()!;
+    let down = 0;
+    for (let t = 0; t < idx.count; t += 3) {
+      const [a, b, c] = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
+      const cross = (pos.getZ(b) - pos.getZ(a)) * (pos.getX(c) - pos.getX(a)) - (pos.getX(b) - pos.getX(a)) * (pos.getZ(c) - pos.getZ(a));
+      if (cross < -1e-6) down++;
+    }
+    expect(down).toBe(0);
+  });
+
+  it("the water lies at the waterline and is clear at the shore and deep in the middle", () => {
+    const w = buildWater(plan);
+    const pos = w.getAttribute("position");
+    const depth = w.getAttribute("aDepth");
+    const level = GROUND_Y - plan.rivers[0].spec.drop + WATER_LIFT;
+    expect(pos.getY(0)).toBeCloseTo(level, 6);
+    let min = 1;
+    let max = 0;
+    for (let i = 0; i < depth.count; i++) {
+      min = Math.min(min, depth.getX(i));
+      max = Math.max(max, depth.getX(i));
+    }
+    expect(min).toBe(0);
+    expect(max).toBeGreaterThan(0.95);
+  });
+
+  it("a village's pond is water too, with its own bank", () => {
+    const v = planLandscape(tierCity("village"));
+    const w = buildWater(v);
+    const b = buildBanks(v, terrainPainter(v, "#6aa860"));
+    expect(w.getIndex()!.count).toBeGreaterThan(400);
+    expect(b.getAttribute("position").count).toBeGreaterThan(400);
   });
 });
 
 describe("fields and hedges", () => {
-  it("lie on the ground they are on", () => {
+  it("lie on the ground they are on, faces up, with crop rows for the shader", () => {
     const g = buildFields(plan, terrain.sample, 0);
     const pos = g.getAttribute("position");
     expect(pos.count).toBeGreaterThan(plan.fields.length * 9);
     for (let i = 0; i < pos.count; i += 37) expect(pos.getY(i)).toBeCloseTo(terrain.sample(pos.getX(i), pos.getZ(i)) + 0.07, 4);
-    // Faces up.
     const idx = g.getIndex()!;
-    for (let t = 0; t < Math.min(idx.count, 3000); t += 3) {
+    for (let t = 0; t < idx.count; t += 3) {
       const [a, b, c] = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
-      expect((pos.getZ(b) - pos.getZ(a)) * (pos.getX(c) - pos.getX(a)) - (pos.getX(b) - pos.getX(a)) * (pos.getZ(c) - pos.getZ(a))).toBeGreaterThan(0);
+      const cross = (pos.getZ(b) - pos.getZ(a)) * (pos.getX(c) - pos.getX(a)) - (pos.getX(b) - pos.getX(a)) * (pos.getZ(c) - pos.getZ(a));
+      expect(cross).toBeGreaterThan(-1e-6);
     }
+    const row = g.getAttribute("aRow");
+    expect(row.count).toBe(pos.count);
+    let withRows = 0;
+    for (let i = 0; i < row.count; i++) if (row.getY(i) > 0) withRows++;
+    expect(withRows).toBeGreaterThan(row.count * 0.3);
   });
 
-  it("hedges are a bounded number of clipped runs", () => {
-    const g = buildHedges(plan.hedges, terrain.sample);
-    const tris = g.getAttribute("position").count / 3;
-    expect(tris).toBeGreaterThan(plan.hedges.length * 4);
-    expect(tris).toBeLessThan(1400 * 12 + 1);
+  it("hedges are lumpy tubes: a bounded length, uneven tops, several greens, gaps for the gates", () => {
+    const g = buildHedgeTubes(plan.hedges, terrain.sample, { budget: 1500 });
+    const pos = g.getAttribute("position");
+    const col = g.getAttribute("color");
+    expect(pos.count).toBeGreaterThan(200);
+    // Bounded by the length budget: a few triangles a unit.
+    expect(g.getIndex()!.count / 3).toBeLessThan(1500 * 14);
+    // The heights wander: the tops are not one level above the ground.
+    const tops: number[] = [];
+    for (let i = 0; i < pos.count; i += 8) tops.push(pos.getY(i + 4) - terrain.sample(pos.getX(i + 4), pos.getZ(i + 4)));
+    const mean = tops.reduce((a, b) => a + b, 0) / tops.length;
+    const sd = Math.sqrt(tops.reduce((a, b) => a + (b - mean) ** 2, 0) / tops.length);
+    expect(sd).toBeGreaterThan(0.12);
+    // Colours vary between runs.
+    const greens = new Set<number>();
+    for (let i = 0; i < col.count; i += 3) greens.add(Math.round(col.getY(i) * 40));
+    expect(greens.size).toBeGreaterThan(4);
+    // Smooth normals: the mesh is indexed.
+    expect(g.getAttribute("normal")).toBeTruthy();
+    // A gap: a long straight run with a gate is in two pieces, so fewer triangles than an unbroken one of the same length.
+    const one = buildHedgeTubes([{ x0: 0, z0: 0, x1: 200, z1: 0, shade: 0.3 }], () => 0);
+    const cells = one.getAttribute("position").count / 8;
+    expect(cells).toBeLessThan(200 / 1.9 + 1);
+  });
+
+  it("the budget stops adding runs", () => {
+    const small = buildHedgeTubes(plan.hedges, terrain.sample, { budget: 300 });
+    const big = buildHedgeTubes(plan.hedges, terrain.sample, { budget: 3000 });
+    expect(small.getAttribute("position").count).toBeLessThan(big.getAttribute("position").count);
   });
 });
 
-describe("the instanced pieces", () => {
-  it("every tree, house and tower is a small merged geometry with colours", () => {
-    const geometries = { b: broadleafGeometry(), c: coniferGeometry(), k: canopyGeometry(), r: houseGeometry("red"), s: houseGeometry("slate"), t: houseGeometry("tan"), barn: barnGeometry(), block: blockGeometry() };
-    for (const [name, g] of Object.entries(geometries)) {
-      const tris = g.getAttribute("position").count / 3;
-      expect(tris, name).toBeGreaterThan(8);
-      expect(tris, name).toBeLessThan(120);
-      expect(g.getAttribute("color"), name).toBeTruthy();
-      g.computeBoundingBox();
-      expect(g.boundingBox!.min.y, name).toBeGreaterThan(-0.05);
-    }
-    // Houses stand on a unit footprint, and a barn's ridge is its tallest point.
-    const house = houseGeometry("red");
-    house.computeBoundingBox();
-    expect(house.boundingBox!.max.x).toBeGreaterThan(0.5);
-    expect(house.boundingBox!.max.x).toBeLessThan(0.6);
-    expect(house.boundingBox!.max.y).toBeCloseTo(1, 2);
-  });
-
+describe("the skyline", () => {
   it("the skyline is windowed towers standing on the ground, and lit windows are a subset of windows", () => {
     const metro = planLandscape(tierCity("metropolis"));
     const t = buildTerrain(metro, () => undefined);
@@ -180,9 +280,10 @@ describe("every tier's land builds", () => {
     const p = planLandscape(tierCity(tier));
     const t = buildTerrain(p, () => undefined);
     const fields = buildFields(p, t.sample, 0);
-    const hedges = buildHedges(p.hedges, t.sample);
+    const hedges = buildHedgeTubes(p.hedges, t.sample);
+    const banks = buildBanks(p, () => undefined);
     const towers = buildTowers(p.towers, t.sample);
-    const tris = t.geometry.getIndex()!.count / 3 + fields.getIndex()!.count / 3 + hedges.getAttribute("position").count / 3 + (towers.getAttribute("position")?.count ?? 0) / 3;
+    const tris = t.geometry.getIndex()!.count / 3 + fields.getIndex()!.count / 3 + (hedges.getIndex()?.count ?? 0) / 3 + (banks.getIndex()?.count ?? 0) / 3 + (towers.getAttribute("position")?.count ?? 0) / 3;
     expect(tris).toBeLessThan(120_000);
   });
 });

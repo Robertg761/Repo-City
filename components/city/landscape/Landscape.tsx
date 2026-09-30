@@ -1,15 +1,19 @@
 "use client";
 
 /**
- * The land round the city (`?land=rich`), drawn from `plan.ts`:
+ * The land round the city (the default; `?land=classic` is the flat field),
+ * drawn from `plan.ts`:
  *
  *   LandTerrain   the rolling ground itself, in the ground shader (`ground.tsx`),
  *                 and the "nothing here" click target the old landscape was
- *   Landscape     everything on it: water, roads and bridges, fields and
- *                 hedges, woods, houses, a skyline, and the verge along the
- *                 plot's edge
+ *   Landscape     everything on it: banked water that reflects the sky, roads
+ *                 (a motorway keeps its barrier) and bridges that rest on the
+ *                 banks, irregular fields with hedgerows, woods of the city's
+ *                 own tree models, houses and barns of the city's own models
+ *                 with windows that light at night, a skyline, and the verge
+ *                 along the plot's edge
  *
- * Everything is merged or instanced and unlit-cheap: about two dozen draw
+ * Everything is merged or instanced, lean levels only: a few dozen draw
  * calls, all of it distant. The pieces mount a few frames apart (`Later`) so
  * that the city's arrival is many short tasks and not one long one.
  */
@@ -24,40 +28,40 @@ import {
   Object3D,
   type BufferGeometry,
   type InstancedMesh,
-  type Texture,
 } from "three";
 import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import type { SceneAtmosphere } from "../palette";
 import { useQuality } from "../quality";
 import { useSkyFrame } from "../sky";
+import { treeGeometry, SPECIES_LEAF, type TreeSpecies } from "../models/props/trees";
+import { tintedMaterial } from "../models/props/material";
 import { tiledSurface } from "../textures/surfaces";
 import { SURFACE_BUMP } from "../textures/texture-data";
 import { wasDrag } from "../useEntity";
 import {
-  barnGeometry,
-  blockGeometry,
-  broadleafGeometry,
+  buildBanks,
+  buildBarrier,
+  mergeAll,
   buildBridges,
   buildFields,
-  buildHedges,
-  buildPond,
+  buildHedgeTubes,
   buildRibbon,
   buildStreets,
   buildTowers,
-  canopyGeometry,
-  coniferGeometry,
-  houseGeometry,
+  buildWater,
   roadHeight,
   roadTexture,
-  stripeTexture,
+  terrainPainter,
   windowTextures,
 } from "./build";
 import { CTL_REACH } from "./ctl";
 import Grass from "./grass";
+import Homes from "./Homes";
 import { useLand } from "./LandProvider";
 import { patchLand, useLandGround } from "./ground";
-import type { LandscapePlan, TreeSpot } from "./plan";
+import { patchCrops, tuneWater, waterMaterial } from "./materials";
+import { landDistance, type HedgeRun, type LandscapePlan, type TreeSpot } from "./plan";
 
 const scratch = new Object3D();
 const tint = new Color();
@@ -113,17 +117,15 @@ const none = () => null;
 // Terrain
 // ---------------------------------------------------------------------------
 
-export function LandTerrain() {
-  const land = useLand();
+/** The terrain's material, patched with the ground shader: the banks use the same, so they join the land seamlessly. */
+function useGroundMaterial(): MeshStandardMaterial | null {
   const ground = useLandGround();
-  const actions = useCityStore((s) => s.actions);
   const { textureSize, anisotropy } = useQuality();
   const lawn = useMemo(() => ({
     map: tiledSurface("lawn", textureSize, 1, anisotropy),
     relief: tiledSurface("lawn", textureSize, 1, anisotropy, true),
   }), [textureSize, anisotropy]);
   useEffect(() => () => { lawn.map.dispose(); lawn.relief.dispose(); }, [lawn]);
-
   const material = useMemo(() => {
     if (!ground) return null;
     const m = new MeshStandardMaterial({
@@ -140,6 +142,15 @@ export function LandTerrain() {
     return m;
   }, [ground, lawn]);
   useEffect(() => () => material?.dispose(), [material]);
+  return material;
+}
+
+export function LandTerrain() {
+  const land = useLand();
+  const ground = useLandGround();
+  const actions = useCityStore((s) => s.actions);
+
+  const material = useGroundMaterial();
 
   if (!land?.terrain || !material || !ground?.control) return null;
 
@@ -223,17 +234,13 @@ function Instanced<T>({
 }
 
 /** Disposes a GPU object when it is replaced or the component goes. */
-function useDispose(value: { dispose(): void }): void {
-  useEffect(() => () => value.dispose(), [value]);
+function useDispose(value: { dispose(): void } | null): void {
+  useEffect(() => () => value?.dispose(), [value]);
 }
 
-const vegetationMaterial = () =>
-  new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true });
-
-/** Instance tint: near white with a hue and brightness drift, so no two are quite alike. */
-function jitterTint(shade: number, out: Color, warm = 0.12): void {
-  out.setRGB(0.88 + shade * 0.24 + warm * (shade - 0.5), 0.9 + shade * 0.16, 0.86 + shade * 0.2 - warm * (shade - 0.5));
-}
+// A little green of its own: a hedge in its own shadow is leaf-dark, not black.
+const hedgeMaterial = () =>
+  new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0, side: DoubleSide, emissive: "#24421a", emissiveIntensity: 0.55 });
 
 // ---------------------------------------------------------------------------
 // The dressing
@@ -262,17 +269,17 @@ function Dressing({
   return (
     <group>
       <Later at={1}>
-        <Waters plan={plan} />
+        <Waters plan={plan} terrainColor={atmosphere.terrainColor} />
         <Roads plan={plan} sample={sample} />
       </Later>
       <Later at={2}>
-        <Fields plan={plan} sample={sample} atmosphere={atmosphere} hedges={!low} />
+        <Fields plan={plan} sample={sample} atmosphere={atmosphere} tier={tier} />
       </Later>
       <Later at={3}>
-        <Woods plan={plan} sample={sample} low={low} />
+        <Woods plan={plan} sample={sample} low={low} atmosphere={atmosphere} />
       </Later>
       <Later at={4}>
-        <Homes plan={plan} sample={sample} />
+        <Homes plan={plan} sample={sample} atmosphere={atmosphere} maxHouses={low ? 90 : undefined} />
       </Later>
       {!low && (
         <Later at={6}>
@@ -280,120 +287,144 @@ function Dressing({
         </Later>
       )}
       <Later at={5}>
-        <Verge plan={plan} sample={sample} />
         {plan.towers.length > 0 && <Skyline plan={plan} sample={sample} />}
       </Later>
     </group>
   );
 }
 
-const WATER = "#468aa8";
-
-function Waters({ plan }: { plan: LandscapePlan }) {
-  const material = useMemo(() => new MeshStandardMaterial({
-      color: WATER,
-      vertexColors: true,
-      roughness: 0.22,
-      metalness: 0.08,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    }), []);
-  useDispose(material);
+function Waters({ plan, terrainColor }: { plan: LandscapePlan; terrainColor: string }) {
+  const water = useMemo(() => waterMaterial(), []);
+  useDispose(water.material);
+  const ground = useGroundMaterial();
   const geometries = useMemo(() => {
-    const list: BufferGeometry[] = [];
-    for (const river of plan.rivers) {
-      list.push(buildRibbon(river.pts, river.width, () => 0.1, { along: 30, edge: "#ffffff", centre: "#ffffff" }));
-    }
-    for (const pond of plan.ponds) list.push(buildPond(pond.x, pond.z, pond.rx, pond.rz, pond.yaw, 0.1, "#ffffff"));
-    return list;
-  }, [plan]);
-  useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
+    const paint = terrainPainter(plan, terrainColor);
+    return { banks: buildBanks(plan, paint), surface: buildWater(plan) };
+  }, [plan, terrainColor]);
+  useEffect(() => () => { geometries.banks.dispose(); geometries.surface.dispose(); }, [geometries]);
+  // The sky it reflects and the colour of its body follow the hour; the ripples follow the clock.
+  useSkyFrame((sky) => tuneWater(water.uniforms, sky), water);
+  useFrame(({ clock }) => {
+    water.tick(clock.elapsedTime);
+  });
+  if (!ground) return null;
   return (
     <group>
-      {geometries.map((g, i) => (
-        <mesh key={i} geometry={g} material={material} receiveShadow raycast={none} />
-      ))}
+      <mesh geometry={geometries.banks} material={ground} receiveShadow frustumCulled={false} raycast={none} />
+      <mesh geometry={geometries.surface} material={water.material} frustumCulled={false} raycast={none} renderOrder={2} />
     </group>
   );
 }
 
 function Roads({ plan, sample }: { plan: LandscapePlan; sample: (x: number, z: number) => number }) {
-  const map = useMemo(() => roadTexture(), []);
-  useDispose(map);
-  const material = useMemo(() => new MeshStandardMaterial({
-      color: "#ffffff",
-      map,
-      roughness: 0.95,
-      metalness: 0,
-      polygonOffset: true,
-      polygonOffsetFactor: -3,
-      polygonOffsetUnits: -3,
-    }), [map]);
-  useDispose(material);
+  const maps = useMemo(() => ({ street: roadTexture("street"), motorway: roadTexture("motorway") }), []);
+  useEffect(() => () => { maps.street.dispose(); maps.motorway.dispose(); }, [maps]);
+  const materials = useMemo(() => {
+    const make = (map: (typeof maps)["street"]) =>
+      new MeshStandardMaterial({
+        color: "#ffffff",
+        map,
+        roughness: 0.95,
+        metalness: 0,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3,
+      });
+    return { street: make(maps.street), motorway: make(maps.motorway) };
+  }, [maps]);
+  useEffect(() => () => { materials.street.dispose(); materials.motorway.dispose(); }, [materials]);
+  // Every road of a kind is one mesh, and the barriers, bridges and sprawl streets are one more: a handful of draws however many roads run out.
   const parts = useMemo(() => {
     const y = roadHeight(plan, sample);
-    return {
-      roads: plan.roads.map((road) => buildRibbon(road.pts, road.width * 0.94, y, { along: 5.6, from: road.drawFrom })),
-      bridges: buildBridges(plan),
-      streets: buildStreets(plan, sample),
-    };
+    const surface = (motorway: boolean) =>
+      mergeAll(
+        plan.roads
+          .filter((road) => (road.style === "motorway") === motorway)
+          .map((road) => buildRibbon(road.pts, road.width * 0.94, y, { along: motorway ? 14 : 5.6, from: road.drawFrom })),
+      );
+    // The verge the tarmac is laid on: pale gravel a stride wider than the road each side.
+    const shoulder = mergeAll(plan.roads.map((road) => buildRibbon(road.pts, road.width * 0.94 + 1.6, (x, z) => y(x, z) - 0.03, { edge: "#8f8876", from: road.drawFrom })));
+    const solid = mergeAll([
+      buildBridges(plan),
+      buildStreets(plan, sample),
+      ...plan.roads.filter((road) => road.style === "motorway").map((road) => buildBarrier(road.pts, y, road.drawFrom)),
+    ]);
+    return { street: surface(false), motorway: surface(true), shoulder, solid };
   }, [plan, sample]);
-  useEffect(() => () => {
-    parts.roads.forEach((g) => g.dispose());
-    parts.bridges.dispose();
-    parts.streets.dispose();
-  }, [parts]);
-  const concrete = useMemo(() => new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0 }), []);
+  useEffect(() => () => Object.values(parts).forEach((g) => g.dispose()), [parts]);
+  const concrete = useMemo(() => new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0, side: DoubleSide }), []);
   useDispose(concrete);
+  const gravel = useMemo(
+    () => new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    [],
+  );
+  useDispose(gravel);
   return (
     <group>
-      {parts.roads.map((g, i) => (
-        <mesh key={i} geometry={g} material={material} receiveShadow raycast={none} />
-      ))}
-      <mesh geometry={parts.bridges} material={concrete} castShadow receiveShadow raycast={none} />
-      <mesh geometry={parts.streets} material={concrete} receiveShadow raycast={none} />
+      <mesh geometry={parts.shoulder} material={gravel} receiveShadow raycast={none} />
+      {parts.street.getAttribute("position") && <mesh geometry={parts.street} material={materials.street} receiveShadow raycast={none} />}
+      {parts.motorway.getAttribute("position") && <mesh geometry={parts.motorway} material={materials.motorway} receiveShadow raycast={none} />}
+      <mesh geometry={parts.solid} material={concrete} receiveShadow raycast={none} />
     </group>
   );
 }
+
+/** Hedge runs nearest the city first, so a budget that runs out costs the distance. */
+const nearestFirst = (runs: readonly HedgeRun[]): HedgeRun[] =>
+  [...runs].sort((a, b) => landDistance((a.x0 + a.x1) / 2, (a.z0 + a.z1) / 2) - landDistance((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2));
 
 function Fields({
   plan,
   sample,
   atmosphere,
-  hedges,
+  tier,
 }: {
   plan: LandscapePlan;
   sample: (x: number, z: number) => number;
   atmosphere: SceneAtmosphere;
-  hedges: boolean;
+  tier: "high" | "medium" | "low";
 }) {
-  const stripes: Texture = useMemo(() => stripeTexture(), []);
-  useDispose(stripes);
-  const fieldMaterial = useMemo(() => new MeshStandardMaterial({
+  const fieldMaterial = useMemo(() => {
+    const m = new MeshStandardMaterial({
       color: "#ffffff",
       vertexColors: true,
-      map: stripes,
       roughness: 1,
       metalness: 0,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
-    }), [stripes]);
+    });
+    patchCrops(m);
+    return m;
+  }, []);
   useDispose(fieldMaterial);
-  const hedgeMaterial = useMemo(() => vegetationMaterial(), []);
-  useDispose(hedgeMaterial);
+  const hedgeSet = useMemo(() => {
+    const material = hedgeMaterial();
+    // The hedge's own green fades with the light.
+    return { material, tune: (night: number) => { material.emissiveIntensity = 0.55 * (1 - night * 0.9); } };
+  }, []);
+  const hedgeMat = hedgeSet.material;
+  useDispose(hedgeMat);
+  useSkyFrame((sky) => hedgeSet.tune(sky.nightness), hedgeSet);
   const geometry = useMemo(() => buildFields(plan, sample, atmosphere.desaturation), [plan, sample, atmosphere.desaturation]);
-  const hedge = useMemo(() => (hedges ? buildHedges(plan.hedges, sample) : null), [plan, sample, hedges]);
+  const budget = tier === "high" ? 4200 : tier === "medium" ? 2600 : 0;
+  const hedge = useMemo(
+    () => (budget > 0 ? buildHedgeTubes([...plan.verge.hedges, ...nearestFirst(plan.hedges)], sample, { budget: budget + 600 }) : null),
+    [plan, sample, budget],
+  );
   useEffect(() => () => geometry.dispose(), [geometry]);
-  useEffect(() => () => hedge?.dispose(), [hedge]);
+  useDispose(hedge);
   return (
     <group>
       <mesh geometry={geometry} material={fieldMaterial} receiveShadow raycast={none} />
-      {hedge && <mesh geometry={hedge} material={hedgeMaterial} receiveShadow raycast={none} />}
+      {hedge && <mesh geometry={hedge} material={hedgeMat} receiveShadow raycast={none} />}
     </group>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Trees: the city's own models, one instanced draw a species
+// ---------------------------------------------------------------------------
 
 interface Placed {
   x: number;
@@ -402,10 +433,30 @@ interface Placed {
   spot: TreeSpot;
 }
 
-function useTreeSet(spots: readonly TreeSpot[], sample: (x: number, z: number) => number, kind: TreeSpot["kind"]): Placed[] {
+const SPECIES_OF: Record<TreeSpot["kind"], TreeSpecies> = { 0: "broadleaf", 1: "conifer", 2: "broadleaf", 3: "poplar", 4: "birch" };
+
+/** The species a spot is: a far canopy is a conifer one time in three, a broadleaf otherwise. */
+function speciesOf(s: TreeSpot): TreeSpecies {
+  if (s.kind === 2) return s.shade < 0.3 ? "conifer" : "broadleaf";
+  return SPECIES_OF[s.kind];
+}
+
+const hsl = { h: 0, s: 0, l: 0 };
+const grey = new Color(0.5, 0.5, 0.5);
+
+/** A leaf colour a little off the species' green, by the spot's shade, drained by the city's health. */
+function leafTint(species: TreeSpecies, shade: number, desaturation: number, out: Color): void {
+  out.set(SPECIES_LEAF[species]).getHSL(hsl);
+  const s2 = (shade * 7.31) % 1;
+  const l2 = (shade * 13.7) % 1;
+  out.setHSL((hsl.h + (shade - 0.5) * 0.07 + 1) % 1, Math.min(1, Math.max(0, hsl.s + (s2 - 0.5) * 0.16)), Math.min(0.8, Math.max(0.1, hsl.l + (l2 - 0.5) * 0.12)));
+  if (desaturation > 0) out.lerp(grey, desaturation * 0.5);
+}
+
+function useTreeSet(spots: readonly TreeSpot[], sample: (x: number, z: number) => number, species: TreeSpecies): Placed[] {
   return useMemo(
-    () => spots.filter((s) => s.kind === kind).map((spot) => ({ x: spot.x, y: sample(spot.x, spot.z) - 0.1, z: spot.z, spot })),
-    [spots, sample, kind],
+    () => spots.filter((s) => speciesOf(s) === species).map((spot) => ({ x: spot.x, y: sample(spot.x, spot.z) - 0.1, z: spot.z, spot })),
+    [spots, sample, species],
   );
 }
 
@@ -415,79 +466,49 @@ const placeTree = (t: Placed, o: Object3D) => {
   o.rotation.y = t.spot.shade * 6.283;
   o.scale.set(s, s * (0.9 + t.spot.shade * 0.25), s);
 };
-const colorTree = (t: Placed, out: Color) => jitterTint(t.spot.shade, out, 0.1);
 
-function Woods({ plan, sample, low }: { plan: LandscapePlan; sample: (x: number, z: number) => number; low: boolean }) {
-  const material = useMemo(() => vegetationMaterial(), []);
-  useDispose(material);
-  const spots = useMemo(() => (low ? plan.trees.filter((_, i) => i % 3 === 0) : plan.trees), [plan, low]);
-  const broadleaf = useTreeSet(spots, sample, 0);
-  const conifer = useTreeSet(spots, sample, 1);
-  const canopy = useTreeSet(spots, sample, 2);
-  const geos = useMemo(() => ({ b: broadleafGeometry(), c: coniferGeometry(), k: canopyGeometry() }), []);
-  useEffect(() => () => Object.values(geos).forEach((g) => g.dispose()), [geos]);
-  return (
-    <group>
-      <Instanced geometry={geos.b} material={material} items={broadleaf} place={placeTree} colorOf={colorTree} />
-      <Instanced geometry={geos.c} material={material} items={conifer} place={placeTree} colorOf={colorTree} />
-      <Instanced geometry={geos.k} material={material} items={canopy} place={placeTree} colorOf={colorTree} />
-    </group>
+/** The city's tree material with the wind's clock but no sway: out here the trees stand still, and share the city's program. */
+function useTreeMaterial(): MeshStandardMaterial {
+  const { textureSize, anisotropy } = useQuality();
+  const material = useMemo(
+    () => tintedMaterial({ roughness: 1, flatShading: true }, { time: { value: 0 }, amount: 0, base: 1.2 }, { textureSize, anisotropy }),
+    [textureSize, anisotropy],
   );
+  useDispose(material);
+  return material;
 }
 
-function Verge({ plan, sample }: { plan: LandscapePlan; sample: (x: number, z: number) => number }) {
-  const material = useMemo(() => vegetationMaterial(), []);
-  useDispose(material);
-  const b = useTreeSet(plan.verge.trees, sample, 0);
-  const c = useTreeSet(plan.verge.trees, sample, 1);
-  const geos = useMemo(() => ({ b: broadleafGeometry(), c: coniferGeometry() }), []);
-  const hedge = useMemo(() => buildHedges(plan.verge.hedges, sample), [plan, sample]);
-  useEffect(() => () => { geos.b.dispose(); geos.c.dispose(); hedge.dispose(); }, [geos, hedge]);
-  return (
-    <group>
-      <Instanced geometry={geos.b} material={material} items={b} place={placeTree} colorOf={colorTree} castShadow />
-      <Instanced geometry={geos.c} material={material} items={c} place={placeTree} colorOf={colorTree} castShadow />
-      <mesh geometry={hedge} material={material} castShadow receiveShadow raycast={none} />
-    </group>
-  );
-}
-
-function Homes({ plan, sample }: { plan: LandscapePlan; sample: (x: number, z: number) => number }) {
-  const material = useMemo(() => new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, side: DoubleSide }), []);
-  useDispose(material);
+function TreeSets({ spots, sample, atmosphere }: { spots: readonly TreeSpot[]; sample: (x: number, z: number) => number; atmosphere: SceneAtmosphere }) {
+  const material = useTreeMaterial();
+  const b = useTreeSet(spots, sample, "broadleaf");
+  const c = useTreeSet(spots, sample, "conifer");
+  const p = useTreeSet(spots, sample, "poplar");
+  const r = useTreeSet(spots, sample, "birch");
   const geos = useMemo(
-    () => ({ red: houseGeometry("red"), slate: houseGeometry("slate"), tan: houseGeometry("tan"), barn: barnGeometry(), block: blockGeometry() }),
-    [],
+    () => ({
+      broadleaf: treeGeometry("broadleaf", atmosphere.desaturation),
+      conifer: treeGeometry("conifer", atmosphere.desaturation),
+      poplar: treeGeometry("poplar", atmosphere.desaturation),
+      birch: treeGeometry("birch", atmosphere.desaturation),
+    }),
+    [atmosphere.desaturation],
   );
-  useEffect(() => () => Object.values(geos).forEach((g) => g.dispose()), [geos]);
-  const sets = useMemo(() => {
-    const pick = (f: (h: LandscapePlan["houses"][number]) => boolean) => plan.houses.filter(f);
-    return {
-      red: pick((h) => h.kind === "house" && h.tint < 0.45),
-      slate: pick((h) => h.kind === "house" && h.tint >= 0.45 && h.tint < 0.75),
-      tan: pick((h) => h.kind === "house" && h.tint >= 0.75),
-      barn: pick((h) => h.kind === "barn"),
-      block: pick((h) => h.kind === "block"),
-    };
-  }, [plan]);
-  const place = useMemo(
-    () => (h: LandscapePlan["houses"][number], o: Object3D) => {
-      o.position.set(h.x, sample(h.x, h.z) - 0.05, h.z);
-      o.rotation.y = h.yaw;
-      o.scale.set(h.w, h.h, h.d);
-    },
-    [sample],
-  );
-  const colorOf = (h: LandscapePlan["houses"][number], out: Color) => jitterTint(h.tint * 7 % 1, out, 0.2);
+  const desat = atmosphere.desaturation;
+  const colorB = useMemo(() => (t: Placed, out: Color) => leafTint(speciesOf(t.spot), t.spot.shade, desat, out), [desat]);
   return (
     <group>
-      <Instanced geometry={geos.red} material={material} items={sets.red} place={place} colorOf={colorOf} />
-      <Instanced geometry={geos.slate} material={material} items={sets.slate} place={place} colorOf={colorOf} />
-      <Instanced geometry={geos.tan} material={material} items={sets.tan} place={place} colorOf={colorOf} />
-      <Instanced geometry={geos.barn} material={material} items={sets.barn} place={place} colorOf={colorOf} />
-      <Instanced geometry={geos.block} material={material} items={sets.block} place={place} colorOf={colorOf} />
+      <Instanced geometry={geos.broadleaf} material={material} items={b} place={placeTree} colorOf={colorB} />
+      <Instanced geometry={geos.conifer} material={material} items={c} place={placeTree} colorOf={colorB} />
+      <Instanced geometry={geos.poplar} material={material} items={p} place={placeTree} colorOf={colorB} />
+      <Instanced geometry={geos.birch} material={material} items={r} place={placeTree} colorOf={colorB} />
     </group>
   );
+}
+
+function Woods({ plan, sample, low, atmosphere }: { plan: LandscapePlan; sample: (x: number, z: number) => number; low: boolean; atmosphere: SceneAtmosphere }) {
+  // The tree line along the plot's verge is drawn with the woods: one draw a species, none of them casting shadows out here.
+  const spots = useMemo(() => [...(low ? plan.trees.filter((_, i) => i % 3 === 0) : plan.trees), ...plan.verge.trees], [plan, low]);
+  return <TreeSets spots={spots} sample={sample} atmosphere={atmosphere} />;
 }
 
 /** The skyline's windows glow in step with the dark. */

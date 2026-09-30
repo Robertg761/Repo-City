@@ -33,6 +33,10 @@ import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities"
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
+import { RICH_LAND } from "@/components/city/look";
+import { LANDING_CITY } from "@/components/city/landscape/landing";
+import LandProvider from "@/components/city/landscape/LandProvider";
+import Landscape, { LandTerrain } from "@/components/city/landscape/Landscape";
 import { richSky } from "@/components/city/grade";
 import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
@@ -174,10 +178,19 @@ function useViewportAspect(): number {
  * pulled back with the camera on a narrow screen, are `Environment`'s.
  */
 function EmptyStage({ aspect }: { aspect: number }) {
+  // The rich land needs the models (its trees and farmsteads are the city's own), so the flat lawn stands in until they are in.
+  const modelsReady = useModelsReady();
   return (
     <>
       <Lighting size={EMPTY_SIZE} />
-      <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} aspect={aspect} />
+      {RICH_LAND && modelsReady ? (
+        <LandProvider city={LANDING_CITY} aspect={aspect} terrainColor={EMPTY_ATMOSPHERE.terrainColor} enabled>
+          <LandTerrain />
+          <Landscape city={LANDING_CITY} atmosphere={EMPTY_ATMOSPHERE} />
+        </LandProvider>
+      ) : (
+        <Terrain size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} aspect={aspect} />
+      )}
       <StagePlate size={EMPTY_SIZE} atmosphere={EMPTY_ATMOSPHERE} />
     </>
   );

@@ -1,5 +1,5 @@
 /**
- * The land round a city (`?land=rich`): what the model stands in, planned as
+ * The land round a city (the default look; `?land=classic` turns it off): what the model stands in, planned as
  * plain data from the city model and nothing else. Pure and deterministic --
  * the same `seed` gives the same surroundings, a different repository gives
  * different ones -- and unit tested (`plan.test.ts`); `Landscape.tsx` only
@@ -23,6 +23,13 @@
  *   metropolis  outlying low sprawl (streets of houses), a wide river, a
  *               distant silhouette skyline, highways out
  *
+ * FIELDS are the cells of a power diagram over seeds scattered at a spacing
+ * that drifts with noise (`fields.ts`), so they merge into broad ones and split
+ * into small ones, stretched along the country's grain, trimmed to keep off the
+ * plot, the roads, the water and the sprawl, never on a lattice. RIVERS AND PONDS
+ * have banks (`water.ts`): the terrain is trenched, the exact bank is a mesh
+ * drawn in the trench. HOUSES are the city's own models (`models/buildings`).
+ *
  * Whatever roads the model has that end at the plot edge continue into the
  * land as ribbons that follow the ground and bend a little; a synthetic exit
  * is added when a tier has fewer than it should.
@@ -33,7 +40,24 @@ import type { Prng } from "@/lib/city/prng";
 import type { SettlementTier } from "@/types/analysis";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT, aspectWiden } from "../entities";
+import type { ModelKey } from "../models/buildings/archetypes";
+import { roadStyle, type RoadStyle } from "../groundwork";
+import {
+  EDGE_CUT,
+  EDGE_FAR,
+  clipHalfPlane,
+  convexDistance,
+  insetPolygon,
+  insidePoly,
+  longestEdgeYaw,
+  polyArea,
+  polyCentroid,
+  scatterSeeds,
+  voronoiCells,
+  type Cell,
+} from "./fields";
 import { fbm, hash01, seedInt, smooth01 } from "./noise";
+import { POND_SPEC, riverSpec, trenchDepth, trenchReach, type WaterSpec } from "./water";
 
 export interface Pt {
   x: number;
@@ -79,22 +103,22 @@ export const LAND_PROFILE: Record<SettlementTier, TierProfile> = {
   village: {
     hills: 0.1, rise: 0.028, cell: 28, farm: 2.3, fieldShare: 0.7,
     river: { width: 3.6, radius: 1.12, wander: 0.09, span: 1.7 }, pond: true,
-    settle: "farms", skyline: false, minExits: 2, trees: { near: 900, far: 900 },
+    settle: "farms", skyline: false, minExits: 2, trees: { near: 800, far: 600 },
   },
   town: {
     hills: 0.12, rise: 0.034, cell: 36, farm: 2.1, fieldShare: 0.5,
     river: { width: 8, radius: 1.2, wander: 0.08, span: 1.7 }, pond: false,
-    settle: "fringe", skyline: false, minExits: 2, trees: { near: 1100, far: 1100 },
+    settle: "fringe", skyline: false, minExits: 2, trees: { near: 800, far: 700 },
   },
   city: {
     hills: 0.17, rise: 0.044, cell: 46, farm: 2.6, fieldShare: 0.42,
     river: { width: 15, radius: 1.32, wander: 0.09, span: 1.9 }, pond: false,
-    settle: "hamlets", skyline: false, minExits: 3, trees: { near: 1300, far: 1500 },
+    settle: "hamlets", skyline: false, minExits: 3, trees: { near: 900, far: 900 },
   },
   metropolis: {
     hills: 0.12, rise: 0.034, cell: 54, farm: 3, fieldShare: 0.36,
     river: { width: 30, radius: 1.18, wander: 0.06, span: 1.8 }, pond: false,
-    settle: "sprawl", skyline: true, minExits: 4, trees: { near: 1000, far: 1300 },
+    settle: "sprawl", skyline: true, minExits: 4, trees: { near: 650, far: 650 },
   },
 };
 
@@ -112,6 +136,8 @@ export interface Exit {
 export interface RoadPath {
   id: string;
   kind: "highway" | "spur";
+  /** How the model draws this road (a motorway has a central barrier and edge lines). */
+  style: RoadStyle;
   width: number;
   pts: Pt[];
   /** The first point that is drawn: everything before it is the model's own road. */
@@ -121,6 +147,8 @@ export interface RoadPath {
 export interface River {
   width: number;
   pts: Pt[];
+  /** The slope of its banks. */
+  spec: WaterSpec;
 }
 
 export interface Pond {
@@ -129,6 +157,7 @@ export interface Pond {
   rx: number;
   rz: number;
   yaw: number;
+  spec: WaterSpec;
 }
 
 export interface Bridge {
@@ -136,18 +165,44 @@ export interface Bridge {
   z: number;
   /** Heading of the road across it. */
   yaw: number;
+  /** Abutment to abutment: the water, both banks and a little land either side. */
   length: number;
   width: number;
+  /** Half the water's width. */
+  half: number;
+  /** The bank's horizontal run. */
+  bank: number;
+}
+
+/** The shore of a pond as a multiple of its ellipse, by angle round it: a lobe or two. */
+export function pondShore(pond: Pond, angle: number): number {
+  return 1 + 0.08 * Math.sin(angle * 3 + pond.x) + 0.05 * Math.sin(angle * 5 + pond.z);
+}
+
+/** Distance from a point to a pond's water's edge: negative over the water. */
+export function pondEdge(pond: Pond, x: number, z: number): number {
+  const c = Math.cos(pond.yaw);
+  const s = Math.sin(pond.yaw);
+  const dx = x - pond.x;
+  const dz = z - pond.z;
+  const u = (dx * c + dz * s) / pond.rx;
+  const v = (-dx * s + dz * c) / pond.rz;
+  const a = Math.atan2(v, u);
+  return (Math.hypot(u, v) / pondShore(pond, a) - 1) * Math.min(pond.rx, pond.rz);
 }
 
 export type Crop = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface FieldCell {
+  /** Middle of the field. */
   x: number;
   z: number;
-  w: number;
-  d: number;
-  yaw: number;
+  /** The field's outline, convex, already inset from its hedge. */
+  poly: Pt[];
+  /** The way the crop rows run (heading, radians). */
+  rowYaw: number;
+  /** Rough extent, for the map. */
+  radius: number;
   crop: Crop;
   /** 0..1 brightness jitter. */
   shade: number;
@@ -159,8 +214,8 @@ export interface TreeSpot {
   x: number;
   z: number;
   scale: number;
-  /** 0 broadleaf, 1 conifer, 2 far canopy mass. */
-  kind: 0 | 1 | 2;
+  /** 0 broadleaf, 1 conifer, 2 far canopy mass, 3 poplar, 4 birch. */
+  kind: 0 | 1 | 2 | 3 | 4;
   shade: number;
 }
 
@@ -171,8 +226,11 @@ export interface HouseSpot {
   w: number;
   d: number;
   h: number;
-  kind: "house" | "barn" | "block";
-  /** 0..1: which roof and how it is tinted. */
+  /** The city's own model it is drawn with (`models/buildings`). */
+  model: ModelKey;
+  /** What its paint and its lit windows are seeded from. */
+  key: string;
+  /** 0..1 jitter. */
   tint: number;
 }
 
@@ -216,8 +274,10 @@ export interface LandscapePlan {
   towers: TowerSpot[];
   /** The tree line and hedge along the plot's verge. */
   verge: { trees: TreeSpot[]; hedges: HedgeRun[] };
-  /** Ground height at a world point. */
+  /** Ground height at a world point (with the water's trenches cut into it). */
   height: (x: number, z: number) => number;
+  /** The same land before any water is cut: what a bank's top, and a bridge's abutment, stand on. */
+  level: (x: number, z: number) => number;
   /** Forest cover at a point, 0..1, for painting the ground under woods. */
   forest: (x: number, z: number) => number;
 }
@@ -395,7 +455,7 @@ function makeRiver(rng: Prng, size: number, reach: number, profile: TierProfile,
   const head = tail(pts[0], pts[1]).reverse();
   const foot = tail(pts[pts.length - 1], pts[pts.length - 2]);
   const raw = [...head, ...pts, ...foot];
-  return { width, pts: smoothPath(raw, 4) };
+  return { width, pts: smoothPath(raw, 4), spec: riverSpec(width) };
 }
 
 function extendExit(exit: Exit, index: number, reach: number, size: number, rng: Prng): RoadPath {
@@ -424,6 +484,7 @@ function extendExit(exit: Exit, index: number, reach: number, size: number, rng:
   return {
     id: `exit${index}`,
     kind: "highway",
+    style: roadStyle({ kind: "highway", width: exit.width }),
     width: exit.width,
     pts: [...back, ...pts],
     drawFrom: back.length,
@@ -461,13 +522,16 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
         for (let j = 0; j + 1 < river.pts.length; j++) {
           const hit = segmentCross(road.pts[i], road.pts[i + 1], river.pts[j], river.pts[j + 1]);
           if (!hit) continue;
-          if (bridges.some((b) => Math.hypot(b.x - hit.x, b.z - hit.z) < river.width + 10)) continue;
+          if (bridges.some((b) => Math.hypot(b.x - hit.x, b.z - hit.z) < river.width + 10 + river.spec.bank * 2)) continue;
           bridges.push({
             x: hit.x,
             z: hit.z,
             yaw: Math.atan2(road.pts[i + 1].x - road.pts[i].x, road.pts[i + 1].z - road.pts[i].z),
-            length: river.width + 12,
+            // Water, both banks and a few units of level land at each end for the abutments to stand on.
+            length: river.width + trenchReach(river.spec) * 2 + 4,
             width: road.width + 1.4,
+            half: river.width / 2,
+            bank: river.spec.bank,
           });
         }
       }
@@ -478,7 +542,7 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
   const pondFree = (x: number, z: number, r: number) =>
     linf(x, z) > half * PLOT_MARGIN + r + 8 &&
     roads.every((road) => distToPath(road.pts, x, z) > r + 10 + road.width / 2) &&
-    rivers.every((river) => distToPath(river.pts, x, z) > r + river.width / 2 + 10);
+    rivers.every((river) => distToPath(river.pts, x, z) > r + river.width / 2 + trenchReach(river.spec) + 10);
   if (profile.pond) {
     const prng = prngFor(seedText, "pond");
     for (let tries = 0; tries < 60 && ponds.length === 0; tries++) {
@@ -487,7 +551,7 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       const rx = prng.range(9, 15);
-      if (pondFree(x, z, rx * 1.2)) ponds.push({ x, z, rx, rz: rx * prng.range(0.6, 0.85), yaw: prng.range(0, Math.PI) });
+      if (pondFree(x, z, rx * 1.2 + POND_SPEC.bank * 1.8)) ponds.push({ x, z, rx, rz: rx * prng.range(0.6, 0.85), yaw: prng.range(0, Math.PI), spec: POND_SPEC });
     }
   }
 
@@ -495,25 +559,45 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
   const amp = profile.hills * size;
   const bank = valley(size);
   const roll = (x: number, z: number) => fbm(x / (0.9 * size) + 11.3, z / (0.9 * size) - 4.7, seed, 3);
-  const height = (x: number, z: number): number => {
+  /** The land before any water is cut into it: flat along a river's valley. */
+  const level = (x: number, z: number): number => {
     const m = landDistance(x, z);
     const ramp = smooth01((m - flat) / (1.3 * size));
     const dr = Math.hypot(x, z);
     // The far rim rolls back down to the horizon so that it is never seen as an edge.
     const rim = 1 - smooth01((dr - reach * 0.72) / (reach * 0.28)) * 0.94;
     let h = (amp * (0.3 + 1.15 * roll(x, z)) * ramp + profile.rise * Math.max(0, m - flat) * ramp) * rim;
-    // Valleys: the land comes down to the water's own level along a river.
+    // Valleys: the land comes down to the water's own level along a river, flat as far as its banks reach.
     let flatten = 1;
     for (const river of rivers) {
-      const dist = distToPath(river.pts, x, z, 0, river.width / 2 + 1.5 + bank);
-      flatten = Math.min(flatten, smooth01((dist - (river.width / 2 + 1.5)) / bank));
+      const inner = river.width / 2 + trenchReach(river.spec) + 1;
+      const dist = distToPath(river.pts, x, z, 0, inner + bank);
+      flatten = Math.min(flatten, smooth01((dist - inner) / bank));
     }
     for (const pond of ponds) {
-      const dist = Math.hypot(x - pond.x, z - pond.z) / Math.max(pond.rx, pond.rz);
-      flatten = Math.min(flatten, smooth01((dist - 1) / 1.5));
+      const edge = pondEdge(pond, x, z);
+      const inner = trenchReach(pond.spec) + 1;
+      flatten = Math.min(flatten, smooth01((edge - inner) / (bank * 0.6)));
     }
     h *= flatten;
     return GROUND_Y + h;
+  };
+  /** The terrain: the land with a trench cut along every river and round every pond (`water.ts`). */
+  const height = (x: number, z: number): number => {
+    const y = level(x, z);
+    let cut = 0;
+    for (const river of rivers) {
+      const reachD = river.width / 2 + trenchReach(river.spec);
+      const dist = distToPath(river.pts, x, z, 0, reachD);
+      if (dist >= reachD) continue;
+      cut = Math.max(cut, trenchDepth(dist - river.width / 2, river.spec, river.width / 2));
+    }
+    for (const pond of ponds) {
+      const edge = pondEdge(pond, x, z);
+      if (edge >= trenchReach(pond.spec)) continue;
+      cut = Math.max(cut, trenchDepth(edge, pond.spec, Math.min(pond.rx, pond.rz)));
+    }
+    return y - cut;
   };
 
   // Forest cover: a low-frequency mask that is denser in the hills.
@@ -528,28 +612,11 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
     if (linf(x, z) < half * PLOT_MARGIN + margin) return false;
     for (const b of bridges) if (Math.hypot(x - b.x, z - b.z) < b.length / 2 + margin + 6) return false;
     for (const road of roads) if (distToPath(road.pts, x, z, 0, road.width / 2 + margin) < road.width / 2 + margin) return false;
-    for (const river of rivers) if (distToPath(river.pts, x, z, 0, river.width / 2 + margin + 1) < river.width / 2 + margin + 1) return false;
-    for (const pond of ponds) if (Math.hypot(x - pond.x, z - pond.z) < Math.max(pond.rx, pond.rz) + margin) return false;
-    return true;
-  };
-
-  /** A rotated rectangle clear of the plot, the roads, the rivers and the ponds, by `pad`. */
-  const rectClear = (cx: number, cz: number, w: number, d: number, yaw: number, pad: number): boolean => {
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
-    const ex = Math.abs(c) * (w / 2) + Math.abs(s) * (d / 2);
-    const ez = Math.abs(s) * (w / 2) + Math.abs(c) * (d / 2);
-    if (Math.abs(cx) < half * PLOT_MARGIN + ex + pad && Math.abs(cz) < half * PLOT_MARGIN + ez + pad) return false;
-    for (const t of taken) if (Math.hypot(cx - t.x, cz - t.z) < t.r + Math.hypot(w, d) / 2) return false;
-    for (const [u, v] of [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
-      const lx = (u * w) / 2;
-      const lz = (v * d) / 2;
-      const x = cx + lx * c + lz * s;
-      const z = cz - lx * s + lz * c;
-      for (const road of roads) if (distToPath(road.pts, x, z, 0, road.width / 2 + pad) < road.width / 2 + pad) return false;
-      for (const river of rivers) if (distToPath(river.pts, x, z, 0, river.width / 2 + pad + 1) < river.width / 2 + pad + 1) return false;
-      for (const pond of ponds) if (Math.hypot(x - pond.x, z - pond.z) < Math.max(pond.rx, pond.rz) + pad) return false;
+    for (const river of rivers) {
+      const r = river.width / 2 + trenchReach(river.spec) + margin;
+      if (distToPath(river.pts, x, z, 0, r) < r) return false;
     }
+    for (const pond of ponds) if (pondEdge(pond, x, z) < trenchReach(pond.spec) + margin) return false;
     return true;
   };
 
@@ -557,11 +624,43 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
   const houses: HouseSpot[] = [];
   const streets: LandscapePlan["streets"] = [];
   const hRng = prngFor(seedText, "houses");
-  const houseAt = (x: number, z: number, yaw: number, kind: HouseSpot["kind"], scale = 1) => {
-    const w = (kind === "barn" ? 9 : kind === "block" ? 11 : 5.2) * (0.85 + hRng.next() * 0.35) * scale;
-    const d = (kind === "barn" ? 16 : kind === "block" ? 9 : 6.4) * (0.85 + hRng.next() * 0.3) * scale;
-    const h = (kind === "barn" ? 7.2 : kind === "block" ? 6 : 6) * (0.9 + hRng.next() * 0.25);
-    houses.push({ x, z, yaw, w, d, h, kind, tint: hRng.next() });
+  /** How big each of the city's models is drawn out here (width, height, depth): a little roomier than in the town. */
+  const HOUSE_SIZE: Partial<Record<ModelKey, readonly [number, number, number]>> = {
+    cottage: [4.4, 4.4, 4.2],
+    "cottage/tile": [4.6, 4.9, 4.4],
+    farmhouse: [5.4, 6.4, 5.2],
+    barn: [5.6, 6.6, 8.6],
+    terrace: [4.8, 5.8, 4.6],
+    "apartment-low": [5.6, 9.2, 5.6],
+    house: [4.6, 4.6, 4.4],
+    "lowrise-pitched": [5.2, 7.0, 4.6],
+    "lowrise-parapet": [5.2, 6.4, 5.0],
+    "midrise-setback": [5.6, 9.0, 5.4],
+  };
+  const pickModel = (table: readonly (readonly [ModelKey, number])[]): ModelKey => {
+    let roll = hRng.next();
+    for (const [model, share] of table) {
+      if (roll < share) return model;
+      roll -= share;
+    }
+    return table[0][0];
+  };
+  const FRINGE_MODELS = [["cottage/tile", 0.4], ["terrace", 0.28], ["cottage", 0.1], ["lowrise-pitched", 0.12], ["apartment-low", 0.1]] as const;
+  const HAMLET_MODELS = [["cottage/tile", 0.4], ["cottage", 0.3], ["farmhouse", 0.2], ["terrace", 0.1]] as const;
+  const SPRAWL_MODELS = [["house", 0.6], ["lowrise-pitched", 0.22], ["lowrise-parapet", 0.18]] as const;
+  const SPRAWL_BLOCKS = [["midrise-setback", 0.5], ["lowrise-parapet", 0.5]] as const;
+  const houseAt = (x: number, z: number, yaw: number, model: ModelKey, scale = 1) => {
+    const base = HOUSE_SIZE[model] ?? [5, 6, 5];
+    const j = 0.9 + hRng.next() * 0.22;
+    houses.push({
+      x, z, yaw,
+      w: base[0] * j * scale,
+      h: base[1] * (0.92 + hRng.next() * 0.2) * scale,
+      d: base[2] * (0.92 + hRng.next() * 0.16) * scale,
+      model,
+      key: `land-${houses.length}`,
+      tint: hRng.next(),
+    });
   };
 
   /** Heading of a house standing `side` of a road running along (ux, uz), turned to face it. */
@@ -585,7 +684,7 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
         const density = smooth01(1 - (m - half * 1.1) / (size * 1.1));
         if (hash01(i, j, seed + 72) > density * 1.05) continue;
         if (fbm(cx / (0.4 * size), cz / (0.4 * size), seed + 73, 2) < 0.34) continue;
-        if (!clearOf(cx, cz, 34) || height(cx, cz) - GROUND_Y > 0.05 * size) continue;
+        if (!clearOf(cx, cz, 34) || level(cx, cz) - GROUND_Y > 0.05 * size) continue;
         const yaw = hash01(i, j, seed + 74) < 0.5 ? 0 : Math.PI / 2;
         const c = Math.cos(yaw);
         const s = Math.sin(yaw);
@@ -600,7 +699,7 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
               const lz = (row * 8) + strip * 26;
               const x = cx + lx * s + lz * c;
               const z = cz + lx * c - lz * s;
-              houseAt(x, z, yaw + (row > 0 ? Math.PI : 0), hRng.next() < 0.12 ? "block" : "house", 0.88);
+              houseAt(x, z, yaw + (row > 0 ? Math.PI : 0), pickModel(hRng.next() < 0.12 ? SPRAWL_BLOCKS : SPRAWL_MODELS), 0.92);
             }
           }
         }
@@ -608,74 +707,166 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
     }
   }
 
-  // --- Fields, woods and hedges: a lattice of cells ---------------------------
-  const cell = profile.cell;
+  // --- Fields, woods and hedges: irregular cells ---------------------------
+  // Seeds are scattered at a spacing that drifts with noise, so the power
+  // diagram over them has big cells (merged fields, broad woods) where the
+  // noise is high and small ones where it is low, and no lattice anywhere.
+  // Each cell is trimmed to keep off the plot, the roads, the rivers, the
+  // ponds and the sprawl, so fields follow what they meet.
+  const cell = profile.cell * 0.8;
   const farmReach = Math.min(size * profile.farm, reach * 0.62);
+  const fieldBudget = profile.settle === "sprawl" ? 240 : 320;
   const fields: FieldCell[] = [];
   const hedges: HedgeRun[] = [];
   const trees: TreeSpot[] = [];
   const treeRng = prngFor(seedText, "trees");
-  const cellsN = Math.ceil(farmReach / cell);
-  const domainYaw = rng.range(0, Math.PI / 2);
-  const fieldBudget = profile.settle === "sprawl" ? 240 : 320;
-  const woodCells: { x: number; z: number; w: number; d: number }[] = [];
-  const cellKind = new Map<string, "field" | "wood" | "meadow" | "sprawl">();
-  const cellAt = new Map<string, { x: number; z: number; w: number; d: number; yaw: number }>();
+  // The cells are stretched along the country's grain, which follows the first road out: a field is longer than it is wide.
+  const grainYaw = exits.length ? Math.atan2(exits[0].dz, exits[0].dx) : rng.range(0, Math.PI);
+  const STRETCH = 1.5;
+  const gc = Math.cos(grainYaw);
+  const gs = Math.sin(grainYaw);
+  const toWorld = (u: number, v: number): Pt => ({ x: u * STRETCH * gc - v * gs, z: u * STRETCH * gs + v * gc });
+  const sizeOf = (u: number, v: number) => {
+    const w = toWorld(u, v);
+    return 0.62 + 1.0 * smooth01((fbm(w.x / (1.3 * size) + 2.2, w.z / (1.3 * size) - 7.7, seed + 5, 2) - 0.25) / 0.5);
+  };
+  const seeds = scatterSeeds(farmReach * 1.04, cell, seed + 80, sizeOf, (u, v) => {
+    const w = toWorld(u, v);
+    return landDistance(w.x, w.z) <= farmReach * 1.06;
+  });
+  const boxMin = half * PLOT_MARGIN + 2.4;
 
-  for (let i = -cellsN; i <= cellsN; i++) {
-    for (let j = -cellsN; j <= cellsN; j++) {
-      // Rows are offset from one another, like brickwork, so no line runs the whole way.
-      const rowShift = hash01(j, 0, seed + 80) * cell * 0.9;
-      const jx = (hash01(i, j, seed + 1) - 0.5) * cell * 0.2;
-      const jz = (hash01(i, j, seed + 2) - 0.5) * cell * 0.2;
-      const cx = i * cell + rowShift + jx;
-      const cz = j * cell + jz;
-      const m = landDistance(cx, cz);
-      if (m > farmReach) continue;
-      const w = cell * (0.7 + hash01(i, j, seed + 3) * 0.3);
-      const d = cell * (0.66 + hash01(i, j, seed + 4) * 0.3);
-      const domain = fbm(cx / (2.6 * size) + 4.4, cz / (2.6 * size) - 2.2, seed + 5, 2) > 0.5 ? 1 : 0;
-      const yaw = domainYaw + domain * 0.55 + (hash01(i, j, seed + 6) - 0.5) * 0.16;
-      if (!rectClear(cx, cz, w, d, yaw, 1.6)) continue;
-      const wet = height(cx, cz) - GROUND_Y;
-      const r = hash01(i, j, seed + 7);
-      const cover = forest(cx, cz);
-      let kind: "field" | "wood" | "meadow" = r < profile.fieldShare ? "field" : r < profile.fieldShare + 0.16 ? "wood" : "meadow";
-      // Meadow near the farms is pasture: a green field with a hedge.
-      const pasture = kind === "meadow" && m < farmReach * 0.85 && hash01(i, j, seed + 81) < 0.4;
-      if (pasture) kind = "field";
-      // Hills are no place for a plough, and a wood mask claims its cells.
-      if (kind === "field" && (wet > 0.05 * size + 2 || cover > 0.55)) kind = cover > 0.35 ? "wood" : "meadow";
-      // Where a lattice of one heading meets the other, leave woodland between.
-      const nextDomain = fbm((cx + cell) / (2.6 * size) + 4.4, cz / (2.6 * size) - 2.2, seed + 5, 2) > 0.5 ? 1 : 0;
-      const prevDomain = fbm(cx / (2.6 * size) + 4.4, (cz + cell) / (2.6 * size) - 2.2, seed + 5, 2) > 0.5 ? 1 : 0;
-      if (kind === "field" && (nextDomain !== domain || prevDomain !== domain)) kind = "wood";
-      cellKind.set(`${i}:${j}`, kind);
-      cellAt.set(`${i}:${j}`, { x: cx, z: cz, w, d, yaw });
-      if (kind === "field" && fields.length < fieldBudget) {
-        const crop = (pasture ? 5 : pick(hash01(i, j, seed + 8), 5)) as Crop;
-        // Hedged near the city where it is seen closely; open further out.
-        const hedged = profile.settle !== "sprawl" || m < size * 1.6 ? m < Math.min(farmReach, size * 1.9) : false;
-        fields.push({ x: cx, z: cz, w: w - 2.2, d: d - 2.2, yaw, crop, shade: hash01(i, j, seed + 9), hedged });
-        if (hedged) {
-          const c = Math.cos(yaw);
-          const s = Math.sin(yaw);
-          const corners: Pt[] = [
-            { x: -w / 2, z: -d / 2 },
-            { x: w / 2, z: -d / 2 },
-            { x: w / 2, z: d / 2 },
-            { x: -w / 2, z: d / 2 },
-          ].map((p) => ({ x: cx + p.x * c + p.z * s, z: cz - p.x * s + p.z * c }));
-          for (let k = 0; k < 4; k++) {
-            // A gate in one side in three: no hedge there.
-            if (hash01(i * 4 + k, j, seed + 10) < 0.22) continue;
-            const a = corners[k];
-            const b = corners[(k + 1) % 4];
-            hedges.push({ x0: a.x, z0: a.z, x1: b.x, z1: b.z, shade: hash01(i * 4 + k, j, seed + 11) });
-          }
+  interface Kept {
+    id: number;
+    x: number;
+    z: number;
+    pts: Pt[];
+    edge: number[];
+    radius: number;
+    kind: "field" | "wood" | "meadow";
+    pasture: boolean;
+    rowYaw: number;
+  }
+  const trimCell = (c: Cell): Kept | null => {
+    let pts: Pt[] = c.pts;
+    let edge: number[] = c.edge;
+    let ctr = polyCentroid(pts);
+    const radiusOf = () => pts.reduce((m, p) => Math.max(m, Math.hypot(p.x - ctr.x, p.z - ctr.z)), 0);
+    let rad = radiusOf();
+    if (linf(ctr.x, ctr.z) < boxMin) return null;
+    const cut = (a: number, b: number, k: number): boolean => {
+      const res = clipHalfPlane(pts, edge, a, b, k, EDGE_CUT);
+      if (res.pts.length < 3) return false;
+      pts = res.pts;
+      edge = res.edge;
+      ctr = polyCentroid(pts);
+      return true;
+    };
+    // The plot: the side the cell's middle is most beyond.
+    if (Math.abs(ctr.x) >= Math.abs(ctr.z)) {
+      if (Math.abs(ctr.x) - rad < boxMin && !cut(-Math.sign(ctr.x), 0, -boxMin)) return null;
+    } else if (Math.abs(ctr.z) - rad < boxMin && !cut(0, -Math.sign(ctr.z), -boxMin)) return null;
+    rad = radiusOf();
+    /** Keeps the cell on its own side of a segment, `m` from it. */
+    const offLine = (ax: number, az: number, bx: number, bz: number, m: number): boolean => {
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-6) return true;
+      if (distToSegment(ctr.x, ctr.z, ax, az, bx, bz) >= rad + m) return true;
+      const nx = -(bz - az) / len;
+      const nz = (bx - ax) / len;
+      const side = nx * (ctr.x - ax) + nz * (ctr.z - az) >= 0 ? 1 : -1;
+      return cut(-side * nx, -side * nz, -(m + side * (nx * ax + nz * az)));
+    };
+    for (const road of roads) {
+      const m = road.width / 2 + 2.8;
+      for (let i = 0; i + 1 < road.pts.length; i++) {
+        const a = road.pts[i];
+        const b = road.pts[i + 1];
+        if (Math.min(a.x, b.x) > ctr.x + rad + m || Math.max(a.x, b.x) < ctr.x - rad - m) continue;
+        if (Math.min(a.z, b.z) > ctr.z + rad + m || Math.max(a.z, b.z) < ctr.z - rad - m) continue;
+        if (!offLine(a.x, a.z, b.x, b.z, m)) return null;
+      }
+    }
+    for (const river of rivers) {
+      const m = river.width / 2 + trenchReach(river.spec) + 2.2;
+      for (let i = 0; i + 1 < river.pts.length; i++) {
+        const a = river.pts[i];
+        const b = river.pts[i + 1];
+        if (Math.min(a.x, b.x) > ctr.x + rad + m || Math.max(a.x, b.x) < ctr.x - rad - m) continue;
+        if (Math.min(a.z, b.z) > ctr.z + rad + m || Math.max(a.z, b.z) < ctr.z - rad - m) continue;
+        if (!offLine(a.x, a.z, b.x, b.z, m)) return null;
+      }
+    }
+    const round = (px: number, pz: number, r: number): boolean => {
+      const dx = ctr.x - px;
+      const dz = ctr.z - pz;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= rad + r) return true;
+      if (dist < 1e-6) return false;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      return cut(-nx, -nz, -(r + nx * px + nz * pz));
+    };
+    for (const pond of ponds) if (!round(pond.x, pond.z, Math.max(pond.rx, pond.rz) * 1.12 + trenchReach(pond.spec) + 2.2)) return null;
+    for (const t of taken) if (!round(t.x, t.z, t.r)) return null;
+    if (polyArea(pts) < (cell * 0.4) ** 2) return null;
+    ctr = polyCentroid(pts);
+    return { id: c.id, x: ctr.x, z: ctr.z, pts, edge, radius: radiusOf(), kind: "meadow", pasture: false, rowYaw: longestEdgeYaw(pts) };
+  };
+
+  const kept = new Map<number, Kept>();
+  for (const c of voronoiCells(seeds)) {
+    const k = trimCell({ ...c, pts: c.pts.map((p) => toWorld(p.x, p.z)) });
+    if (!k) continue;
+    const m = landDistance(k.x, k.z);
+    if (m > farmReach) continue;
+    const wet = level(k.x, k.z) - GROUND_Y;
+    const r = hash01(k.id, 1, seed + 7);
+    const cover = forest(k.x, k.z);
+    let kind: Kept["kind"] = r < profile.fieldShare ? "field" : r < profile.fieldShare + 0.16 ? "wood" : "meadow";
+    // Meadow near the farms is pasture: a green field with a hedge.
+    const pasture = kind === "meadow" && m < farmReach * 0.85 && hash01(k.id, 2, seed + 81) < 0.4;
+    if (pasture) kind = "field";
+    // Hills are no place for a plough, and a wood mask claims its cells.
+    if (kind === "field" && (wet > 0.05 * size + 2 || cover > 0.55)) kind = cover > 0.35 ? "wood" : "meadow";
+    k.kind = kind;
+    k.pasture = pasture && kind === "field";
+    kept.set(k.id, k);
+  }
+
+  const woodCells: Kept[] = [];
+  const meadowCells: Kept[] = [];
+  const hedgeTrees: TreeSpot[] = [];
+  for (const k of kept.values()) {
+    if (k.kind === "wood") woodCells.push(k);
+    else if (k.kind === "meadow") meadowCells.push(k);
+    if (k.kind !== "field" || fields.length >= fieldBudget) continue;
+    const ins = insetPolygon(k.pts, k.edge, 1.4);
+    if (ins.pts.length < 3 || polyArea(ins.pts) < 40) continue;
+    const m = landDistance(k.x, k.z);
+    const crop = (k.pasture ? 5 : pick(hash01(k.id, 3, seed + 8), 5)) as Crop;
+    // Hedged near the city where it is seen closely; open further out.
+    const hedged = profile.settle !== "sprawl" || m < size * 1.6 ? m < Math.min(farmReach, size * 1.9) : false;
+    fields.push({ x: k.x, z: k.z, poly: ins.pts, rowYaw: k.rowYaw, radius: k.radius, crop, shade: hash01(k.id, 4, seed + 9), hedged });
+    if (!hedged) continue;
+    for (let e = 0; e < k.pts.length; e++) {
+      const lab = k.edge[e];
+      if (lab === EDGE_FAR) continue;
+      // A hedge between two fields is drawn once, by the lower-numbered one.
+      if (lab >= 0 && kept.get(lab)?.kind === "field" && lab < k.id) continue;
+      const a = k.pts[e];
+      const b = k.pts[(e + 1) % k.pts.length];
+      if (Math.hypot(b.x - a.x, b.z - a.z) < 4) continue;
+      hedges.push({ x0: a.x, z0: a.z, x1: b.x, z1: b.z, shade: hash01(k.id, e + 5, seed + 11) });
+      // The odd hedgerow tree: a big broadleaf now and then, a poplar more rarely.
+      const roll = hash01(k.id, e + 40, seed + 12);
+      if (roll < 0.3) {
+        const t = 0.25 + hash01(k.id, e + 60, seed + 13) * 0.5;
+        const x = a.x + (b.x - a.x) * t;
+        const z = a.z + (b.z - a.z) * t;
+        if (clearOf(x, z, 1.6)) {
+          hedgeTrees.push({ x, z, scale: 1.25 + hash01(k.id, e, seed + 14) * 0.5, kind: roll < 0.04 ? 3 : 0, shade: hash01(k.id, e + 80, seed + 15) });
         }
-      } else if (kind === "wood") {
-        woodCells.push({ x: cx, z: cz, w, d });
       }
     }
   }
@@ -686,53 +877,54 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
   woodCells.sort((a, b) => landDistance(a.x, a.z) - landDistance(b.x, b.z));
   for (const wood of woodCells) {
     if (trees.length >= treeBudget) break;
-    const rx = wood.w * 0.5;
-    const rz = wood.d * 0.5;
-    const spacing = 5.2;
+    const spacing = 5.4;
     const conifer = fbm(wood.x / (0.5 * size), wood.z / (0.5 * size), seed + 12, 2) + landDistance(wood.x, wood.z) / (size * 8);
-    for (let gx = -rx; gx <= rx; gx += spacing) {
-      for (let gz = -rz; gz <= rz; gz += spacing) {
-        const x = wood.x + gx + (treeRng.next() - 0.5) * spacing * 0.8;
-        const z = wood.z + gz + (treeRng.next() - 0.5) * spacing * 0.8;
-        const edge = (Math.abs(x - wood.x) / rx) ** 2 + (Math.abs(z - wood.z) / rz) ** 2;
-        const wobble = 0.72 + 0.38 * hash01(Math.round(x), Math.round(z), seed + 13);
-        if (edge > wobble) continue;
+    const birchy = fbm(wood.x / (0.22 * size) + 9, wood.z / (0.22 * size) - 4, seed + 16, 2);
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (const p of wood.pts) {
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      z0 = Math.min(z0, p.z);
+      z1 = Math.max(z1, p.z);
+    }
+    for (let gx = x0; gx <= x1; gx += spacing) {
+      for (let gz = z0; gz <= z1; gz += spacing) {
+        const x = gx + (treeRng.next() - 0.5) * spacing * 0.8;
+        const z = gz + (treeRng.next() - 0.5) * spacing * 0.8;
+        if (!insidePoly(wood.pts, x, z)) continue;
+        // A ragged edge: the wood's outline wobbles by a tree or two.
+        const edgeD = convexDistance(wood.pts, x, z);
+        if (-edgeD < 0.8 + 3.4 * hash01(Math.round(x), Math.round(z), seed + 13)) continue;
         if (!clearOf(x, z, 2.5)) continue;
+        const roll = treeRng.next();
+        const isConifer = conifer + (treeRng.next() - 0.5) * 0.25 > 0.62;
         trees.push({
           x, z,
           scale: 1 + treeRng.next() * 0.55,
-          kind: conifer + (treeRng.next() - 0.5) * 0.25 > 0.62 ? 1 : 0,
+          kind: isConifer ? 1 : birchy > 0.62 && roll < 0.55 ? 4 : roll > 0.97 ? 3 : 0,
           shade: treeRng.next(),
         });
       }
     }
   }
-  // Meadow cells get a lone tree or two, and field corners a hedgerow tree.
-  for (const [key, kind] of cellKind) {
+  // Meadow cells get a lone tree or two, and the hedges their odd big tree.
+  for (const cellM of meadowCells) {
     if (trees.length >= treeBudget) break;
-    if (kind !== "meadow") continue;
-    const [i, j] = key.split(":").map(Number);
-    const n = Math.floor(hash01(i, j, seed + 14) * 3);
+    const n = Math.floor(hash01(cellM.id, 5, seed + 14) * 3);
     for (let k = 0; k < n; k++) {
-      const x = i * cell + (hash01(i, j, seed + 20 + k) - 0.5) * cell * 0.7;
-      const z = j * cell + (hash01(i, j, seed + 30 + k) - 0.5) * cell * 0.7;
-      if (!clearOf(x, z, 3)) continue;
-      trees.push({ x, z, scale: 1.1 + hash01(i, j, seed + 40 + k) * 0.5, kind: 0, shade: hash01(i, j, seed + 50 + k) });
+      const x = cellM.x + (hash01(cellM.id, k + 10, seed + 20) - 0.5) * cellM.radius * 0.9;
+      const z = cellM.z + (hash01(cellM.id, k + 20, seed + 30) - 0.5) * cellM.radius * 0.9;
+      if (!insidePoly(cellM.pts, x, z) || !clearOf(x, z, 3)) continue;
+      const roll = hash01(cellM.id, k + 30, seed + 40);
+      trees.push({ x, z, scale: 1.1 + roll * 0.5, kind: roll < 0.12 ? 3 : roll < 0.3 ? 4 : 0, shade: hash01(cellM.id, k + 40, seed + 50) });
     }
   }
-  for (const field of fields) {
-    if (!field.hedged || trees.length >= treeBudget) continue;
-    if (hash01(Math.round(field.x), Math.round(field.z), seed + 15) < 0.45) {
-      const c = Math.cos(field.yaw);
-      const s = Math.sin(field.yaw);
-      const sx = hash01(Math.round(field.x), 0, seed + 16) < 0.5 ? -1 : 1;
-      const sz = hash01(0, Math.round(field.z), seed + 17) < 0.5 ? -1 : 1;
-      const lx = (field.w / 2 + 1.1) * sx;
-      const lz = (field.d / 2 + 1.1) * sz;
-      const x = field.x + lx * c + lz * s;
-      const z = field.z - lx * s + lz * c;
-      if (clearOf(x, z, 2)) trees.push({ x, z, scale: 1.25 + field.shade * 0.4, kind: 0, shade: field.shade });
-    }
+  for (const t of hedgeTrees) {
+    if (trees.length >= treeBudget) break;
+    trees.push(t);
   }
 
   // Far canopy: bigger masses on a coarse jittered grid, thick where the forest is.
@@ -776,15 +968,15 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
           along += 3;
           const fade = 1 - along / (size * 0.85);
           if (fade <= 0) continue;
-          if (along % 18 > 3) continue;
+          if (along % 13 > 3) continue;
           for (const side of [-1, 1]) {
             if (hRng.next() > 0.85 * fade + 0.1) continue;
             const off = (road.width / 2 + 5.5 + hRng.next() * 2.5) * side;
             const px = a.x + ux * s - uz * off;
             const pz = a.z + uz * s + ux * off;
             if (!clearOf(px, pz, 3.5)) continue;
-            if (height(px, pz) - GROUND_Y > 4) continue;
-            houseAt(px, pz, facing(ux, uz, side), "house");
+            if (level(px, pz) - GROUND_Y > 4) continue;
+            houseAt(px, pz, facing(ux, uz, side), pickModel(FRINGE_MODELS));
           }
         }
       }
@@ -794,9 +986,7 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
   if (profile.settle === "farms" || profile.settle === "fringe" || profile.settle === "hamlets") {
     // Farmsteads: a house and a barn in the middle of a meadow cell, the nearest ones.
     const want = profile.settle === "farms" ? 4 : profile.settle === "fringe" ? 3 : 4;
-    const meadows = [...cellKind.entries()]
-      .filter(([, kind]) => kind === "meadow")
-      .map(([key]) => cellAt.get(key)!)
+    const meadows = meadowCells
       .filter((c) => landDistance(c.x, c.z) < size * 1.9)
       .sort((a, b) => landDistance(a.x, a.z) - landDistance(b.x, b.z));
     let placed = 0;
@@ -804,11 +994,11 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
       if (placed >= want) break;
       // Every other candidate, so they are not all in one corner.
       if (hash01(Math.round(c.x), Math.round(c.z), seed + 90) < 0.35) continue;
-      const cs = Math.cos(c.yaw);
-      const sn = Math.sin(c.yaw);
-      if (!clearOf(c.x, c.z, 12) || height(c.x, c.z) - GROUND_Y > 0.04 * size) continue;
-      houseAt(c.x + sn * 5, c.z + cs * 5, c.yaw + Math.PI, "house");
-      houseAt(c.x - sn * 7 + cs * 6, c.z - cs * 7 - sn * 6, c.yaw + Math.PI / 2, "barn");
+      const cs = Math.cos(c.rowYaw);
+      const sn = Math.sin(c.rowYaw);
+      if (!clearOf(c.x, c.z, 12) || level(c.x, c.z) - GROUND_Y > 0.04 * size) continue;
+      houseAt(c.x + sn * 5, c.z + cs * 5, c.rowYaw + Math.PI, hRng.next() < 0.7 ? "farmhouse" : "cottage/tile");
+      houseAt(c.x - sn * 8 + cs * 7, c.z - cs * 8 - sn * 7, c.rowYaw + Math.PI / 2, "barn");
       placed++;
     }
   }
@@ -832,8 +1022,8 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
           const off = (road.width / 2 + 6 + hRng.next() * 3) * side;
           const x = p.x + ux * k * 13 - uz * off;
           const z = p.z + uz * k * 13 + ux * off;
-          if (!clearOf(x, z, 3.5) || height(x, z) - GROUND_Y > 9) continue;
-          houseAt(x, z, facing(ux, uz, side), "house");
+          if (!clearOf(x, z, 3.5) || level(x, z) - GROUND_Y > 9) continue;
+          houseAt(x, z, facing(ux, uz, side), pickModel(HAMLET_MODELS));
         }
       }
     }
@@ -912,6 +1102,6 @@ export function planLandscape(city: CityModel, aspect: number = REFERENCE_ASPECT
 
   return {
     tier, seed, size, half, reach, flat, profile, exits, roads, rivers, ponds, bridges,
-    fields, hedges, trees, houses, streets, towers, verge, height, forest,
+    fields, hedges, trees, houses, streets, towers, verge, height, level, forest,
   };
 }
