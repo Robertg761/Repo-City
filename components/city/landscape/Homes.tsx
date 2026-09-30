@@ -13,10 +13,12 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { Color, InstancedBufferAttribute, MeshStandardMaterial, Object3D, type BufferGeometry, type InstancedMesh } from "three";
+import { BoxGeometry, Color, InstancedBufferAttribute, MeshStandardMaterial, Object3D, type BufferGeometry, type InstancedMesh } from "three";
 import type { Building } from "@/types/city";
 import { MATERIALS_PALETTE } from "../look";
-import { archetypeGeometry, windowPanelGeometry } from "../models/buildings/geometry";
+import { archetypeGeometry, archetypeNearGeometry, windowPanelGeometry } from "../models/buildings/geometry";
+import { LodInstances } from "../lod";
+import { useNearModels } from "../models/useModels";
 import { weather, cityPaint } from "../models/buildings/facades";
 import {
   ACCENT_ATTRIBUTE,
@@ -32,7 +34,8 @@ import { buildingColor, desaturate, stateTint, WINDOW_COLOR, type SceneAtmospher
 import { useQuality } from "../quality";
 import { useSkyFrame } from "../sky";
 import { windowEmissive } from "../Buildings";
-import { homeHeight, litHomeWindows, planHomeWindows } from "./homes";
+import { PLINTH_LIP, homeHeight, footprintPoint, houseBase, litHomeWindows, planHomeWindows, type HouseBase } from "./homes";
+import { Yards } from "./Small";
 import type { HouseSpot, LandscapePlan } from "./plan";
 import type { ModelKey } from "../models/buildings/archetypes";
 
@@ -55,6 +58,16 @@ function stub(h: HouseSpot): Building {
   } as unknown as Building;
 }
 
+const CITY_ATTRIBUTE_NAMES = [ACCENT_ATTRIBUTE, ROOF_ATTRIBUTE, GLASS_ATTRIBUTE, SURFACES_ATTRIBUTE] as const;
+const PAINTED_ATTRIBUTE_NAMES = [ACCENT_ATTRIBUTE] as const;
+const NO_ATTRIBUTES: readonly string[] = [];
+
+/** The near level is drawn for the few houses inside this camera distance (the city's own is 64), and at most this many triangles of it at once. */
+const HOME_NEAR_DISTANCE = 58;
+const HOME_NEAR_TRIANGLES = 100_000;
+const HOME_NEAR_CAP = 16;
+const HOME_NEAR_MIN = 3;
+
 const CITY_ATTRIBUTES: readonly (readonly [string, number])[] = [
   [ACCENT_ATTRIBUTE, 3],
   [ROOF_ATTRIBUTE, 3],
@@ -65,15 +78,17 @@ const CITY_ATTRIBUTES: readonly (readonly [string, number])[] = [
 function ModelInstances({
   model,
   spots,
-  sample,
+  bases,
   atmosphere,
 }: {
   model: ModelKey;
   spots: readonly HouseSpot[];
-  sample: (x: number, z: number) => number;
+  /** Where each spot's floor is (`houseBase`). */
+  bases: readonly HouseBase[];
   atmosphere: SceneAtmosphere;
 }) {
   const { textureSize, anisotropy } = useQuality();
+  const nearVersion = useNearModels();
   const ref = useRef<InstancedMesh>(null);
   const paints = useMemo(() => {
     return spots.map((h) => {
@@ -99,6 +114,23 @@ function ModelInstances({
     if (painted || cityPainted) geometry.dispose();
   }, [geometry, painted, cityPainted]);
 
+  // The detailed model, for the few houses the camera is close to: null until it has loaded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+  const nearGeometry = useMemo(() => archetypeNearGeometry(model), [model, nearVersion]);
+  const near = useMemo(() => {
+    if (!nearGeometry) return { cap: 0, size: 0 };
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere?.radius ?? 1;
+    let scale = 0;
+    for (const h of spots) scale += Math.max(h.w, homeHeight(h), h.d);
+    scale /= Math.max(1, spots.length);
+    const triangles = (nearGeometry.index?.count ?? nearGeometry.getAttribute("position").count) / 3;
+    return {
+      cap: Math.min(HOME_NEAR_CAP, Math.max(HOME_NEAR_MIN, Math.floor(HOME_NEAR_TRIANGLES / Math.max(1, triangles)))),
+      size: (radius * scale) / HOME_NEAR_DISTANCE,
+    };
+  }, [nearGeometry, geometry, spots]);
+
   // The same parameters the city's own buildings use, so the compiled programs are shared.
   const material = useMemo(
     () =>
@@ -120,7 +152,7 @@ function ModelInstances({
     const surfaces = geometry.getAttribute(SURFACES_ATTRIBUTE) as InstancedBufferAttribute | undefined;
     const desat = atmosphere.desaturation;
     spots.forEach((h, i) => {
-      scratch.position.set(h.x, sample(h.x, h.z) - 0.05, h.z);
+      scratch.position.set(h.x, bases[i].floor, h.z);
       scratch.rotation.set(0, h.yaw, 0);
       scratch.scale.set(h.w, homeHeight(h), h.d);
       scratch.updateMatrix();
@@ -151,14 +183,20 @@ function ModelInstances({
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     for (const a of [accent, roof, glass, surfaces]) if (a) a.needsUpdate = true;
     mesh.computeBoundingSphere();
-  }, [spots, sample, paints, geometry, material, atmosphere.desaturation]);
+  }, [spots, bases, paints, geometry, material, atmosphere.desaturation]);
 
   if (spots.length === 0) return null;
   return (
-    <instancedMesh
+    <LodInstances
       key={`${spots.length}:${geometry.uuid}:${material.uuid}`}
       ref={ref}
-      args={[geometry, material, spots.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={spots.length}
+      maxNear={near.cap}
+      nearSize={near.size}
+      instancedAttributes={cityPainted ? CITY_ATTRIBUTE_NAMES : painted ? PAINTED_ATTRIBUTE_NAMES : NO_ATTRIBUTES}
       receiveShadow
       frustumCulled={false}
       raycast={none}
@@ -186,7 +224,7 @@ function windowMaterial(): MeshStandardMaterial {
   return material;
 }
 
-function HomeLights({ houses, sample }: { houses: readonly HouseSpot[]; sample: (x: number, z: number) => number }) {
+function HomeLights({ houses, bases }: { houses: readonly HouseSpot[]; bases: readonly HouseBase[] }) {
   const ref = useRef<InstancedMesh>(null);
   const windows = useMemo(() => planHomeWindows(houses), [houses]);
   const geometry = useMemo(() => windowPanelGeometry(), []);
@@ -204,7 +242,7 @@ function HomeLights({ houses, sample }: { houses: readonly HouseSpot[]; sample: 
       const sin = Math.sin(h.yaw);
       const lx = w.ox * h.w;
       const lz = w.oz * h.d;
-      scratch.position.set(h.x + lx * cos + lz * sin, sample(h.x, h.z) - 0.05 + w.oy * H, h.z - lx * sin + lz * cos);
+      scratch.position.set(h.x + lx * cos + lz * sin, bases[w.house].floor + w.oy * H, h.z - lx * sin + lz * cos);
       scratch.rotation.set(0, h.yaw + w.panelYaw, 0);
       scratch.scale.set(w.uw * (w.alongX ? h.w : h.d), w.uh * H, 1);
       scratch.updateMatrix();
@@ -213,7 +251,7 @@ function HomeLights({ houses, sample }: { houses: readonly HouseSpot[]; sample: 
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     tinted.current = -1;
-  }, [windows, houses, sample]);
+  }, [windows, houses, bases]);
 
   // The hour decides how many are lit, how bright, and at night which colour.
   useSkyFrame((atmosphere) => {
@@ -253,21 +291,60 @@ export default function Homes({
     const keep = maxHouses / plan.houses.length;
     return plan.houses.filter((_, i) => (i * 0.6180339887) % 1 < keep);
   }, [plan, maxHouses]);
+  // Where each house's floor is on its slope, and how deep its stone base goes.
+  const bases = useMemo(() => houses.map((h) => houseBase(h, sample)), [houses, sample]);
   const byModel = useMemo(() => {
-    const map = new Map<ModelKey, HouseSpot[]>();
-    for (const h of houses) {
-      const list = map.get(h.model);
-      if (list) list.push(h);
-      else map.set(h.model, [h]);
-    }
+    const map = new Map<ModelKey, { spots: HouseSpot[]; bases: HouseBase[] }>();
+    houses.forEach((h, i) => {
+      const entry = map.get(h.model);
+      if (entry) {
+        entry.spots.push(h);
+        entry.bases.push(bases[i]);
+      } else map.set(h.model, { spots: [h], bases: [bases[i]] });
+    });
     return [...map.entries()];
-  }, [houses]);
+  }, [houses, bases]);
+  const low = useQuality().tier === "low";
   return (
     <group>
-      {byModel.map(([model, spots]) => (
-        <ModelInstances key={model} model={model} spots={spots} sample={sample} atmosphere={atmosphere} />
+      <Plinths houses={houses} bases={bases} />
+      {byModel.map(([model, entry]) => (
+        <ModelInstances key={model} model={model} spots={entry.spots} bases={entry.bases} atmosphere={atmosphere} />
       ))}
-      <HomeLights houses={houses} sample={sample} />
+      <HomeLights houses={houses} bases={bases} />
+      {!low && <Yards houses={houses} sample={sample} atmosphere={atmosphere} />}
     </group>
   );
+}
+
+/** A stone base under each house: from its floor down past the lowest ground under it, a little wider than the walls, so no corner floats or shows a gap on a slope. */
+function Plinths({ houses, bases }: { houses: readonly HouseSpot[]; bases: readonly HouseBase[] }) {
+  const ref = useRef<InstancedMesh>(null);
+  // A unit box hanging from y = 0 to y = -1.
+  const geometry = useMemo(() => new BoxGeometry(1, 1, 1).translate(0, -0.5, 0), []);
+  const material = useMemo(() => new MeshStandardMaterial({ color: "#ffffff", roughness: 1, metalness: 0, flatShading: true }), []);
+  useEffect(() => () => { geometry.dispose(); material.dispose(); }, [geometry, material]);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    houses.forEach((h, i) => {
+      // The base follows the model's own outline (a barn's silo, a cottage's porch), not the box it is drawn in.
+      const box = archetypeGeometry(h.model).boundingBox ?? (archetypeGeometry(h.model).computeBoundingBox(), archetypeGeometry(h.model).boundingBox)!;
+      const [x, z] = footprintPoint(h, ((box.min.x + box.max.x) / 2) * h.w, ((box.min.z + box.max.z) / 2) * h.d);
+      scratch.position.set(x, bases[i].floor, z);
+      scratch.rotation.set(0, h.yaw, 0);
+      scratch.scale.set((box.max.x - box.min.x) * h.w + PLINTH_LIP, bases[i].plinth, (box.max.z - box.min.z) * h.d + PLINTH_LIP);
+      scratch.updateMatrix();
+      mesh.setMatrixAt(i, scratch.matrix);
+      // Stone, a little different each time.
+      tint.setHSL(0.09, 0.05, 0.2 + ((h.tint * 17) % 1) * 0.1);
+      mesh.setColorAt(i, tint);
+    });
+    mesh.count = houses.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [houses, bases]);
+  if (houses.length === 0) return null;
+  return <instancedMesh key={houses.length} ref={ref} args={[geometry, material, houses.length]} receiveShadow frustumCulled={false} raycast={none} />;
 }

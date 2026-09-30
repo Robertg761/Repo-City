@@ -35,6 +35,9 @@ import type { SceneAtmosphere } from "../palette";
 import { useQuality } from "../quality";
 import { useSkyFrame } from "../sky";
 import { treeGeometry, SPECIES_LEAF, type TreeSpecies } from "../models/props/trees";
+import { nearSizeAt, treeNearGeometry } from "../models/props/near";
+import { useNearModels } from "../models/useModels";
+import { LodInstances } from "../lod";
 import { tintedMaterial } from "../models/props/material";
 import { tiledSurface } from "../textures/surfaces";
 import { SURFACE_BUMP } from "../textures/texture-data";
@@ -58,6 +61,7 @@ import {
 import { CTL_REACH } from "./ctl";
 import Grass from "./grass";
 import Homes from "./Homes";
+import { Undergrowth } from "./Small";
 import { useLand } from "./LandProvider";
 import { patchLand, useLandGround } from "./ground";
 import { patchCrops, tuneWater, waterMaterial } from "./materials";
@@ -184,6 +188,9 @@ export function LandTerrain() {
 
 function Instanced<T>({
   geometry,
+  nearGeometry = null,
+  maxNear = 0,
+  nearDistance = 30,
   material,
   items,
   place,
@@ -191,6 +198,11 @@ function Instanced<T>({
   castShadow = false,
 }: {
   geometry: BufferGeometry;
+  /** The detailed model for the few instances the camera is close to (`lod.tsx`); null draws only the lean one. */
+  nearGeometry?: BufferGeometry | null;
+  maxNear?: number;
+  /** Camera distance at which an instance of unit scale goes near (a bigger one, further). */
+  nearDistance?: number;
   material: MeshStandardMaterial;
   items: readonly T[];
   /** Writes the item's transform into the scratch object. */
@@ -221,10 +233,15 @@ function Instanced<T>({
   }, [items, place, colorOf]);
   if (items.length === 0) return null;
   return (
-    <instancedMesh
+    <LodInstances
       key={items.length}
       ref={ref}
-      args={[geometry, material, items.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={items.length}
+      maxNear={maxNear}
+      nearSize={nearSizeAt(geometry, nearDistance)}
       castShadow={castShadow}
       receiveShadow
       frustumCulled={false}
@@ -437,40 +454,81 @@ interface Placed {
   y: number;
   z: number;
   spot: TreeSpot;
+  species: TreeSpecies;
 }
 
 const SPECIES_OF: Record<TreeSpot["kind"], TreeSpecies> = { 0: "broadleaf", 1: "conifer", 2: "broadleaf", 3: "poplar", 4: "birch" };
 
-/** The species a spot is: a far canopy is a conifer one time in three, a broadleaf otherwise. */
+/** A repeatable 0..1 number for a spot and a channel, independent of the others (the spot's own `shade` drives too many things at once). */
+function roll(s: { x: number; z: number }, channel: number): number {
+  const v = Math.sin(s.x * 12.9898 + s.z * 78.233 + channel * 37.719) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+/** A slow drift over the land (0..1), so a stand has a lighter glade and a darker hollow and not one colour. */
+function patch(x: number, z: number): number {
+  return 0.5 + 0.25 * Math.sin(x * 0.045 + Math.sin(z * 0.031) * 1.7) + 0.25 * Math.sin(z * 0.052 - x * 0.019 + 1.3);
+}
+
+/**
+ * The species a spot is. A far canopy mass is mostly broadleaf with a dark
+ * conifer stand in it and the odd birch, by where it is as well as by its roll,
+ * so the conifers gather into stands.
+ */
 function speciesOf(s: TreeSpot): TreeSpecies {
-  if (s.kind === 2) return s.shade < 0.3 ? "conifer" : "broadleaf";
+  if (s.kind === 2) {
+    const stand = patch(s.x * 0.6 + 40, s.z * 0.6 - 15);
+    if (s.shade < 0.12 + stand * 0.3) return "conifer";
+    if (s.shade > 0.93) return "birch";
+    return "broadleaf";
+  }
   return SPECIES_OF[s.kind];
 }
 
 const hsl = { h: 0, s: 0, l: 0 };
 const grey = new Color(0.5, 0.5, 0.5);
 
-/** A leaf colour a little off the species' green, by the spot's shade, drained by the city's health. */
-function leafTint(species: TreeSpecies, shade: number, desaturation: number, out: Color): void {
+/** A leaf colour a little off the species' green: by the spot's shade, the glade it stands in, and its own roll; drained by the city's health. */
+function leafTint(species: TreeSpecies, spot: TreeSpot, desaturation: number, out: Color): void {
   out.set(SPECIES_LEAF[species]).getHSL(hsl);
-  const s2 = (shade * 7.31) % 1;
-  const l2 = (shade * 13.7) % 1;
-  out.setHSL((hsl.h + (shade - 0.5) * 0.07 + 1) % 1, Math.min(1, Math.max(0, hsl.s + (s2 - 0.5) * 0.16)), Math.min(0.8, Math.max(0.1, hsl.l + (l2 - 0.5) * 0.12)));
+  const glade = patch(spot.x, spot.z) - 0.5;
+  const own = roll(spot, 1) - 0.5;
+  const s2 = roll(spot, 2) - 0.5;
+  // A few trees turn early: yellower and lighter, never more than a tree in twenty.
+  const early = roll(spot, 3) > 0.96 ? 0.05 : 0;
+  out.setHSL(
+    (hsl.h + own * 0.06 + glade * 0.03 - early * 0.6 + 1) % 1,
+    Math.min(1, Math.max(0, hsl.s + s2 * 0.18 - early * 0.5)),
+    Math.min(0.8, Math.max(0.1, hsl.l + glade * 0.12 + (roll(spot, 4) - 0.5) * 0.1 + early)),
+  );
   if (desaturation > 0) out.lerp(grey, desaturation * 0.5);
 }
 
 function useTreeSet(spots: readonly TreeSpot[], sample: (x: number, z: number) => number, species: TreeSpecies): Placed[] {
   return useMemo(
-    () => spots.filter((s) => speciesOf(s) === species).map((spot) => ({ x: spot.x, y: sample(spot.x, spot.z) - 0.1, z: spot.z, spot })),
+    () =>
+      spots
+        .filter((s) => speciesOf(s) === species)
+        .map((spot) => ({ x: spot.x, y: sample(spot.x, spot.z) - 0.1, z: spot.z, spot, species })),
     [spots, sample, species],
   );
 }
 
+/** The size of a species' own kind: a poplar is tall and thin, a conifer broad at the foot, so the same spot scale does not make them the same tree. */
+const GIRTH: Record<TreeSpecies, number> = { broadleaf: 1, conifer: 0.94, poplar: 0.88, birch: 0.94 };
+
 const placeTree = (t: Placed, o: Object3D) => {
   o.position.set(t.x, t.y, t.z);
   const s = t.spot.scale;
-  o.rotation.y = t.spot.shade * 6.283;
-  o.scale.set(s, s * (0.9 + t.spot.shade * 0.25), s);
+  // A sapling now and then, and a veteran standing alone: a stand of one size reads as a plantation.
+  const grade = roll(t.spot, 5);
+  const age = grade < 0.12 ? 0.72 + grade * 2 : 1 + (t.spot.kind === 2 ? 0 : (roll(t.spot, 6) - 0.5) * 0.3);
+  const width = s * age * GIRTH[t.species] * (0.9 + roll(t.spot, 7) * 0.24);
+  o.rotation.y = roll(t.spot, 8) * 6.283;
+  // A lean, off the vertical by a few degrees: trees on a slope and in a hedge are never plumb.
+  o.rotation.x = (roll(t.spot, 9) - 0.5) * 0.11;
+  o.rotation.z = (roll(t.spot, 10) - 0.5) * 0.11;
+  o.scale.set(width, s * age * (0.88 + roll(t.spot, 11) * 0.28), width * (0.92 + roll(t.spot, 12) * 0.16));
 };
 
 /** The city's tree material with the wind's clock but no sway: out here the trees stand still, and share the city's program. */
@@ -484,29 +542,61 @@ function useTreeMaterial(): MeshStandardMaterial {
   return material;
 }
 
+/** Most trees of a species drawn in detail at once, and the camera distance at which a unit-scale one goes near. */
+const TREE_NEAR: Record<TreeSpecies, { cap: number; distance: number }> = {
+  broadleaf: { cap: 20, distance: 34 },
+  conifer: { cap: 20, distance: 34 },
+  poplar: { cap: 8, distance: 40 },
+  birch: { cap: 12, distance: 34 },
+};
+
 function TreeSets({ spots, sample, atmosphere }: { spots: readonly TreeSpot[]; sample: (x: number, z: number) => number; atmosphere: SceneAtmosphere }) {
   const material = useTreeMaterial();
+  const nearVersion = useNearModels();
   const b = useTreeSet(spots, sample, "broadleaf");
   const c = useTreeSet(spots, sample, "conifer");
   const p = useTreeSet(spots, sample, "poplar");
   const r = useTreeSet(spots, sample, "birch");
+  const desat = atmosphere.desaturation;
   const geos = useMemo(
     () => ({
-      broadleaf: treeGeometry("broadleaf", atmosphere.desaturation),
-      conifer: treeGeometry("conifer", atmosphere.desaturation),
-      poplar: treeGeometry("poplar", atmosphere.desaturation),
-      birch: treeGeometry("birch", atmosphere.desaturation),
+      broadleaf: treeGeometry("broadleaf", desat),
+      conifer: treeGeometry("conifer", desat),
+      poplar: treeGeometry("poplar", desat),
+      birch: treeGeometry("birch", desat),
     }),
-    [atmosphere.desaturation],
+    [desat],
   );
-  const desat = atmosphere.desaturation;
-  const colorB = useMemo(() => (t: Placed, out: Color) => leafTint(speciesOf(t.spot), t.spot.shade, desat, out), [desat]);
+  // The near levels arrive after the page does (`useNearModels`): null until they have.
+  const nears = useMemo(
+    () => ({
+      broadleaf: treeNearGeometry("broadleaf", desat),
+      conifer: treeNearGeometry("conifer", desat),
+      poplar: treeNearGeometry("poplar", desat),
+      birch: treeNearGeometry("birch", desat),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+    [desat, nearVersion],
+  );
+  const colorB = useMemo(() => (t: Placed, out: Color) => leafTint(t.species, t.spot, desat, out), [desat]);
+  const layer = (species: TreeSpecies, items: Placed[]) => (
+    <Instanced
+      geometry={geos[species]}
+      nearGeometry={nears[species]}
+      maxNear={TREE_NEAR[species].cap}
+      nearDistance={TREE_NEAR[species].distance}
+      material={material}
+      items={items}
+      place={placeTree}
+      colorOf={colorB}
+    />
+  );
   return (
     <group>
-      <Instanced geometry={geos.broadleaf} material={material} items={b} place={placeTree} colorOf={colorB} />
-      <Instanced geometry={geos.conifer} material={material} items={c} place={placeTree} colorOf={colorB} />
-      <Instanced geometry={geos.poplar} material={material} items={p} place={placeTree} colorOf={colorB} />
-      <Instanced geometry={geos.birch} material={material} items={r} place={placeTree} colorOf={colorB} />
+      {layer("broadleaf", b)}
+      {layer("conifer", c)}
+      {layer("poplar", p)}
+      {layer("birch", r)}
     </group>
   );
 }
@@ -514,7 +604,12 @@ function TreeSets({ spots, sample, atmosphere }: { spots: readonly TreeSpot[]; s
 function Woods({ plan, sample, low, atmosphere }: { plan: LandscapePlan; sample: (x: number, z: number) => number; low: boolean; atmosphere: SceneAtmosphere }) {
   // The tree line along the plot's verge is drawn with the woods: one draw a species, none of them casting shadows out here.
   const spots = useMemo(() => [...(low ? plan.trees.filter((_, i) => i % 3 === 0) : plan.trees), ...plan.verge.trees], [plan, low]);
-  return <TreeSets spots={spots} sample={sample} atmosphere={atmosphere} />;
+  return (
+    <group>
+      <TreeSets spots={spots} sample={sample} atmosphere={atmosphere} />
+      {!low && <Undergrowth trees={spots} sample={sample} atmosphere={atmosphere} />}
+    </group>
+  );
 }
 
 /** The skyline's windows glow in step with the dark. */

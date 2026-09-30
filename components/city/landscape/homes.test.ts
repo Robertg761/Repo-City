@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TIERS, tierCity } from "./cities";
-import { homeHeight, litHomeWindows, planHomeWindows } from "./homes";
+import { homeHeight, houseBase, litHomeWindows, planHomeWindows } from "./homes";
 import { planLandscape } from "./plan";
 import { LANDING_CITY, LANDING_SIZE } from "./landing";
 
@@ -48,5 +48,21 @@ describe("the landing stage's land", () => {
     expect(p.fields.length).toBeGreaterThan(10);
     expect(p.trees.length).toBeGreaterThan(100);
     expect(planLandscape(LANDING_CITY).fields.map((f) => f.x)).toEqual(p.fields.map((f) => f.x));
+  });
+});
+
+describe("where houses stand on slopes", () => {
+  const slope = (x: number, z: number) => 0.4 * x + 0.1 * z;
+  const house = { x: 0, z: 0, yaw: 0.6, w: 4, d: 4, h: 4, model: "cottage", key: "t", tint: 0.5 } as never;
+  it("puts the floor at the high ground and the plinth down past the low", () => {
+    const b = houseBase(house, slope);
+    expect(b.plinth).toBeGreaterThan(0.2);
+    // The floor is never below any footprint corner's ground, up to the cut limit.
+    expect(b.floor - b.plinth).toBeLessThan(slope(-2.3, -2.3));
+  });
+  it("sits a flat house on its ground with a thin base", () => {
+    const b = houseBase(house, () => 3);
+    expect(b.floor).toBeCloseTo(2.97, 5);
+    expect(b.plinth).toBeCloseTo(0.22, 5);
   });
 });
