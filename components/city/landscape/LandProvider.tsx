@@ -15,14 +15,13 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Texture } from "three";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT } from "../entities";
 import { useQuality } from "../quality";
 import { tiledSurface } from "../textures/surfaces";
 import { buildTerrain, terrainPainter, type Terrain } from "./build";
 import { CTL_SIZE, bakeJob, type BakeJob, type Control } from "./ctl";
-import { LandGroundProvider } from "./ground";
+import { LandGroundProvider, type LandTextures } from "./ground";
 import { planLandscape, type LandscapePlan } from "./plan";
 
 export interface Land {
@@ -107,14 +106,23 @@ function Enabled({
     if (!current.done && current.run(BAKE_MS)) setControl(current.control);
   });
 
-  const meadow = useMemo<Texture>(() => tiledSurface("meadow", textureSize, 1, anisotropy), [textureSize, anisotropy]);
-  useEffect(() => () => meadow.dispose(), [meadow]);
+  // The baked ground the land is textured from: colour of the meadow, and the height of lawn, meadow and soil.
+  const textures = useMemo<LandTextures>(
+    () => ({
+      meadow: tiledSurface("meadow", textureSize, 1, anisotropy),
+      lawnRelief: tiledSurface("lawn", textureSize, 1, anisotropy, true),
+      meadowRelief: tiledSurface("meadow", textureSize, 1, anisotropy, true),
+      soilRelief: tiledSurface("soil", textureSize, 1, anisotropy, true),
+    }),
+    [textureSize, anisotropy],
+  );
+  useEffect(() => () => Object.values(textures).forEach((t) => t.dispose()), [textures]);
   useEffect(() => () => terrain?.geometry.dispose(), [terrain]);
   const land = useMemo(() => (plan ? { plan, terrain } : null), [plan, terrain]);
 
   return (
     <LandContext.Provider value={land}>
-      <LandGroundProvider control={control} meadow={meadow}>
+      <LandGroundProvider control={control} textures={textures}>
         {children}
       </LandGroundProvider>
     </LandContext.Provider>

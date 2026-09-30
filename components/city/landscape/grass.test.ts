@@ -36,6 +36,10 @@ describe("the grass", () => {
     const n = (s: { grid: number }) => s.grid * s.grid;
     expect(n(GRASS_SETTINGS.high.tufts)).toBeLessThan(12_000);
     expect(n(GRASS_SETTINGS.medium.tufts)).toBeLessThan(n(GRASS_SETTINGS.high.tufts));
+    // The near ring is finer than the main one, small, and bounded.
+    expect(GRASS_SETTINGS.high.near.cell).toBeLessThan(GRASS_SETTINGS.high.tufts.cell);
+    expect(n(GRASS_SETTINGS.high.near)).toBeLessThan(6_000);
+    expect(n(GRASS_SETTINGS.medium.near)).toBeLessThan(n(GRASS_SETTINGS.high.near));
     expect(n(GRASS_SETTINGS.high.flowers)).toBeLessThan(n(GRASS_SETTINGS.high.tufts) / 2);
     // Only drawn close to the ground.
     expect(GRASS_HEIGHT_FADE[0]).toBeLessThan(GRASS_HEIGHT_FADE[1]);

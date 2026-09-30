@@ -44,10 +44,18 @@ export interface GrassSettings {
   density: number;
 }
 
-export const GRASS_SETTINGS: Record<"high" | "medium", { tufts: GrassSettings; flowers: GrassSettings }> = {
-  high: { tufts: { cell: 0.6, grid: 100, density: 1 }, flowers: { cell: 1.5, grid: 64, density: 0.42 } },
-  medium: { tufts: { cell: 1.0, grid: 64, density: 0.9 }, flowers: { cell: 1.8, grid: 40, density: 0.36 } },
+/**
+ * `near` is a second, finer ring of tufts right round the camera (about ten metres out), where a
+ * sparse field of tufts shows the ground between them; its centre follows the eye (`NEAR_REACH`),
+ * not the orbit target, so the ring is under a low camera whatever it looks at.
+ */
+export const GRASS_SETTINGS: Record<"high" | "medium", { tufts: GrassSettings; near: GrassSettings; flowers: GrassSettings }> = {
+  high: { tufts: { cell: 0.6, grid: 100, density: 1 }, near: { cell: 0.3, grid: 64, density: 0.85 }, flowers: { cell: 1.5, grid: 64, density: 0.42 } },
+  medium: { tufts: { cell: 1.0, grid: 64, density: 0.9 }, near: { cell: 0.45, grid: 44, density: 0.8 }, flowers: { cell: 1.8, grid: 40, density: 0.36 } },
 };
+
+/** The near ring sits this far ahead of the eye at most, towards the focus. */
+const NEAR_REACH = 7;
 
 /** Three crossed blades in a fan: a tuft, 0.3 units tall, its base darker than its tip. */
 export function tuftGeometry(): BufferGeometry {
@@ -168,15 +176,24 @@ function placement(flower: boolean): string {
   float keep = step( lHash( cellIdx + 33.3 ), uGrassDensity * bloom );`
     : `float keep = step( lHash( cellIdx + 33.3 ), uGrassDensity );`}
   float size = fade * ok * keep * ( 0.62 + 0.76 * lHash( cellIdx + 5.5 ) ) * mix( 0.85, 1.35, ctl.r );
+  // Height is its own: some tufts are tall and thin, some squat, meadow ones taller still.
+  float tall = 0.72 + 0.42 * lHash( cellIdx + 14.0 ) * lHash( cellIdx + 15.0 ) + 0.22 * lHash( cellIdx + 16.0 );
   float yaw = lHash( cellIdx + 2.2 ) * 6.2831853;
   float cy = cos( yaw );
   float sy = sin( yaw );
-  vec3 q = transformed * vec3( sqrt( size ), size, sqrt( size ) );
+  vec3 q = transformed * vec3( sqrt( size ), size * tall, sqrt( size ) );
   q = vec3( q.x * cy + q.z * sy, q.y, -q.x * sy + q.z * cy );
+  // Each tuft leans its own way, more the taller it is, on top of the wind.
+  float leanA = lHash( cellIdx + 21.0 ) * 6.2831853;
+  float leanK = ( lHash( cellIdx + 22.0 ) - 0.3 ) * 0.5;
+  q.x += cos( leanA ) * leanK * q.y * q.y * 2.4;
+  q.z += sin( leanA ) * leanK * q.y * q.y * 2.4;
   q.x += sin( uGrassTime * 1.7 + wp.x * 0.8 + wp.y * 0.6 ) * 0.05 * q.y;
   q.z += cos( uGrassTime * 1.3 + wp.x * 0.5 - wp.y * 0.7 ) * 0.035 * q.y;
   transformed = q + vec3( wp.x, uGrassY, wp.y );
-  vec3 tone = landTone( wp, ctl.g, 1.0 ) * uGrassTint;
+  // Colour: each tuft a little off the ground's own green, some dry-tipped, some lush.
+  vec3 vary = vec3( 0.92 + 0.16 * lHash( cellIdx + 31.0 ), 0.9 + 0.2 * lHash( cellIdx + 32.0 ), 0.86 + 0.24 * lHash( cellIdx + 34.0 ) );
+  vec3 tone = landTone( wp, ctl.g, 1.0 ) * uGrassTint * vary;
   ${flower
     ? `float h = lHash( cellIdx + 71.0 );
   vec3 fc = h < 0.38 ? vec3( 0.93, 0.92, 0.85 ) : h < 0.62 ? vec3( 0.95, 0.78, 0.16 ) : h < 0.82 ? vec3( 0.86, 0.36, 0.52 ) : vec3( 0.55, 0.45, 0.85 );
@@ -186,7 +203,7 @@ function placement(flower: boolean): string {
 `;
 }
 
-function grassMaterial(u: GrassUniforms, ground: { uLandCtl: unknown; uLandRect: unknown }, flower: boolean): MeshStandardMaterial {
+function grassMaterial(u: GrassUniforms, ground: { uLandCtl: unknown; uLandRect: unknown }, flower: boolean, key = ""): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0, side: DoubleSide });
   m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, u, ground);
@@ -199,7 +216,7 @@ function grassMaterial(u: GrassUniforms, ground: { uLandCtl: unknown; uLandRect:
       "#include <normal_fragment_begin>\n  normal = normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );",
     );
   };
-  m.customProgramCacheKey = () => (flower ? "grass-flower" : "grass-tuft");
+  m.customProgramCacheKey = () => (flower ? "grass-flower" : `grass-tuft${key}`);
   return m;
 }
 
@@ -216,6 +233,7 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as unknown as { getTarget?: (out: Vector3) => Vector3 } | null;
   const tuftMesh = useRef<Mesh>(null);
+  const nearMesh = useRef<Mesh>(null);
   const flowerMesh = useRef<Mesh>(null);
   const settings = GRASS_SETTINGS[tier === "high" ? "high" : "medium"];
 
@@ -232,7 +250,7 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
       uGrassTint: { value: new Color(grass).multiplyScalar(1.15) },
       uGrassY: { value: -0.05 },
     });
-    return { tufts: make(settings.tufts), flowers: make(settings.flowers) };
+    return { tufts: make(settings.tufts), near: make(settings.near), flowers: make(settings.flowers) };
   }, [settings, limit, grass]);
 
   const parts = useMemo(() => {
@@ -240,18 +258,24 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
     const shared = { uLandCtl: ground.uniforms.uLandCtl, uLandRect: ground.uniforms.uLandRect };
     const tuft = new InstancedBufferGeometry().copy(tuftGeometry() as unknown as InstancedBufferGeometry);
     tuft.instanceCount = settings.tufts.grid * settings.tufts.grid;
+    const near = new InstancedBufferGeometry().copy(tuftGeometry() as unknown as InstancedBufferGeometry);
+    near.instanceCount = settings.near.grid * settings.near.grid;
     const flower = new InstancedBufferGeometry().copy(flowerGeometry() as unknown as InstancedBufferGeometry);
     flower.instanceCount = settings.flowers.grid * settings.flowers.grid;
     return {
       tuft,
+      near,
       flower,
       tuftMaterial: grassMaterial(uniforms.tufts, shared, false),
+      nearMaterial: grassMaterial(uniforms.near, shared, false, "near"),
       flowerMaterial: grassMaterial(uniforms.flowers, shared, true),
     };
   }, [ground, settings, uniforms]);
   useEffect(
     () => () => {
       parts?.tuft.dispose();
+      parts?.near.dispose();
+      parts?.nearMaterial.dispose();
       parts?.flower.dispose();
       parts?.tuftMaterial.dispose();
       parts?.flowerMaterial.dispose();
@@ -263,6 +287,7 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
     const fade = 1 - Math.min(1, Math.max(0, (camera.position.y - GRASS_HEIGHT_FADE[0]) / (GRASS_HEIGHT_FADE[1] - GRASS_HEIGHT_FADE[0])));
     const visible = fade > 0.001;
     if (tuftMesh.current) tuftMesh.current.visible = visible;
+    if (nearMesh.current) nearMesh.current.visible = visible;
     if (flowerMesh.current) flowerMesh.current.visible = visible;
     if (!visible) return;
     // Focus: the orbit target when there is one, else the ground ahead of the camera.
@@ -273,8 +298,13 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
     // A camera far from its target looks at ground far from itself: centre between them.
     const cx = distance > 40 ? eye.x + (focus.x - eye.x) * (40 / distance) : focus.x;
     const cz = distance > 40 ? eye.z + (focus.z - eye.z) * (40 / distance) : focus.z;
-    for (const u of [uniforms.tufts, uniforms.flowers]) {
-      u.uGrassCenter.value.set(cx, 0, cz);
+    // The near ring: a few metres ahead of the eye towards the focus, so it lies under a low camera.
+    const reach = Math.min(distance, NEAR_REACH);
+    const nx = distance > 1e-3 ? eye.x + ((focus.x - eye.x) * reach) / distance : eye.x;
+    const nz = distance > 1e-3 ? eye.z + ((focus.z - eye.z) * reach) / distance : eye.z;
+    for (const u of [uniforms.tufts, uniforms.near, uniforms.flowers]) {
+      if (u === uniforms.near) u.uGrassCenter.value.set(nx, 0, nz);
+      else u.uGrassCenter.value.set(cx, 0, cz);
       u.uGrassFade.value = fade;
       u.uGrassTime.value = clock.elapsedTime;
     }
@@ -284,6 +314,7 @@ export default function Grass({ grass, limit }: { grass: string; limit: number }
   return (
     <group>
       <mesh ref={tuftMesh} geometry={parts.tuft} material={parts.tuftMaterial} frustumCulled={false} raycast={() => null} receiveShadow />
+      <mesh ref={nearMesh} geometry={parts.near} material={parts.nearMaterial} frustumCulled={false} raycast={() => null} receiveShadow />
       <mesh ref={flowerMesh} geometry={parts.flower} material={parts.flowerMaterial} frustumCulled={false} raycast={() => null} />
     </group>
   );
