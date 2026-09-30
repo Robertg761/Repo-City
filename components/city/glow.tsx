@@ -50,10 +50,15 @@ export const LOW_TIER_GLOW = 0.6;
 const GLOW_VERTEX = /* glsl */ `
 attribute vec3 glowAt;
 attribute float glowSize;
+attribute float glowLag;
 uniform float uGround;
+uniform float uRamp;
 varying vec2 vGlowUv;
+varying float vGlowOn;
 void main() {
   vGlowUv = position.xy * 2.0;
+  // Each glow switches on at its own point of the ramp, so a street lights up lamp by lamp.
+  vGlowOn = smoothstep( glowLag * 0.55, glowLag * 0.55 + 0.45, uRamp );
   if ( uGround > 0.5 ) {
     vec3 world = glowAt + vec3( position.x, 0.0, -position.y ) * glowSize;
     gl_Position = projectionMatrix * viewMatrix * vec4( world, 1.0 );
@@ -70,10 +75,11 @@ uniform vec3 uColor;
 uniform float uStrength;
 uniform float uFalloff;
 varying vec2 vGlowUv;
+varying float vGlowOn;
 void main() {
   float r = length( vGlowUv );
   float fade = pow( max( 1.0 - r, 0.0 ), uFalloff );
-  float alpha = fade * uStrength;
+  float alpha = fade * uStrength * vGlowOn;
   if ( alpha < 0.003 ) discard;
   gl_FragColor = vec4( uColor * alpha, 1.0 );
   #include <colorspace_fragment>
@@ -93,6 +99,12 @@ export interface GlowFieldProps {
   falloff?: number;
   /** Strength for an hour; zero hides the field. */
   strength: (atmosphere: SceneAtmosphere) => number;
+  /**
+   * 0..1, how far the hour has come on, when the glows should switch on one
+   * after another across it instead of all together. Without it they follow
+   * `strength` together.
+   */
+  ramp?: (atmosphere: SceneAtmosphere) => number;
   /** Milliseconds after the reveal starts before the glows fade in. */
   appearAt?: number;
 }
@@ -105,6 +117,7 @@ export function GlowField({
   ground = false,
   falloff = 2,
   strength,
+  ramp,
   appearAt = 0,
 }: GlowFieldProps) {
   const mesh = useRef<Mesh>(null);
@@ -123,14 +136,20 @@ export function GlowField({
     own.setAttribute("position", quad.getAttribute("position"));
     const at = new Float32Array(Math.max(1, positions.length) * 3);
     const sizes = new Float32Array(Math.max(1, positions.length));
+    const lags = new Float32Array(Math.max(1, positions.length));
     positions.forEach((p, i) => {
       at.set(p, i * 3);
       sizes[i] = size;
+      // A steady 0..1 from where the glow stands: the same lamp is always the early one.
+      const h = Math.sin(p[0] * 12.9898 + p[2] * 78.233) * 43758.5453;
+      lags[i] = ramp ? h - Math.floor(h) : 0;
     });
+    own.setAttribute("glowLag", new InstancedBufferAttribute(lags, 1));
     own.setAttribute("glowAt", new InstancedBufferAttribute(at, 3));
     own.setAttribute("glowSize", new InstancedBufferAttribute(sizes, 1));
     own.instanceCount = positions.length;
     return own;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- whether there is a ramp is fixed for a field
   }, [positions, size]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
@@ -142,6 +161,7 @@ export function GlowField({
           uStrength: { value: 0 },
           uFalloff: { value: falloff },
           uGround: { value: ground ? 1 : 0 },
+          uRamp: { value: 1 },
         },
         vertexShader: GLOW_VERTEX,
         fragmentShader: GLOW_FRAGMENT,
@@ -164,6 +184,7 @@ export function GlowField({
 
   useSkyFrame((atmosphere) => {
     hour.current = Math.max(0, strength(atmosphere)) * tierScale;
+    if (ramp && mesh.current) (mesh.current.material as ShaderMaterial).uniforms.uRamp.value = Math.min(1, Math.max(0, ramp(atmosphere)));
     apply();
   }, `${material.uuid}:${tierScale}`);
 

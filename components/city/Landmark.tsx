@@ -34,10 +34,12 @@
  * keeps the city's models; its hall is the town hall.
  */
 
+import type { FireSlot } from "./models/landmarks/fire";
+import type { Slots } from "./models/landmarks/assembly";
 import { useNearModels } from "./models/useModels";
 import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group } from "three";
+import { Matrix4, MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group, type InstancedMesh } from "three";
 import { buildingDetailMaterial } from "./models/buildings/material";
 import { useQuality } from "./quality";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
@@ -59,32 +61,39 @@ import {
   type SceneAtmosphere,
 } from "./palette";
 import { BatchEntity } from "./Batch";
-import { Beacon, BlinkLight, Glow, Smoke, Sparks } from "./effects";
+import { Beacon, Glow, Smoke, Sparks } from "./effects";
 import { facingTurn } from "./models/landmarks/facing";
 import { POWER_ANCHORS, powerMode, powerPlant } from "./models/landmarks/power";
-import { fireStation } from "./models/landmarks/fire";
+import { SORTIE_PERIOD, SORTIE_TRAVEL, fireStation, fireStationLive, sortieAt, type Sortie } from "./models/landmarks/fire";
+import { AviationLight, FlashLight } from "./landmarkLife";
+import { placePhase } from "./effects";
 import { infoCentre } from "./models/landmarks/info";
 import {
   PARKED_X,
   PORTAL_X,
   TRACK_A,
   TRACK_B,
+  WHEEL_RADIUS,
   fallbackArrivals,
   trainCars,
+  trainParts,
   trainPose,
   transitStation,
+  tunnelShade,
   type Pantograph,
+  type TrainParts,
 } from "./models/landmarks/station";
 import { townHall } from "./models/landmarks/townhall";
 import {
   chapelNear,
-  fireStationNear,
+  fireStationNearLive,
   haltNear,
   infoCentreNear,
   powerPlantNear,
   substationNear,
   townHallNear,
   trainCarsNear,
+  trainPartsNear,
   transitStationNear,
   villageFireStationNear,
 } from "./models/landmarks/near";
@@ -97,7 +106,7 @@ import {
 } from "./models/landmarks/village";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
-import { useSkyValue } from "./sky";
+import { useSkyFrame, useSkyValue } from "./sky";
 
 interface Skin {
   wall: string;
@@ -153,6 +162,8 @@ function Part({
   cast = true,
   receive = true,
   clip,
+  instances,
+  meshRef,
 }: {
   geometry: BufferGeometry | undefined;
   color: string;
@@ -165,6 +176,9 @@ function Part({
   receive?: boolean;
   /** World-space clipping planes, shadows included. */
   clip?: Plane[];
+  /** Draws this many copies as an instanced mesh, placed by the caller through `meshRef`. */
+  instances?: number;
+  meshRef?: Ref<InstancedMesh>;
 }) {
   const { textureSize, anisotropy } = useQuality();
   const material = useMemo(() => {
@@ -182,6 +196,20 @@ function Part({
   }, [geometry, color, roughness, metalness, emissive, emissiveIntensity, clip, textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
   if (!geometry) return null;
+  if (instances !== undefined) {
+    return (
+      <instancedMesh
+        ref={meshRef}
+        key={instances}
+        args={[geometry, undefined, instances]}
+        castShadow={cast}
+        receiveShadow={receive}
+        frustumCulled={false}
+      >
+        <primitive ref={materialRef} object={material} attach="material" />
+      </instancedMesh>
+    );
+  }
   return (
     <mesh geometry={geometry} castShadow={cast} receiveShadow={receive}>
       <primitive ref={materialRef} object={material} attach="material" />
@@ -214,6 +242,11 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const detailed = useDetailed();
   const slots = (detailed && powerPlantNear(powerMode(state))) || powerPlant(state);
   const windows = useRef<MeshStandardMaterial>(null);
+  // The aviation lights are only lit up for the dusk and the dark.
+  const night = useRef(0);
+  useSkyFrame((sky) => {
+    night.current = sky.nightness;
+  });
 
   const lit = troubled ? 0.14 + skin.glow * 0.5 : 0.4 + skin.glow;
 
@@ -260,6 +293,14 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
           toneMapped={false}
         />
       </mesh>
+
+      {!bare && (
+        <>
+          <AviationLight position={[POWER_ANCHORS.chimney[0], POWER_ANCHORS.chimney[1] + 0.35, POWER_ANCHORS.chimney[2]]} night={night} />
+          <AviationLight position={[-6.9, 8.0, 5.05]} night={night} radius={0.17} />
+          <AviationLight position={[0.4, 8.0, 5.05]} night={night} radius={0.17} />
+        </>
+      )}
 
       {/* Healthy: steam off the cooling towers and the occasional arc across
           the switchyard, the "subtle electrical effect" of section 14. */}
@@ -353,13 +394,10 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   );
 }
 
-/** Tests as the city's emergency service (PLAN.md section 15). */
-function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const detailed = useDetailed();
-  const { slots, beacons } = (detailed && fireStationNear(landmark.level)) || fireStation(landmark.level);
-
+/** The fire station's slots, painted; the station and its engine on call-out share the paint. */
+function FireParts({ slots, skin }: { slots: Slots<FireSlot>; skin: Skin }) {
   return (
-    <group>
+    <>
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.wall} color={skin.tint(PALE)} roughness={0.78} />
       <Part geometry={slots.red} color={skin.tint(ENGINE_RED)} roughness={0.55} />
@@ -376,9 +414,46 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
         emissiveIntensity={0.3 + skin.glow}
         cast={false}
       />
+    </>
+  );
+}
+
+/** Tests as the city's emergency service (PLAN.md section 15). */
+function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
+  const detailed = useDetailed();
+  // The first engine stands apart, so it can drive out on a call-out; without the Blender models it stays put.
+  const live = (detailed && fireStationNearLive(landmark.level)) || fireStationLive(landmark.level);
+  const { slots, beacons, sortie } = live ?? fireStation(landmark.level);
+  const engine = useRef<Group>(null);
+  const alarm = useRef(0);
+  const state = useRef<Sortie>({ out: 0, alarm: 0 });
+  // Stations are never in step: the offset comes from where this one stands.
+  const offset = useMemo(
+    () => placePhase(landmark.position[0], 0, landmark.position[2]) * SORTIE_PERIOD,
+    [landmark.position],
+  );
+
+  useFrame(({ clock }) => {
+    const pose = sortieAt(clock.elapsedTime, offset, state.current);
+    alarm.current = pose.alarm;
+    const group = engine.current;
+    if (group) group.position.z = (sortie?.spot[2] ?? 0) + pose.out * SORTIE_TRAVEL;
+  });
+
+  return (
+    <group>
+      <FireParts slots={slots} skin={skin} />
       {beacons.map((at, i) => (
-        <BlinkLight key={i} position={at} color="#ff5f52" rate={1.8} radius={0.17} />
+        <FlashLight key={i} position={at} color="#ff5f52" radius={0.17} side={i % 2} />
       ))}
+      {sortie && (
+        <group ref={engine} position={sortie.spot}>
+          <FireParts slots={sortie.slots} skin={skin} />
+          {sortie.lamps.map((at, i) => (
+            <FlashLight key={i} position={at} color="#ff5f52" radius={0.17} side={i % 2} alarm={alarm} />
+          ))}
+        </group>
+      )}
     </group>
   );
 }
@@ -445,6 +520,125 @@ function Train({ skin, clip, pantograph }: { skin: Skin; clip?: Plane[]; pantogr
   );
 }
 
+/** What the station drives on the running train each frame. */
+interface TrainControl {
+  /** Turns every wheelset to `angle` radians. */
+  turn(angle: number): void;
+  /** Dims the whole set: 1 in daylight, less inside the tunnel's shade. */
+  shade(level: number): void;
+}
+
+const wheelMatrix = new Matrix4();
+
+/**
+ * The train that runs: the same set as `Train`, but its wheelsets are apart
+ * and turn (`control.turn`), and the set can be dimmed as it goes into the
+ * tunnel (`control.shade`), so it is swallowed by the dark instead of being
+ * cut off at the portal face.
+ */
+function RunningTrain({
+  skin,
+  clip,
+  pantograph,
+  controlRef,
+}: {
+  skin: Skin;
+  clip: Plane[];
+  pantograph: Pantograph;
+  controlRef: { current: TrainControl | null };
+}) {
+  const detailed = useDetailed();
+  const parts: TrainParts | null = (detailed && trainPartsNear(pantograph)) || trainParts(pantograph);
+  const cars = parts?.slots ?? trainCars(pantograph);
+  const body = useRef<MeshStandardMaterial>(null);
+  const gear = useRef<MeshStandardMaterial>(null);
+  const glass = useRef<MeshStandardMaterial>(null);
+  const wheelMaterial = useRef<MeshStandardMaterial>(null);
+  const wheels = useRef<InstancedMesh>(null);
+  const angle = useRef(0);
+
+  useEffect(() => {
+    const place = (turn: number) => {
+      const mesh = wheels.current;
+      if (!mesh || !parts) return;
+      for (let i = 0; i < parts.axles.length; i++) {
+        const [x, y, z] = parts.axles[i];
+        // Turn about the axle (z), then stand at its marker.
+        wheelMatrix.makeRotationZ(turn).setPosition(x, y, z);
+        mesh.setMatrixAt(i, wheelMatrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+    place(angle.current);
+    const dim = (material: MeshStandardMaterial | null, level: number) => {
+      if (!material) return;
+      const was = (material.userData.shade as number | undefined) ?? 1;
+      if (was === level) return;
+      // The colour and the glow are scaled from what they were, so the skin's own changes still take.
+      material.color.multiplyScalar(level / was);
+      material.emissiveIntensity *= level / was;
+      material.userData.shade = level;
+    };
+    controlRef.current = {
+      turn(next) {
+        angle.current = next;
+        place(next);
+      },
+      shade(level) {
+        dim(body.current, level);
+        dim(gear.current, level);
+        dim(glass.current, level);
+        dim(wheelMaterial.current, level);
+      },
+    };
+    return () => {
+      controlRef.current = null;
+    };
+  }, [parts, controlRef]);
+
+  return (
+    <>
+      <Part
+        geometry={cars.body}
+        color={skin.tint(TRANSIT_BLUE)}
+        roughness={0.45}
+        metalness={0.1}
+        clip={clip}
+        materialRef={body}
+      />
+      <Part
+        geometry={cars.gear}
+        color={skin.tint(DARK_STEEL)}
+        roughness={0.6}
+        metalness={0.3}
+        clip={clip}
+        materialRef={gear}
+      />
+      {parts?.wheels.gear && (
+        <Part
+          geometry={parts.wheels.gear}
+          color={skin.tint(DARK_STEEL)}
+          roughness={0.6}
+          metalness={0.3}
+          clip={clip}
+          instances={parts.axles.length}
+          meshRef={wheels}
+          materialRef={wheelMaterial}
+        />
+      )}
+      <Part
+        geometry={cars.glass}
+        color={WINDOW_COLOR}
+        emissive={WINDOW_COLOR}
+        emissiveIntensity={0.35 + skin.glow}
+        cast={false}
+        clip={clip}
+        materialRef={glass}
+      />
+    </>
+  );
+}
+
 /** The portal face in the station's natural frame: keep x < PORTAL_X. */
 const PORTAL_PLANE = new Plane(new Vector3(-1, 0, 0), PORTAL_X);
 
@@ -461,6 +655,9 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
   const frame = useRef<Group>(null);
   const train = useRef<Group>(null);
   const clip = useMemo(() => [new Plane()], []);
+  const control = useRef<TrainControl | null>(null);
+  // Where the running train was last frame (null while it is in the tunnel), and how far its wheels have turned.
+  const last = useRef<{ x: number | null; turn: number }>({ x: null, turn: 0 });
 
   useFrame(({ clock, gl }) => {
     // Clipping is off by default in three.js and only costs anything for the
@@ -472,6 +669,21 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
     const pose = trainPose(clock.elapsedTime, perMinute);
     group.visible = pose.visible;
     group.position.x = pose.x;
+    const wheels = control.current;
+    if (wheels) {
+      const before = last.current;
+      if (pose.visible) {
+        // A wheel rolling along +x turns clockwise about +z.
+        if (before.x !== null && before.x !== pose.x) {
+          before.turn -= (pose.x - before.x) / WHEEL_RADIUS;
+          wheels.turn(before.turn);
+        }
+        before.x = pose.x;
+      } else {
+        before.x = null;
+      }
+      wheels.shade(tunnelShade(pose.x));
+    }
     // The plane is world space, and the station is scaled, turned and, while
     // the city reveals itself, growing: carry it along every frame.
     clip[0].copy(PORTAL_PLANE).applyMatrix4(station.matrixWorld);
@@ -494,7 +706,7 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
       />
 
       <group ref={train} position={[PORTAL_X + 7, 0, TRACK_A]} visible={false}>
-        <Train skin={skin} clip={clip} pantograph="raised" />
+        <RunningTrain skin={skin} clip={clip} pantograph="raised" controlRef={control} />
       </group>
       {tracks === 2 && (
         <group position={[PARKED_X, 0, TRACK_B]} rotation-y={Math.PI}>
@@ -595,7 +807,7 @@ function VillageFireStation({ landmark, skin }: { landmark: Landmark; skin: Skin
         cast={false}
       />
       {beacons.slice(1).map((at, i) => (
-        <BlinkLight key={i} position={at} color="#ff5f52" rate={1.8} radius={0.14} />
+        <FlashLight key={i} position={at} color="#ff5f52" radius={0.14} haloRadius={1.0} side={i % 2} />
       ))}
     </group>
   );
