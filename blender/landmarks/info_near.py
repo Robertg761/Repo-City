@@ -203,6 +203,14 @@ def library(acc, obj, M):
     nd.letters(acc, M["wall"], "LIBRARY", 0.2, pos=(x + 2.4, base + 4.47, 3.4), depth=0.02)
     roof_gravel(acc, obj, M, base + 5.1, x - 5.0, x + 5.0, z - 3.3, z + 3.3, 1400, seed=7)
     gutters(acc, M, x - 5.5, x + 5.5, z - 3.6, z + 3.6, base + 4.8)
+    # The staff door at the back: an architrave, raised panels, a handle and a sign.
+    back = z - 3.0
+    with acc.at((x, base + 1.15, back), nkit.facing("-z")):
+        acc.rect_frame(M["roof"], -0.7, 0.7, -1.1, 1.15, [(0, 0), (0, 0.05), (0.04, 0.05), (0.04, 0.08), (0.1, 0.08), (0.1, 0.03), (0.12, 0.03), (0.12, 0)], z=0.0)
+        for py in (0.55, -0.65):
+            acc.box(M["wall"], (1.0, 0.85 if py > 0 else 0.9, 0.03), (0, py, -0.09 + 0.02))
+        acc.box(M["roof"], (0.05, 0.22, 0.06), (0.5, -0.05, -0.05))
+        nd.letters(acc, M["sign"], "STAFF", 0.14, pos=(0, 1.62, 0.0), depth=0.02)
     for face in (-1, 1):
         for k in range(7):
             acc.box(M["frame"], (0.05, 0.05, 0.05), (x - 2.7 + k * 0.9, base + 5.34 + 0.0, z + face * 1.33))

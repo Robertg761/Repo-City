@@ -15,6 +15,9 @@ PLINTH = 0.05
 HW = 0.47
 TOP = 0.85
 DEPTH = 0.032
+# The crown: cornice height, projection, parapet height and thickness (unit space). Slim,
+# so the roof edge does not read as a lid on a five-metre building.
+CROWN = (0.02, 0.016, 0.05, 0.018)
 
 
 def make():
@@ -34,7 +37,11 @@ def make():
     # The fascia over the shop, on +z and -z.
     for s in (1, -1):
         d.box(0, head + 0.01, s * (HW + 0.0125), 0.76, 0.04, 0.025, "trim", bottom=True)
-    deck, ix, iz = bkit.crown(d, TOP, HW, HW, 0.035, 0.022, 0.05, 0.03, inset=0)
+    # Stone pilasters either side of the shopfront, the near level's own.
+    for s in (1, -1):
+        for u in (-0.44, 0.44):
+            d.box(u, PLINTH, s * (HW + 0.015), 0.05, head - PLINTH - 0.02, 0.03, "plinth", skip=("-y",))
+    deck, ix, iz = bkit.crown(d, TOP, HW, HW, *CROWN, inset=0)
     d.pad(0, 0, deck, 0.62, 0.62)
     return d
 

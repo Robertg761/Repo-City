@@ -37,6 +37,15 @@ HALL_W, HALL_H, HALL_D = 7.0, 5.2, 8.6
 CHIMNEY = (0.3, 3.3)
 TOWERS = ((1.6, -2.4), (5.9, -2.4))
 YARD = dict(x0=1.0, x1=8.2, z0=1.1, z1=4.9)
+# The bare (no CI) state adds a second bay where the hall would stand, a
+# control kiosk between them and the line poles along the back.
+YARD2 = dict(x0=-7.0, x1=0.2, z0=-2.6, z1=1.2)
+YARD2_CZ = -0.7
+GANTRY2 = (-6.6, -0.2)
+GATE2 = (-4.2, -3.0)
+KIOSK = (4.6, -2.5)
+POLES = tuple((x, -4.9) for x in (-6.6, -2.4, 1.8, 6.0))
+POLE_H = 5.4
 PYLONS = ((-6.9, 5.05), (0.4, 5.05))
 PYLON_H = 7.6
 ARM_REACH = 0.8
@@ -287,8 +296,7 @@ def flue_duct(M):
 # ---------------------------------------------------------------- switchyard
 
 
-def transformer(M, cx):
-    cz = 3.0
+def transformer(M, cx, cz=3.0, gantry_x=(1.4, 7.8)):
     parts = [box("tPad", (2.6, 0.12, 2.3), (cx, DECK + 0.22, cz), M["deck"], bev=0.03)]
     parts.append(box("tank", (2.2, 1.6, 1.6), (cx, DECK + 0.28 + 0.8, cz), M["steel"], bev=0.06))
     parts.append(box("tankLid", (2.3, 0.1, 1.7), (cx, DECK + 1.93, cz), M["steelDark"], bev=0.02))
@@ -308,8 +316,8 @@ def transformer(M, cx):
         for k, y in enumerate((2.15, 2.5)):
             parts.append(cyl("shed", 0.21 - k * 0.04, 0.07, (bx, DECK + y, cz + 0.2), M["porcelain"], axis="y", verts=6))
         parts.append(cyl("terminal", 0.08, 0.12, (bx, DECK + 2.9, cz + 0.2), M["steelDark"], axis="y", verts=4))
-        t = (bx - 1.4) / 6.4
-        pz = 1.6 if dx < 0 else 4.4
+        t = (bx - gantry_x[0]) / (gantry_x[1] - gantry_x[0])
+        pz = cz - 1.4 if dx < 0 else cz + 1.4
         parts += lkit.cable("jumper", (bx, DECK + 2.95, cz + 0.2), (bx, DECK + 3.72 - 0.3 * 4 * t * (1 - t), pz), 0.03, 0.12, M["steelDark"], segments=2)
     # A danger sign on the front.
     parts.append(box("sign", (0.45, 0.32, 0.03), (cx, DECK + 1.15, cz + 0.815), M["hazard"], bev=0.0))
@@ -317,27 +325,26 @@ def transformer(M, cx):
     return parts
 
 
-def gantry(M):
+def gantry(M, x0=1.4, x1=7.8, cz=3.0):
     parts = []
-    for px in (1.4, 7.8):
-        for pz in (1.6, 4.4):
+    for px in (x0, x1):
+        for pz in (cz - 1.4, cz + 1.4):
             parts.append(box("post", (0.18, 4.2, 0.18), (px, DECK + 2.1, pz), M["steel"], bev=0.0))
             # A lattice look on the posts: two cross braces a side.
-        parts.append(box("beamZ", (0.18, 0.16, 3.0), (px, DECK + 4.1, 3.0), M["steel"], bev=0.02))
+        parts.append(box("beamZ", (0.18, 0.16, 3.0), (px, DECK + 4.1, cz), M["steel"], bev=0.02))
         for k in range(3):
             y = DECK + 0.8 + k * 1.2
-            parts.append(lkit.rod("brace", (px, y, 1.6), (px, y + 1.2, 4.4), 0.035, M["steel"], sides=3))
-    for pz in (1.6, 4.4):
-        parts.append(box("beamX", (6.6, 0.16, 0.18), (4.6, DECK + 4.1, pz), M["steel"], bev=0.02))
+            parts.append(lkit.rod("brace", (px, y, cz - 1.4), (px, y + 1.2, cz + 1.4), 0.035, M["steel"], sides=3))
+    for pz in (cz - 1.4, cz + 1.4):
+        parts.append(box("beamX", (x1 - x0 + 0.2, 0.16, 0.18), ((x0 + x1) / 2, DECK + 4.1, pz), M["steel"], bev=0.02))
         # Suspension insulators and the busbar they carry.
-        parts += lkit.cable("bus", (1.4, DECK + 3.72, pz), (7.8, DECK + 3.72, pz), 0.04, 0.3, M["steelDark"])
+        parts += lkit.cable("bus", (x0, DECK + 3.72, pz), (x1, DECK + 3.72, pz), 0.04, 0.3, M["steelDark"])
     return parts
 
 
-def fence(M):
-    x0, x1, z0, z1 = YARD["x0"], YARD["x1"], YARD["z0"], YARD["z1"]
+def fence(M, yard=None, gate=(4.1, 5.3)):
+    x0, x1, z0, z1 = (yard or YARD)["x0"], (yard or YARD)["x1"], (yard or YARD)["z0"], (yard or YARD)["z1"]
     h = 1.7
-    gate = (4.1, 5.3)
     parts = []
 
     def run(a, b, fixed, along_x):
@@ -374,6 +381,93 @@ def switchyard(M):
     parts += gantry(M)
     parts += fence(M)
     return parts
+
+
+def second_bay(M):
+    """The bare yard's second transformer bay, on the hall's ground."""
+    cz = YARD2_CZ
+    x0, x1 = GANTRY2
+    parts = [box("yard", (7.4, 0.16, 4.0), ((YARD2["x0"] + YARD2["x1"]) / 2 - 0.0, DECK + 0.08, cz), M["gravel"], bev=0.03)]
+    for cx in (x0 + 1.5, x0 + 4.9):
+        parts += transformer(M, cx, cz, GANTRY2)
+    parts += gantry(M, x0, x1, cz)
+    parts += fence(M, YARD2, GATE2)
+    return parts
+
+
+def kiosk(M):
+    """A control kiosk: a steel cabin with a door, a louvred vent and a
+    blind window, a plant unit on its flat roof, a conduit down its wall."""
+    kx, kz = KIOSK
+    w, h, d = 2.6, 2.5, 2.2
+    y = DECK
+    body = box("kioskBody", (w, h, d), (kx, y + h / 2 + 0.12, kz), M["steel"], bev=0.04, cell=1.3)
+    front = kz + d / 2
+    cut_many(body, [
+        box("kioskDoorCut", (0.95, 2.0, 0.3), (kx - 0.6, y + 0.12 + 1.0, front), M["inside"], bev=0.0),
+        box("kioskWinCut", (0.8, 0.7, 0.3), (kx + 0.7, y + 1.65, front), M["inside"], bev=0.0),
+    ])
+    parts = [
+        box("kioskPlinth", (w + 0.2, 0.12, d + 0.2), (kx, y + 0.06, kz), M["curb"], bev=0.03),
+        body,
+        box("kioskDoor", (0.95, 2.0, 0.05), (kx - 0.6, y + 0.12 + 1.0, front - 0.1), M["hazardDeep"], bev=0.0),
+        box("kioskHandle", (0.05, 0.16, 0.05), (kx - 0.26, y + 1.1, front - 0.05), M["steelDark"], bev=0.0),
+        box("kioskGlass", (0.8, 0.7, 0.04), (kx + 0.7, y + 1.65, front - 0.1), M["steelDark"], bev=0.0),
+        box("kioskSill", (0.96, 0.06, 0.12), (kx + 0.7, y + 1.27, front + 0.02), M["steel"], bev=0.0),
+        box("kioskRoof", (w + 0.3, 0.14, d + 0.3), (kx, y + h + 0.19, kz), M["steelDark"], bev=0.03),
+        box("kioskUnit", (0.9, 0.45, 0.7), (kx + 0.5, y + h + 0.5, kz - 0.2), M["steel"], bev=0.04),
+        cyl("kioskFan", 0.24, 0.04, (kx + 0.5, y + h + 0.75, kz - 0.2), M["steelDark"], axis="y", verts=10),
+        box("kioskStep", (1.2, 0.1, 0.45), (kx - 0.6, y + 0.05, front + 0.35), M["curb"], bev=0.02),
+        box("kioskSign", (0.36, 0.26, 0.03), (kx + 0.7, y + 2.15, front + 0.02), M["hazard"], bev=0.0),
+        lkit.rod("kioskConduit", (kx + 1.1, y + 0.2, kz - d / 2 - 0.05), (kx + 1.1, y + h, kz - d / 2 - 0.05), 0.04, M["steelDark"], sides=5),
+    ]
+    for k in range(4):
+        parts.append(box("kioskVent", (0.04, 0.05, 0.6), (kx - w / 2 - 0.02, y + 1.6 + k * 0.1, kz), M["steelDark"], bev=0.0))
+    return parts
+
+
+def trenches(M):
+    """Cable trench covers: plates in a run, from the kiosk to each bay."""
+    kx, kz = KIOSK
+    parts = []
+    # South from the kiosk into the first bay's fence, west to the second bay's.
+    n = 5
+    for i in range(n):
+        z = kz + 1.35 + (1.1 - (kz + 1.35)) * (i + 0.5) / n
+        parts.append(box("trench", (0.7, 0.04, (1.1 - (kz + 1.35)) / n - 0.05), (kx + 0.4, DECK + 0.02, z), M["steelDark"], bev=0.0))
+        parts.append(box("trenchLug", (0.1, 0.03, 0.04), (kx + 0.4, DECK + 0.055, z), M["steel"], bev=0.0))
+    x_a, x_b = kx - 1.5, YARD2["x1"] + 0.1
+    m = 6
+    for i in range(m):
+        x = x_a + (x_b - x_a) * (i + 0.5) / m
+        parts.append(box("trench", ((x_a - x_b) / m - 0.05, 0.04, 0.7), (x, DECK + 0.02, -1.9), M["steelDark"], bev=0.0))
+        parts.append(box("trenchLug", (0.04, 0.03, 0.1), (x, DECK + 0.055, -1.9), M["steel"], bev=0.0))
+    return parts
+
+
+def line_poles(M):
+    """A pole line along the back of the plot, three wires a span, with a drop
+    to each bay's gantry."""
+    parts = []
+    for px, pz in POLES:
+        parts.append(cyl("linePole", 0.11, POLE_H, (px, DECK + POLE_H / 2, pz), M["steel"], axis="y", verts=6, radius2=0.08))
+        parts.append(box("lineArm", (1.5, 0.1, 0.1), (px, DECK + POLE_H - 0.35, pz), M["steel"], bev=0.0))
+        parts.append(lkit.rod("lineStay", (px - 0.6, DECK + POLE_H - 0.35, pz), (px, DECK + POLE_H - 0.9, pz), 0.03, M["steel"], sides=3))
+        parts.append(lkit.rod("lineStay", (px + 0.6, DECK + POLE_H - 0.35, pz), (px, DECK + POLE_H - 0.9, pz), 0.03, M["steel"], sides=3))
+        for dx in (-0.65, 0.0, 0.65):
+            parts.append(cyl("lineIns", 0.07, 0.3, (px + dx, DECK + POLE_H - 0.18, pz), M["porcelain"], axis="y", verts=5, radius2=0.05))
+        parts.append(box("polePlate", (0.24, 0.16, 0.02), (px, DECK + 1.7, pz + 0.1), M["hazard"], bev=0.0))
+    for (ax, az), (bx, bz) in zip(POLES, POLES[1:]):
+        for dx in (-0.65, 0.0, 0.65):
+            parts += lkit.cable("line", (ax + dx, DECK + POLE_H + 0.05, az), (bx + dx, DECK + POLE_H + 0.05, bz), 0.04, 0.4, M["steelDark"])
+    # Drops from the line to the gantries.
+    parts += lkit.cable("line", (POLES[1][0], DECK + POLE_H + 0.05, POLES[1][1]), (sum(GANTRY2) / 2, DECK + 4.1, YARD2_CZ - 1.4), 0.04, 0.25, M["steelDark"])
+    parts += lkit.cable("line", (POLES[3][0], DECK + POLE_H + 0.05, POLES[3][1]), (4.6, DECK + 4.1, 1.6), 0.04, 0.25, M["steelDark"])
+    return parts
+
+
+def bare_extras(M):
+    return second_bay(M) + kiosk(M) + trenches(M) + line_poles(M)
 
 
 def board(M):
@@ -462,7 +556,7 @@ def plant(M):
 
 
 def bare(M):
-    return ground(M) + switchyard(M) + board(M)
+    return ground(M) + switchyard(M) + board(M) + bare_extras(M)
 
 
 def build():

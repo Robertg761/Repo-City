@@ -59,6 +59,10 @@ def tower_x(level):
     return hall_centre(level) + hall_width(level) / 2 + 1.5
 
 
+def rear_door_x(level):
+    return bay_centres(level)[-1] + 0.95
+
+
 def bay_centres(level):
     n = bays(level)
     return [hall_centre(level) + (i - (n - 1) / 2) * BAY for i in range(n)]
@@ -201,6 +205,9 @@ def hall(M, level):
     cutters.append(box("doorCut", (0.3, 2.2, 1.0), (x - width / 2, DECK + 1.1, -2.6), M["recess"], bev=0.0))
     for rx in [x + (i - (bays(level) - 1) / 2) * BAY for i in range(bays(level))]:
         cutters.append(box("rearCut", (1.2, 0.8, 0.3), (rx, DECK + 3.2, HALL_Z0), M["recess"], bev=0.0))
+        # Ground floor at the back: a window under each, and a rear door in the last bay.
+        cutters.append(box("rearLowCut", (1.0, 0.9, 0.3), (rx - 0.85, DECK + 1.7, HALL_Z0), M["recess"], bev=0.0))
+    cutters.append(box("rearDoorCut", (1.0, 2.2, 0.3), (rear_door_x(level), DECK + 1.1, HALL_Z0), M["recess"], bev=0.0))
     cut_many(walls, cutters)
     parts.append(walls)
 
@@ -253,6 +260,23 @@ def hall(M, level):
     for rx in [x + (i - (bays(level) - 1) / 2) * BAY for i in range(bays(level))]:
         parts.append(box("rearGlass", (1.2, 0.8, 0.04), (rx, DECK + 3.2, HALL_Z0 + 0.1), M["glass"], bev=0.0))
         parts.append(box("rearSill", (1.32, 0.06, 0.12), (rx, DECK + 2.77, HALL_Z0 - 0.04), M["trim"], bev=0.0))
+        lx = rx - 0.85
+        parts.append(box("rearGlass", (1.0, 0.9, 0.04), (lx, DECK + 1.7, HALL_Z0 + 0.1), M["glass"], bev=0.0))
+        parts.append(box("rearMull", (0.05, 0.9, 0.05), (lx, DECK + 1.7, HALL_Z0 + 0.07), M["trim"], bev=0.0))
+        parts.append(box("rearSill", (1.12, 0.06, 0.12), (lx, DECK + 1.2, HALL_Z0 - 0.04), M["trim"], bev=0.0))
+        parts.append(box("rearLintel", (1.12, 0.12, 0.1), (lx, DECK + 2.21, HALL_Z0 - 0.03), M["trim"], bev=0.0))
+        # A louvred vent between the windows of a bay (the last has the door).
+        if rx != bay_centres(level)[-1]:
+            vx = rx + 0.95
+            parts.append(box("ventFrame", (0.9, 0.7, 0.06), (vx, DECK + 1.7, HALL_Z0 - 0.03), M["trim"], bev=0.01))
+            for k in range(5):
+                parts.append(box("ventSlat", (0.76, 0.05, 0.04), (vx, DECK + 1.46 + k * 0.12, HALL_Z0 - 0.07), M["dark"], bev=0.0))
+    # The rear door, in red under a hood, with a step and a wall lamp.
+    rdx = rear_door_x(level)
+    parts.append(box("rearDoor", (1.0, 2.2, 0.05), (rdx, DECK + 1.1, HALL_Z0 + 0.1), M["redDeep"], bev=0.0))
+    parts.append(box("rearHood", (1.4, 0.1, 0.6), (rdx, DECK + 2.5, HALL_Z0 - 0.3), M["red"], bev=0.03))
+    parts.append(box("rearStep", (1.3, 0.12, 0.5), (rdx, DECK + 0.06, HALL_Z0 - 0.25), M["trim"], bev=0.02))
+    parts.append(box("rearLamp", (0.24, 0.1, 0.18), (rdx, DECK + 2.95, HALL_Z0 - 0.1), M["steel"], bev=0.02))
 
     # The top: the red band, a stepped cornice, a parapet with coping and a
     # raised centre over the front with the service badge on it.

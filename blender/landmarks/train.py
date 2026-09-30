@@ -224,6 +224,8 @@ def build():
 def preview(raised=1):
     objs = build()
     drop = "PantographLowered" if raised else "PantographRaised"
-    for obj in [o for o in objs if o.name == drop]:
-        bpy.data.objects.remove(obj, do_unlink=True)
-    return [o for o in objs if o.name != drop]
+    keep = [o for o in objs if o.name != drop]
+    for obj in objs:
+        if obj not in keep:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    return keep

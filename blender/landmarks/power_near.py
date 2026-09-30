@@ -263,8 +263,7 @@ def pylon(acc, M, x, z):
 # ---------------------------------------------------------------- the yard
 
 
-def transformer(acc, M, cx):
-    cz = 3.0
+def transformer(acc, M, cx, cz=3.0, tag="TR 1"):
     steel, dark, por = M["steel"], M["steelDark"], M["porcelain"]
     lid_y = DECK + 1.98
     # Lid bolts, a rim and the lifting lugs.
@@ -307,26 +306,26 @@ def transformer(acc, M, cx):
             acc.box(dark, (0.22, 0.05, 0.1), (cx + sx * 0.9, DECK + 0.29, cz + sz * 0.82))
     acc.bar(M["hazard"], (cx + 1.1, DECK + 0.3, cz + 0.4), (cx + 1.1, DECK + 1.5, cz + 0.4), 0.03, 0.012)
     acc.box(M["deck"], (0.42, 0.22, 0.014), (cx - 0.55, DECK + 1.0, cz + 0.807))
-    nd.letters(acc, dark, "TR 1", 0.09, pos=(cx - 0.55, DECK + 1.0, cz + 0.812), depth=0.006)
+    nd.letters(acc, dark, tag, 0.09, pos=(cx - 0.55, DECK + 1.0, cz + 0.812), depth=0.006)
 
 
-def gantry(acc, M):
-    for px in (1.4, 7.8):
-        for pz in (1.6, 4.4):
+def gantry(acc, M, x0=1.4, x1=7.8, cz=3.0):
+    for px in (x0, x1):
+        for pz in (cz - 1.4, cz + 1.4):
             for a in (-1, 1):
                 for b in (-1, 1):
                     acc.cyl(M["steelDark"], 0.018, 0.05, (px + a * 0.1, DECK + 0.22, pz + b * 0.1), sides=6)
             acc.box(M["steelDark"], (0.3, 0.04, 0.3), (px, DECK + 0.16, pz))
-    for pz in (1.6, 4.4):
-        for x in (1.9, 2.9, 3.9, 5.3, 6.3, 7.3):
+    for pz in (cz - 1.4, cz + 1.4):
+        for x in (x0 + 0.5, x0 + 1.5, x0 + 2.5, x0 + 3.9, x0 + 4.9, x0 + 5.9):
             insulator_string(acc, M["porcelain"], x, DECK + 4.02, pz, discs=5, r=0.085, pitch=0.05)
-        for x in (1.4, 7.8):
+        for x in (x0, x1):
             acc.box(M["steel"], (0.3, 0.03, 0.3), (x, DECK + 4.2, pz))
 
 
-def fence(acc, M):
-    x0, x1, z0, z1 = lean.YARD["x0"], lean.YARD["x1"], lean.YARD["z0"], lean.YARD["z1"]
-    gate = (4.1, 5.3)
+def fence(acc, M, yard=None, gate=(4.1, 5.3)):
+    yard = yard or lean.YARD
+    x0, x1, z0, z1 = yard["x0"], yard["x1"], yard["z0"], yard["z1"]
     h = 1.7
     steel = M["steel"]
     runs = [((x0, z0), (x1, z0)), ((x0, z1), (gate[0], z1)), ((gate[1], z1), (x1, z1)), ((x0, z0), (x0, z1)), ((x1, z0), (x1, z1))]
@@ -358,8 +357,8 @@ def fence(acc, M):
     # The gate: hinges, a latch and a brace.
     gx = gate[0]
     for y in (0.3, 1.4):
-        acc.cyl(M["steelDark"], 0.03, 0.14, (gx + 0.02, DECK + y, lean.YARD["z1"] - 0.0), sides=6)
-    acc.bar(steel, (gate[0] + 0.05, DECK + 0.25, lean.YARD["z1"] - 0.12), (gate[0] + 0.68, DECK + 1.35, lean.YARD["z1"] - 0.12), 0.03, 0.03)
+        acc.cyl(M["steelDark"], 0.03, 0.14, (gx + 0.02, DECK + y, z1 - 0.0), sides=6)
+    acc.bar(steel, (gate[0] + 0.05, DECK + 0.25, z1 - 0.12), (gate[0] + 0.68, DECK + 1.35, z1 - 0.12), 0.03, 0.03)
 
 
 def yard(acc, obj, M):
@@ -370,6 +369,42 @@ def yard(acc, obj, M):
         transformer(acc, M, cx)
     gantry(acc, M)
     fence(acc, M)
+
+
+def second_bay(acc, obj, M):
+    """The bare yard's extras drawn over: a second bay like the first, the
+    kiosk's door and louvres, trench bolts, pole insulator strings."""
+    y2 = lean.YARD2
+    free = nkit.ground_free(obj, DECK + 0.16)
+    nd.pebbles(acc, M["curb"], y2["x0"], y2["x1"], y2["z0"], y2["z1"], DECK + 0.16, 2200, size=0.05, seed=9, keep=free)
+    x0, x1 = lean.GANTRY2
+    for cx, tag in ((x0 + 1.5, "TR 2"), (x0 + 4.9, "TR 3")):
+        transformer(acc, M, cx, lean.YARD2_CZ, tag)
+    gantry(acc, M, x0, x1, lean.YARD2_CZ)
+    fence(acc, M, y2, lean.GATE2)
+    # The kiosk: a door with raised panels and a frame, a hood, window bars, roof vent slats.
+    kx, kz = lean.KIOSK
+    front = kz + 1.1
+    y = DECK + 0.12
+    with acc.at((kx - 0.6, y + 1.0, front), 0.0):
+        acc.rect_frame(M["steel"], -0.475, 0.475, -1.0, 1.0, [(0, 0), (0, 0.03), (0.03, 0.03), (0.03, 0.05), (0.07, 0.05), (0.07, 0.02), (0.09, 0.02), (0.09, 0)], z=0.0)
+        for py in (0.5, -0.5):
+            acc.box(M["hazardDeep"], (0.66, 0.8, 0.02), (0, py, -0.075))
+    with acc.at((kx + 0.7, y + 1.53, front), 0.0):
+        acc.rect_frame(M["steel"], -0.4, 0.4, -0.35, 0.35, [(0, 0), (0, 0.02), (0.05, 0.02), (0.05, 0)], z=0.0)
+        acc.box(M["steel"], (0.03, 0.7, 0.03), (0, 0, -0.07))
+        acc.box(M["steel"], (0.8, 0.03, 0.03), (0, 0, -0.07))
+    nd.letters(acc, M["steelDark"], "CTRL", 0.08, pos=(kx + 0.7, y + 2.03, front + 0.02), depth=0.008)
+    acc.rect_run(M["steel"], kx - 1.35, kx + 1.35, kz - 1.15, kz + 1.15, [(0, 0), (0.04, 0), (0.04, 0.04), (0, 0.04)], y=y + 2.5)
+    # The trench covers' bolts.
+    for i in range(5):
+        z = kz + 1.35 + (1.1 - (kz + 1.35)) * (i + 0.5) / 5
+        for sx in (-1, 1):
+            acc.cyl(M["steel"], 0.02, 0.02, (kx + 0.4 + sx * 0.28, DECK + 0.05, z), sides=6)
+    # Insulator strings on the pole arms.
+    for px, pz in lean.POLES:
+        for dx in (-0.65, 0.0, 0.65):
+            insulator_string(acc, M["porcelain"], px + dx, DECK + lean.POLE_H - 0.3, pz, discs=3, r=0.06, pitch=0.045)
 
 
 def board(acc, M):
@@ -406,6 +441,7 @@ def bare_near(M):
     acc = nkit.Acc()
     ground(acc, obj, M)
     yard(acc, obj, M)
+    second_bay(acc, obj, M)
     board(acc, M)
     return nkit.rejoin(obj, acc.objects(), "BareNear")
 

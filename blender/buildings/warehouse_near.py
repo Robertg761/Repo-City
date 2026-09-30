@@ -133,7 +133,7 @@ def make():
     sides = bkit.grid(bkit.spread(3, 0.6), [0.5], **high)
     # A personnel door on the +x wall, a step up.
     ped = dict(u=0.4, v=(PLINTH + 0.34) / 2, w=0.1, h=0.34 - PLINTH, depth=0.04, glass="door", lit=False, sill_face=False,
-               near={"door": {"head": False, "from_o": 0.5 - HW, "limit": 0.54, "panels": (1, 3), "step_reach": 0.5}})
+               near={"door": {"head": False, "from_o": 0.5 - HW, "limit": 0.54, "panels": (1, 3), "step_reach": 0.5, "scraper": False}})
     side_x = sides + [ped]
     d.vlines = [0.365, 0.5 + det.V(0.5)]
     bkit.volume(d, PLINTH, TOP, HW, HW, {"+z": ends, "-z": ends, "+x": side_x, "-x": sides}, 0.07)

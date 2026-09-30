@@ -30,11 +30,12 @@ def make(near=False):
     ob = HX + 0.03
     d.box(0, TOP, 0, ob * 2, band, ob * 2, "trim", bottom=True)
     y0 = TOP + band
-    # The rake: glass sloping up to the +x wall, framed ends.
+    # The rake: glass sloping up to the +x wall, its ends in plain wall (the metal
+    # surface reads as blotches on faces this big).
     d.poly([(-HX, y0, HX), (HX, 1.0, HX), (HX, 1.0, -HX), (-HX, y0, -HX)], "glass8@104", (-1, 1, 0))
-    d.poly([(HX, y0, HX), (HX, y0, -HX), (HX, 1.0, -HX), (HX, 1.0, HX)], "frame", (1, 0, 0))
+    d.poly([(HX, y0, HX), (HX, y0, -HX), (HX, 1.0, -HX), (HX, 1.0, HX)], "core", (1, 0, 0))
     for z in (HX, -HX):
-        d.poly([(-HX, y0, z), (HX, y0, z), (HX, 1.0, z)], "frame", (0, 0, z))
+        d.poly([(-HX, y0, z), (HX, y0, z), (HX, 1.0, z)], "core", (0, 0, z))
     # A coping along the top of the rake's high wall.
     d.box(HX - 0.01, 1.0 - 0.008, 0, 0.034, 0.012, HX * 2 + 0.02, "trim", bottom=True)
     if near:
