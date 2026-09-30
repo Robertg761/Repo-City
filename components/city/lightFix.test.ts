@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { windowDim, windowEmissive, windowLit } from "./Buildings";
+import { windowEmissive } from "./Buildings";
 import { litWindowGlow, type SceneAtmosphere } from "./palette";
 import { toeLift } from "./shadowToe";
 import { METALNESS_CAP, METAL_ROUGHNESS_FLOOR } from "./textures/model-detail";
@@ -7,19 +7,13 @@ import { METALNESS_CAP, METAL_ROUGHNESS_FLOOR } from "./textures/model-detail";
 const sky = (over: Partial<SceneAtmosphere>) =>
   ({ windowGlow: 1, nightness: 0, evening: 0, ...over }) as SceneAtmosphere;
 
-describe("lit windows by day", () => {
-  it("are a faint cue in the afternoon and full at night", () => {
-    const day = windowEmissive(sky({}));
-    const night = windowEmissive(sky({ nightness: 1 }));
-    expect(day).toBeLessThan(0.6);
-    expect(night).toBeCloseTo(0.15 + 1.1 + 0.45, 5);
-    expect(windowDim(windowLit(sky({})))).toBeLessThan(0.35);
-    expect(windowDim(windowLit(sky({ nightness: 1 })))).toBe(1);
-  });
-
-  it("come up through the golden hour", () => {
-    expect(windowLit(sky({ evening: 1 }))).toBeGreaterThan(windowLit(sky({})));
-    expect(litWindowGlow(sky({}))).toBeLessThan(litWindowGlow(sky({ evening: 1 })));
+describe("lit windows", () => {
+  it("keep the cream pane at every hour, and glow fullest at night", () => {
+    // Dimmed by day they read as flat mustard panes; the user preferred cream.
+    expect(windowEmissive(sky({}))).toBeCloseTo(0.15 + 1.1, 5);
+    expect(windowEmissive(sky({ nightness: 1 }))).toBeCloseTo(0.15 + 1.1 + 0.45, 5);
+    expect(litWindowGlow(sky({}))).toBe(1);
+    expect(litWindowGlow(sky({ nightness: 1 }))).toBeCloseTo(1.4, 5);
   });
 });
 

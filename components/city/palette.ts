@@ -234,13 +234,11 @@ export function sunDirection(evening: number): [number, number, number] {
 
 /**
  * `windowGlow` for a hand-built lit window (civic buildings, landmarks, sites):
- * the hour's glow, held to a quarter by day so an occupied window is a warm
- * cue behind its frame rather than a bright pane over it, and full from the
- * golden hour on. Night adds its own lift on top, as it always did.
+ * the hour's glow, with night's own lift on top. Dimming it by day turned
+ * the panes a flat mustard, so a lit window is cream at every hour.
  */
-export function litWindowGlow(a: Pick<SceneAtmosphere, "windowGlow" | "nightness" | "evening">): number {
-  const lit = Math.min(1, Math.max(a.nightness, a.evening * 0.7));
-  return a.windowGlow * (0.25 + 0.75 * lit) + a.nightness * 0.4;
+export function litWindowGlow(a: Pick<SceneAtmosphere, "windowGlow" | "nightness">): number {
+  return a.windowGlow + a.nightness * 0.4;
 }
 
 export interface SceneAtmosphere {

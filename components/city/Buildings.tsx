@@ -359,23 +359,8 @@ function nightTone(tone: number): [number, number, number] {
 
 /** The windows' emissive strength for an hour. Auto's is what it always was. */
 export function windowEmissive(atmosphere: SceneAtmosphere): number {
-  const lit = windowLit(atmosphere);
-  const day = 0.1 + atmosphere.windowGlow * 0.35;
-  const dark = 0.15 + atmosphere.windowGlow * 1.1 + atmosphere.nightness * 0.45;
-  return day + (dark - day) * lit;
+  return 0.15 + atmosphere.windowGlow * 1.1 + atmosphere.nightness * 0.45;
 }
-
-/**
- * How much the lit panes are "on", 0..1: by day they are only an occupied
- * cue, a warm tint behind the glazing bars rather than a bright cream pane
- * over them; they come up through the golden hour and are full at night.
- */
-export function windowLit(atmosphere: SceneAtmosphere): number {
-  return Math.min(1, Math.max(atmosphere.nightness, atmosphere.evening * 0.7));
-}
-
-/** The share of the pane's colour a window keeps at a level of `windowLit`. */
-export const windowDim = (lit: number): number => 0.28 + 0.72 * lit;
 
 /**
  * A window material whose glow takes each instance's colour too, so one
@@ -435,14 +420,11 @@ function LitWindows({ plan }: { plan: CityBuildingPlan }) {
     (mesh.material as MeshStandardMaterial).emissiveIntensity = windowEmissive(atmosphere);
     // Colour only moves with the night, and only in steps worth a write.
     const night = Math.round(atmosphere.nightness * 40) / 40;
-    const lit = Math.round(windowLit(atmosphere) * 40) / 40;
-    const stamp = night * 100 + lit;
-    if (stamp === tinted.current) return;
-    tinted.current = stamp;
-    const dim = windowDim(lit);
+    if (night === tinted.current) return;
+    tinted.current = night;
     for (let i = 0; i < windows.length; i++) {
       const [r, g, b] = nightTone(windows[i].tone);
-      scratchColor.setRGB(dim * (1 + (r - 1) * night), dim * (1 + (g - 1) * night), dim * (1 + (b - 1) * night));
+      scratchColor.setRGB(1 + (r - 1) * night, 1 + (g - 1) * night, 1 + (b - 1) * night);
       mesh.setColorAt(i, scratchColor);
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
