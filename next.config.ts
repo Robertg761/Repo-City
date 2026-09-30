@@ -35,6 +35,18 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/analyze": ["./fixtures/interpretations/**", "./fixtures/*.analysis.json"],
   },
+  // The baked surfaces (`public/textures`, from blender/textures) were served
+  // with max-age=0, so every visit revalidated 23 images. Their names are not
+  // versioned, so a day fresh and a week stale-while-revalidate rather than
+  // immutable: a re-bake reaches everyone within a day.
+  async headers() {
+    return [
+      {
+        source: "/textures/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
