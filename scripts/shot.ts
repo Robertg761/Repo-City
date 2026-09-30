@@ -154,6 +154,10 @@ async function main(): Promise<void> {
   await send("Runtime.enable");
   if (net) await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
+  if (process.env.INJECT) {
+    const { readFileSync } = await import("node:fs");
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: readFileSync(process.env.INJECT, "utf8") });
+  }
   await send("Page.navigate", { url: `${BASE}/?${process.env.QUERY ?? ""}` });
 
   for (let i = 0; i < 300; i++) {
