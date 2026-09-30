@@ -44,6 +44,8 @@ import { useCityStore } from "@/store/useCityStore";
 import type { CityModel } from "@/types/city";
 import { REFERENCE_ASPECT, aspectWiden, maxCameraDistance } from "./entities";
 import { filmGrade } from "./grade";
+import { RICH_LAND } from "./look";
+import { LAND_MAX_REACH } from "./landscape/plan";
 import { chamferedOutline, plazaRect, plazaSurface, type PlazaRect } from "./groundwork";
 import {
   GREEN_GRASS,
@@ -267,6 +269,9 @@ function Backdrop({ atmosphere, reach }: { atmosphere: SceneAtmosphere; reach: n
   const sky = useSky();
   const scene = useThree((state) => state.scene);
   const initial = sky.atmosphere.background;
+  // The rich landscape runs to the fog's far plane, which must stay inside the camera's.
+  const fogFar = RICH_LAND ? Math.min(reach * atmosphere.fogFarFactor, LAND_MAX_REACH / 1.02) : reach * atmosphere.fogFarFactor;
+  const fogNear = RICH_LAND ? Math.min(reach * atmosphere.fogNearFactor, fogFar * 0.5) : reach * atmosphere.fogNearFactor;
   useSkyFrame((live) => {
     if (scene.background instanceof Color) scene.background.set(live.background);
     scene.fog?.color.set(live.background);
@@ -274,10 +279,7 @@ function Backdrop({ atmosphere, reach }: { atmosphere: SceneAtmosphere; reach: n
   return (
     <>
       <color attach="background" args={[initial]} />
-      <fog
-        attach="fog"
-        args={[initial, reach * atmosphere.fogNearFactor, reach * atmosphere.fogFarFactor]}
-      />
+      <fog attach="fog" args={[initial, fogNear, fogFar]} />
     </>
   );
 }

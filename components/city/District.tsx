@@ -51,6 +51,7 @@ import { useRevealClock, useRevealGroup } from "./useReveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useCityStore } from "@/store/useCityStore";
 import { useTiledSurfaceDetail } from "./textures/surfaces";
+import { useLandPlate } from "./landscape/ground";
 import { districtSurfaceUvs, districtSurfaceKind, DISTRICT_SURFACE_TILE } from "./districtSurface";
 
 interface DistrictGroundProps {
@@ -80,6 +81,7 @@ export default function DistrictGround({ district, atmosphere, settlement }: Dis
     () => new BufferAttribute(districtSurfaceUvs(district.rect), 2),
     [district.rect],
   );
+  const landPlate = useLandPlate();
   const { hovered, selected } = useEntityState(district.id);
   const handlers = useEntityHandlers(district.id);
   // The generator schedules every reveal, districts included (section 43).
@@ -108,7 +110,7 @@ export default function DistrictGround({ district, atmosphere, settlement }: Dis
             depthWrite={false}
           />
         ) : (
-          <meshStandardMaterial color={color} {...surface} roughness={0.96} metalness={0} />
+          <meshStandardMaterial color={color} {...surface} {...landPlate} roughness={0.96} metalness={0} />
         )}
       </mesh>
     </group>
