@@ -11,11 +11,12 @@
  * antialiasing arriving.
  */
 
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { BrightnessContrast, Bloom, EffectComposer, HueSaturation, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import type { BloomEffect } from "postprocessing";
 import { filmGrade } from "./grade";
+import { GradeFloorEffect } from "./gradeFloor";
 import { mix, type SceneAtmosphere } from "./palette";
 import type { QualitySettings } from "./quality";
 import { ShadowToe, toeLift, type ShadowToeEffect } from "./shadowToe";
@@ -69,6 +70,7 @@ export default function Post({
   const toe = useRef<ShadowToeEffect>(null);
   const ao = useRef<{ configuration: { intensity: number } }>(null);
   const grade = filmGrade();
+  const gradeFloor = useMemo(() => new GradeFloorEffect(), []);
   useSkyFrame((live) => {
     if (bloom.current) bloom.current.intensity = bloomIntensity(live);
     if (toe.current) toe.current.lift = toeLift(live.evening, live.nightness);
@@ -123,7 +125,12 @@ export default function Post({
     />,
   );
   // The rich grade: a little vibrance and contrast after the tone mapping.
-  if (grade.saturation !== 0) effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
+  if (grade.saturation !== 0) {
+    effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
+    // Saturation leaves negative channels behind, and the sRGB round trip
+    // around the contrast turns those into NaN on desktop OpenGL (gradeFloor.ts).
+    effects.push(<primitive key="floor" object={gradeFloor} dispose={null} />);
+  }
   if (grade.contrast !== 0) effects.push(<BrightnessContrast key="contrast" contrast={grade.contrast} />);
   effects.push(<ShadowToe key="toe" ref={toe} lift={toeLift(sky.atmosphere.evening, sky.atmosphere.nightness)} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
