@@ -39,7 +39,7 @@ import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/
 import { blenderSignFaces, blenderSignFrame } from "./models/vehicles/overflowSign";
 import { BLENDER_MODELS } from "./models/modelSource";
 import { mergeParts, type Part } from "./models/props/geometry";
-import { tintedMaterial } from "./models/props/material";
+import { CAR_PAINT_PATTERN, tintedMaterial } from "./models/props/material";
 import { queueBody } from "./blockages";
 import { HIGHLIGHT, desaturate, mix, stateTint, type SceneAtmosphere } from "./palette";
 import { revealScale } from "./reveal";
@@ -280,7 +280,7 @@ function QueueBody({
   const settled = useRef(false);
   const { textureSize, anisotropy } = useQuality();
   const material = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }, undefined, {
-    textureSize, anisotropy, surfaceAttribute: true,
+    textureSize, anisotropy, surfaceAttribute: true, patternStrength: CAR_PAINT_PATTERN,
   }), [textureSize, anisotropy]);
   useEffect(() => () => material.dispose(), [material]);
 

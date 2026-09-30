@@ -52,6 +52,7 @@ import {
   HIGHLIGHT,
   WINDOW_COLOR,
   desaturate,
+  litWindowGlow,
   mix,
   stateTint,
   type SceneAtmosphere,
@@ -282,7 +283,7 @@ export default function ConstructionSitePiece({
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
   // The finished band's windows follow the live hour (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
+  const glow = useSkyValue((a) => litWindowGlow(a));
   const level: DetailLevel = useSceneNear(reveal, SITE_NEAR, SITE_CAP) ? "near" : "lean";
 
   const done = site.state === "completed";

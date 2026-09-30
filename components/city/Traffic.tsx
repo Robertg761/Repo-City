@@ -55,7 +55,7 @@ import {
   nearTractorLightsGeometry,
   nearWheelGeometry,
 } from "./models/vehicles/near";
-import { tintedMaterial } from "./models/props/material";
+import { CAR_PAINT_PATTERN, tintedMaterial } from "./models/props/material";
 import { MAX_FLEET, carPose, stepTraffic, type CarPose } from "./traffic";
 import { cityFleet, specOf, type FleetBody } from "./fleet";
 import { LOW_TIER_GLOW, beamGeometry, beamMaterial } from "./glow";
@@ -163,7 +163,7 @@ export default function Traffic({
   // reach the paintwork and nothing else (`models/props/material.ts`).
   const { textureSize, anisotropy, postProcessing, tier } = useQuality();
   const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.5, metalness: 0.08 }, undefined, {
-    textureSize, anisotropy, surfaceAttribute: true,
+    textureSize, anisotropy, surfaceAttribute: true, patternStrength: CAR_PAINT_PATTERN,
   }), [textureSize, anisotropy]);
   const wheelMaterial = useMemo(() => tintedMaterial({ roughness: 0.85, metalness: 0.05 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,

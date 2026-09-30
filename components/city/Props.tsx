@@ -35,7 +35,7 @@ import {
   type ParkedVehicle,
   type PlacedProp,
 } from "./models/props/streetFurniture";
-import { WIND_CLOCK, tintedMaterial } from "./models/props/material";
+import { CAR_PAINT_PATTERN, WIND_CLOCK, tintedMaterial } from "./models/props/material";
 import { furnitureNearGeometry, lampNearGeometry, nearSizeAt, treeNearGeometry } from "./models/props/near";
 import {
   SPECIES_LEAF,
@@ -208,7 +208,7 @@ export default function Props({
     [textureSize, anisotropy],
   );
   const parkedMaterial = useMemo(() => tintedMaterial({ roughness: 0.55, metalness: 0.08 }, undefined, {
-    textureSize, anisotropy, surfaceAttribute: true,
+    textureSize, anisotropy, surfaceAttribute: true, patternStrength: CAR_PAINT_PATTERN,
   }), [textureSize, anisotropy]);
   const furnitureMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,

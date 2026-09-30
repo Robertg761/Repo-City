@@ -42,6 +42,7 @@ import {
   SELECT_TINT,
   WINDOW_COLOR,
   desaturate,
+  litWindowGlow,
   mix,
   type SceneAtmosphere,
 } from "./palette";
@@ -123,7 +124,7 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
   );
   useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
   // The windows follow the live hour, brightest at night (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
+  const glow = useSkyValue((a) => litWindowGlow(a));
   const [width, height, depth] = building.size;
   const kind: LandmarkFile | null = building.plan.landmark;
 

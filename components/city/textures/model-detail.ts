@@ -15,6 +15,16 @@ vec3 rcReliefNormal(vec3 surfaceNormal, float height, float scale) {
 }
 `;
 
+/**
+ * The scene has no environment map, so a metal surface has nothing to reflect
+ * and only loses its diffuse colour: the baked metal plane (up to 0.7) turned
+ * pale hulls and steel near-black (the village substation, the power
+ * stations). Metalness is capped low enough that metal keeps its colour, and
+ * its roughness floored so the sun and moon do not blow out on it.
+ */
+export const METALNESS_CAP = "0.12";
+export const METAL_ROUGHNESS_FLOOR = "0.5";
+
 const VERTEX_HEAD = /* glsl */ `
 varying vec3 rcDetailPosition;
 varying vec3 rcDetailNormal;
@@ -115,19 +125,22 @@ export function configureSurfaceMaterial(material: MeshStandardMaterial, detail:
 export function patchModelDetail(
   shader: WebGLProgramParametersWithUniforms,
   profile: "settlement" | "building" | "organic" | "prop",
-  { textureSize = 256, anisotropy = 4, surface = SURFACE.plaster }: ModelDetailOptions = {},
+  { textureSize = 256, anisotropy = 4, surface = SURFACE.plaster, patternStrength = 1 }: ModelDetailOptions = {},
 ): void {
   shader.uniforms.rcSurfacePatterns = { value: modelSurfaceTextureArray(textureSize, anisotropy) };
   shader.uniforms.rcDefaultSurface = { value: surface };
   const vertexBody = profile === "building" ? VERTEX_BODY.replace("rcDetailPaint = paint;", "rcDetailPaint = 0.0;") : VERTEX_BODY;
-  const sample = profile === "organic" ? ORGANIC_SAMPLE : SURFACE_SAMPLE;
+  const sample = (profile === "organic" ? ORGANIC_SAMPLE : SURFACE_SAMPLE).replace(
+    "diffuseColor.rgb *= mix(1.0, rcDetailTexel.r, rcDetailAmount);",
+    `diffuseColor.rgb *= mix(1.0, rcDetailTexel.r, rcDetailAmount * ${patternStrength.toFixed(3)});`,
+  );
   shader.vertexShader = shader.vertexShader
     .replace("#include <common>", `#include <common>\n${VERTEX_HEAD}\n${SURFACE_VERTEX_HEAD}`)
     .replace("#include <begin_vertex>", `#include <begin_vertex>\n${vertexBody}`);
   shader.fragmentShader = shader.fragmentShader
     .replace("#include <common>", `#include <common>\n${FRAGMENT_HEAD}`)
     .replace("#include <map_fragment>", `#include <map_fragment>\n${sample}`)
-    .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>\nroughnessFactor = clamp(rcDetailTexel.g * (0.85 + roughness * 0.15), 0.04, 1.0);`)
-    .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>\nmetalnessFactor = max(metalnessFactor, rcDetailTexel.a);`)
+    .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>\nroughnessFactor = clamp(rcDetailTexel.g * (0.85 + roughness * 0.15), 0.04, 1.0);\n// Corrugated and sheet metal under a low moon threw white stripes of specular: keep it satin.\nif (rcSurfaceLayer > 6.5 && rcSurfaceLayer < 7.5) roughnessFactor = max(roughnessFactor, ${METAL_ROUGHNESS_FLOOR});`)
+    .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>\nmetalnessFactor = min(max(metalnessFactor, rcDetailTexel.a), ${METALNESS_CAP});`)
     .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>\nnormal = rcReliefNormal(normal, rcDetailTexel.b, rcDetailBump * rcDetailAmount);`);
 }

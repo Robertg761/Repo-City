@@ -271,4 +271,10 @@ export interface ModelDetailOptions {
   surface?: SurfaceId;
   /** The caller has verified its geometry contains the optional `surface` attribute. */
   surfaceAttribute?: boolean;
+  /**
+   * How much of the surface layer's tone pattern reaches the colour, 0..1
+   * (default 1). Vehicle paint takes a fraction: the metal layer's mottling
+   * read as dirt camouflage on a bus.
+   */
+  patternStrength?: number;
 }
