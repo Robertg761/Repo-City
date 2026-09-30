@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { TIERS, tierCity } from "./cities";
 import {
   DECK_TOP,
-  TERRAIN_RINGS,
   TERRAIN_SECTORS,
   WATER_LIFT,
   buildBanks,
@@ -18,8 +17,10 @@ import {
   roadHeight,
   roadTexture,
   terrainPainter,
+  terrainRings,
   windowTextures,
 } from "./build";
+import { HEDGE_RING } from "./hedges";
 import { bankDepth, trenchDepth } from "./water";
 import { GROUND_Y, planLandscape } from "./plan";
 import { MODEL as TREES } from "../models/props/trees.model";
@@ -34,7 +35,7 @@ const terrain = buildTerrain(plan, paint);
 describe("the terrain mesh", () => {
   it("is rings and sectors, its heights the plan's and its faces up", () => {
     const pos = terrain.geometry.getAttribute("position");
-    expect(pos.count).toBe((TERRAIN_RINGS + 1) * TERRAIN_SECTORS);
+    expect(pos.count).toBe((terrainRings(plan) + 1) * TERRAIN_SECTORS);
     expect(pos.getY(0)).toBeCloseTo(GROUND_Y, 6);
     for (let i = 0; i < pos.count; i += 997) expect(pos.getY(i)).toBeCloseTo(plan.height(pos.getX(i), pos.getZ(i)), 4);
     // Under the plot the ground is flat and points straight up.
@@ -207,7 +208,12 @@ describe("fields and hedges", () => {
     const g = buildFields(plan, terrain.sample, 0);
     const pos = g.getAttribute("position");
     expect(pos.count).toBeGreaterThan(plan.fields.length * 9);
-    for (let i = 0; i < pos.count; i += 37) expect(pos.getY(i)).toBeCloseTo(terrain.sample(pos.getX(i), pos.getZ(i)) + 0.07, 4);
+    for (let i = 0; i < pos.count; i += 37) {
+      // A hair above the land, a little more where it bends.
+      const lift = pos.getY(i) - terrain.sample(pos.getX(i), pos.getZ(i));
+      expect(lift).toBeGreaterThanOrEqual(0.0699);
+      expect(lift).toBeLessThan(0.48);
+    }
     const idx = g.getIndex()!;
     for (let t = 0; t < idx.count; t += 3) {
       const [a, b, c] = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
@@ -215,6 +221,7 @@ describe("fields and hedges", () => {
       expect(cross).toBeGreaterThan(-1e-6);
     }
     const row = g.getAttribute("aRow");
+    expect(row.itemSize).toBe(4);
     expect(row.count).toBe(pos.count);
     let withRows = 0;
     for (let i = 0; i < row.count; i++) if (row.getY(i) > 0) withRows++;
@@ -227,10 +234,10 @@ describe("fields and hedges", () => {
     const col = g.getAttribute("color");
     expect(pos.count).toBeGreaterThan(200);
     // Bounded by the length budget: a few triangles a unit.
-    expect(g.getIndex()!.count / 3).toBeLessThan(1500 * 14);
+    expect(g.getIndex()!.count / 3).toBeLessThan(1500 * 30);
     // The heights wander: the tops are not one level above the ground.
     const tops: number[] = [];
-    for (let i = 0; i < pos.count; i += 8) tops.push(pos.getY(i + 4) - terrain.sample(pos.getX(i + 4), pos.getZ(i + 4)));
+    for (let i = 0; i + HEDGE_RING < pos.count / 1.3; i += HEDGE_RING) tops.push(pos.getY(i + 5) - terrain.sample(pos.getX(i + 5), pos.getZ(i + 5)));
     const mean = tops.reduce((a, b) => a + b, 0) / tops.length;
     const sd = Math.sqrt(tops.reduce((a, b) => a + (b - mean) ** 2, 0) / tops.length);
     expect(sd).toBeGreaterThan(0.12);
@@ -241,9 +248,9 @@ describe("fields and hedges", () => {
     // Smooth normals: the mesh is indexed.
     expect(g.getAttribute("normal")).toBeTruthy();
     // A gap: a long straight run with a gate is in two pieces, so fewer triangles than an unbroken one of the same length.
-    const one = buildHedgeTubes([{ x0: 0, z0: 0, x1: 200, z1: 0, shade: 0.3 }], () => 0);
-    const cells = one.getAttribute("position").count / 8;
-    expect(cells).toBeLessThan(200 / 1.9 + 1);
+    const one = buildHedgeTubes([{ x0: 0, z0: 0, x1: 200, z1: 0, shade: 0.3 }], () => 0, { clumps: false });
+    const cells = one.getAttribute("position").count / HEDGE_RING;
+    expect(cells).toBeLessThan(200 / 1.7 + 1);
   });
 
   it("the budget stops adding runs", () => {
@@ -284,6 +291,6 @@ describe("every tier's land builds", () => {
     const banks = buildBanks(p, () => undefined);
     const towers = buildTowers(p.towers, t.sample);
     const tris = t.geometry.getIndex()!.count / 3 + fields.getIndex()!.count / 3 + (hedges.getIndex()?.count ?? 0) / 3 + (banks.getIndex()?.count ?? 0) / 3 + (towers.getAttribute("position")?.count ?? 0) / 3;
-    expect(tris).toBeLessThan(120_000);
+    expect(tris).toBeLessThan(160_000);
   });
 });

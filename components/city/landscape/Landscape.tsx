@@ -37,7 +37,6 @@ import { useSkyFrame } from "../sky";
 import { treeGeometry, SPECIES_LEAF, type TreeSpecies } from "../models/props/trees";
 import { tintedMaterial } from "../models/props/material";
 import { tiledSurface } from "../textures/surfaces";
-import { SURFACE_BUMP } from "../textures/texture-data";
 import { wasDrag } from "../useEntity";
 import {
   buildBanks,
@@ -60,7 +59,7 @@ import Grass from "./grass";
 import Homes from "./Homes";
 import { useLand } from "./LandProvider";
 import { patchLand, useLandGround } from "./ground";
-import { patchCrops, tuneWater, waterMaterial } from "./materials";
+import { hedgeMaterial, patchCrops, tuneWater, waterMaterial } from "./materials";
 import { landDistance, type HedgeRun, type LandscapePlan, type TreeSpot } from "./plan";
 
 const scratch = new Object3D();
@@ -120,27 +119,16 @@ const none = () => null;
 /** The terrain's material, patched with the ground shader: the banks use the same, so they join the land seamlessly. */
 function useGroundMaterial(): MeshStandardMaterial | null {
   const ground = useLandGround();
-  const { textureSize, anisotropy } = useQuality();
-  const lawn = useMemo(() => ({
-    map: tiledSurface("lawn", textureSize, 1, anisotropy),
-    relief: tiledSurface("lawn", textureSize, 1, anisotropy, true),
-  }), [textureSize, anisotropy]);
-  useEffect(() => () => { lawn.map.dispose(); lawn.relief.dispose(); }, [lawn]);
+  const { textureSize, anisotropy, tier } = useQuality();
+  const lawn = useMemo(() => tiledSurface("lawn", textureSize, 1, anisotropy), [textureSize, anisotropy]);
+  useEffect(() => () => lawn.dispose(), [lawn]);
   const material = useMemo(() => {
     if (!ground) return null;
-    const m = new MeshStandardMaterial({
-      color: "#ffffff",
-      vertexColors: true,
-      map: lawn.map,
-      bumpMap: lawn.relief,
-      roughnessMap: lawn.relief,
-      bumpScale: SURFACE_BUMP.lawn,
-      roughness: 1,
-      metalness: 0,
-    });
-    patchLand(m, ground.uniforms, 0, 1);
+    // Roughness is flat: the height the shader reads (`ground.tsx`) is what gives the ground its grain.
+    const m = new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, map: lawn, roughness: 1, metalness: 0 });
+    patchLand(m, ground.uniforms, 0, 1, tier === "low" ? 1 : 2);
     return m;
-  }, [ground, lawn]);
+  }, [ground, lawn, tier]);
   useEffect(() => () => material?.dispose(), [material]);
   return material;
 }
@@ -237,10 +225,6 @@ function Instanced<T>({
 function useDispose(value: { dispose(): void } | null): void {
   useEffect(() => () => value?.dispose(), [value]);
 }
-
-// A little green of its own: a hedge in its own shadow is leaf-dark, not black.
-const hedgeMaterial = () =>
-  new MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: 0.95, metalness: 0, side: DoubleSide, emissive: "#24421a", emissiveIntensity: 0.55 });
 
 // ---------------------------------------------------------------------------
 // The dressing
@@ -384,7 +368,10 @@ function Fields({
   atmosphere: SceneAtmosphere;
   tier: "high" | "medium" | "low";
 }) {
+  const ground = useLandGround();
+  const cropTextures = ground?.textures ?? null;
   const fieldMaterial = useMemo(() => {
+    if (!cropTextures) return null;
     const m = new MeshStandardMaterial({
       color: "#ffffff",
       vertexColors: true,
@@ -394,12 +381,13 @@ function Fields({
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
-    patchCrops(m);
+    patchCrops(m, cropTextures);
     return m;
-  }, []);
+  }, [cropTextures]);
   useDispose(fieldMaterial);
+  const { textureSize, anisotropy } = useQuality();
   const hedgeSet = useMemo(() => {
-    const material = hedgeMaterial();
+    const material = hedgeMaterial(textureSize, anisotropy);
     // The hedge's own green fades with the light.
     return {
       material,
@@ -408,7 +396,7 @@ function Fields({
         material.emissiveIntensity = 0.55 * (1 - night) + 0.8 * night;
       },
     };
-  }, []);
+  }, [textureSize, anisotropy]);
   const hedgeMat = hedgeSet.material;
   useDispose(hedgeMat);
   useSkyFrame((sky) => hedgeSet.tune(sky.nightness), hedgeSet);
@@ -422,7 +410,7 @@ function Fields({
   useDispose(hedge);
   return (
     <group>
-      <mesh geometry={geometry} material={fieldMaterial} receiveShadow raycast={none} />
+      {fieldMaterial && <mesh geometry={geometry} material={fieldMaterial} receiveShadow raycast={none} />}
       {hedge && <mesh geometry={hedge} material={hedgeMat} receiveShadow raycast={none} />}
     </group>
   );

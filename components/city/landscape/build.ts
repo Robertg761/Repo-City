@@ -29,9 +29,22 @@ import { fbm, hash01, smooth01 } from "./noise";
 import { GROUND_Y, distToPath, pondEdge, pondShore, type Crop, type LandscapePlan, type Pond, type Pt, type River, type TowerSpot } from "./plan";
 import { bankDepth, bankMix, riverSpec, trenchReach } from "./water";
 
-export const TERRAIN_RINGS = 72;
-export const TERRAIN_SECTORS = 208;
-const RING_POWER = 1.6;
+/** Sectors round the terrain disc; the rings follow from the reach (`terrainRings`). */
+export const TERRAIN_SECTORS = 256;
+const SECTOR_GROWTH = (Math.PI * 2) / TERRAIN_SECTORS;
+
+/**
+ * The rings' radii grow geometrically, so a cell is about as wide as it is
+ * long everywhere: `innerStep` metres at the city, widening with distance.
+ */
+function terrainInnerStep(plan: LandscapePlan): number {
+  return Math.min(5, Math.max(2, plan.size / 45));
+}
+
+/** How many rings the terrain of a plan has. */
+export function terrainRings(plan: LandscapePlan): number {
+  return Math.ceil(Math.log(1 + (SECTOR_GROWTH * plan.reach) / terrainInnerStep(plan)) / Math.log(1 + SECTOR_GROWTH));
+}
 
 const linear = (hex: string): [number, number, number] => {
   const c = new Color(hex);
@@ -51,13 +64,20 @@ export interface Terrain {
 export type Paint = (x: number, z: number, height: number, out: Color) => void;
 
 /**
- * A disc of rings and sectors, fine near the city and coarse at the rim,
- * heights from the plan and colours from `paint`. UVs are world units over
- * the lawn's tile, so the ground texture never stretches with the mesh.
+ * A disc of rings and sectors, fine near the city and widening geometrically
+ * to the rim, heights from the plan and colours from `paint`. UVs are world
+ * units over the lawn's tile, so the ground texture never stretches with the
+ * mesh. Normals come from the heights of each vertex's neighbours along the
+ * rings and the sectors (not from the faces), so the hills shade smooth
+ * whatever the triangles' shapes.
  */
 export function buildTerrain(plan: LandscapePlan, paint: Paint, tile = 13): Terrain {
-  const NR = TERRAIN_RINGS;
+  const NR = terrainRings(plan);
   const NS = TERRAIN_SECTORS;
+  const g = SECTOR_GROWTH;
+  // Ring k lies at `step * ((1 + g)^k - 1) / g`; the outermost is exactly the reach.
+  const step = (plan.reach * g) / (Math.pow(1 + g, NR) - 1);
+  const radius = (k: number) => (step * (Math.pow(1 + g, k) - 1)) / g;
   const count = (NR + 1) * NS;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -65,7 +85,7 @@ export function buildTerrain(plan: LandscapePlan, paint: Paint, tile = 13): Terr
   const heights = new Float32Array(count);
   const scratch = new Color();
   for (let k = 0; k <= NR; k++) {
-    const r = plan.reach * Math.pow(k / NR, RING_POWER);
+    const r = radius(k);
     for (let s = 0; s < NS; s++) {
       const a = (s / NS) * Math.PI * 2;
       const x = Math.cos(a) * r;
@@ -91,18 +111,57 @@ export function buildTerrain(plan: LandscapePlan, paint: Paint, tile = 13): Terr
       index.push(a, b, c, b, d, c);
     }
   }
+  const normals = new Float32Array(count * 3);
+  for (let k = 1; k <= NR; k++) {
+    const k0 = k - 1;
+    const k1 = Math.min(NR, k + 1);
+    for (let s = 0; s < NS; s++) {
+      const sa = (s + NS - 1) % NS;
+      const sb = (s + 1) % NS;
+      const at = (kk: number, ss: number) => kk * NS + ss;
+      // Tangents along the sectors and along the rings.
+      const sx = positions[at(k, sb) * 3] - positions[at(k, sa) * 3];
+      const sy = positions[at(k, sb) * 3 + 1] - positions[at(k, sa) * 3 + 1];
+      const sz = positions[at(k, sb) * 3 + 2] - positions[at(k, sa) * 3 + 2];
+      const rx = positions[at(k1, s) * 3] - positions[at(k0, s) * 3];
+      const ry = positions[at(k1, s) * 3 + 1] - positions[at(k0, s) * 3 + 1];
+      const rz = positions[at(k1, s) * 3 + 2] - positions[at(k0, s) * 3 + 2];
+      // sector x ring points up (see the winding above).
+      let nx = sy * rz - sz * ry;
+      let ny = sz * rx - sx * rz;
+      let nz = sx * ry - sy * rx;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len;
+      ny /= len;
+      nz /= len;
+      normals.set([nx, ny, nz], at(k, s) * 3);
+    }
+  }
+  // The centre is one point: the mean of the first ring.
+  {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (let s = 0; s < NS; s++) {
+      x += normals[(NS + s) * 3];
+      y += normals[(NS + s) * 3 + 1];
+      z += normals[(NS + s) * 3 + 2];
+    }
+    const len = Math.hypot(x, y, z) || 1;
+    for (let s = 0; s < NS; s++) normals.set([x / len, y / len, z / len], s * 3);
+  }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   geometry.setAttribute("color", new BufferAttribute(colors, 3));
   geometry.setAttribute("uv", new BufferAttribute(uvs, 2));
   geometry.setIndex(index);
-  geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
   const sample = (x: number, z: number): number => {
     const r = Math.hypot(x, z);
     if (r >= plan.reach) return heights[NR * NS];
-    const kf = NR * Math.pow(r / plan.reach, 1 / RING_POWER);
+    const kf = Math.log(1 + (g * r) / step) / Math.log(1 + g);
     const k0 = Math.min(NR - 1, Math.floor(kf));
     const fk = kf - k0;
     let sf = (Math.atan2(z, x) / (Math.PI * 2)) * NS;
@@ -222,9 +281,37 @@ export function buildRibbon(
 // Water and its banks
 // ---------------------------------------------------------------------------
 
-const WET = linear("#4a3a29");
+const WET = linear("#5a4833");
 const MUD = linear("#8a7450");
 const BED = linear("#3a4942");
+
+/**
+ * A path resampled along its own smooth curve (Catmull-Rom through the points) at about `step`
+ * units: the river's banks are cut across it at every point, and cross-cuts a few units apart
+ * leave the banks jagged on a bend.
+ */
+export function refinePath(pts: readonly Pt[], step = 2.5): Pt[] {
+  if (pts.length < 3) return pts.slice();
+  const out: Pt[] = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    // Coarser far out, where nobody sees a bank's kink: a metre more of step every sixty from the city.
+    const n = Math.min(40, Math.max(1, Math.ceil(Math.hypot(p2.x - p1.x, p2.z - p1.z) / (step + Math.hypot(p1.x, p1.z) / 60))));
+    for (let k = 0; k < n; k++) {
+      const t = k / n;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const f = (a: number, b: number, c: number, d: number) =>
+        0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push({ x: f(p0.x, p1.x, p2.x, p3.x), z: f(p0.z, p1.z, p2.z, p3.z) });
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
 
 /** Offsets from the water's edge, outwards, where a bank's cross-section has a vertex. */
 function bankSteps(bank: number): number[] {
@@ -284,7 +371,7 @@ export function buildBanks(plan: LandscapePlan, paint: Paint): BufferGeometry {
     offsets.push(0);
     for (const o of inner) if (o > 0) offsets.push(o);
     for (const d of steps) offsets.push(half + d);
-    const pts = river.pts.filter((p) => Math.hypot(p.x, p.z) < plan.reach * 1.02);
+    const pts = refinePath(river.pts.filter((p) => Math.hypot(p.x, p.z) < plan.reach * 1.02));
     const base = out.pos.length / 3;
     const n = pts.length;
     for (let i = 0; i < n; i++) {
@@ -317,7 +404,7 @@ export function buildBanks(plan: LandscapePlan, paint: Paint): BufferGeometry {
   return g;
 }
 
-const SEGMENTS = 36;
+const SEGMENTS = 112;
 
 function addPondBank(plan: LandscapePlan, paint: Paint, pond: Pond, out: { pos: number[]; col: number[]; uv: number[] }, idx: number[], scratch: Color): void {
   const minR = Math.min(pond.rx, pond.rz);
@@ -362,7 +449,7 @@ export function buildWater(plan: LandscapePlan): BufferGeometry {
     for (const v of [...ins].reverse()) offsets.push(-(half - v));
     offsets.push(0);
     for (const v of ins) offsets.push(half - v);
-    const pts = river.pts.filter((p) => Math.hypot(p.x, p.z) < plan.reach * 1.02);
+    const pts = refinePath(river.pts.filter((p) => Math.hypot(p.x, p.z) < plan.reach * 1.02));
     const base = pos.length / 3;
     const n = pts.length;
     for (let i = 0; i < n; i++) {
@@ -494,14 +581,16 @@ export function buildFields(plan: LandscapePlan, sample: (x: number, z: number) 
   const row: number[] = [];
   const idx: number[] = [];
   let base = 0;
-  const RINGS = [0.36, 0.7, 1];
   for (const f of plan.fields) {
+    // Rings inward about nine units apart, so the mesh follows the land it lies on.
+    const count = Math.min(10, Math.max(3, Math.ceil(f.radius / 9)));
+    const RINGS = Array.from({ length: count }, (_, i) => (i + 1) / count);
     const n = f.poly.length;
     const loop: Pt[] = [];
     for (let e = 0; e < n; e++) {
       const a = f.poly[e];
       const b = f.poly[(e + 1) % n];
-      const k = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 8));
+      const k = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 6));
       for (let j = 0; j < k; j++) loop.push({ x: a.x + ((b.x - a.x) * j) / k, z: a.z + ((b.z - a.z) * j) / k });
     }
     const L = loop.length;
@@ -516,12 +605,15 @@ export function buildFields(plan: LandscapePlan, sample: (x: number, z: number) 
     const cz = -ay;
     const phase = f.shade * 50;
     const push = (x: number, z: number, edge: number) => {
-      pos.push(x, sample(x, z) + 0.07, z);
+      // Lifted a hair off the land, and more where the land bends: the terrain's own triangles cut across a hollow or a crest between the field's.
+      const h0 = sample(x, z);
+      const bend = Math.abs(sample(x + 3, z) + sample(x - 3, z) - 2 * h0) + Math.abs(sample(x, z + 3) + sample(x, z - 3) - 2 * h0);
+      pos.push(x, h0 + 0.07 + Math.min(0.4, bend * 0.35), z);
       // A little colour drift across the field, smooth and slow, so it is a field and not a tile; the headland is a shade darker.
       const drift = 0.93 + 0.14 * fbm(x / 24, z / 24, plan.seed + 41, 2);
       const k = jitter * drift * (1 - 0.1 * edge);
       col.push(cropColor[0] * k, cropColor[1] * k, cropColor[2] * k);
-      row.push(((x - f.x) * cx + (z - f.z) * cz) / period + phase, amp);
+      row.push(((x - f.x) * cx + (z - f.z) * cz) / period + phase, amp, f.crop, (x - f.x) * ay + (z - f.z) * az);
     };
     push(f.x, f.z, 0);
     for (let r = 0; r < RINGS.length; r++) {
@@ -548,7 +640,7 @@ export function buildFields(plan: LandscapePlan, sample: (x: number, z: number) 
   const g = new BufferGeometry();
   g.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
   g.setAttribute("color", new BufferAttribute(new Float32Array(col), 3));
-  g.setAttribute("aRow", new BufferAttribute(new Float32Array(row), 2));
+  g.setAttribute("aRow", new BufferAttribute(new Float32Array(row), 4));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
