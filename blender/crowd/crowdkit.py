@@ -37,7 +37,7 @@ LEGS = "#35404b"
 POST = "#6b6f6d"
 BEACON_RED = "#ff3b30"
 BOARD_RED = "#d8392f"
-FLAG_GREEN = "#3fb45a"
+FLAG_GREEN = "#5e9a6a"
 
 # Parts that shine: their occlusion is reset to 1 after the bake, or the
 # glow the shader derives from their colour would come out dirty.

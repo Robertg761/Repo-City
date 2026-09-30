@@ -36,7 +36,7 @@ import {
 } from "three";
 import type { IncidentState } from "@/types/analysis";
 import { SURFACE } from "../../textures/surface-types";
-import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
+import { CONCRETE, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
 import {
   EMERGENCY_LIGHTS,
   emergencyParts,
@@ -476,7 +476,9 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     // The wreck nobody has moved: on its side, rusted through.
     // Tipped onto its flank rather than flat on its roof: from the overview
     // a car on its side still reads as a car.
-    addWreck(wreck([0, 0.58, 0], 0.7 * flip, 1.05 * flip, faded(RUST)));
+    // A mid-tone rust, not the faded rust multiplied over a dark body, and tipped
+    // about 0.6 rad so its flank catches the light.
+    addWreck(wreck([0, 0.36, 0], 0.7 * flip, 0.6 * flip, faded("#d2a57c")));
     parts.push(...debris(5, 2.1, faded("#7c766c"), 2.7, faded));
     addBarricade({ position: [0, 0, 3], rotationY: 0 }, faded(WARNING_ORANGE), faded("#e8e3d6"));
     addBarricade(
@@ -531,8 +533,8 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       position: [0, DECAL_Y, 0],
     });
   }
-  addWreck(wreck([-1.4 * flip, 0.02, 0.8], 0.9 * flip, 0, shade("#3a3532")));
-  addWreck(wreck([1.5 * flip, 0.1, -0.7], -0.5 * flip, 0.42 * flip, shade("#5a5450"), "pickup"));
+  addWreck(wreck([-1.15 * flip, 0.02, 0.8], 0.45 * flip, 0, shade("#b0a698")));
+  addWreck(wreck([1.3 * flip, 0.1, -0.9], -0.25 * flip, 0.42 * flip, shade("#a59b8c"), "pickup"));
   parts.push(...debris(9, 2.4, shade("#5f5a54"), 0.7, shade));
   addBarricade({ position: [0, 0, 4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
   addBarricade({ position: [0, 0, -4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
