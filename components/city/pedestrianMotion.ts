@@ -23,6 +23,8 @@ export interface CrowdMotion {
   angle: Float32Array;
   /** 0 until the figure has been placed once. */
   placed: Uint8Array;
+  /** 0 on the pavement, 1 while crossing the carriageway to catch up with its point; eased. */
+  crossing: Float32Array;
 }
 
 export function createCrowdMotion(count: number): CrowdMotion {
@@ -31,6 +33,7 @@ export function createCrowdMotion(count: number): CrowdMotion {
     z: new Float32Array(count),
     angle: new Float32Array(count),
     placed: new Uint8Array(count),
+    crossing: new Float32Array(count),
   };
 }
 
@@ -44,6 +47,8 @@ const HURRY = 2.4;
 const TURN_RATE = 7.5;
 /** A gap past which the figure faces where it is going, not the pavement. */
 const CROSSING = 0.35;
+/** How quickly a figure steps down to the carriageway and back up, per second. */
+const CROSSING_RATE = 9;
 /** A gap too wide to walk across in the open: the figure is simply placed. */
 const TOO_FAR = 14;
 /** Two figures closer than this, centre to centre, step apart. Bodies are 0.34 across. */
@@ -103,6 +108,8 @@ export function followPose(
 
   // Face the way the figure is actually going while it covers a gap, and the
   // pavement's direction otherwise; either way, turn at a person's pace.
+  const across = gap > CROSSING ? 1 : 0;
+  motion.crossing[i] += (across - motion.crossing[i]) * Math.min(1, dt * CROSSING_RATE);
   const facing = gap > CROSSING ? Math.atan2(dx, dz) : poseAngle;
   const turn = wrap(facing - motion.angle[i]);
   const most = TURN_RATE * dt;

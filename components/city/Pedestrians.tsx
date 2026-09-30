@@ -27,7 +27,7 @@
 import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type InstancedMesh } from "three";
+import { Color, InstancedBufferAttribute, Object3D, type InstancedMesh } from "three";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { desaturate, type SceneAtmosphere } from "./palette";
@@ -56,6 +56,7 @@ import {
   walkerHeadNearGeometry,
 } from "./models/props/walkerModel";
 import { LodInstances } from "./lod";
+import { GAIT_ATTRIBUTE, STRIDE_PER_UNIT, gaitMaterial, hipDrop } from "./gait";
 import { useQuality } from "./quality";
 
 /**
@@ -72,8 +73,11 @@ const NEAR_SIZE = 0.1;
 const scratch = new Object3D();
 const scratchColor = new Color();
 
-/** The pavement sits a little above the road surface. */
-const PAVEMENT_Y = 0.12;
+/** The pavement's top (`SIDEWALK_HEIGHT`), and the carriageway a walker crossing it stands on. */
+const PAVEMENT_Y = 0.19;
+const ROAD_Y = 0.08;
+/** The instanced attribute the walk cycle reads, in the `LodInstances` near copy too. */
+const GAIT_NAMES = [GAIT_ATTRIBUTE];
 /** Where the capsule's centre and the head sit above the pavement. */
 const BODY_Y = 0.44;
 const HEAD_Y = 0.94;
@@ -94,9 +98,9 @@ export default function Pedestrians({
   const nearSelection = useRef<number[]>([]);
   const clock = useRevealClock();
   const { textureSize, anisotropy } = useQuality();
-  const bodyMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
+  const bodyMaterial = useMemo(() => gaitMaterial(tintedMaterial({ roughness: 0.9 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,
-  }), [textureSize, anisotropy]);
+  })), [textureSize, anisotropy]);
   const headMaterial = useMemo(() => tintedMaterial({ roughness: 0.92 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,
   }), [textureSize, anisotropy]);
@@ -105,6 +109,7 @@ export default function Pedestrians({
     headMaterial.dispose();
   }, [bodyMaterial, headMaterial]);
 
+  // The body's geometry with the walk cycle's per-figure phase and strength.
   const { graph, blocks, walkers, idle, prng, total, motion, lanes } = useMemo(() => {
     const rng = prngFor(city.seed, "pedestrians");
     // Nobody walks the motorway. Every road a city has is a street, so a
@@ -134,6 +139,20 @@ export default function Pedestrians({
     };
   }, [city]);
 
+  const bodyGeometry = useMemo(() => {
+    const geometry = walkerBodyGeometry().clone();
+    const attribute = new InstancedBufferAttribute(new Float32Array(Math.max(1, total) * 2), 2);
+    geometry.setAttribute(GAIT_ATTRIBUTE, attribute);
+    return geometry;
+  }, [total]);
+  /** Where each figure was last frame, to measure the ground it covers. */
+  const lastRef = useRef<Float32Array>(new Float32Array(0));
+  const gaitRef = useRef<Float32Array>(new Float32Array(0));
+  useEffect(() => {
+    lastRef.current = new Float32Array(Math.max(1, total) * 2).fill(Number.NaN);
+    gaitRef.current = bodyGeometry.getAttribute(GAIT_ATTRIBUTE).array as Float32Array;
+  }, [total, bodyGeometry]);
+
   useFrame(({ clock: sceneClock }, delta) => {
     const body = bodyRef.current;
     const head = headRef.current;
@@ -143,6 +162,9 @@ export default function Pedestrians({
     const step = running ? Math.min(delta, 0.1) : 0;
     const visible = running ? 1 : 0;
     const time = sceneClock.elapsedTime;
+    const gait = gaitRef.current;
+    const lastAt = lastRef.current;
+    if (gait.length < total * 2 || lastAt.length < total * 2) return;
 
     for (let i = 0; i < walkers.length; i++) {
       const walker = walkers[i];
@@ -160,21 +182,35 @@ export default function Pedestrians({
       const x = motion.x[i];
       const z = motion.z[i];
       const angle = motion.angle[i];
-      // One bob per stride, and a small sway with it: two sine terms are
-      // enough to read as walking at the scale a person is drawn here.
-      const stride = time * walker.speed * 5.2 + walker.phase;
-      const bob = Math.abs(Math.sin(stride)) * 0.05;
-      const sway = Math.sin(stride) * 0.06;
-
+      // The stride advances with the ground the figure really covers, so the
+      // feet keep pace with the pavement; standing, the swing fades out.
+      const last = lastAt;
+      let amp = gait[i * 2 + 1];
+      let phase = gait[i * 2];
+      if (step > 0 && last[i * 2] === last[i * 2]) {
+        const walked = Math.hypot(x - last[i * 2], z - last[i * 2 + 1]);
+        const pace = walked / step;
+        if (walked < 1.5) {
+          phase += walked * STRIDE_PER_UNIT;
+          amp += (Math.min(1, pace / 0.35) - amp) * Math.min(1, step * 10);
+        }
+      }
+      last[i * 2] = x;
+      last[i * 2 + 1] = z;
+      gait[i * 2] = phase;
+      gait[i * 2 + 1] = amp;
+      const sway = Math.sin(phase) * 0.03 * amp;
+      const ground = PAVEMENT_Y - motion.crossing[i] * (PAVEMENT_Y - ROAD_Y);
       const tall = walker.height;
-      scratch.position.set(x, PAVEMENT_Y + BODY_Y * tall + bob, z);
+      const bob = -hipDrop(phase, amp) * tall;
+      scratch.position.set(x, ground + BODY_Y * tall + bob, z);
       scratch.rotation.set(0, angle, sway);
       scratch.scale.set(visible, visible * tall, visible);
       scratch.updateMatrix();
       body.setMatrixAt(i, scratch.matrix);
 
       scratch.scale.setScalar(visible);
-      scratch.position.set(x, PAVEMENT_Y + HEAD_Y * tall + bob, z);
+      scratch.position.set(x, ground + HEAD_Y * tall + bob, z);
       scratch.rotation.set(0, angle, 0);
       scratch.updateMatrix();
       head.setMatrixAt(i, scratch.matrix);
@@ -201,6 +237,9 @@ export default function Pedestrians({
 
     body.instanceMatrix.needsUpdate = true;
     head.instanceMatrix.needsUpdate = true;
+    if (step > 0) {
+      bodyGeometry.getAttribute(GAIT_ATTRIBUTE).needsUpdate = true;
+    }
   });
 
   const colors = useMemo(
@@ -233,7 +272,8 @@ export default function Pedestrians({
     <group>
       <LodInstances
         ref={bodyRef}
-        geometry={walkerBodyGeometry()}
+        geometry={bodyGeometry}
+        instancedAttributes={GAIT_NAMES}
         nearGeometry={walkerBodyNearGeometry()}
         material={bodyMaterial}
         count={total}

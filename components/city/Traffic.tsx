@@ -33,7 +33,7 @@
 import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, MeshBasicMaterial, Object3D, Vector3, type InstancedMesh, type ShaderMaterial } from "three";
+import { BoxGeometry, Color, MeshBasicMaterial, Object3D, Raycaster, Vector3, type InstancedMesh, type ShaderMaterial } from "three";
 import type { CityModel } from "@/types/city";
 import { desaturate, mix, type SceneAtmosphere } from "./palette";
 import {
@@ -64,22 +64,50 @@ import { publishNearCars, selectNearCars, type NearSelection } from "./nearCars"
 import { useQuality } from "./quality";
 import { useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
+import {
+  braking,
+  carGrow,
+  createDynamics,
+  flashOn,
+  flatRoad,
+  signalOf,
+  stanceOf,
+  stepDynamics,
+  wheelCentre,
+  type Stance,
+} from "./carDynamics";
 
 /** The lamps' colour for an hour: pale lenses by day, lit with the windows. */
 const lampTint = (atmosphere: SceneAtmosphere) => mix("#9c9a94", "#ffffff", atmosphere.windowGlow);
 
 const scratch = new Object3D();
+// Heading first, then the body's pitch and roll about it.
+scratch.rotation.order = "YXZ";
 const wheelScratch = new Object3D();
 // Heading first, then the wheel's own spin about its axle.
 wheelScratch.rotation.order = "YXZ";
 const scratchColor = new Color();
 const pose: CarPose = { x: 0, z: 0, angle: 0, curvature: 0, reverse: false };
+const overlayGeometry = new BoxGeometry(1, 1, 1);
+const hiddenMatrix = new Object3D().matrix.clone().makeScale(0, 0, 0);
 
 /** Front wheels never steer further than this, radians. */
 const MAX_STEER = 0.6;
 
-/** The road surface sits a touch above the ground plane; tyres go on top. */
-const ROAD_SURFACE = 0.1;
+/** Where the body pivots when it pitches and rolls: about the height of its axles' centre of mass. */
+const BODY_PIVOT = 0.3;
+/** Seconds between one car's first appearance and the next's, and the most the last waits. */
+const GROW_STAGGER = 0.03;
+const GROW_MAX_DELAY = 1.2;
+/** Lamp overlays per car: two brake lights, then rear and front indicators, each a pair. */
+const OVERLAY = 6;
+const BRAKE_COLOR = "#ff2a18";
+const SIGNAL_COLOR = "#ffae1a";
+/** How far an overlay stands proud of the lamp lens, and how thick it is. */
+const OVERLAY_LIFT = 0.032;
+const OVERLAY_DEPTH = 0.02;
+const stance: Stance = { y: 0, slope: 0, base: 0, rise: 0 };
+const surface = flatRoad;
 
 /**
  * Cars drawn in detail at once (high tier; medium halves it, low has none) and
@@ -205,22 +233,89 @@ export default function Traffic({
    * accumulated in place rather than rebuilt with every city.
    */
   const spin = useRef<Float32Array>(new Float32Array(MAX_FLEET));
+  // How each car rides its springs (`carDynamics.ts`).
+  const dynamics = useMemo(() => createDynamics(cars.length), [cars]);
   useEffect(() => {
     spin.current.fill(0);
+  }, [cars]);
+
+  // Brake lights and indicators: one instanced mesh of thin lamp-shaped panels
+  // laid over the lenses, six to a car, each hidden (scale zero) until lit.
+  // The models' own lamps carry no per-lamp state, and this costs one draw.
+  const overlayRef = useRef<InstancedMesh>(null);
+  const overlayMaterial = useMemo(() => new MeshBasicMaterial({ toneMapped: false }), []);
+  useEffect(() => () => overlayMaterial.dispose(), [overlayMaterial]);
+  /** Per car, six `[x, y, z, sx, sy, sz]` boxes in the body frame. */
+  const overlayBoxes = useMemo(() => {
+    const boxes = new Float32Array(cars.length * OVERLAY * 6);
+    looks.forEach((look, index) => {
+      const spec = specOf(look.body);
+      const [w, h] = spec.lamp;
+      const tail = spec.taillights[0];
+      const head = spec.headlights[0];
+      const put = (slot: number, x: number, y: number, z: number, sx: number, sy: number) => {
+        boxes.set([x, y, z, sx, sy, OVERLAY_DEPTH], (index * OVERLAY + slot) * 6);
+      };
+      const rearZ = tail[2] - OVERLAY_LIFT;
+      const frontZ = head[2] + OVERLAY_LIFT;
+      // A brake light is the whole lens; an indicator is its outer half, a hair further out.
+      put(0, tail[0], tail[1], rearZ, w, h);
+      put(1, -tail[0], tail[1], rearZ, w, h);
+      put(2, tail[0] + w / 4, tail[1], rearZ - 0.008, w / 2, h);
+      put(3, -tail[0] - w / 4, tail[1], rearZ - 0.008, w / 2, h);
+      put(4, head[0] + w / 4, head[1], frontZ + 0.008, w / 2, h);
+      put(5, -head[0] - w / 4, head[1], frontZ + 0.008, w / 2, h);
+    });
+    return boxes;
+  }, [cars, looks]);
+  /** Which overlays were lit last frame, per car, as bits. */
+  const overlayLitRef = useRef<Uint8Array>(new Uint8Array(0));
+  useEffect(() => {
+    overlayLitRef.current = new Uint8Array(cars.length);
+  }, [cars]);
+  useEffect(() => {
+    const mesh = overlayRef.current;
+    if (!mesh) return;
+    overlayLitRef.current.fill(0);
+    for (let k = 0; k < mesh.count; k++) {
+      mesh.setMatrixAt(k, hiddenMatrix);
+      mesh.setColorAt(k, scratchColor.set(k % OVERLAY < 2 ? BRAKE_COLOR : SIGNAL_COLOR));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [cars]);
+
+  // Development only: the fleet's meshes, so a driver can measure how every
+  // tyre sits on the road (`blender/out/polish`), as `__repoCityScene` does.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __repoCityTraffic?: unknown }).__repoCityTraffic = {
+      wheels: () => wheelRef.current,
+      bodies: () => bodyRefs.current,
+      cars: () => cars.length,
+      lamps: () => lampRefs.current,
+      beams: () => beamRefs.current,
+      overlays: () => overlayRef.current,
+      Raycaster,
+    };
   }, [cars]);
 
   useFrame(({ camera }, delta) => {
     if (cars.length === 0) return;
     const wheels = wheelRef.current;
+    const overlays = overlayRef.current;
+    const overlayLit = overlayLitRef.current;
     const spins = spin.current;
 
-    const running = performance.now() - clock.current >= startAt;
+    const sinceStart = performance.now() - clock.current - startAt;
+    const running = sinceStart >= 0;
     // Cap the step so a backgrounded tab does not teleport the whole fleet.
     const step = running ? Math.min(delta, 0.1) : 0;
-    const visible = running ? 1 : 0;
+    const elapsed = running ? sinceStart / 1000 : 0;
     // The whole fleet moves together: each car keeps its distance from the
     // one in front and waits its turn at the junctions (`traffic.ts`).
     if (step > 0) stepTraffic(traffic, step);
+    let overlayChanged = false;
 
     for (let g = 0; g < groups.length; g++) {
       const group = groups[g];
@@ -231,6 +326,9 @@ export default function Traffic({
       const beam = beamRefs.current[g];
       if (!body) continue;
       const spec = specOf(group.body);
+      const front = spec.wheels[0][1];
+      const rear = spec.wheels[2][1];
+      const wheelbase = front - rear;
 
       for (let slot = 0; slot < group.cars.length; slot++) {
         const index = group.cars[slot];
@@ -239,37 +337,106 @@ export default function Traffic({
         nearAt.current[index * 2] = pose.x;
         nearAt.current[index * 2 + 1] = pose.z;
 
-        scratch.position.set(pose.x, ROAD_SURFACE, pose.z);
-        scratch.rotation.set(0, pose.angle, 0);
-        scratch.scale.setScalar(visible);
+        const cos = Math.cos(pose.angle);
+        const sin = Math.sin(pose.angle);
+        // Cars appear one after another, growing out of the road they stand on.
+        const grow = running ? carGrow(elapsed, Math.min(index * GROW_STAGGER, GROW_MAX_DELAY)) : 0;
+        const speed = pose.reverse ? -car.v : car.v;
+
+        // The front wheels steer to the curve the car is on: the angle a
+        // bicycle of this wheelbase needs for that curvature.
+        const steerAim = Math.max(-MAX_STEER, Math.min(MAX_STEER, Math.atan(wheelbase * pose.curvature)));
+        if (step > 0) stepDynamics(dynamics, index, step, speed, pose.curvature, steerAim);
+
+        // The road under the axles: the body takes its slope, and every wheel
+        // stands on it (`carDynamics.ts`).
+        stanceOf(stance, surface, pose.x, pose.z, cos, sin, front, rear);
+        const pitch = stance.slope + dynamics.pitch[index];
+        const roll = dynamics.roll[index];
+        // Pitch and roll swing the body about a point above the axles, not
+        // about the road: the pivot stays put and the origin moves to match.
+        const cr = Math.cos(roll);
+        const pivot = BODY_PIVOT * grow;
+        const rx = -pivot * Math.sin(roll);
+        const ry = pivot * cr * Math.cos(pitch);
+        const rz = pivot * cr * Math.sin(pitch);
+        scratch.position.set(
+          pose.x - (rx * cos + rz * sin),
+          stance.y + pivot + dynamics.bob[index] * grow - ry,
+          pose.z - (-rx * sin + rz * cos),
+        );
+        scratch.rotation.set(pitch, pose.angle, roll);
+        scratch.scale.setScalar(grow);
         scratch.updateMatrix();
         body.setMatrixAt(slot, scratch.matrix);
         if (lamps) lamps.setMatrixAt(slot, scratch.matrix);
         if (beam) beam.setMatrixAt(slot, scratch.matrix);
 
+        if (overlays) {
+          // Brake lights while slowing or standing, and the indicator on the
+          // side of the turn the car is making or about to make.
+          const lampsOn = grow > 0.98;
+          const brake = lampsOn && braking(dynamics, index, speed);
+          const signal = lampsOn ? signalOf(traffic, car) : 0;
+          const blink = signal !== 0 && flashOn(traffic.time, index * 0.37);
+          const bits =
+            (brake ? 3 : 0) |
+            (blink ? (signal > 0 ? 0b010100 : 0b101000) : 0);
+          if (bits !== 0 || overlayLit[index] !== 0) {
+            const m = scratch.matrix.elements;
+            const out = overlays.instanceMatrix.array as Float32Array;
+            for (let k = 0; k < OVERLAY; k++) {
+              const on = (bits & (1 << k)) !== 0;
+              if (!on && (overlayLit[index] & (1 << k)) === 0) continue;
+              const at = (index * OVERLAY + k) * 16;
+              if (on) {
+                const b = (index * OVERLAY + k) * 6;
+                const lx = overlayBoxes[b];
+                const ly = overlayBoxes[b + 1];
+                const lz = overlayBoxes[b + 2];
+                const sx = overlayBoxes[b + 3];
+                const sy = overlayBoxes[b + 4];
+                const sz = overlayBoxes[b + 5];
+                out[at] = m[0] * sx; out[at + 1] = m[1] * sx; out[at + 2] = m[2] * sx; out[at + 3] = 0;
+                out[at + 4] = m[4] * sy; out[at + 5] = m[5] * sy; out[at + 6] = m[6] * sy; out[at + 7] = 0;
+                out[at + 8] = m[8] * sz; out[at + 9] = m[9] * sz; out[at + 10] = m[10] * sz; out[at + 11] = 0;
+                out[at + 12] = m[0] * lx + m[4] * ly + m[8] * lz + m[12];
+                out[at + 13] = m[1] * lx + m[5] * ly + m[9] * lz + m[13];
+                out[at + 14] = m[2] * lx + m[6] * ly + m[10] * lz + m[14];
+                out[at + 15] = 1;
+              } else {
+                out.set(hiddenMatrix.elements, at);
+              }
+            }
+            overlayLit[index] = bits;
+            overlayChanged = true;
+          }
+        }
+
         if (!wheels) continue;
         // Wheels turn at the speed the car is doing: the distance covered this
         // frame over the tyre's radius, which is what stops them looking like
         // stickers when a car slows into a turn. Backwards when it backs up.
-        if (step > 0) spins[index] += ((pose.reverse ? -car.v : car.v) * step) / spec.wheelRadius;
+        if (step > 0) spins[index] += (speed * step) / spec.wheelRadius;
         const angle = spins[index];
-        const cos = Math.cos(pose.angle);
-        const sin = Math.sin(pose.angle);
-        // The front wheels steer to the curve the car is on: the angle a
-        // bicycle of this wheelbase needs for that curvature.
-        const wheelbase = spec.wheels[0][1] - spec.wheels[2][1];
-        const steer = Math.max(-MAX_STEER, Math.min(MAX_STEER, Math.atan(wheelbase * pose.curvature)));
+        const steer = dynamics.steer[index];
         for (let w = 0; w < spec.wheels.length; w++) {
           const [lx, lz] = spec.wheels[w];
           const radius = wheelRadiusOf(group.body, w);
+          // On the road, whatever the body does: the tyre's lowest point is the surface.
           wheelScratch.position.set(
             pose.x + lx * cos + lz * sin,
-            ROAD_SURFACE + radius,
+            wheelCentre(stance, lz, radius, grow),
             pose.z - lx * sin + lz * cos,
           );
-          // A smaller wheel turns faster for the same ground covered.
-          wheelScratch.rotation.set((angle * spec.wheelRadius) / radius, pose.angle + (lz > 0 ? steer : 0), 0);
-          wheelScratch.scale.setScalar(radius * visible);
+          // A smaller wheel turns faster for the same ground covered; on a
+          // slope the wheel lies along the road.
+          wheelScratch.rotation.set(
+            (angle * spec.wheelRadius) / radius + stance.slope,
+            pose.angle + (lz > 0 ? steer : 0),
+            0,
+          );
+          wheelScratch.scale.setScalar(radius * grow);
           wheelScratch.updateMatrix();
           wheels.setMatrixAt(index * 4 + w, wheelScratch.matrix);
         }
@@ -281,8 +448,9 @@ export default function Traffic({
     }
 
     if (wheels) wheels.instanceMatrix.needsUpdate = true;
+    if (overlays && overlayChanged) overlays.instanceMatrix.needsUpdate = true;
 
-    // The cars to draw in detail, chosen from where they are now.
+  // The cars to draw in detail, chosen from where they are now.
     const cap = running ? Math.floor(NEAR_CARS * NEAR_SHARE[tier]) : 0;
     if (cap > 0) {
       if (nearFrame.current++ % SELECT_EVERY === 0) {
@@ -304,6 +472,8 @@ export default function Traffic({
       lamp.color.set(lampTint(atmosphere));
       lamp.color.multiplyScalar(1 + atmosphere.nightness * 1.6);
     }
+    // Lit brake lights and indicators glow past white at night, into the bloom.
+    overlayMaterial.color.setScalar(1 + atmosphere.nightness * 1.3);
     const strength = atmosphere.headlights * 0.5 * beamScale;
     const beam = beamRefs.current.find(Boolean)?.material as ShaderMaterial | undefined;
     if (beam) {
@@ -393,6 +563,14 @@ export default function Traffic({
         nearSize={NEAR_SIZE}
         selection={near.wheels}
         follow
+      />
+
+      <instancedMesh
+        ref={overlayRef}
+        args={[overlayGeometry, overlayMaterial, cars.length * OVERLAY]}
+        frustumCulled={false}
+        raycast={() => null}
+        renderOrder={1}
       />
     </group>
   );
