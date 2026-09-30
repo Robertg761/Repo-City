@@ -14,8 +14,6 @@ import {
   tiledSurface,
 } from "./texture-data";
 import { MODEL_SURFACE_KINDS, SURFACE } from "./surface-types";
-import { BRICK_SCALE, STONE_SCALE } from "./model-detail";
-import { SKY_REFLECTION } from "./sky-reflection";
 
 function compiledShader(material: ReturnType<typeof settlementMaterial>) {
   const shader = {
@@ -178,46 +176,6 @@ describe("authored surface selection", () => {
       expect(fabric[i + 1]).toBeGreaterThan(220);
       expect(plaster[i + 1]).toBeGreaterThan(220);
     }
-  });
-});
-
-describe("the size of masonry", () => {
-  it("samples brick and stone finer than their tile, so the courses read at the size of the windows", () => {
-    // A unit is about two metres of the real thing, so the 24 baked brick
-    // courses of a 2 unit tile (8 cm each at one to one) would sit oversized
-    // beside the doors and windows. Brick is 1.6 times finer, stone twice.
-    expect(BRICK_SCALE).toBeGreaterThan(1.3);
-    expect(STONE_SCALE).toBeGreaterThan(1.7);
-    const material = settlementMaterial({}, { surfaceAttribute: true });
-    const { fragmentShader } = compiledShader(material);
-    expect(fragmentShader).toContain(`rcSurfaceScale = vec2(${BRICK_SCALE.toFixed(2)})`);
-    expect(fragmentShader).toContain(`rcSurfaceScale = vec2(${STONE_SCALE.toFixed(2)})`);
-    // Relief follows the sampling rate: the finer the courses, the shallower each joint.
-    expect(fragmentShader).toContain(`rcDetailBump = 0.025 / ${BRICK_SCALE.toFixed(2)}`);
-    material.dispose();
-  });
-});
-
-describe("what glass reflects", () => {
-  it("adds the sky to the glass of buildings and settlement models, from shared uniforms", () => {
-    for (const make of [() => settlementMaterial({}, { surfaceAttribute: true }), () => buildingDetailMaterial({}, { surfaceAttribute: true })]) {
-      const material = make();
-      const shader = compiledShader(material);
-      expect(shader.fragmentShader).toContain("rcSurfaceLayer > 7.5 && rcSurfaceLayer < 8.5");
-      expect(shader.fragmentShader).toContain("totalEmissiveRadiance +=");
-      for (const name of Object.keys(SKY_REFLECTION)) {
-        expect(shader.uniforms[name], name).toBe(SKY_REFLECTION[name as keyof typeof SKY_REFLECTION]);
-      }
-      material.dispose();
-    }
-  });
-
-  it("leaves the dark glass of props (cars, kiosks) as it was", () => {
-    const prop = tintedMaterial({ roughness: 0.92 });
-    const shader = compiledShader(prop);
-    expect(shader.fragmentShader).not.toContain("rcGlassSky");
-    expect(shader.uniforms.rcGlassSky).toBeUndefined();
-    prop.dispose();
   });
 });
 

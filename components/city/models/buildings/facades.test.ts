@@ -190,42 +190,6 @@ describe("planning with the materials palette", () => {
   });
 });
 
-describe("a palette that is not gloomy", () => {
-  const luma = (hex: string) => {
-    const [r, g, b] = hexToRgb(hex);
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  const saturation = (hex: string) => {
-    const [r, g, b] = hexToRgb(hex);
-    const hi = Math.max(r, g, b);
-    return hi === 0 ? 0 : (hi - Math.min(r, g, b)) / hi;
-  };
-
-  it("keeps even the darkest facade and roof a mid tone, so a shaded wall still has colour to show", () => {
-    for (const [family, list] of Object.entries(FACADES)) {
-      for (const facade of list) expect(luma(facade.hex), `${family}/${facade.id}`).toBeGreaterThan(0.36);
-    }
-    for (const roof of Object.values(ROOFS)) expect(luma(roof.hex), roof.id).toBeGreaterThan(0.36);
-  });
-
-  it("keeps glass light, and bronze quiet beside blue, green and smoke", () => {
-    for (const tint of GLASS_TINTS) expect(luma(tint.hex), tint.id).toBeGreaterThan(0.5);
-    const bronze = GLASS_TINTS.find((t) => t.id === "bronze")!;
-    expect(saturation(bronze.hex)).toBeLessThan(0.16);
-    for (const tint of GLASS_TINTS.filter((t) => t.id !== "bronze")) {
-      expect(saturation(tint.hex), tint.id).toBeGreaterThan(saturation(bronze.hex));
-    }
-  });
-
-  it("does not let the dark foot of a curtain wall's glass go black: it still catches the sky", () => {
-    for (const role of ["glass", "glass0", "glass1", "lobby"]) {
-      const darkest = rolePaint(role, [0.1, 0.1, 0.1]);
-      expect(darkest.paint).toBe(PAINT_GLASS);
-      expect(darkest.color[0], role).toBeGreaterThanOrEqual(0.6);
-    }
-  });
-});
-
 describe("rich grade", () => {
   const AMBIENCE = { warmth: 0.6, saturation: 0.7, fog: 0.2, trafficDensity: 0.5, pedestrianDensity: 0.5, litWindowShare: 0.6 };
   const day = atmosphere(AMBIENCE, false);
@@ -251,21 +215,6 @@ describe("rich grade", () => {
     const [hr, , hb] = hexToRgb(rich.background);
     expect(hb - hr).toBeGreaterThan(hexToRgb(day.background)[2] - hexToRgb(day.background)[0]);
     expect(rich.skyHorizonColor).toBe(rich.background);
-  });
-
-  it("gives the shade a fill worth having: a stronger, lighter sky and bounce than the classic look's", () => {
-    const rich = richSky(day, true);
-    expect(rich.hemiIntensity).toBeGreaterThan(day.hemiIntensity * 1.6);
-    expect(rich.sunIntensity / rich.hemiIntensity).toBeLessThan(day.sunIntensity / day.hemiIntensity);
-    // Not flat: a lit face is still at least twice a shaded one.
-    expect(rich.sunIntensity / rich.hemiIntensity).toBeGreaterThan(1.8);
-    const lift = (hex: string) => {
-      const [r, g, b] = hexToRgb(hex);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    expect(lift(rich.groundBounceColor)).toBeGreaterThan(lift(day.groundBounceColor));
-    // The ambient occlusion is a little gentler, so the fill is not eaten in the corners.
-    expect(filmGrade(true).aoIntensity).toBeLessThan(1.25);
   });
 
   it("leaves the moon's light alone at night", () => {

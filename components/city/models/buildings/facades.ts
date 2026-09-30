@@ -1,5 +1,5 @@
 /**
- * Colour from real materials (the material palette, `look.ts`).
+ * Colour from real materials (`?palette=materials`, `look.ts`).
  *
  * The city's archetypes used to be painted one colour per district: eight
  * near-white pastels, so towers, low-rises and warehouses all read off-white.
@@ -35,8 +35,8 @@ export interface Facade {
 }
 
 const BRICK: Facade[] = [
-  { id: "brick-red", hex: "#c26c54", surface: SURFACE.brick },
-  { id: "brick-brown", hex: "#ab836a", surface: SURFACE.brick },
+  { id: "brick-red", hex: "#b9634c", surface: SURFACE.brick },
+  { id: "brick-brown", hex: "#96725b", surface: SURFACE.brick },
   { id: "brick-yellow", hex: "#d8ba7c", surface: SURFACE.brick },
   { id: "brick-orange", hex: "#bd7050", surface: SURFACE.brick },
 ];
@@ -44,8 +44,8 @@ const BRICK: Facade[] = [
 const STONE: Facade[] = [
   { id: "sandstone", hex: "#d9bd93", surface: SURFACE.stone },
   { id: "limestone", hex: "#e6dfcd", surface: SURFACE.stone },
-  { id: "granite", hex: "#adb3ba", surface: SURFACE.stone },
-  { id: "granite-warm", hex: "#b8ad9f", surface: SURFACE.stone },
+  { id: "granite", hex: "#9aa0a7", surface: SURFACE.stone },
+  { id: "granite-warm", hex: "#a89d91", surface: SURFACE.stone },
 ];
 
 const RENDER: Facade[] = [
@@ -62,17 +62,17 @@ const RENDER: Facade[] = [
 
 const CONCRETE: Facade[] = [
   { id: "concrete-light", hex: "#c2beb6", surface: SURFACE.concrete },
-  { id: "concrete-mid", hex: "#b2b0ac", surface: SURFACE.concrete },
+  { id: "concrete-mid", hex: "#a5a3a0", surface: SURFACE.concrete },
   { id: "concrete-warm", hex: "#b7afa2", surface: SURFACE.concrete },
 ];
 
 const METAL: Facade[] = [
   // Painted cladding panels: the metal surface layer is metallic in the
   // shader, which goes near black wherever the sun does not reach a wall.
-  { id: "metal-charcoal", hex: "#8792a0", surface: SURFACE.plaster },
-  { id: "metal-bronze", hex: "#a48f78", surface: SURFACE.plaster },
-  { id: "metal-green", hex: "#7ba398", surface: SURFACE.plaster },
-  { id: "metal-blue", hex: "#86a4c4", surface: SURFACE.plaster },
+  { id: "metal-charcoal", hex: "#69717b", surface: SURFACE.plaster },
+  { id: "metal-bronze", hex: "#86735f", surface: SURFACE.plaster },
+  { id: "metal-green", hex: "#628078", surface: SURFACE.plaster },
+  { id: "metal-blue", hex: "#6a86a4", surface: SURFACE.plaster },
 ];
 
 export const FACADES = { brick: BRICK, stone: STONE, render: RENDER, concrete: CONCRETE, metal: METAL } as const;
@@ -85,11 +85,11 @@ export interface RoofMaterial {
 }
 
 export const ROOFS: Record<string, RoofMaterial> = {
-  slate: { id: "slate", hex: "#838b97", surface: SURFACE.slate },
-  slateWarm: { id: "slate-warm", hex: "#8b8178", surface: SURFACE.slate },
+  slate: { id: "slate", hex: "#727984", surface: SURFACE.slate },
+  slateWarm: { id: "slate-warm", hex: "#7d746c", surface: SURFACE.slate },
   terracotta: { id: "terracotta", hex: "#c2734d", surface: SURFACE.clayTile },
   copper: { id: "copper", hex: "#78b39d", surface: SURFACE.plaster },
-  membrane: { id: "membrane", hex: "#797c82", surface: SURFACE.concrete },
+  membrane: { id: "membrane", hex: "#63656a", surface: SURFACE.concrete },
   gravel: { id: "gravel", hex: "#9d988e", surface: SURFACE.concrete },
 };
 
@@ -100,12 +100,10 @@ export interface GlassTint {
 
 /** Curtain-wall glass: what a tower's tint reads as in daylight. */
 export const GLASS_TINTS: GlassTint[] = [
-  { id: "blue", hex: "#8db6dc" },
-  { id: "green", hex: "#7fc0ab" },
-  // Bronze read loud (orange under a warm sun) and smoke near black: both
-  // are tints on the glass now, not paint, so they stay light and quiet.
-  { id: "bronze", hex: "#aca194" },
-  { id: "smoke", hex: "#8f9ca8" },
+  { id: "blue", hex: "#8bb3da" },
+  { id: "green", hex: "#7cbfa9" },
+  { id: "bronze", hex: "#b3a48e" },
+  { id: "smoke", hex: "#7b8794" },
 ];
 
 /** Shopfront glass and the glazing of the lower buildings: a pale, clear blue-green. */
@@ -198,7 +196,7 @@ const RECIPES: Partial<Record<ModelKey, Recipe>> = {
 /** How much of the district colour each facade and accent keeps. */
 export const DISTRICT_TINT = 0.1;
 
-/** What one building of the city is painted with under the material palette. */
+/** What one building of the city is painted with under `?palette=materials`. */
 export interface CityPaint {
   wall: string;
   accent: string;
@@ -286,7 +284,7 @@ export function weather(hex: string, desaturation: number): string {
 // Roles: how a Blender material role takes the palette
 // ---------------------------------------------------------------------------
 
-/** How a material role is painted under the material palette. */
+/** How a material role is painted under `?palette=materials`. */
 export interface RolePaint {
   color: Rgb3;
   paint: number;
@@ -296,9 +294,6 @@ const grey = (k: number): Rgb3 => [k, k, k];
 const luma = (c: Rgb3) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 /** The old glass ramp's luma at its brightest; the tint's own brightness is the reference. */
 const GLASS_REFERENCE = 0.75;
-/** The ramp's dark foot, lifted: a pane low in a tower still catches the sky (`sky-reflection.ts`). */
-const GLASS_FLOOR = 0.62;
-const glassGrey = (base: Rgb3): Rgb3 => grey(Math.max(GLASS_FLOOR, Math.min(1.1, luma(base) / GLASS_REFERENCE)));
 
 /**
  * The vertex colour and paint channel of a role. `color` is the role's old
@@ -324,7 +319,7 @@ export function rolePaint(role: string, base: Rgb3): RolePaint {
       return { color: grey(1), paint: PAINT_ACCENT };
     case "glass":
     case "lobby":
-      return { color: glassGrey(base), paint: PAINT_GLASS };
+      return { color: grey(Math.min(1.1, luma(base) / GLASS_REFERENCE)), paint: PAINT_GLASS };
     case "plinth":
       return { color: grey(0.3), paint: PAINT_NONE };
     case "window":
@@ -333,7 +328,7 @@ export function rolePaint(role: string, base: Rgb3): RolePaint {
       return { color: [base[0] * 0.78, base[1] * 0.78, base[2] * 0.78], paint: PAINT_NONE };
     default:
       if (/^glass\d$/.test(role)) {
-        return { color: glassGrey(base), paint: PAINT_GLASS };
+        return { color: grey(Math.min(1.1, luma(base) / GLASS_REFERENCE)), paint: PAINT_GLASS };
       }
       return { color: base, paint: PAINT_WALL };
   }

@@ -1,5 +1,5 @@
 /**
- * The rich grade (`look.ts`; `?grade=classic` turns it off): light, atmosphere and depth.
+ * `?grade=rich` (`look.ts`): light, atmosphere and depth.
  *
  * The current look holds every hour close to one soft, similar light: a sun
  * and a sky fill that are both nearly white, a haze that only hides the rim of
@@ -31,8 +31,8 @@ const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 export const RICH = {
   warmSun: "#ffd8a0",
-  coolFill: "#98bde8",
-  warmBounce: "#c7ad84",
+  coolFill: "#86b1e6",
+  warmBounce: "#a38d6a",
   greenTerrain: "#62ad58",
   haze: "#aecbea",
   /** Fog starts inside the city; see `FOG_NEAR` in `palette.ts` for the default. */
@@ -52,9 +52,9 @@ export function richSky(sky: SceneAtmosphere, on: boolean = RICH_GRADE): SceneAt
     skyGroundColor: mix(background, "#ffffff", 0.2),
     sunColor: mix(sky.sunColor, RICH.warmSun, 0.3 * day),
     sunIntensity: sky.sunIntensity * (1 + 0.06 * day),
-    skyColor: mix(sky.skyColor, RICH.coolFill, 0.38 * day),
-    hemiIntensity: sky.hemiIntensity * (1 + 0.65 * day),
-    groundBounceColor: mix(sky.groundBounceColor, RICH.warmBounce, 0.55 * day),
+    skyColor: mix(sky.skyColor, RICH.coolFill, 0.42 * day),
+    hemiIntensity: sky.hemiIntensity * (1 + 0.04 * day),
+    groundBounceColor: mix(sky.groundBounceColor, RICH.warmBounce, 0.4 * day),
     terrainColor: mix(sky.terrainColor, RICH.greenTerrain, 0.45),
     fogNearFactor: RICH.fogNear,
     fogFarFactor: RICH.fogFar,
@@ -75,7 +75,7 @@ export interface FilmGrade {
 }
 
 const CURRENT: FilmGrade = { toneMapping: "neutral", saturation: 0, contrast: 0, aoIntensity: 1.05, aoRadius: 2.6 };
-const RICHER: FilmGrade = { toneMapping: "neutral", saturation: 0.16, contrast: 0.05, aoIntensity: 1.2, aoRadius: 3 };
+const RICHER: FilmGrade = { toneMapping: "neutral", saturation: 0.16, contrast: 0.05, aoIntensity: 1.25, aoRadius: 3 };
 
 export function filmGrade(on: boolean = RICH_GRADE): FilmGrade {
   return on ? RICHER : CURRENT;
