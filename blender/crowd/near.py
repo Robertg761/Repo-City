@@ -1063,8 +1063,7 @@ def hazard_lamp_near(M, pos):
     tetrahedron's point."""
     x, y, z = pos
     return [
-        lathe("hazard", [(y - 0.05, 0.075), (y + 0.0, 0.085), (y + 0.06, 0.05), (y + 0.087, 0.0)], M["hazard"], base=(x, 0, z), sides=8),
-        slab("hazardBase", (0.14, 0.03, 0.14), (x, y - 0.065, z), M["bumper"], bev=0),
+        lathe("hazard", [(y - 0.03, 0.05), (y + 0.02, 0.05), (y + 0.055, 0.0)], M["hazard"], base=(x, 0, z), sides=6),
     ]
 
 
@@ -1097,7 +1096,7 @@ def collision(M):
     parts = [*struck, *striker,
              *warning_triangle_near(M, 0.46, (cars.STRUCK["x"] + 0.05, 0, -1.42), -0.2)]
     for p in (cars.STRUCK, cars.STRIKER):
-        parts += hazard_lamp_near(M, cars.lamp_at(p))
+        parts += [o for pos in cars.lamps(p) for o in hazard_lamp_near(M, pos)]
     parts += debris(M, [(0.1, 0.55, 0.06, 0.3), (0.3, 0.8, 0.05, 1.1), (-0.15, 0.9, 0.07, 2.0), (0.65, 0.7, 0.05, 0.7), (-0.5, 0.2, 0.05, 1.7)])
     out = finish(parts, "CollisionNear")
     # The warning triangle's folded legs come to rest on the road, not in it.

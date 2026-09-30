@@ -109,7 +109,7 @@ export interface CrowdPlan {
 }
 
 /** Surface heights the crowd stands on, matching `Roads.tsx` and `groundwork.ts`. */
-export const ROAD_TOP = 0.05;
+export const ROAD_TOP = 0.08;
 export const PAVEMENT_TOP = SIDEWALK_HEIGHT;
 
 /** Puffs per smoking object. */
@@ -371,12 +371,12 @@ export function pickBox(
 
 const CELL = 16;
 
-interface RoadIndex {
+export interface RoadIndex {
   cells: Map<string, number[]>;
   roads: readonly RoadSegment[];
 }
 
-function indexRoads(roads: readonly RoadSegment[]): RoadIndex {
+export function indexRoads(roads: readonly RoadSegment[]): RoadIndex {
   const cells = new Map<string, number[]>();
   roads.forEach((road, i) => {
     const reach = road.width / 2 + SIDEWALK_WIDTH + 0.5;
@@ -418,6 +418,33 @@ export function surfaceAt(x: number, z: number, index: RoadIndex): number {
     if (paved && off <= half + SIDEWALK_WIDTH) best = Math.max(best, PAVEMENT_TOP);
   }
   return best;
+}
+
+/**
+ * The surface an object stands on: the LOWEST under its centre and the four
+ * corners of its footprint (`pick`, in its own frame). An object straddling a
+ * kerb then rests on the carriageway with its raised side sunk into the
+ * pavement, where it is hidden, instead of hovering a kerb's height over the
+ * road: a wheel in the air reads as a floating car, one in the pavement does not.
+ */
+export function footprintSurface(
+  x: number,
+  z: number,
+  rotationY: number,
+  pick: LocalBox,
+  index: RoadIndex,
+): number {
+  const cos = Math.cos(rotationY);
+  const sin = Math.sin(rotationY);
+  // Pulled in a little: the corner of a bounding box is not the object.
+  const inset = 0.8;
+  let lowest = surfaceAt(x, z, index);
+  for (const lx of [pick.minX * inset, pick.maxX * inset]) {
+    for (const lz of [pick.minZ * inset, pick.maxZ * inset]) {
+      lowest = Math.min(lowest, surfaceAt(x + lx * cos + lz * sin, z - lx * sin + lz * cos, index));
+    }
+  }
+  return lowest;
 }
 
 // ---------------------------------------------------------------------------
@@ -463,12 +490,13 @@ export function planCrowd(city: CityModel): CrowdPlan {
     const scale = instanceScale(form, incident.size, heat);
     const [x, , z] = incident.position;
     const variant = variantFor(form, incident.id);
+    const pick = pickBox(form, scale, incident.size);
     const idle = idleDays(incident.issue.updatedAt, newest);
     add({
       id: incident.id,
       form,
       x,
-      y: incident.lane ? ROAD_TOP : surfaceAt(x, z, roads),
+      y: incident.lane ? ROAD_TOP : footprintSurface(x, z, incident.rotationY + variant.turn, pick, roads),
       z,
       rotationY: incident.rotationY + variant.turn,
       scale,
@@ -480,7 +508,7 @@ export function planCrowd(city: CityModel): CrowdPlan {
       appearAt: incident.appearAt,
       glow: heat ?? DEFAULT_HEAT,
       lane: incident.lane === true,
-      pick: pickBox(form, scale, incident.size),
+      pick,
     });
   }
 
@@ -491,12 +519,13 @@ export function planCrowd(city: CityModel): CrowdPlan {
     const scale = instanceScale(form, site.size, heat);
     const [x, , z] = site.position;
     const variant = variantFor(form, site.id);
+    const pick = pickBox(form, scale, site.size);
     add({
       id: site.id,
       form,
       x,
       // A scaffold stands on its host's plot; everything else on what is under it.
-      y: form === "scaffold" ? 0 : site.lane ? ROAD_TOP : surfaceAt(x, z, roads),
+      y: form === "scaffold" ? 0 : site.lane ? ROAD_TOP : footprintSurface(x, z, site.rotationY + variant.turn, pick, roads),
       z,
       rotationY: site.rotationY + variant.turn,
       scale,
@@ -508,7 +537,7 @@ export function planCrowd(city: CityModel): CrowdPlan {
       appearAt: site.appearAt,
       glow: heat ?? DEFAULT_HEAT,
       lane: site.lane === true,
-      pick: pickBox(form, scale, site.size),
+      pick,
     });
   }
 

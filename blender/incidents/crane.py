@@ -10,7 +10,11 @@ The hook hangs where the procedural one does, `HOOK` in the jib's frame.
 
   CraneMast   base, lattice tower, the fixed half of the slewing ring
   CraneJib    ring, cat head, jib, counter-jib with its weights, the cab,
-              the trolley, the lines and the hook
+              the trolley
+  CraneHook   the lines, block, sheave and hook: split off the jib after it is
+              built (`split_hook`) so the site can swing it on its lines
+  CraneLoad   a pallet of bricks slung under the hook, swung with it (active
+              sites only)
   crane.hook  the hook block's centre, in the jib's frame
 
 Colours are the procedural ones (`#e0b750` steel, the hook in warning
@@ -44,6 +48,8 @@ def palette():
         "glass": m("glass", "#516779", "glass", 0.15),
         "hook": m("hook", "#e8853c", "metal", 0.5),
         "white": m("cabin", "#eeece6", "metal", 0.5),
+        "pallet": m("pallet", "#8a6b47", "timber", 0.9),
+        "brickLoad": m("brickLoad", "#a4583c", "concrete", 0.9),
     }
 
 
@@ -136,17 +142,78 @@ def jib(M):
     return parts
 
 
+# Where the hoist lines leave the trolley, in the jib's frame: the pivot the
+# hook and its load swing about (`HOOK_PIVOT` in constructionDecor.ts).
+LINE_TOP = 0.12 - 0.17
+# Everything of the jib below this and within reach of the hook is the hook.
+SPLIT_Y = 0.12 - 0.25
+
+
+def load(M):
+    """A pallet of bricks on four slings, hung from the hook's eye. In the
+    jib's frame; the top of the slings is the hook's tip."""
+    hx, hy, hz = HOOK
+    eye = (hx + 0.05, hy - 0.62, 0)
+    deck = hy - 1.9
+    parts = []
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            parts.append(strut("sling", eye, (hx + sx * 0.52, deck + 0.4, sz * 0.36), (0.022, 0.022), M["dark"]))
+    parts.append(box("pallet", (1.3, 0.12, 0.9), (hx, deck + 0.06, 0), M["pallet"], bev=0.01))
+    for x in (-0.5, 0, 0.5):
+        parts.append(box("runner", (0.16, 0.1, 0.9), (hx + x, deck - 0.05, 0), M["pallet"], bev=0.0))
+    for row in range(3):
+        for col in range(2):
+            parts.append(box("bricks", (0.6, 0.2, 0.78), (hx - 0.3 + col * 0.6, deck + 0.22 + row * 0.2, 0), M["brickLoad"], bev=0.015))
+    parts.append(box("strap", (1.26, 0.03, 0.03), (hx, deck + 0.45, 0.2), M["dark"], bev=0.0))
+    return parts
+
+
+def split_hook(arm, name="CraneHook"):
+    """Cut the hoist's lines, block and hook out of the joined jib into an
+    object of their own: every face in reach of the hook whose centre is
+    below the trolley. Same frame, same origin, same materials."""
+    import bmesh
+    import bpy
+
+    hx = HOOK[0]
+
+    def is_hook(face):
+        c = face.calc_center_median()
+        # The mesh is in Blender's frame (x, y, z = app x, z, y).
+        return abs(c.x - hx) < 0.7 and abs(c.y) < 0.5 and c.z < SPLIT_Y
+
+    hook = arm.copy()
+    hook.data = arm.data.copy()
+    hook.name = name
+    hook.data.name = name
+    for coll in arm.users_collection:
+        coll.objects.link(hook)
+    for obj, keep_hook in ((arm, False), (hook, True)):
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        drop = [f for f in bm.faces if is_hook(f) != keep_hook]
+        bmesh.ops.delete(bm, geom=drop, context="FACES")
+        bm.to_mesh(obj.data)
+        bm.free()
+    return hook
+
+
 def build():
     kit.reset()
     M = palette()
     tower = finish(mast(M), "CraneMast")
     arm = finish(jib(M), "CraneJib")
+    cargo = finish(load(M), "CraneLoad")
     # Baked where they stand, the jib on the mast, then the jib's node set
     # back on its own origin: the site lifts it to `JIB_Y`.
     arm.location.z = JIB_Y
-    kit.bake_ao([tower, arm], distance=0.6, floor=0.55)
+    cargo.location.z = JIB_Y
+    kit.bake_ao([tower, arm, cargo], distance=0.6, floor=0.55)
     arm.location.z = 0
-    return [tower, arm, marker("crane.hook", HOOK)]
+    cargo.location.z = 0
+    hook = split_hook(arm)
+    return [tower, arm, hook, cargo, marker("crane.hook", HOOK)]
 
 
 def preview(n):
@@ -156,8 +223,10 @@ def preview(n):
     objs = build()
     if n == 1:
         bpy.data.objects.remove(objs[0], do_unlink=True)
-        objs[1].location.z = 3.2
+        for o in objs[1:4]:
+            o.location.z = 3.2
         return objs[1:]
-    objs[1].location.z = JIB_Y
-    objs[1].rotation_euler.z = 0.5
+    for o in objs[1:4]:
+        o.location.z = JIB_Y
+        o.rotation_euler.z = 0.5
     return objs

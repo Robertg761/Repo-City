@@ -169,7 +169,7 @@ describe("the incident scenes with the Blender models", () => {
     }
     for (const state of STATES) {
       for (const light of decor.incidentDecor(state, 1, 0.2).lights) {
-        expect(light.position[1]).toBeGreaterThan(0.8);
+        expect(light.position[1]).toBeGreaterThan(light.flash ? 0.8 : 0.25);
         expect(light.position[1]).toBeLessThan(4);
       }
     }
@@ -212,7 +212,15 @@ describe("the Blender tower crane (spike)", () => {
     // Reach and counter-jib within a few tenths of the procedural jib's.
     expect(Math.abs(own.max.x - procedural.max.x)).toBeLessThan(0.4);
     expect(Math.abs(own.min.x - procedural.min.x)).toBeLessThan(0.5);
-    expect(own.min.y).toBeLessThan(-3.2);
+    // The hook and its lines are their own node, for the site to swing.
+    const hook = bounds(blenderCraneGeometry("CraneHook", "active", 0.2));
+    expect(hook.min.y).toBeLessThan(-3.2);
+    expect(hook.max.y).toBeLessThan(0.1);
+    expect(Math.abs((hook.min.x + hook.max.x) / 2 - 5.4)).toBeLessThan(0.3);
+    // The pallet hangs below the hook's eye.
+    const load = bounds(blenderCraneGeometry("CraneLoad", "active", 0.2));
+    expect(load.max.y).toBeLessThan(-3);
+    expect(load.min.y).toBeGreaterThan(-6);
   });
 
   it("paints the steel rust on an abandoned site", async () => {
