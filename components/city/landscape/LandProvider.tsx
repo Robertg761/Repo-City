@@ -22,6 +22,8 @@ import { tiledSurface } from "../textures/surfaces";
 import { buildTerrain, terrainPainter, type Terrain } from "./build";
 import { CTL_SIZE, bakeJob, type BakeJob, type Control } from "./ctl";
 import { LandGroundProvider, type LandTextures } from "./ground";
+import { boxSolid, publishLand, treeColumn, type LandSolids } from "../cameraCollision";
+import { homeHeight } from "./homes";
 import { planLandscape, type LandscapePlan } from "./plan";
 
 export interface Land {
@@ -120,6 +122,15 @@ function Enabled({
   useEffect(() => () => terrain?.geometry.dispose(), [terrain]);
   const land = useMemo(() => (plan ? { plan, terrain } : null), [plan, terrain]);
 
+  // The camera keeps out of the landscape's houses, towers and trees, and above its hills.
+  const owner = useRef({});
+  useEffect(() => {
+    if (!plan) return;
+    publishLand(owner.current, landSolids(plan));
+    const mine = owner.current;
+    return () => publishLand(mine, null);
+  }, [plan]);
+
   return (
     <LandContext.Provider value={land}>
       <LandGroundProvider control={control} textures={textures}>
@@ -127,4 +138,20 @@ function Enabled({
       </LandGroundProvider>
     </LandContext.Provider>
   );
+}
+
+/** The landscape as the camera collides with it (`cameraCollision.ts`). */
+function landSolids(plan: LandscapePlan): LandSolids {
+  const solids = [];
+  for (const h of plan.houses) {
+    const base = plan.height(h.x, h.z);
+    solids.push(
+      boxSolid({ id: h.key, x: h.x, z: h.z, cos: Math.cos(h.yaw), sin: Math.sin(h.yaw), hw: h.w / 2, hd: h.d / 2, top: base + homeHeight(h) }),
+    );
+  }
+  for (const t of plan.towers) {
+    solids.push(boxSolid({ id: "tower", x: t.x, z: t.z, cos: 1, sin: 0, hw: t.w / 2, hd: t.d / 2, top: plan.height(t.x, t.z) + t.h }));
+  }
+  for (const t of [...plan.trees, ...plan.verge.trees]) solids.push(treeColumn(t.x, t.z, t.scale, t.kind, plan.height(t.x, t.z)));
+  return { solids, ground: plan.height };
 }

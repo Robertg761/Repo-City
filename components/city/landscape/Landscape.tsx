@@ -137,14 +137,19 @@ function useGroundMaterial(): MeshStandardMaterial | null {
   return material;
 }
 
-export function LandTerrain() {
+/**
+ * `fallback` stands in while the land is still being planned and baked (a few
+ * hundred milliseconds into a city's arrival), so the city never rises out of
+ * an empty sky.
+ */
+export function LandTerrain({ fallback = null }: { fallback?: ReactNode } = {}) {
   const land = useLand();
   const ground = useLandGround();
   const actions = useCityStore((s) => s.actions);
 
   const material = useGroundMaterial();
 
-  if (!land?.terrain || !material || !ground?.control) return null;
+  if (!land?.terrain || !material || !ground?.control) return <>{fallback}</>;
 
   const clearSelection = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
