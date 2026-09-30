@@ -470,7 +470,7 @@ export const CROP_COLORS: readonly string[] = [
   "#5fa04b", // young crop
   "#86603f", // ploughed
   "#c9bf85", // stubble
-  "#dcc444", // rape
+  "#cdb04c", // rape (a ripe gold, not lemon)
   "#8bb35a", // pasture
 ];
 

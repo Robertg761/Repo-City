@@ -401,7 +401,13 @@ function Fields({
   const hedgeSet = useMemo(() => {
     const material = hedgeMaterial();
     // The hedge's own green fades with the light.
-    return { material, tune: (night: number) => { material.emissiveIntensity = 0.55 * (1 - night * 0.9); } };
+    return {
+      material,
+      // By day the sun's bounce; at night a little moon and sky fill, so a near hedge is dark, not solid black.
+      tune: (night: number) => {
+        material.emissiveIntensity = 0.55 * (1 - night) + 0.8 * night;
+      },
+    };
   }, []);
   const hedgeMat = hedgeSet.material;
   useDispose(hedgeMat);

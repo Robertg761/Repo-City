@@ -11,6 +11,7 @@
 
 import { Color, MeshStandardMaterial, type IUniform, type WebGLProgramParametersWithUniforms } from "three";
 import type { SceneAtmosphere } from "../palette";
+import { RELIEF_GLSL } from "../textures/model-detail";
 
 export interface WaterUniforms {
   uTime: IUniform<number>;
@@ -108,7 +109,13 @@ export function tuneWater(uniforms: WaterUniforms, sky: SceneAtmosphere): void {
   uniforms.uGlow.value = 0.34 - night * 0.14;
 }
 
-/** Crop rows in the shader: `aRow.x` is the distance across the rows in row periods, `aRow.y` how strongly they show. */
+/**
+ * Crop rows and texture in the shader: `aRow.x` is the distance across the rows in row periods,
+ * `aRow.y` how strongly they show. The surface carries noise of tone and height at a few scales
+ * (clods, stalks, patches), each faded out by its own footprint on the screen (from derivatives,
+ * so a field stays textured close up and at a grazing angle, and never shimmers); the rows show
+ * as long as a row spans a few pixels; and the height lights the crop through the relief normal.
+ */
 export function patchCrops(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.vertexShader = shader.vertexShader
@@ -120,11 +127,14 @@ export function patchCrops(material: MeshStandardMaterial): void {
         `#include <common>
 varying vec2 vRow;
 varying vec2 vCropXZ;
+float cropH = 0.0;
+float cropBump = 0.0;
 float cHash( vec2 p ) { p = fract( p * vec2( 123.34, 456.21 ) ); p += dot( p, p + 45.32 ); return fract( p.x * p.y ); }
 float cNoise( vec2 p ) {
   vec2 i = floor( p ); vec2 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
   return mix( mix( cHash( i ), cHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( cHash( i + vec2( 0.0, 1.0 ) ), cHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
-}`,
+}
+${RELIEF_GLSL}`,
       )
       .replace(
         "#include <color_fragment>",
@@ -135,18 +145,29 @@ float cNoise( vec2 p ) {
     diffuseColor.rgb *= 1.0 + ripe * vec3( 1.0, 0.9, 0.7 ) * ( 1.0 - smoothstep( 300.0, 700.0, length( vViewPosition ) ) );
   }
   {
+    // Texture at three scales (world units across a cell: 0.3 clods and stalks, 1.1 tufts, 4 patches),
+    // each faded to its mean once a cell is under about three pixels.
+    float fp = length( fwidth( vCropXZ ) );
+    float f1 = 1.0 - smoothstep( 0.1, 0.3, fp );
+    float f2 = 1.0 - smoothstep( 0.35, 1.1, fp );
+    float f3 = 1.0 - smoothstep( 1.3, 4.0, fp );
+    float n1 = cNoise( vCropXZ / 0.3 + 3.0 ) * 0.6 + cNoise( vCropXZ / 0.13 + 11.0 ) * 0.4;
+    float n2 = cNoise( vCropXZ / 1.1 + 19.0 );
+    float n3 = cNoise( vCropXZ / 4.0 + 31.0 );
     float u = vRow.x;
     float stripe = 0.5 + 0.5 * cos( 6.2831853 * u );
-    // Rows narrower than about two pixels, rows seen nearly edge-on and rows far off
-    // would only shimmer and smear: the contrast goes out of them before that.
-    float fadeRes = 1.0 - smoothstep( 0.16, 0.45, fwidth( u ) );
-    float fadeDist = 1.0 - smoothstep( 220.0, 620.0, length( vViewPosition ) );
-    float facing = abs( dot( normalize( vNormal ), normalize( vViewPosition ) ) );
-    float fadeAngle = smoothstep( 0.07, 0.3, facing );
-    float a = vRow.y * fadeRes * fadeDist * fadeAngle;
-    diffuseColor.rgb *= 1.0 - a * 0.24 * ( 1.0 - stripe ) + a * 0.05 * stripe;
+    // Rows show as long as a period spans about four pixels, and fade to nothing only below that.
+    float fadeRes = 1.0 - smoothstep( 0.14, 0.4, fwidth( u ) );
+    float fadeFar = 1.0 - smoothstep( 500.0, 1100.0, length( vViewPosition ) );
+    float a = vRow.y * fadeRes * fadeFar;
+    float tone = ( n1 - 0.5 ) * 0.34 * f1 + ( n2 - 0.5 ) * 0.26 * f2 + ( n3 - 0.5 ) * 0.2 * f3;
+    diffuseColor.rgb *= 1.0 + tone * vec3( 1.0, 0.95, 0.8 );
+    diffuseColor.rgb *= 1.0 - a * 0.3 * ( 1.0 - stripe ) + a * 0.06 * stripe;
+    cropH = ( n1 * 0.5 * f1 + n2 * 0.5 * f2 ) * 0.6 + stripe * a * 0.9;
+    cropBump = 0.1 * ( 0.35 + 0.65 * max( f1, f2 ) ) * fadeFar;
   }`,
-      );
+      )
+      .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>\n  normal = rcReliefNormal( normal, cropH, cropBump );");
   };
-  material.customProgramCacheKey = () => "land-crops";
+  material.customProgramCacheKey = () => "land-crops2";
 }
