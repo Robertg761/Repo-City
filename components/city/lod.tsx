@@ -241,14 +241,31 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
   }, [geometry]);
   const cameraAt = useMemo(() => new Vector3(), []);
 
-  // What the near mesh last copied, so an unchanged frame uploads nothing.
-  const copied = useRef({ chosen: [] as number[], matrix: -1, color: -1, attributes: "" });
+  // What the near mesh last copied, so an unchanged frame uploads nothing, and
+  // into which meshes: a far or near mesh rebuilt (its geometry landed late,
+  // the count changed) starts empty and must be written in full.
+  const copied = useRef({
+    chosen: [] as number[],
+    matrix: -1,
+    color: -1,
+    attributes: "",
+    far: null as InstancedMesh | null,
+    near: null as InstancedMesh | null,
+  });
 
   useFrame(({ camera }) => {
     const far = farRef.current;
     const nearMesh = nearRef.current;
     if (!far) return;
     const hidden = far.geometry.getAttribute(LOD_HIDDEN_ATTRIBUTE) as InstancedBufferAttribute;
+    const last = copied.current;
+    if (last.far !== far) {
+      // A new far mesh has every instance showing: forget the near set so the
+      // next selection hides it again.
+      last.far = far;
+      near.current = [];
+      last.chosen = [];
+    }
     if (!nearMesh || !nearShared || cap === 0) {
       if (near.current.length) {
         for (const i of near.current) hidden.setX(i, 0);
@@ -287,8 +304,8 @@ export const LodInstances = forwardRef<InstancedMesh, LodInstancesProps>(functio
     // Copy only what changed since the last copy (moving layers rewrite their
     // far matrices every frame; still ones never do), and upload only the
     // chosen rows.
-    const last = copied.current;
-    const fresh = last.chosen !== chosen;
+    const fresh = last.chosen !== chosen || last.near !== nearMesh;
+    last.near = nearMesh;
     const upload = (attribute: InstancedBufferAttribute | BufferAttribute, items: number) => {
       attribute.clearUpdateRanges();
       attribute.addUpdateRange(0, items * attribute.itemSize);
