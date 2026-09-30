@@ -60,7 +60,7 @@ def palette():
         "steel": m("steel", "#9aa0a6", "metal", 0.5),
         "amber": m("amber", "#ffb347", "metal", 0.4),
         "plank": m("plank", "#c39a5f", "timber", 0.8),
-        "netting": m("netting", "#6f9a6a", "fabric", 0.9),
+        "netting": m("netting", "#8b917f", "fabric", 0.9),
     }
 
 
@@ -205,6 +205,19 @@ def van(M):
     return finish(parts, "Van")
 
 
+def net_panels(M, w, h, lift2, front):
+    gap = 0.14
+    pw = (w - 0.2 - gap) / 2
+    ph = h - lift2 - 0.15
+    y = (h + lift2) / 2
+    out = []
+    for i in range(2):
+        x = (i - 0.5) * (pw + gap)
+        out.append(lp.panel("net", pw, ph - 0.16, (x, y - 0.04, front + 0.03), M["netting"]))
+        out.append(lp.panel("netIn", pw, ph - 0.16, (x, y - 0.04, front + 0.025), M["netting"], rot=(0, math.pi, 0)))
+    return out
+
+
 def scaffold(M):
     """A braced bay of scaffolding (procedural: 192 triangles)."""
     w, h, d = SCAFFOLD["width"], SCAFFOLD["height"], SCAFFOLD["depth"]
@@ -232,10 +245,9 @@ def scaffold(M):
         box("deck2", (w - 0.1, 0.08, d - 0.2), (0, lift2, 0), M["plank"], bev=0),
         lp.panel("toe1", w - 0.1, 0.18, (0, lift1 + 0.13, (d - 0.2) / 2 + 0.005), M["plank"]),
         lp.panel("toe2", w - 0.1, 0.18, (0, lift2 + 0.13, (d - 0.2) / 2 + 0.005), M["plank"]),
-        # Debris netting over the top lift, seen from both sides.
-        lp.panel("net", w - 0.2, h - lift2 - 0.15, (0, (h + lift2) / 2, front + 0.03), M["netting"]),
-        lp.panel("netIn", w - 0.2, h - lift2 - 0.15, (0, (h + lift2) / 2, front + 0.025), M["netting"],
-                 rot=(0, math.pi, 0)),
+        # Debris netting over the top lift: two panels with a gap between,
+        # seen from both sides, as forms.ts `nettingPanels` lays them.
+        *net_panels(M, w, h, lift2, front),
         *ck.worker(M, half * 0.35, 0, y0=lift1 + 0.04),
         *ck.beacon(M, (half - 0.12, h + 0.12, front - 0.1)),
         box("board", (0.62, 0.62, 0.04), (-half * 0.5, lift1 * 0.55, front + 0.03), M["board"], bev=0),

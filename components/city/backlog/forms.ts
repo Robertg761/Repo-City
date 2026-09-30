@@ -188,7 +188,7 @@ const PANEL = "#ffffff";
 
 const STEEL = "#9aa0a6";
 const PLANK = "#c39a5f";
-const NETTING = "#6f9a6a";
+const NETTING = "#8b917f";
 const EARTH = "#6e5540";
 const HOLE = "#2f302c";
 const SCORCH = "#2b2724";
@@ -205,10 +205,10 @@ const POST = "#6b6f6d";
 const BEACON_RED = "#ff3b30";
 const AMBER = "#ffb347";
 const HAZARD_LAMP = "#ffae3a";
-const FLAG_GREEN = "#3fb45a";
+const FLAG_GREEN = "#5e9a6a";
 const BOARD_RED = "#d8392f";
 const VAN_WHITE = "#e9e6dc";
-const HOARDING_GREEN = "#3f6b58";
+const HOARDING_PLYWOOD = "#a48a63";
 const TAPE = "#ff6f91";
 
 // ---------------------------------------------------------------------------
@@ -666,6 +666,21 @@ function signpost(tone: (hex: string) => string): Built {
   };
 }
 
+/**
+ * Debris netting as two panels with a gap between, so it reads as mesh
+ * hung in sheets, each hung from the top rail, not one slab.
+ */
+function nettingPanels(width: number, panelHeight: number, y: number, z: number, tone: (hex: string) => string): Part[] {
+  const gap = 0.14;
+  const w = (width - 0.2 - gap) / 2;
+  const parts: Part[] = [];
+  for (let i = 0; i < 2; i++) {
+    const x = (i - 0.5) * (w + gap);
+    parts.push(box([w, panelHeight - 0.16, 0.02], [x, y - 0.04, z], tone(NETTING)));
+  }
+  return parts;
+}
+
 function scaffold(tone: (hex: string) => string): Built {
   const { width, height, depth } = SCAFFOLD_BAY;
   const half = width / 2 - 0.05;
@@ -689,7 +704,7 @@ function scaffold(tone: (hex: string) => string): Built {
           box([width - 0.1, 0.08, depth - 0.2], [0, lift1, 0], tone(PLANK)),
           box([width - 0.1, 0.08, depth - 0.2], [0, lift2, 0], tone(PLANK)),
           // Debris netting over the top lift.
-          box([width - 0.2, height - lift2 - 0.15, 0.02], [0, (height + lift2) / 2, front + 0.03], tone(NETTING)),
+          ...nettingPanels(width, height - lift2 - 0.15, (height + lift2) / 2, front + 0.03, tone),
         ],
       },
       // On the first lift, at work.
@@ -804,7 +819,7 @@ function hoardingOf(w: number, d: number, tone: (hex: string) => string): Built 
   const hx = w / 2 - 0.1;
   const hz = d / 2 - 0.1;
   // The boarding takes paint slot 1: each contractor's hoarding its own
-  // colour (`HOARDING_GREEN` by default); the white band stays white.
+  // colour (weathered plywood by default); the white band stays white.
   const size = (length: number, along: boolean, thick: number, tall: number): Triple =>
     along ? [thick, tall, length] : [length, tall, thick];
   const runs: [number, number, number, boolean][] = [
@@ -1203,7 +1218,8 @@ const CAR_PAINTS = [
   "#2f4f6f",
   "#d9a441",
 ] as const;
-const HOARDING_PAINTS = [HOARDING_GREEN, "#2f5a7a", "#4a4f55", "#6a3f4a", "#7a6a45"] as const;
+// Contractor colours, weathered: plywood, sage, slate, terracotta, ochre.
+const HOARDING_PAINTS = [HOARDING_PLYWOOD, "#7f8f78", "#5f6b74", "#a3634c", "#b39a58"] as const;
 
 export const FORM_PAINT: Partial<Record<CrowdMesh, { a: readonly string[]; b?: readonly string[] }>> = {
   collision: { a: CAR_PAINTS, b: CAR_PAINTS },

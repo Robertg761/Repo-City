@@ -73,9 +73,9 @@ def extras(M):
     # POLICE on both doors, running back to front (so it reads from either side),
     # and on the bonnet, all in blocky letters.
     for side in (-1, 1):
-        s = 0.028
+        s = 0.022
         length = 6 * 4 * s - s
-        lettering(a, M["blue"], side * (x + 0.006), 0.545, (-length / 2 if side < 0 else length / 2) - 0.02, s, "POLICE", side)
+        lettering(a, M["blue"], side * (x + 0.006), 0.612, (-length / 2 if side < 0 else length / 2) - 0.02, s, "POLICE", side)
     # Hinges and the fuel flap, a spotlight on the A pillar and an aerial.
     for side in (-1, 1):
         for y in (0.3, 0.55):

@@ -22,6 +22,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
+  PlaneGeometry,
   Matrix4,
   Quaternion,
   Vector3,
@@ -361,14 +362,134 @@ function weeds(color: string, count: number, spread: number): Part[] {
   return parts;
 }
 
+
+/**
+ * The shell's own character, on its four faces (`SHELL_W` square, centred at
+ * the shell's position). A finished building gets windows with sills, a door
+ * with a canopy on the front, a cornice, a parapet and a plant box on the
+ * roof; a building in progress gets exposed corner columns, slab edges, dark
+ * openings and a patch of cladding, in fewer places the further it is from
+ * done.
+ */
+function shellParts(state: ConstructionState, shade: (hex: string) => string): Part[] {
+  const height = SHELL_HEIGHT[state];
+  const half = SHELL_W / 2;
+  const parts: Part[] = [];
+  const done = state === "completed";
+  const near = detailLevel() === "near";
+  // A wall-mounted box: `u` along the face, `y` up it, standing `out` proud.
+  const onFace = (face: number, u: number, y: number, w: number, h: number, out: number, thick: number, color: string, surface?: Part["surface"]): Part => {
+    const nx = Math.round(Math.sin((face * Math.PI) / 2));
+    const nz = Math.round(Math.cos((face * Math.PI) / 2));
+    const d = half + out;
+    return {
+      geometry: new BoxGeometry(w, h, thick),
+      color,
+      surface,
+      position: [SHELL_X + nx * d + nz * u, y, SHELL_Z + nz * d - nx * u],
+      rotation: [0, (face * Math.PI) / 2, 0],
+    };
+  };
+  // The same, as a flat panel: two triangles, for what is only a colour on the wall.
+  const panelOn = (face: number, u: number, y: number, w: number, h: number, out: number, color: string, surface?: Part["surface"]): Part => {
+    const nx = Math.round(Math.sin((face * Math.PI) / 2));
+    const nz = Math.round(Math.cos((face * Math.PI) / 2));
+    const d = half + out;
+    return {
+      geometry: new PlaneGeometry(w, h),
+      color,
+      surface,
+      position: [SHELL_X + nx * d + nz * u, y, SHELL_Z + nz * d - nx * u],
+      rotation: [0, (face * Math.PI) / 2, 0],
+    };
+  };
+  if (done) {
+    const glass = shade("#4f6474");
+    const frame = shade("#e9e3d6");
+    const stone = shade("#d8d1c2");
+    const floors = [3.5, 5.3, 7.1];
+    for (let face = 0; face < 4; face++) {
+      for (const y of floors) {
+        for (const u of [-1.6, 0, 1.6]) {
+          parts.push(
+            panelOn(face, u, y, 1.0, 1.24, 0.012, frame),
+            panelOn(face, u, y, 0.8, 1.04, 0.03, glass, SURFACE.glass),
+          );
+          if (near) {
+            // A close camera sees the sill standing out and the glazing bars.
+            parts.push(
+              onFace(face, u, y - 0.68, 1.2, 0.09, 0.08, 0.16, stone),
+              onFace(face, u, y, 0.05, 1.04, 0.06, 0.05, frame),
+              onFace(face, u, y + 0.1, 0.8, 0.05, 0.06, 0.05, frame),
+            );
+          }
+        }
+      }
+      // The ground floor: shop windows, and on the front a door in the middle.
+      for (const u of face === 0 ? [-1.75, 1.75] : [-1.6, 0, 1.6]) {
+        parts.push(
+          panelOn(face, u, 1.35, 1.1, 1.3, 0.012, frame),
+          panelOn(face, u, 1.35, 0.92, 1.12, 0.03, glass, SURFACE.glass),
+        );
+      }
+      // Cornice and parapet.
+      parts.push(
+        onFace(face, 0, height - 0.12, SHELL_W + 0.4, 0.24, 0.2, 0.4, stone),
+        onFace(face, 0, height + 0.15, SHELL_W + 0.1, 0.3, 0.02, 0.16, shade("#cfc8b8")),
+      );
+    }
+    parts.push(
+      onFace(0, 0, 1.15, 1.3, 2.2, 0.02, 0.08, frame),
+      onFace(0, 0, 1.1, 1.0, 1.95, 0.06, 0.08, shade("#5c4636")),
+      // The canopy over it.
+      onFace(0, 0, 2.45, 2.0, 0.12, 0.45, 1.0, shade("#b8493c")),
+      // The roof, inside the parapet, and its plant.
+      { geometry: new BoxGeometry(SHELL_W - 0.3, 0.05, SHELL_W - 0.3), color: shade("#5d5a55"), position: [SHELL_X, height + 0.02, SHELL_Z] },
+      { geometry: new BoxGeometry(1.5, 0.7, 1.0), color: shade("#8d918f"), position: [SHELL_X - 1, height + 0.4, SHELL_Z - 0.8] },
+      { geometry: new BoxGeometry(0.9, 0.45, 0.7), color: shade("#a4a8a6"), position: [SHELL_X + 1.2, height + 0.27, SHELL_Z + 0.6] },
+      // The ground floor's plinth.
+      ...[0, 1, 2, 3].map((face) => onFace(face, 0, 0.3, SHELL_W + 0.06, 0.6, 0.03, 0.06, shade("#8c857a"))),
+    );
+    return parts;
+  }
+  const hole = shade("#3b4147");
+  const raw = shade("#b7b2a6");
+  const levels = state === "active" ? [1.5, 3.2, 4.6] : state === "slow" ? [1.5, 3.2] : [1.5];
+  for (let face = 0; face < 4; face++) {
+    // Openings left in the walls; the higher the level, the more of them are still empty.
+    levels.forEach((y, row) => {
+      for (const u of [-1.5, 0, 1.5]) {
+        if (state !== "abandoned" && row === 0 && (face + (u > 0 ? 1 : 0)) % 2 === 0) continue;
+        parts.push(panelOn(face, u, y, 0.9, 1.1, 0.02, hole));
+      }
+    });
+  }
+  if (state !== "abandoned") {
+    // The frame: corner columns standing proud, and the slab edges between floors.
+    for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      parts.push({ geometry: new BoxGeometry(0.42, height, 0.42), color: raw, position: [SHELL_X + cx * half, height / 2, SHELL_Z + cz * half] });
+    }
+    // Cladding hung on part of the front: the lower left, panel by panel.
+    const cladding = [shade("#8e7a5c"), shade("#6f7a86")];
+    for (let i = 0; i < 3; i++) {
+      parts.push(onFace(0, -1.9 + i * 0.66, 2.0, 0.6, 3.4, 0.05, 0.05, cladding[i % 2]));
+    }
+    // Rebar stubs standing out of the top slab.
+    for (let i = 0; i < 3; i++) {
+      parts.push({ geometry: new BoxGeometry(0.04, 0.7, 0.04), color: shade("#7b5a44"), position: [SHELL_X - 1.5 + i * 1.5, height + 0.35, SHELL_Z + 2.1] });
+    }
+  }
+  return parts;
+}
+
 function partsFor(state: ConstructionState, tone: number): Part[] {
   const shade = (hex: string) => desaturate(hex, tone);
   const weathered = (hex: string) => desaturate(hex, Math.min(1, tone + 0.4));
   const height = SHELL_HEIGHT[state];
-  const parts: Part[] = [];
+  const parts: Part[] = [...shellParts(state, shade)];
 
   if (state === "completed") {
-    if (BLENDER_MODELS) return completedYard(shade);
+    if (BLENDER_MODELS) return [...parts, ...completedYard(shade)];
     // A finished building: a swept forecourt, a ribbon across the doors and
     // something planted. The clean opposite of the site next door.
     parts.push(

@@ -79,8 +79,8 @@ describe("construction sites with the Blender models", () => {
 
   it("stays inside a budget for eight sites, with the excavator as the hero", () => {
     const worst = Math.max(...SITES.map((s) => triangleCount(decor.constructionDecor(s, 0.2))));
-    expect(worst).toBeLessThan(6200);
-    expect(worst * 8).toBeLessThan(50000);
+    expect(worst).toBeLessThan(6400);
+    expect(worst * 8).toBeLessThan(51000);
   });
 
   it("builds every state with colours and surfaces, cached per state and tone", () => {

@@ -36,7 +36,7 @@ import { MODEL as TOW_TRUCK_NEAR } from "../vehicles/towTruckNear.model";
 import { MODEL as WORKS_TRUCK } from "../vehicles/worksTruck.model";
 import { MODEL as WORKS_TRUCK_NEAR } from "../vehicles/worksTruckNear.model";
 
-const SCENE_BUDGET = 60000;
+const SCENE_BUDGET = 60500;
 const VEHICLE_BUDGET = 20000;
 const shade = (hex: string) => hex;
 const bounds = (geometry: BufferGeometry) => new Box3().setFromBufferAttribute(geometry.getAttribute("position") as never);

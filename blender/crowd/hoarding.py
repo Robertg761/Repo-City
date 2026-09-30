@@ -6,7 +6,7 @@ real length, the way `civic.ts` assembles its kit. Every piece is modelled
 in its own frame, origin at 0:
 
   HoardSheet, HoardSheetAlt  one boarding sheet, 1 m along x, both faces, in
-                        paint slot 1 (the contractor's colour); Alt a shade
+                        paint slot 1 (the contractor's colour); Alt a good deal
                         darker, so neighbouring sheets read as sheets
   HoardBand             the white capping rail over the sheets, 1 m along x
   HoardPost             a corner post
@@ -40,7 +40,7 @@ def palette():
     m = kit.material
     return {
         "sheet": m("paintA", "#ffffff", "timber", 0.8),
-        "sheetAlt": m("paintA", "#ffffff", "timber", 0.8, tone=0.92),
+        "sheetAlt": m("paintA", "#ffffff", "timber", 0.8, tone=0.8),
         "band": m("band", "#eeeae1", "timber", 0.7),
         "hoardPost": m("hoardPost", "#4a4f4c", "metal", 0.6),
         "gate": m("gate", "#5c6266", "metal", 0.5),

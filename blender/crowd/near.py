@@ -738,9 +738,10 @@ def van(M):
 # ---------------------------------------------------------------------------
 
 
-def grid_cloth(name, x0, x1, y0, y1, z, cols, rows, mat, billow=0.03, sag=0.0, seed=0.0, face=1):
+def grid_cloth(name, x0, x1, y0, y1, z, cols, rows, mat, billow=0.03, sag=0.0, seed=0.0, face=1, gap_every=0):
     """A hanging sheet cut into a grid so it can billow: `face` is the side
-    it faces along z. Netting, tarpaulin."""
+    it faces along z. Netting, tarpaulin. `gap_every` leaves every n-th
+    column of cells out, so netting hangs in panels with real gaps."""
     bm = bmesh.new()
     grid = []
     for r in range(rows + 1):
@@ -752,6 +753,8 @@ def grid_cloth(name, x0, x1, y0, y1, z, cols, rows, mat, billow=0.03, sag=0.0, s
         grid.append(line)
     for r in range(rows):
         for c in range(cols):
+            if gap_every and c % gap_every == gap_every - 1:
+                continue
             f = bm.faces.new((grid[r][c], grid[r][c + 1], grid[r + 1][c + 1], grid[r + 1][c]))
             f.normal_update()
             if f.normal.dot(B((0, 0, face))) < 0:
@@ -832,8 +835,8 @@ def scaffold(M):
             parts.append(lp.tube("rung", (x - 0.22, lo + 0.2 + k * 0.3, front - 0.15), (x + 0.22, lo + 0.2 + k * 0.3, front - 0.15), 0.014, 0.014, M["ladder"], sides=5))
     # Netting over the top lift, seen from outside and from inside, with its ties and a rope along the top.
     top0, top1 = lift2 + 0.15, h - 0.0
-    parts.append(grid_cloth("net", -w / 2 + 0.1, w / 2 - 0.1, top0, top1, front + 0.03, 10, 5, M["netting"], billow=0.03, seed=0.5))
-    parts.append(grid_cloth("netIn", -w / 2 + 0.1, w / 2 - 0.1, top0, top1, front + 0.025, 10, 5, M["netting"], billow=0.03, seed=0.5, face=-1))
+    parts.append(grid_cloth("net", -w / 2 + 0.1, w / 2 - 0.1, top0, top1, front + 0.03, 11, 5, M["netting"], billow=0.03, seed=0.5, gap_every=4))
+    parts.append(grid_cloth("netIn", -w / 2 + 0.1, w / 2 - 0.1, top0, top1, front + 0.025, 11, 5, M["netting"], billow=0.03, seed=0.5, face=-1, gap_every=4))
     parts.append(tube("netRope", (-w / 2 + 0.1, top1 - 0.01, front + 0.045), (w / 2 - 0.1, top1 - 0.01, front + 0.045), 0.012, sides=4))
     for k in range(6):
         parts.append(slab("netTie", (0.03, 0.05, 0.03), (-w / 2 + 0.4 + k * 0.8, top1 - 0.02, front + 0.05), M["rubber"], bev=0))

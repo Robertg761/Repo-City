@@ -50,7 +50,6 @@ import type { SettlementTier } from "@/types/analysis";
 import type { ConstructionSite } from "@/types/city";
 import {
   HIGHLIGHT,
-  WINDOW_COLOR,
   desaturate,
   mix,
   stateTint,
@@ -72,11 +71,10 @@ import {
 } from "./models/props/finishedHouse";
 import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, type BatchKind } from "./batching";
-import { lampMaterial } from "./effects";
+import { FACADES } from "./models/buildings/facades";
 import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
-import { useSkyValue } from "./sky";
 import { buildingDetailMaterial } from "./models/buildings/material";
 import { qualitySettings, useQuality } from "./quality";
 import { useSceneNear } from "./sceneLod";
@@ -141,11 +139,22 @@ const SLAB = batchKind("site:slab", () => ({
   material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 0.95 }, { ...qualitySettings(), surface: 11 }),
 }));
 
-/** The lit band of a finished building's windows. */
-const BAND = batchKind("site:band", () => ({
-  geometry: unitBox,
-  material: lampMaterial,
-}));
+/**
+ * A finished building's walls, one of the city's own facades (`facades.ts`),
+ * by the site: its windows, door and roof edge are the decor's.
+ */
+const DONE_FACADES = [
+  ...FACADES.brick.slice(0, 2),
+  FACADES.render[0],
+  FACADES.stone[1],
+  FACADES.render[4],
+  FACADES.render[3],
+];
+function doneFacade(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return DONE_FACADES[h % DONE_FACADES.length].hex;
+}
 
 const RIBBON = batchKind("site:ribbon", () => ({
   geometry: () => new RingGeometry(SITE * 0.38, SITE * 0.41, 40),
@@ -281,8 +290,6 @@ export default function ConstructionSitePiece({
   const { hovered, selected } = useEntityState(site.id);
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
-  // The finished band's windows follow the live hour (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
   const level: DetailLevel = useSceneNear(reveal, SITE_NEAR, SITE_CAP) ? "near" : "lean";
 
   const done = site.state === "completed";
@@ -304,7 +311,7 @@ export default function ConstructionSitePiece({
   const shellHeight = SHELL_HEIGHT[site.state];
   const shell = stateTint(
     desaturate(
-      done ? "#ecdfcb" : weathered ? mix("#cfcabd", "#9a7b5f", 0.35) : "#cfcabd",
+      done ? doneFacade(site.id) : weathered ? mix("#cfcabd", "#9a7b5f", 0.35) : "#cfcabd",
       atmosphere.desaturation,
     ),
     hovered,
@@ -341,13 +348,6 @@ export default function ConstructionSitePiece({
 
           {done ? (
             <>
-              <BatchPart
-                kind={BAND}
-                position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}
-                scale={[5.46, 0.34, 5.46]}
-                color={WINDOW_COLOR}
-                glow={0.3 + glow}
-              />
               <BatchPart kind={RIBBON} rotation-x={-Math.PI / 2} position-y={0.08} color={HIGHLIGHT} />
             </>
           ) : (
