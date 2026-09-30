@@ -31,23 +31,33 @@ REPLACED = ("axle",)
 VEHICLES = ((3.7, 3.6, 1.2, 1), (-0.05, 3.4, 1.15, 0), (-3.7, 3.4, 1.15, -1))
 
 
+def wheelset_near(acc, M):
+    """One flanged wheelset on the origin, turning about z: axle, wheels with
+    their flanges, hubs and caps, brake discs, the traction motor round the
+    axle, and three bars across each outer face so the turn shows."""
+    wheel, gear, spoke = M["wheel"], M["gear"], M["spoke"]
+    acc.rod(wheel, (0, 0, -GAUGE - 0.1), (0, 0, GAUGE + 0.1), 0.06, sides=8)
+    for s in (-1, 1):
+        z = s * GAUGE
+        acc.cyl(wheel, WHEEL_R, 0.1, (0, 0, z), axis="z", sides=24)
+        acc.cyl(wheel, WHEEL_R + 0.004, 0.026, (0, 0, z - s * 0.052), axis="z", sides=24, r2=WHEEL_R)
+        acc.cyl(gear, 0.13, 0.05, (0, 0, z + s * 0.06), axis="z", sides=12)
+        acc.cyl(gear, 0.07, 0.03, (0, 0, z + s * 0.09), axis="z", sides=8)
+        acc.cyl(gear, 0.21, 0.02, (0, 0, s * 0.55), axis="z", sides=16)
+        for k in range(3):
+            acc.box(spoke, (WHEEL_R * 1.7, 0.06, 0.03), (0, 0, z + s * 0.065), rot=(0, 0, k * math.pi / 3))
+    acc.cyl(gear, 0.13, 0.5, (0, 0.05, 0.0), axis="z", sides=10)
+
+
 def bogie(acc, M, cx):
-    """One bogie centred on x = cx: two flanged wheelsets, brake discs, axle
-    boxes, coil springs, dampers and a traction motor."""
-    body, gear, wheel = M["gear"], M["gear"], M["wheel"]
+    """One bogie centred on x = cx, less its wheelsets (`Wheelset`, which
+    turn): axle boxes, coil springs, dampers and the frame's crossbar."""
+    body, gear = M["body"], M["gear"]
     for dx in (-0.37, 0.37):
         x = cx + dx
-        acc.rod(wheel, (x, AXLE_Y, -GAUGE - 0.1), (x, AXLE_Y, GAUGE + 0.1), 0.06, sides=8)
         for s in (-1, 1):
-            z = s * GAUGE
-            acc.cyl(wheel, WHEEL_R, 0.1, (x, AXLE_Y, z), axis="z", sides=24)
-            acc.cyl(wheel, WHEEL_R + 0.004, 0.026, (x, AXLE_Y, z - s * 0.052), axis="z", sides=24, r2=WHEEL_R)
-            acc.cyl(gear, 0.13, 0.05, (x, AXLE_Y, z + s * 0.06), axis="z", sides=12)
-            acc.cyl(gear, 0.07, 0.03, (x, AXLE_Y, z + s * 0.09), axis="z", sides=8)
-            acc.cyl(gear, 0.21, 0.02, (x, AXLE_Y, s * 0.55), axis="z", sides=16)
             acc.box(gear, (0.24, 0.2, 0.2), (x, AXLE_Y + 0.02, s * (GAUGE + 0.12)))
             acc.box(gear, (0.18, 0.05, 0.14), (x, AXLE_Y + 0.14, s * (GAUGE + 0.12)))
-        acc.cyl(gear, 0.13, 0.5, (x, AXLE_Y + 0.05, 0.0), axis="z", sides=10)
     for s in (-1, 1):
         # Springs over the axle boxes: rings stacked into a coil, and a damper beside each.
         for dx in (-0.37, 0.37):
@@ -228,6 +238,9 @@ def build():
     acc = nkit.Acc()
     train_details(acc, M)
     body = nkit.rejoin(body_lean, acc.objects(), "TrainNear")
+    wacc = nkit.Acc()
+    wheelset_near(wacc, M)
+    wheels = finish(wacc.objects(), "WheelsetNear")
     made = [body]
     for raised, name in ((True, "PantographRaisedNear"), (False, "PantographLoweredNear")):
         arm = finish(lean.pantograph(M, raised), name + "Lean")
@@ -241,7 +254,8 @@ def build():
         kit.bake_ao([obj], distance=0.4, samples=16, floor=0.6)
         for h in hidden:
             h.hide_render = False
-    return made
+    kit.bake_ao([wheels], distance=0.4, samples=16, floor=0.6)
+    return made + [wheels]
 
 
 def preview(raised=1):
@@ -249,8 +263,17 @@ def preview(raised=1):
 
     objs = build()
     drop = "PantographLoweredNear" if raised else "PantographRaisedNear"
-    keep = [o for o in objs if o.name != drop]
+    wheels = next(o for o in objs if o.name == "WheelsetNear")
+    keep = []
     for obj in objs:
-        if obj not in keep:
+        if obj.name == drop:
             bpy.data.objects.remove(obj, do_unlink=True)
+        elif obj is not wheels:
+            keep.append(obj)
+    # The wheelsets stand at the lean train's axle positions.
+    for i, x in enumerate(lean.axle_xs()):
+        copy = bpy.data.objects.new(f"wheels@{i}", wheels.data)
+        copy.location = kit.B((x, AXLE_Y, 0))
+        bpy.context.scene.collection.objects.link(copy)
+        keep.append(copy)
     return keep

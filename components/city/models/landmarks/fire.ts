@@ -39,6 +39,13 @@ export interface FireLayout {
   slots: Slots<FireSlot>;
   /** Roof lights on every parked engine, drawn by React so they can blink. */
   beacons: V3[];
+  /**
+   * Only when asked for (`detach`): the first engine, apart from the station,
+   * so the renderer can drive it out of its bay. Its spot is where it parks
+   * and `lamps` are its roof lights in its own frame; the station's slots and
+   * `beacons` then carry the other engines alone.
+   */
+  sortie?: { slots: Slots<FireSlot>; spot: V3; lamps: V3[] };
 }
 
 const bays = (level: number): number => Math.min(3, Math.max(1, level));
@@ -253,12 +260,13 @@ export function blenderFire(level: number): FireLayout {
  * `Engine<suffix>` (the near level, `near.ts`). The engine spots and roof
  * lamps are the lean model's markers, which every level shares.
  */
-export function blenderFireFrom(level: number, model: ImportedModel, suffix: string): FireLayout {
+export function blenderFireFrom(level: number, model: ImportedModel, suffix: string, detach = false): FireLayout {
   const engines = importedMarkers(FIRE_STATION, `Station${level}.engine.`);
   const lamps = importedMarkers(FIRE_STATION, "Engine.lamp.");
   const lists: Record<string, BufferGeometry[]> = importedSlots(model, `Station${level}${suffix}`);
-  if (engines.length) {
-    for (const [slot, list] of Object.entries(importedSlots(model, `Engine${suffix}`, engines))) {
+  const parked = detach ? engines.slice(1) : engines;
+  if (parked.length) {
+    for (const [slot, list] of Object.entries(importedSlots(model, `Engine${suffix}`, parked))) {
       (lists[slot] ??= []).push(...list);
     }
   }
@@ -269,8 +277,50 @@ export function blenderFireFrom(level: number, model: ImportedModel, suffix: str
     merged.computeBoundingSphere();
     slots[slot as FireSlot] = merged;
   }
-  const beacons: V3[] = engines.flatMap(([ex, ey, ez]) =>
+  const beacons: V3[] = parked.flatMap(([ex, ey, ez]) =>
     lamps.map(([lx, ly, lz]): V3 => [ex + lx, ey + ly, ez + lz]),
   );
-  return { slots, beacons };
+  if (!detach || !engines.length) return { slots, beacons };
+  const own: Partial<Record<FireSlot, BufferGeometry>> = {};
+  for (const [slot, list] of Object.entries(importedSlots(model, `Engine${suffix}`))) {
+    const merged = mergeGeometries(list, false);
+    if (!merged) throw new Error(`blenderFire: engine slot ${slot} could not be merged`);
+    merged.computeBoundingSphere();
+    own[slot as FireSlot] = merged;
+  }
+  const [sx, sy, sz] = engines[0];
+  return { slots, beacons, sortie: { slots: own as Slots<FireSlot>, spot: [sx, sy, sz], lamps: lamps.map(([x, y, z]): V3 => [x, y, z]) } };
+}
+
+/** The Blender station with its first engine apart, for the one that drives out; null without the Blender models. */
+export const fireStationLive = (level: number): FireLayout | null =>
+  BLENDER_MODELS ? cached(`fire-live:${Math.min(3, Math.max(1, Math.round(level)))}`, () => blenderFireFrom(Math.min(3, Math.max(1, Math.round(level))), FIRE_STATION, "", true)) : null;
+
+/** Seconds between one engine's call-outs. */
+export const SORTIE_PERIOD = 38;
+/** How far, in the station's natural frame, the engine drives out of its bay. */
+export const SORTIE_TRAVEL = 3;
+
+const smooth = (t: number) => t * t * (3 - 2 * t);
+const unit = (x: number) => Math.min(1, Math.max(0, x));
+
+export interface Sortie {
+  /** 0 in the bay, 1 at the far end of the run. */
+  out: number;
+  /** 0 idle, 1 lights going: they start before the wheels and outlast them. */
+  alarm: number;
+}
+
+/**
+ * The engine's call-out `seconds` into the station's clock, which `offset`
+ * shifts so two stations are never in step: the lights come on, the engine
+ * pulls out to the end of its run, waits, and backs into its bay. Quiet for
+ * the rest of the period. Pure, so the renderer can run it without
+ * allocating and a test can walk it.
+ */
+export function sortieAt(seconds: number, offset = 0, into: Sortie = { out: 0, alarm: 0 }): Sortie {
+  const t = (((seconds + offset) % SORTIE_PERIOD) + SORTIE_PERIOD) % SORTIE_PERIOD;
+  into.alarm = Math.min(smooth(unit((t - 3) / 0.4)), 1 - smooth(unit((t - 12.6) / 0.6)));
+  into.out = t < 4 ? 0 : t < 6.8 ? smooth((t - 4) / 2.8) : t < 9 ? 1 : t < 12.4 ? 1 - smooth((t - 9) / 3.4) : 0;
+  return into;
 }

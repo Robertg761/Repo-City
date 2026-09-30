@@ -30,11 +30,12 @@ import { MODEL as INFO_CENTRE } from "./infoCentre.model";
 import { MODEL as INFO_CENTRE_NEAR } from "./infoCentreNear.model";
 import type { PowerMode, PowerSlot } from "./power";
 import { MODEL as POWER_STATION_NEAR } from "./powerStationNear.model";
-import type { Pantograph, StationLayout, StationSlot, TrainSlot } from "./station";
+import type { Pantograph, StationLayout, StationSlot, TrainParts, TrainSlot } from "./station";
 import { MODEL as TOWN_HALL } from "./townHall.model";
 import { MODEL as TOWN_HALL_NEAR } from "./townHallNear.model";
 import { MODEL as TRANSIT_STATION } from "./transitStation.model";
 import { MODEL as TRANSIT_STATION_NEAR } from "./transitStationNear.model";
+import { MODEL as TRANSIT_TRAIN } from "./transitTrain.model";
 import { MODEL as TRANSIT_TRAIN_NEAR } from "./transitTrainNear.model";
 import type { CivicLayout, CivicSlot } from "./townhall";
 import type {
@@ -99,10 +100,21 @@ export function blenderStationNear(level: number): StationLayout {
   };
 }
 
-/** The train set with the pantograph raised or folded. */
+/** The train set with the pantograph raised or folded, its wheelsets at the lean model's axle markers. */
 export function blenderTrainNear(pantograph: Pantograph = "raised") {
   const arms = pantograph === "raised" ? "PantographRaisedNear" : "PantographLoweredNear";
-  return blenderSlots<TrainSlot>(TRANSIT_TRAIN_NEAR, ["TrainNear", arms]);
+  const axles = importedMarkers(TRANSIT_TRAIN, "Train.axle.");
+  return blenderSlots<TrainSlot>(TRANSIT_TRAIN_NEAR, ["TrainNear", arms, { node: "WheelsetNear", offsets: axles }]);
+}
+
+/** The same set with its wheelsets apart, for the train that runs. */
+export function blenderTrainPartsNear(pantograph: Pantograph = "raised"): TrainParts {
+  const arms = pantograph === "raised" ? "PantographRaisedNear" : "PantographLoweredNear";
+  return {
+    slots: blenderSlots<TrainSlot>(TRANSIT_TRAIN_NEAR, ["TrainNear", arms]),
+    wheels: blenderSlots<TrainSlot>(TRANSIT_TRAIN_NEAR, ["WheelsetNear"]),
+    axles: importedMarkers(TRANSIT_TRAIN, "Train.axle.").map(v3),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +169,10 @@ export const transitStationNear = (level: number): StationLayout | null =>
   BLENDER_MODELS && isModelLoaded(TRANSIT_STATION_NEAR, TRANSIT_STATION) ? cached(`station-near:${clampLevel(level)}`, () => blenderStationNear(level)) : null;
 
 export const trainCarsNear = (pantograph: Pantograph = "raised") =>
-  BLENDER_MODELS && isModelLoaded(TRANSIT_TRAIN_NEAR) ? cached(`train-near:${pantograph}`, () => blenderTrainNear(pantograph)) : null;
+  BLENDER_MODELS && isModelLoaded(TRANSIT_TRAIN_NEAR, TRANSIT_TRAIN) ? cached(`train-near:${pantograph}`, () => blenderTrainNear(pantograph)) : null;
+
+export const trainPartsNear = (pantograph: Pantograph = "raised"): TrainParts | null =>
+  BLENDER_MODELS && isModelLoaded(TRANSIT_TRAIN_NEAR, TRANSIT_TRAIN) ? cached(`train-parts-near:${pantograph}`, () => blenderTrainPartsNear(pantograph)) : null;
 
 export const chapelNear = (): ChapelLayout | null => (BLENDER_MODELS && isModelLoaded(VILLAGE_CHAPEL_NEAR, VILLAGE_CHAPEL) ? cached("chapel-near", blenderChapelNear) : null);
 
@@ -169,3 +184,7 @@ export const haltNear = (level: number): HaltLayout | null =>
 
 export const substationNear = (): SubstationLayout | null =>
   BLENDER_MODELS && isModelLoaded(VILLAGE_SUBSTATION_NEAR, VILLAGE_SUBSTATION) ? cached("substation-near", blenderSubstationNear) : null;
+
+/** The detailed station with its first engine apart (see `fireStationLive`). */
+export const fireStationNearLive = (level: number): FireLayout | null =>
+  BLENDER_MODELS && isModelLoaded(FIRE_STATION_NEAR) ? cached(`fire-near-live:${clampLevel(level)}`, () => blenderFireFrom(clampLevel(level), FIRE_STATION_NEAR, "Near", true)) : null;

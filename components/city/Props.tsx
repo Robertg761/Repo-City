@@ -478,6 +478,7 @@ export default function Props({
             ground
             falloff={1.3}
             strength={(a) => a.lampPool * 0.24}
+            ramp={(a) => a.lampPool}
             appearAt={lampsLitAt}
           />
           <GlowField
@@ -486,6 +487,7 @@ export default function Props({
             color={LAMP_LIGHT}
             falloff={2.4}
             strength={(a) => a.lampPool * 0.42}
+            ramp={(a) => a.lampPool}
             appearAt={lampsLitAt}
           />
         </>

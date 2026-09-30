@@ -373,15 +373,47 @@ export function trainCars(pantograph: Pantograph = "raised"): Slots<TrainSlot> {
 }
 
 /**
+ * A train whose wheelsets are apart from the carriage, so the running one can
+ * turn them: the set without its wheels, one wheelset centred on the origin,
+ * and where every axle stands (the wheelset's centre, in the set's frame).
+ */
+export interface TrainParts {
+  slots: Slots<TrainSlot>;
+  wheels: Slots<TrainSlot>;
+  axles: V3[];
+}
+
+/** The lean train's wheel radius: a wheel turns `distance / WHEEL_RADIUS` radians over `distance`. */
+export const WHEEL_RADIUS = 0.34;
+
+/**
  * Spike: the train modelled in Blender (`blender/landmarks/train.py`): the
  * same set, centred on the origin with the nose to +x, wheels on the rail
  * tops at y 0.5 and the procedural bogie centres, in the same three slots,
  * so `Landmark.tsx` runs, parks and clips it exactly as it does `buildTrain`.
+ * The wheelsets are their own node at the `Train.axle.<i>` markers: here they
+ * are merged back in (the parked set stands still); `blenderTrainParts` keeps
+ * them apart.
  */
 export function blenderTrain(pantograph: Pantograph = "raised"): Slots<TrainSlot> {
   const arms = pantograph === "raised" ? "PantographRaised" : "PantographLowered";
-  return blenderSlots<TrainSlot>(TRANSIT_TRAIN, ["Train", arms]);
+  const axles = importedMarkers(TRANSIT_TRAIN, "Train.axle.");
+  return blenderSlots<TrainSlot>(TRANSIT_TRAIN, ["Train", arms, { node: "Wheelset", offsets: axles }]);
 }
+
+/** The Blender set with its wheelsets apart, for the train that runs. */
+export function blenderTrainParts(pantograph: Pantograph = "raised"): TrainParts {
+  const arms = pantograph === "raised" ? "PantographRaised" : "PantographLowered";
+  return {
+    slots: blenderSlots<TrainSlot>(TRANSIT_TRAIN, ["Train", arms]),
+    wheels: blenderSlots<TrainSlot>(TRANSIT_TRAIN, ["Wheelset"]),
+    axles: importedMarkers(TRANSIT_TRAIN, "Train.axle.").map(([x, y, z]): V3 => [x, y, z]),
+  };
+}
+
+/** The running train's parts; null for the procedural set, whose wheels stay on. */
+export const trainParts = (pantograph: Pantograph = "raised"): TrainParts | null =>
+  BLENDER_MODELS ? cached(`station-blender:train-parts:${pantograph}`, () => blenderTrainParts(pantograph)) : null;
 
 /**
  * Arrivals a minute when the generator did not say (the development fixture,
@@ -399,6 +431,16 @@ export interface TrainPose {
   x: number;
   /** False while the set is wholly inside the tunnel, so it costs nothing. */
   visible: boolean;
+}
+
+/**
+ * How lit the running train is when its centre is at `x`: full in the open,
+ * falling to a third as it goes into the tunnel's shade, so it darkens into the
+ * mouth and is gone at the portal face rather than cut off in full daylight.
+ */
+export function tunnelShade(x: number): number {
+  const t = Math.min(1, Math.max(0, (x - (PORTAL_X - 7.5)) / 12));
+  return 1 - 0.68 * t * t * (3 - 2 * t);
 }
 
 /** Seconds to pull in from the tunnel to the platform, and to pull out. */
