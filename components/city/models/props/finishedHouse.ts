@@ -38,12 +38,14 @@ import {
   type BufferGeometry,
 } from "three";
 import { TREE_LEAF, desaturate } from "../../palette";
-import { archetypeGeometry } from "../buildings/geometry";
+import { archetypeGeometry, archetypeNearGeometry } from "../buildings/geometry";
 import type { ModelKey } from "../buildings/archetypes";
 import { geometryCache, mergeParts, toneKey, type Part, type Triple } from "./geometry";
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as FINISHED_DRESSING } from "./finishedDressing.model";
+import { MODEL as FINISHED_DRESSING_NEAR } from "./finishedDressingNear.model";
+import { atLevel, modelFor, type DetailLevel } from "../detailLevel";
 
 export type FinishedTier = "village" | "town";
 
@@ -279,9 +281,11 @@ const lift = (part: Part, dy: number): Part => ({
  * instance, so the house draws with a plain vertex-coloured material from a
  * shared pool. In the archetype's unit space; the site scales it.
  */
-function bakedHouse(tier: FinishedTier, tone: number): BufferGeometry {
+function bakedHouse(tier: FinishedTier, tone: number, level: DetailLevel): BufferGeometry {
   const spec = FINISHED[tier];
-  const source = archetypeGeometry(spec.model);
+  // The near house is the archetype's own near model where it has one, in the
+  // same unit space and with the same paint roles (`archetypeNearGeometry`).
+  const source = (level === "near" ? archetypeNearGeometry(spec.model) : null) ?? archetypeGeometry(spec.model);
   const geometry = source.clone();
   const color = geometry.getAttribute("color");
   const paint = geometry.getAttribute("paint");
@@ -307,32 +311,37 @@ function bakedHouse(tier: FinishedTier, tone: number): BufferGeometry {
 }
 
 const houseCache = geometryCache<string>((key) => {
-  const [tier, tone] = key.split(":");
-  return bakedHouse(tier as FinishedTier, Number(tone));
+  const [level, tier, tone] = key.split(":");
+  return bakedHouse(tier as FinishedTier, Number(tone), level as DetailLevel);
 });
 
 /**
  * The Blender dressing (`blender/incidents/finished_dressing.py`): the same
  * fence, bunting, board, trees and balloons at the same places, modelled.
  */
-export function blenderDressingGeometry(tier: FinishedTier, desaturation: number): BufferGeometry {
+export function blenderDressingGeometry(tier: FinishedTier, desaturation: number, level: DetailLevel = "lean"): BufferGeometry {
   const shade = (hex: string) => desaturate(hex, desaturation);
-  return mergeParts(importedParts(FINISHED_DRESSING, tier === "village" ? "VillageDressing" : "TownDressing", shade));
+  const node = tier === "village" ? "VillageDressing" : "TownDressing";
+  return atLevel(level, () => mergeParts(importedParts(modelFor(FINISHED_DRESSING, FINISHED_DRESSING_NEAR, node), node, shade)));
 }
 
 const dressingCache = geometryCache<string>((key) => {
-  const [tier, tone] = key.split(":");
-  if (BLENDER_MODELS) return blenderDressingGeometry(tier as FinishedTier, Number(tone));
+  const [level, tier, tone] = key.split(":");
+  if (BLENDER_MODELS) return blenderDressingGeometry(tier as FinishedTier, Number(tone), level as DetailLevel);
   const shade = (hex: string) => desaturate(hex, Number(tone));
   return mergeParts(tier === "village" ? villageDressing(shade) : townDressing(shade));
 });
 
-/** The finished house, in its archetype's unit space (scale it to its footprint). */
-export function finishedHouseGeometry(tier: FinishedTier, desaturation: number): BufferGeometry {
-  return houseCache(`${tier}:${toneKey(desaturation)}`);
+/**
+ * The finished house, in its archetype's unit space (scale it to its
+ * footprint), at a level of detail. The near level exists only with the
+ * Blender models.
+ */
+export function finishedHouseGeometry(tier: FinishedTier, desaturation: number, level: DetailLevel = "lean"): BufferGeometry {
+  return houseCache(`${BLENDER_MODELS ? level : "lean"}:${tier}:${toneKey(desaturation)}`);
 }
 
-/** Everything round the house, in the finished plot's frame. */
-export function finishedDressingGeometry(tier: FinishedTier, desaturation: number): BufferGeometry {
-  return dressingCache(`${tier}:${toneKey(desaturation)}`);
+/** Everything round the house, in the finished plot's frame, at a level of detail. */
+export function finishedDressingGeometry(tier: FinishedTier, desaturation: number, level: DetailLevel = "lean"): BufferGeometry {
+  return dressingCache(`${BLENDER_MODELS ? level : "lean"}:${tier}:${toneKey(desaturation)}`);
 }

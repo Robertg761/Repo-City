@@ -1,9 +1,11 @@
 import { BoxGeometry, CapsuleGeometry, SphereGeometry, type BufferGeometry } from "three";
 import { mergeParts, surfacePanel, type Part, type Triple } from "./geometry";
 import { SURFACE } from "../../textures/surface-types";
-import { importedParts } from "../imported";
+import { importedParts, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
+import { detailLevel } from "../detailLevel";
 import { MODEL as WALKER } from "./walker.model";
+import { MODEL as WALKER_NEAR } from "./walkerNear.model";
 
 /** The colours the Blender figure (`blender/props/walker.py`) is modelled in. */
 const MODEL_PAINT = "#ffffff";
@@ -16,12 +18,18 @@ const MODEL_HAIR = "#4a3830";
  * procedural body (origin at the crowd's chest height).
  */
 export function blenderWalkerBodyParts(clothes = "#ffffff", skin = "#c99f7d"): Part[] {
-  return importedParts(WALKER, "WalkerBody", (hex) => (hex === MODEL_PAINT ? clothes : hex === MODEL_SKIN ? skin : hex));
+  // Built at the near level (a scene's crew, `figures.ts`), the close-up figure
+  // in the same frame and roles.
+  const near = detailLevel() === "near";
+  return importedParts(near ? WALKER_NEAR : WALKER, near ? "WalkerBodyNear" : "WalkerBody", (hex) =>
+    hex === MODEL_PAINT ? clothes : hex === MODEL_SKIN ? skin : hex,
+  );
 }
 
 /** The Blender head, its skin the paint; `hair: false` leaves the hair off for a helmet. */
 export function blenderWalkerHeadParts(skin = "#ffffff", { hair = true } = {}): Part[] {
-  return importedParts(WALKER, "WalkerHead", (hex) => (hex === MODEL_PAINT ? skin : hex))
+  const near = detailLevel() === "near";
+  return importedParts(near ? WALKER_NEAR : WALKER, near ? "WalkerHeadNear" : "WalkerHead", (hex) => (hex === MODEL_PAINT ? skin : hex))
     .filter((part) => hair || part.color !== MODEL_HAIR);
 }
 
@@ -77,4 +85,34 @@ export function walkerHeadParts(skin = "#ffffff", { hair = true } = {}): Part[] 
 /** Skin takes the instance tint while the hair stays dark. */
 export function walkerHeadGeometry(): BufferGeometry {
   return head ??= mergeParts(walkerHeadParts());
+}
+
+/** The near body's parts, coloured as the lean Blender body's. */
+export function blenderWalkerBodyNearParts(): Part[] {
+  return importedParts(WALKER_NEAR, "WalkerBodyNear", (hex) => hex);
+}
+
+/** The near head's parts: the skin is the paint, hair and face keep their colours. */
+export function blenderWalkerHeadNearParts(): Part[] {
+  return importedParts(WALKER_NEAR, "WalkerHeadNear", (hex) => hex);
+}
+
+let bodyNear: BufferGeometry | undefined;
+let headNear: BufferGeometry | undefined;
+
+/**
+ * The close-up figure (`blender/props/walker_near.py`): jacket layers,
+ * backpack, hands with fingers, shoes with soles. Same frames and colour roles
+ * as the lean body, so the crowd's matrices and tints apply unchanged. Null
+ * on the procedural models, which have no near level, and until the model has loaded.
+ */
+export function walkerBodyNearGeometry(): BufferGeometry | null {
+  if (!BLENDER_MODELS || !isModelLoaded(WALKER_NEAR)) return null;
+  return bodyNear ??= mergeParts(blenderWalkerBodyNearParts());
+}
+
+/** The close-up head, neck and hair; skin is the paint, as on the lean head. */
+export function walkerHeadNearGeometry(): BufferGeometry | null {
+  if (!BLENDER_MODELS || !isModelLoaded(WALKER_NEAR)) return null;
+  return headNear ??= mergeParts(blenderWalkerHeadNearParts());
 }

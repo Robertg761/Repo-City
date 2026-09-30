@@ -18,12 +18,14 @@
  * Props are never selectable: they have no meaning to explain.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, Object3D, type InstancedMesh, type MeshStandardMaterial } from "three";
+import { BoxGeometry, Color, CylinderGeometry, MeshStandardMaterial, Object3D, type InstancedMesh } from "three";
 import { prngFor } from "@/lib/city/seed";
 import type { CityModel } from "@/types/city";
 import { LAMP_POST, WINDOW_COLOR, desaturate, mix, type SceneAtmosphere } from "./palette";
+import { nearParkedGeometry } from "./models/vehicles/near";
 import { CAR_COLORS, parkedGeometry, type VehicleBody } from "./models/vehicles/shapes";
 import {
   furnitureGeometry,
@@ -33,7 +35,8 @@ import {
   type ParkedVehicle,
   type PlacedProp,
 } from "./models/props/streetFurniture";
-import { WIND_CLOCK, tintedMaterial } from "./models/props/material";
+import { CAR_PAINT_PATTERN, WIND_CLOCK, tintedMaterial } from "./models/props/material";
+import { furnitureNearGeometry, lampNearGeometry, nearSizeAt, treeNearGeometry } from "./models/props/near";
 import {
   SPECIES_LEAF,
   SWAY_AMOUNT,
@@ -52,9 +55,14 @@ import { GlowField } from "./glow";
 import { useSky, useSkyFrame } from "./sky";
 import { useRevealClock } from "./useReveal";
 import { useQuality } from "./quality";
+import { LodInstances } from "./lod";
 
 const scratch = new Object3D();
 const scratchColor = new Color();
+
+/** Kerbside cars drawn in detail at once, per body type, and the size they must reach (`lod.tsx`). */
+const PARKED_NEAR_CARS = 12;
+const PARKED_NEAR_SIZE = 0.05;
 
 /**
  * Street lamps are the smallest thing in the city that still has to read as
@@ -81,6 +89,21 @@ const LAMP_POOL = 9;
 const LAMP_HALO = 1.5;
 /** Over the pavement slab and the road markings, under any car or kerb-side prop. */
 const LAMP_POOL_Y = 0.24;
+
+/**
+ * Levels of detail (`lod.tsx`). The near models are detailed inside the
+ * camera distance below (the closest the orbit camera gets to its target is
+ * 10, so these reach the street-level views and nothing farther) and only for
+ * the closest few of a layer. Trees are big and the most worth it: 24 of a
+ * species is more than a street-level frame holds, and a district is mostly
+ * one species, so this caps a heavy frame near 100k extra triangles.
+ */
+const TREE_NEAR_CAP = 24;
+const TREE_NEAR_DISTANCE = 26;
+const LAMP_NEAR_CAP = 32;
+const LAMP_NEAR_DISTANCE = 16;
+const FURNITURE_NEAR_CAP = 24;
+const FURNITURE_NEAR_DISTANCE = 14;
 
 /** The kinds of furniture, in the order their meshes are declared. */
 const FURNITURE: readonly FurnitureKind[] = ["bench", "bin", "stop", "bush", "bed"];
@@ -122,6 +145,7 @@ export default function Props({
   city: CityModel;
   atmosphere: SceneAtmosphere;
 }) {
+  const nearVersion = useNearModels();
   const treeRefs = useRef<(InstancedMesh | null)[]>([]);
   const poleRef = useRef<InstancedMesh>(null);
   const headRef = useRef<InstancedMesh>(null);
@@ -134,6 +158,24 @@ export default function Props({
   // the primitives below. Built on render, not at import: the model's data
   // arrives after the module loads.
   const modelledLamp = useMemo(() => lampGeometry(), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+  const nearLamp = useMemo(() => lampNearGeometry(), [nearVersion]);
+  // Both stand on the ground under the lamp, so one matrix places both and
+  // they go near together; the procedural primitives are lifted to match.
+  const lampPole = useMemo(
+    () => modelledLamp?.pole ?? new CylinderGeometry(0.07, 0.095, LAMP_HEIGHT, 5).translate(0, LAMP_HEIGHT / 2, 0),
+    [modelledLamp],
+  );
+  const lampHead = useMemo(
+    () => modelledLamp?.head ?? new BoxGeometry(0.32, 0.16, 0.32).translate(0, LAMP_HEIGHT + 0.09, 0),
+    [modelledLamp],
+  );
+  // The pole picks which lamps are near; the lantern draws the same ones.
+  const lampSelection = useRef<number[]>([]);
+  const lampRadius = useMemo(() => {
+    lampPole.computeBoundingSphere();
+    return lampPole.boundingSphere?.radius ?? 1;
+  }, [lampPole]);
 
   const { trees, species } = useMemo(() => {
     // A city keeps its hundred; a village plants 160, a metropolis 120.
@@ -166,11 +208,21 @@ export default function Props({
     [textureSize, anisotropy],
   );
   const parkedMaterial = useMemo(() => tintedMaterial({ roughness: 0.55, metalness: 0.08 }, undefined, {
-    textureSize, anisotropy, surfaceAttribute: true,
+    textureSize, anisotropy, surfaceAttribute: true, patternStrength: CAR_PAINT_PATTERN,
   }), [textureSize, anisotropy]);
   const furnitureMaterial = useMemo(() => tintedMaterial({ roughness: 0.9 }, undefined, {
     textureSize, anisotropy, surfaceAttribute: true,
   }), [textureSize, anisotropy]);
+  const poleMaterial = useMemo(
+    () => new MeshStandardMaterial({
+      // The modelled pole carries its baked shade in its vertex colours.
+      vertexColors: Boolean(modelledLamp),
+      color: desaturate(LAMP_POST, atmosphere.desaturation),
+      roughness: 0.7,
+      metalness: 0.2,
+    }),
+    [modelledLamp, atmosphere.desaturation],
+  );
   useEffect(
     () => () => {
       treeMaterial.dispose();
@@ -179,6 +231,7 @@ export default function Props({
     },
     [treeMaterial, parkedMaterial, furnitureMaterial],
   );
+  useEffect(() => () => poleMaterial.dispose(), [poleMaterial]);
 
   useFrame(({ clock: sceneClock }) => {
     WIND_CLOCK.value = sceneClock.elapsedTime;
@@ -199,9 +252,27 @@ export default function Props({
   const lampsLitAt = 760 + lamps.length * 8 + 300;
 
   const sky = useSky();
-  const headMaterial = useRef<MeshStandardMaterial>(null);
+  // Daylight: the lamps are lit fixtures, not beacons. The glow rises with the
+  // city's lit-window share, so a quiet city's lamps go dim with its windows,
+  // and burns brightest at night (`lampHeadGlow`, following the live hour).
+  const headMaterial = useMemo(
+    () => new MeshStandardMaterial({
+      color: mix(WINDOW_COLOR, "#ffffff", 0.3),
+      emissive: WINDOW_COLOR,
+      emissiveIntensity: lampHeadGlow(sky.atmosphere),
+      toneMapped: false,
+    }),
+    // The hour moves the glow through `useSkyFrame`, not through this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const headLive = useRef<MeshStandardMaterial | null>(null);
+  useEffect(() => {
+    headLive.current = headMaterial;
+    return () => headMaterial.dispose();
+  }, [headMaterial]);
   useSkyFrame((a) => {
-    if (headMaterial.current) headMaterial.current.emissiveIntensity = lampHeadGlow(a);
+    if (headLive.current) headLive.current.emissiveIntensity = lampHeadGlow(a);
   });
 
   const { furniture, parked } = useMemo(() => {
@@ -259,11 +330,9 @@ export default function Props({
         if (grow < 1) done = false;
         scratch.rotation.set(0, 0, 0);
         scratch.scale.setScalar(grow);
-        scratch.position.set(position[0], LAMP_HEIGHT * 0.5 * grow, position[2]);
+        scratch.position.set(position[0], 0, position[2]);
         scratch.updateMatrix();
         pole.setMatrixAt(i, scratch.matrix);
-        scratch.position.set(position[0], (LAMP_HEIGHT + 0.09) * grow, position[2]);
-        scratch.updateMatrix();
         head.setMatrixAt(i, scratch.matrix);
       });
       pole.instanceMatrix.needsUpdate = true;
@@ -340,55 +409,49 @@ export default function Props({
 
   return (
     <group>
-      {species.map((group, g) => (
-        <instancedMesh
-          key={group.kind}
-          ref={(mesh) => {
-            treeRefs.current[g] = mesh;
-          }}
-          args={[
-            treeGeometry(group.kind, atmosphere.desaturation),
-            undefined,
-            group.trees.length,
-          ]}
-          castShadow
-          frustumCulled={false}
-        >
-          <primitive object={treeMaterial} attach="material" />
-        </instancedMesh>
-      ))}
+      {species.map((group, g) => {
+        const lean = treeGeometry(group.kind, atmosphere.desaturation);
+        return (
+          <LodInstances
+            key={group.kind}
+            ref={(mesh) => {
+              treeRefs.current[g] = mesh;
+            }}
+            geometry={lean}
+            nearGeometry={treeNearGeometry(group.kind, atmosphere.desaturation)}
+            material={treeMaterial}
+            count={group.trees.length}
+            maxNear={TREE_NEAR_CAP}
+            nearSize={nearSizeAt(lean, TREE_NEAR_DISTANCE)}
+            castShadow
+          />
+        );
+      })}
 
       {lamps.length > 0 && (
         <>
-          <instancedMesh
+          <LodInstances
             ref={poleRef}
-            args={[modelledLamp?.pole, undefined, lamps.length]}
+            geometry={lampPole}
+            nearGeometry={nearLamp?.pole}
+            material={poleMaterial}
+            count={lamps.length}
+            maxNear={LAMP_NEAR_CAP}
+            nearSize={lampRadius / LAMP_NEAR_DISTANCE}
+            selection={lampSelection}
             castShadow
-            frustumCulled={false}
-          >
-            {!modelledLamp && <cylinderGeometry args={[0.07, 0.095, LAMP_HEIGHT, 5]} />}
-            <meshStandardMaterial
-              // The modelled pole carries its baked shade in its vertex colours.
-              vertexColors={Boolean(modelledLamp)}
-              color={desaturate(LAMP_POST, atmosphere.desaturation)}
-              roughness={0.7}
-              metalness={0.2}
-            />
-          </instancedMesh>
-          <instancedMesh ref={headRef} args={[modelledLamp?.head, undefined, lamps.length]} frustumCulled={false}>
-            {!modelledLamp && <boxGeometry args={[0.32, 0.16, 0.32]} />}
-            <meshStandardMaterial
-              ref={headMaterial}
-              color={mix(WINDOW_COLOR, "#ffffff", 0.3)}
-              // Daylight: the lamps are lit fixtures, not beacons. The glow
-              // rises with the city's lit-window share, so a quiet city's
-              // lamps go dim with its windows, and burns brightest at night
-              // (`lampHeadGlow`, following the live hour).
-              emissiveIntensity={lampHeadGlow(sky.atmosphere)}
-              emissive={WINDOW_COLOR}
-              toneMapped={false}
-            />
-          </instancedMesh>
+          />
+          <LodInstances
+            ref={headRef}
+            geometry={lampHead}
+            nearGeometry={nearLamp?.head}
+            material={headMaterial}
+            count={lamps.length}
+            maxNear={LAMP_NEAR_CAP}
+            nearSize={lampRadius / LAMP_NEAR_DISTANCE}
+            selection={lampSelection}
+            follow
+          />
           {/* After dark: the pool of light on the pavement under each lamp,
               and the soft halo round its head (`glow.tsx`). Two draw calls
               for every lamp in the city, hidden by day. */}
@@ -412,36 +475,39 @@ export default function Props({
         </>
       )}
 
-      {furniture.map((group, g) => (
-        <instancedMesh
-          key={group.kind}
-          ref={(mesh) => {
-            furnitureRefs.current[g] = mesh;
-          }}
-          args={[
-            furnitureGeometry(group.kind, atmosphere.desaturation),
-            undefined,
-            group.items.length,
-          ]}
-          castShadow
-          frustumCulled={false}
-        >
-          <primitive object={furnitureMaterial} attach="material" />
-        </instancedMesh>
-      ))}
+      {furniture.map((group, g) => {
+        const lean = furnitureGeometry(group.kind, atmosphere.desaturation);
+        return (
+          <LodInstances
+            key={group.kind}
+            ref={(mesh) => {
+              furnitureRefs.current[g] = mesh;
+            }}
+            geometry={lean}
+            nearGeometry={furnitureNearGeometry(group.kind, atmosphere.desaturation)}
+            material={furnitureMaterial}
+            count={group.items.length}
+            maxNear={FURNITURE_NEAR_CAP}
+            nearSize={nearSizeAt(lean, FURNITURE_NEAR_DISTANCE)}
+            castShadow
+          />
+        );
+      })}
 
       {parked.map((group, g) => (
-        <instancedMesh
+        <LodInstances
           key={group.body}
           ref={(mesh) => {
             parkedRefs.current[g] = mesh;
           }}
-          args={[parkedGeometry(group.body), undefined, group.cars.length]}
+          geometry={parkedGeometry(group.body)}
+          nearGeometry={nearParkedGeometry(group.body)}
+          material={parkedMaterial}
+          count={group.cars.length}
+          maxNear={PARKED_NEAR_CARS}
+          nearSize={PARKED_NEAR_SIZE}
           castShadow
-          frustumCulled={false}
-        >
-          <primitive object={parkedMaterial} attach="material" />
-        </instancedMesh>
+        />
       ))}
     </group>
   );

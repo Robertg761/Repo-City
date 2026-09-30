@@ -35,9 +35,10 @@ import {
   type Rgb3,
 } from "./mesh";
 import { SURFACE } from "../../textures/surface-types";
-import { importedDraft } from "../imported";
+import { importedDraft, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CIVIC_KIT } from "./civicKit.model";
+import { MODEL as CIVIC_KIT_NEAR } from "./civicKitNear.model";
 
 export interface CivicPalette {
   wall: Rgb3;
@@ -106,7 +107,10 @@ interface KitMeta {
 const kit = (): KitMeta => CIVIC_KIT.meta as KitMeta;
 
 /** The palette a build is authored in, and whether it builds from the kit. */
-type Authored = CivicPalette & { kit?: boolean };
+/** Whether the near kit has loaded: `buildCivic(..., { near: true })` reads it. */
+export const civicNearReady = (): boolean => isModelLoaded(CIVIC_KIT_NEAR);
+
+type Authored = CivicPalette & { kit?: boolean; near?: boolean };
 
 type KitPart =
   | "ColumnBase" | "ColumnShaft" | "ColumnCapital" | "Pediment" | "Steps3" | "Steps4" | "StepCheek"
@@ -157,7 +161,10 @@ function roleColor(p: CivicPalette, role: string, container?: Rgb3): Rgb3 {
 
 /** Add one kit part to a draft at a placement. */
 function addPart(draft: MeshDraft, p: CivicPalette, part: KitPart, place: Placement): void {
-  const source = importedDraft(CIVIC_KIT, part, (mat) => ({ color: roleColor(p, mat.role, place.container) }));
+  // The near kit has every part again on the same node names, origins and
+  // frames, in finer detail (`blender/civic/civic_kit_near.py`).
+  const model = (p as Authored).near ? CIVIC_KIT_NEAR : CIVIC_KIT;
+  const source = importedDraft(model, part, (mat) => ({ color: roleColor(p, mat.role, place.container) }));
   const s = place.s ?? 1;
   const sx = s * (place.sx ?? 1);
   const sy = s * (place.sy ?? 1);
@@ -222,7 +229,7 @@ function onWall(facing: Facing, u: number, v: number, plane: number, cx = 0, cz 
 function addProfile(
   draft: MeshDraft,
   profile: readonly (readonly [number, number])[],
-  spec: { y: number; w: number; d: number; cx?: number; cz?: number; scale?: number },
+  spec: { y: number; w: number; d: number; cx?: number; cz?: number; scale?: number; skip?: number[] },
   color: Rgb3,
 ): void {
   const k = spec.scale ?? 1;
@@ -235,7 +242,8 @@ function addProfile(
     [0, -1, -1, 0],
     [-1, 0, 0, 1],
   ];
-  for (const [nx, nz, ux, uz] of sides) {
+  for (const [i, [nx, nz, ux, uz]] of sides.entries()) {
+    if (spec.skip?.includes(i)) continue;
     const halfU = nx === 0 ? spec.w / 2 : spec.d / 2;
     const halfN = nx === 0 ? spec.d / 2 : spec.w / 2;
     const at = (along: number, o: number, y: number): [number, number, number] => [
@@ -250,6 +258,16 @@ function addProfile(
       addQuad(draft, at(-1, o0 * k, y0 * k), at(1, o0 * k, y0 * k), at(1, o1 * k, y1 * k), at(-1, o1 * k, y1 * k), color);
     }
   }
+}
+
+/**
+ * The stone base course round a block's foot (kit builds): the plinth's
+ * chamfered cap carried up the walls, so the sides and back stand on the same
+ * base as the front.
+ */
+function addBaseCourse(draft: MeshDraft, p: Authored, spec: { y: number; w: number; d: number; cx?: number; cz?: number }, front = false): void {
+  // The front has its own door and steps, so the course skips it unless asked.
+  if (p.kit) addProfile(draft, kit().profiles.plinthCap, { ...spec, skip: front ? [] : [0] }, p.trim);
 }
 
 /** A column from the kit: base and capital at one scale, the shaft stretched. */
@@ -275,6 +293,51 @@ function addKitDoor(draft: MeshDraft, p: CivicPalette, facing: Facing, u: number
 function addKitLantern(drafts: CivicDrafts, p: CivicPalette, x: number, y: number, z: number, diameter: number): void {
   addPart(drafts.body, p, "Lantern", { at: [x, y, z], s: diameter });
   addPart(drafts.glow, p, "LanternGlow", { at: [x, y, z], s: diameter });
+}
+
+/**
+ * A window's frame and glazing bars at the near level: real bars standing off
+ * the wall (the lean level paints them flat), a bar every half metre across
+ * and a transom every half metre up, and a projecting lintel with a keystone.
+ * Everything stands clear of the warm glass (two layers off the wall) by more
+ * than a layer, so the lit pane shows between the bars and is never fought.
+ */
+function addNearFrame(
+  draft: MeshDraft,
+  palette: Authored,
+  spec: { facing: Facing; u: number; v: number; w: number; h: number; plane: number; cx?: number; cz?: number },
+  frame: number,
+): void {
+  const { facing, cx, cz } = spec;
+  const alongX = facing === "+z" || facing === "-z";
+  const box = (u: number, v: number, w: number, h: number, d0: number, d1: number) => {
+    const [x, , z] = onWall(facing, u, 0, spec.plane + (d0 + d1) / 2, cx, cz);
+    addBox(draft, {
+      x,
+      z,
+      y: v - h / 2,
+      w: alongX ? w : d1 - d0,
+      d: alongX ? d1 - d0 : w,
+      h,
+      color: palette.trim,
+      surface: SURFACE.stone,
+    });
+  };
+  const near = CIVIC_LAYER * 2.5;
+  const far = CIVIC_LAYER * 6;
+  // The frame: head and cill full width, the stiles between them.
+  const fw = spec.w + frame * 2;
+  box(spec.u, spec.v + spec.h / 2 + frame / 2, fw, frame, 0, far);
+  box(spec.u, spec.v - spec.h / 2 - frame / 2, fw, frame, 0, far);
+  for (const side of [-1, 1]) box(spec.u + (side * (spec.w + frame)) / 2, spec.v, frame, spec.h, 0, far);
+  // Bars: as many across and up as keep a pane under half a metre.
+  const cols = Math.max(1, Math.round(spec.w / 0.5));
+  const rows = Math.max(2, Math.round(spec.h / 0.5));
+  for (let c = 1; c < cols; c++) box(spec.u - spec.w / 2 + (spec.w * c) / cols, spec.v, frame * 0.6, spec.h, near, far - CIVIC_LAYER);
+  for (let r = 1; r < rows; r++) box(spec.u, spec.v - spec.h / 2 + (spec.h * r) / rows, spec.w, frame * 0.6, near + CIVIC_LAYER, far - CIVIC_LAYER * 2);
+  // A lintel over the head, and its keystone.
+  box(spec.u, spec.v + spec.h / 2 + frame + 0.05, fw + 0.16, 0.1, 0, far + CIVIC_LAYER);
+  box(spec.u, spec.v + spec.h / 2 + frame + 0.09, frame * 2.4, 0.18, far + CIVIC_LAYER, far + CIVIC_LAYER * 3);
 }
 
 /** A window: a dark pane in the wall, and warm glass just in front of it. */
@@ -306,19 +369,25 @@ function addWindow(
     // sized, stretched only along the wall.
     const span = spec.w + frame * 2 + 0.1;
     const { facing, cx, cz, u, plane } = spec;
-    addPart(drafts.body, palette, "Sill", { at: onWall(facing, u, spec.v - spec.h / 2 - frame, plane, cx, cz), facing, sx: span });
+    // A tall window gets a deeper, heavier sill, or its slit reads as cut in the wall.
+    const heavy = spec.h > 1.2 ? 1.8 : 1;
+    addPart(drafts.body, palette, "Sill", { at: onWall(facing, u, spec.v - spec.h / 2 - frame, plane, cx, cz), facing, sx: span, sy: heavy, sz: heavy });
     if (spec.hood) {
       addPart(drafts.body, palette, "Hood", { at: onWall(facing, u, spec.v + spec.h / 2 + frame, plane, cx, cz), facing, sx: span });
     }
   }
   const plane = spec.plane + CIVIC_LAYER * 3;
-  for (const side of [-1, 1]) {
-    addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
-    addPanel(drafts.body, { ...spec, v: spec.v + side * (spec.h + frame) / 2, w: spec.w, h: frame, plane }, palette.trim);
+  if (palette.near) {
+    addNearFrame(drafts.body, palette, spec, frame);
+  } else {
+    for (const side of [-1, 1]) {
+      addPanel(drafts.body, { ...spec, u: spec.u + side * (spec.w + frame) / 2, w: frame, h: spec.h + frame * 2, plane }, palette.trim);
+      addPanel(drafts.body, { ...spec, v: spec.v + side * (spec.h + frame) / 2, w: spec.w, h: frame, plane }, palette.trim);
+    }
+    // Proud glazing bars remain visible in front of the warm glass at night.
+    addPanel(drafts.body, { ...spec, w: frame * 0.7, plane }, palette.trim);
+    addPanel(drafts.body, { ...spec, h: frame * 0.7, plane }, palette.trim);
   }
-  // Proud glazing bars remain visible in front of the warm glass at night.
-  addPanel(drafts.body, { ...spec, w: frame * 0.7, plane }, palette.trim);
-  addPanel(drafts.body, { ...spec, h: frame * 0.7, plane }, palette.trim);
   if (spec.lit !== false) {
     addPanel(
       drafts.glow,
@@ -507,6 +576,10 @@ function library(plot: CivicPlot, p: Authored): CivicDrafts {
       d: d * 0.82,
       color: p.wall,
     });
+    const wingX = side * (w / 2 + wingW / 2 - 0.05);
+    addBaseCourse(body, p, { y: base, w: wingW, d: d * 0.82, cx: wingX, cz: -d * 0.04 }, true);
+    // The wing's own cornice, under its roof slab.
+    if (p.kit) addProfile(body, kit().profiles.cornice, { y: base + wingH - 0.15, w: wingW, d: d * 0.82, cx: wingX, cz: -d * 0.04, scale: 0.5 }, p.trim);
     addBox(body, {
       x: side * (w / 2 + wingW / 2 - 0.05),
       y: base + wingH,
@@ -525,12 +598,14 @@ function library(plot: CivicPlot, p: Authored): CivicDrafts {
         v: base + wingH * 0.55,
         w: d * 0.16,
         h: wingH * 0.45,
+        hood: true,
         plane: wingW / 2,
       });
     }
   }
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   // A band course, halfway up, right round the block.
   if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.52, w, d }, p.trim);
   else addBox(body, { y: base + h * 0.52, w: w + 0.16, h: 0.18, d: d + 0.16, color: p.trim });
@@ -651,6 +726,7 @@ function clockHall(plot: CivicPlot, p: Authored): CivicDrafts {
   const body = drafts.body;
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   if (p.kit) addProfile(body, kit().profiles.band, { y: base + h * 0.44, w, d }, p.trim);
   else addBox(body, { y: base + h * 0.44, w: w + 0.14, h: 0.16, d: d + 0.14, color: p.trim });
 
@@ -794,6 +870,7 @@ function archive(plot: CivicPlot, p: Authored): CivicDrafts {
   const body = drafts.body;
 
   addBox(body, { y: base, w, h, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   // Buttresses: an archive is a building that holds weight.
   if (p.kit) {
     for (let i = -1; i <= 1; i++) {
@@ -964,6 +1041,7 @@ function warehouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const shedD = d * 0.78;
 
   addBox(body, { y: base, w, h: shedH, d: shedD, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d: shedD });
   // A barrel roof, built as a fan of facets: nothing else in the city has one.
   const facets = 9;
   const radius = w * 0.5;
@@ -1097,6 +1175,7 @@ function flagHouse(plot: CivicPlot, p: Authored): CivicDrafts {
   const wallH = h * 0.78;
 
   addBox(body, { y: base, w, h: wallH, d, color: p.wall });
+  addBaseCourse(body, p, { y: base, w, d });
   addBox(body, { y: base + wallH, w: w + 0.3, h: 0.18, d: d + 0.3, color: p.trim });
   addGable(body, { y: base + wallH + 0.18, w: w + 0.3, h: h * 0.34, d: d + 0.3, color: p.roof, ridge: "x" });
 
@@ -1206,16 +1285,19 @@ function addPlinth(draft: MeshDraft, plot: CivicPlot, p: CivicPalette): void {
  * Build one civic building at its reserved plot size. `models` picks the
  * procedural build or the one assembled from the Blender kit; by default it
  * follows `BLENDER_MODELS` (`../modelSource`): the kit in the app, the
- * procedural build in tests unless they ask.
+ * procedural build in tests unless they ask. `near` assembles the same
+ * building from the near kit's finer parts (only with the Blender kit): the
+ * app draws it in place of the lean one when the camera is close.
  */
 export function buildCivic(
   kind: LandmarkFile,
   plot: CivicPlot,
   palette: CivicPalette,
-  options: { models?: "procedural" | "blender" } = {},
+  options: { models?: "procedural" | "blender"; near?: boolean } = {},
 ): CivicDrafts {
   const authored: Authored = {
     kit: (options.models ?? (BLENDER_MODELS ? "blender" : "procedural")) === "blender",
+    near: options.near === true,
     wall: surfaceColor(palette.wall, SURFACE.plaster),
     stone: surfaceColor(palette.stone, SURFACE.stone),
     roof: surfaceColor(palette.roof, SURFACE.slate),

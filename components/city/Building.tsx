@@ -23,11 +23,14 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { Color, type BufferAttribute, type BufferGeometry } from "three";
+import { useFrame } from "@react-three/fiber";
+import { Color, type BufferAttribute, type BufferGeometry, type Group } from "three";
 import type { LandmarkFile } from "@/types/analysis";
 import type { Building } from "@/types/city";
 import { toGeometry } from "./models/buildings/geometry";
-import { buildCivic, type CivicPalette } from "./models/buildings/civic";
+import { buildCivic, civicNearReady, type CivicPalette } from "./models/buildings/civic";
+import { BLENDER_MODELS } from "./models/modelSource";
+import { useNearModels } from "./models/useModels";
 import type { Rgb3 } from "./models/buildings/mesh";
 import {
   CIVIC_COLOR,
@@ -39,6 +42,7 @@ import {
   SELECT_TINT,
   WINDOW_COLOR,
   desaturate,
+  litWindowGlow,
   mix,
   type SceneAtmosphere,
 } from "./palette";
@@ -54,6 +58,15 @@ interface CivicBuildingProps {
 }
 
 const scratchColor = new Color();
+
+/**
+ * How close the camera has to be, in world units, for a civic building to be
+ * drawn from the near kit's finer parts (`blender/civic/civic_kit_near.py`) in
+ * place of the lean ones: the same distance the ordinary buildings switch at
+ * (`BUILDING_NEAR_DISTANCE` in `Buildings.tsx`). Each civic building is drawn
+ * once, so this swaps two whole models rather than instancing.
+ */
+const CIVIC_NEAR_DISTANCE = 64;
 
 /** Palette hex -> the renderer's working colour space, once per city. */
 function toRgb(hex: string, desaturation: number): Rgb3 {
@@ -111,20 +124,35 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
   );
   useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
   // The windows follow the live hour, brightest at night (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
+  const glow = useSkyValue((a) => litWindowGlow(a));
   const [width, height, depth] = building.size;
   const kind: LandmarkFile | null = building.plan.landmark;
 
   const model = useMemo(() => {
     if (!kind) return null;
     const palette = civicPalette(atmosphere.desaturation);
-    const drafts = buildCivic(kind, { w: width, h: height, d: depth }, palette);
+    const lean = buildCivic(kind, { w: width, h: height, d: depth }, palette);
     return {
-      body: toGeometry(drafts.body),
-      glow: toGeometry(drafts.glow),
-      baseColors: Float32Array.from(drafts.body.colors),
+      body: toGeometry(lean.body),
+      glow: toGeometry(lean.glow),
+      baseColors: Float32Array.from(lean.body.colors),
     };
   }, [kind, width, height, depth, atmosphere.desaturation]);
+
+  // The near level: the same building from the kit's finer parts. Only the
+  // Blender kit has one, and it arrives after the city is drawn: null until
+  // then (`useNearModels`), built in a render of its own when it lands.
+  useNearModels();
+  const nearReady = BLENDER_MODELS && civicNearReady();
+  const nearModel = useMemo(() => {
+    if (!kind || !nearReady) return null;
+    const near = buildCivic(kind, { w: width, h: height, d: depth }, civicPalette(atmosphere.desaturation), { near: true });
+    return {
+      body: toGeometry(near.body),
+      glow: toGeometry(near.glow),
+      baseColors: Float32Array.from(near.body.colors),
+    };
+  }, [kind, nearReady, width, height, depth, atmosphere.desaturation]);
 
   // The geometry belongs to this model, not to a module cache: a new city has
   // to be able to hand the old one back to the GPU.
@@ -135,16 +163,53 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
       model.glow.dispose();
     };
   }, [model]);
+  useEffect(() => {
+    if (!nearModel) return;
+    return () => {
+      nearModel.body.dispose();
+      nearModel.glow.dispose();
+    };
+  }, [nearModel]);
 
   const tinted = useRef(false);
   useEffect(() => {
     if (!model) return;
     if (!hovered && !selected && !tinted.current) return;
     tintInto(model.body, model.baseColors, hovered, selected);
+    if (nearModel) tintInto(nearModel.body, nearModel.baseColors, hovered, selected);
     tinted.current = hovered || selected;
-  }, [model, hovered, selected]);
+  }, [model, nearModel, hovered, selected]);
+
+  // Near or lean: one of the two is drawn, by the camera's distance to the
+  // building (with a margin either way, so it does not flicker at the edge).
+  const leanRef = useRef<Group>(null);
+  const nearRef = useRef<Group>(null);
+  const isNear = useRef(false);
+  useFrame(({ camera }) => {
+    if (!nearRef.current || !leanRef.current) return;
+    const dx = camera.position.x - building.position[0];
+    const dy = camera.position.y - building.position[1];
+    const dz = camera.position.z - building.position[2];
+    const distance = Math.hypot(dx, dy, dz);
+    const near = distance < CIVIC_NEAR_DISTANCE * (isNear.current ? 1.1 : 0.95);
+    if (near === isNear.current && nearRef.current.visible === near) return;
+    isNear.current = near;
+    nearRef.current.visible = near;
+    leanRef.current.visible = !near;
+  });
 
   if (!model) return null;
+
+  const glowMaterial = (
+    <meshStandardMaterial
+      color={WINDOW_COLOR}
+      emissive={WINDOW_COLOR}
+      emissiveIntensity={0.18 + glow}
+      roughness={0.42}
+      metalness={0}
+      toneMapped={false}
+    />
+  );
 
   return (
     <group
@@ -153,20 +218,19 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
       rotation-y={building.rotationY}
       {...handlers}
     >
-      <mesh geometry={model.body} castShadow receiveShadow>
-        <primitive object={bodyMaterial} attach="material" />
-      </mesh>
-      {model.glow.getAttribute("position").count > 0 && (
-        <mesh geometry={model.glow}>
-          <meshStandardMaterial
-            color={WINDOW_COLOR}
-            emissive={WINDOW_COLOR}
-            emissiveIntensity={0.18 + glow}
-            roughness={0.42}
-            metalness={0}
-            toneMapped={false}
-          />
+      <group ref={leanRef}>
+        <mesh geometry={model.body} castShadow receiveShadow>
+          <primitive object={bodyMaterial} attach="material" />
         </mesh>
+        {model.glow.getAttribute("position").count > 0 && <mesh geometry={model.glow}>{glowMaterial}</mesh>}
+      </group>
+      {nearModel && (
+        <group ref={nearRef} visible={false}>
+          <mesh geometry={nearModel.body} castShadow receiveShadow>
+            <primitive object={bodyMaterial} attach="material" />
+          </mesh>
+          {nearModel.glow.getAttribute("position").count > 0 && <mesh geometry={nearModel.glow}>{glowMaterial}</mesh>}
+        </group>
       )}
     </group>
   );

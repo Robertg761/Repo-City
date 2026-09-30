@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import kit  # noqa: E402
 import lowpoly as lp  # noqa: E402
+from fleet import carkit  # noqa: E402
 from kit import B, box, finish  # noqa: E402
 
 SKIN = "#c99f7d"
@@ -45,6 +46,7 @@ def palette():
         "trousers": m("trousers", "#35404b", "fabric", 0.9),
         "shoes": m("shoes", "#292b2e", "fabric", 0.8),
         "hands": m("hands", SKIN, "plaster", 0.8),
+        "pack": m("pack", "#6d5b47", "fabric", 0.9),
         "skin": m("paintskin", "#ffffff", "plaster", 0.8),
         "hair": m("hair", "#4a3830", "fabric", 0.9),
         "eyes": m("eyes", "#302d29", "glass", 0.4),
@@ -86,11 +88,13 @@ def body(M):
         parts += [
             lp.tube(f"leg{side}", (x, -0.1, 0), (x * 1.05, -0.375, 0.0), 0.058, 0.045, M["trousers"], sides=5),
             box(f"shoe{side}", (0.09, 0.065, 0.17), (x * 1.05, -0.4075, 0.03), M["shoes"], bev=0),
-            lp.tube(f"arm{side}", (side * 0.16, 0.27, 0), (side * 0.185, -0.05, 0.01), 0.042, 0.034, M["clothes"],
+            lp.tube(f"arm{side}", (side * 0.16, 0.27, 0), (side * 0.155, -0.05, 0.01), 0.042, 0.034, M["clothes"],
                     sides=5, cap0=True),
-            lp.tube(f"hand{side}", (side * 0.185, -0.05, 0.01), (side * 0.19, -0.125, 0.015), 0.03, 0.024, M["hands"],
-                    sides=4, cap1=True),
+            lp.tube(f"hand{side}", (side * 0.155, -0.05, 0.01), (side * 0.154, -0.125, 0.015), 0.03, 0.024, M["hands"],
+                    sides=3, cap1=True),
         ]
+    # The backpack the near figure carries: one box behind the shoulders.
+    parts.append(carkit.lidless_box("pack", (0.19, 0.25, 0.095), (0, 0.085, -0.14), M["pack"]))
     return finish(parts, "WalkerBody")
 
 

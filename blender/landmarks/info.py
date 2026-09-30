@@ -264,6 +264,9 @@ def visitor_centre(M):
 # ---------------------------------------------------------------- level 3: the library
 
 
+BACK_WINDOWS = (-3.9, -2.3, 2.3, 3.9)
+
+
 def library(M):
     x, z = -2.6, -0.4
     base = DECK + 0.4
@@ -277,8 +280,10 @@ def library(M):
     for s in (-1, 1):
         for wz in (-2.0, 0.0, 2.0):
             cuts.append(box("sideCut", (0.4, 2.6, 0.9), (x + s * 5.0, base + 2.3, z + wz * 0.95), M["recess"], bev=0.0))
-    for wx in (-3.6, -1.2, 1.2, 3.6):
+    for wx in BACK_WINDOWS:
         cuts.append(box("backCut", (0.9, 2.6, 0.4), (x + wx, base + 2.3, z - 3.0), M["recess"], bev=0.0))
+    # A staff door in the middle of the back, and a louvre over it.
+    cuts.append(box("backDoorCut", (1.4, 2.3, 0.4), (x, base + 1.15, z - 3.0), M["recess"], bev=0.0))
     cut_many(hall, cuts)
     parts.append(hall)
     parts.append(box("front", (8.6, 3.2, 0.05), (x, base + 1.9, front - 0.18), M["glass"], bev=0.0))
@@ -289,7 +294,19 @@ def library(M):
         for wz in (-2.0, 0.0, 2.0):
             parts.append(box("sideGlass", (0.05, 2.6, 0.9), (x + s * 4.88, base + 2.3, z + wz * 0.95), M["glass"], bev=0.0))
             parts.append(box("sideSill", (0.16, 0.08, 1.05), (x + s * 5.05, base + 0.96, z + wz * 0.95), M["roof"], bev=0.0))
-    for wx in (-3.6, -1.2, 1.2, 3.6):
+    back = z - 3.0
+    parts.append(box("backDoor", (1.4, 2.3, 0.06), (x, base + 1.15, back + 0.12), M["frame"], bev=0.0))
+    parts.append(box("backDoorGlass", (0.5, 0.9, 0.04), (x, base + 1.6, back + 0.08), M["glass"], bev=0.0))
+    parts.append(box("backHood", (2.0, 0.12, 0.7), (x, base + 2.5, back - 0.35), M["roof"], bev=0.03))
+    parts.append(box("backStep", (1.8, 0.16, 0.5), (x, base + 0.08, back - 0.27), M["deck"], bev=0.02))
+    parts.append(box("backVentFrame", (1.2, 0.42, 0.08), (x, base + 3.9, back - 0.04), M["roof"], bev=0.01))
+    for k in range(4):
+        parts.append(box("backVentSlat", (1.04, 0.05, 0.05), (x, base + 3.77 + k * 0.1, back - 0.07), M["frame"], bev=0.0))
+    for wx in (-1.1, 1.1):
+        parts.append(box("backLamp", (0.2, 0.28, 0.16), (x + wx, base + 2.2, back - 0.1), M["frame"], bev=0.02))
+    for s in (-1, 1):
+        parts.append(box("backPipe", (0.12, 4.4, 0.12), (x + s * 4.9, base + 2.2, back - 0.12), M["frame"], bev=0.0))
+    for wx in BACK_WINDOWS:
         parts.append(box("backGlass", (0.9, 2.6, 0.05), (x + wx, base + 2.3, z - 2.88), M["glass"], bev=0.0))
     # The colonnade: six columns with bases and capitals, and the entablature.
     for i in range(6):

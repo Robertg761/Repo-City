@@ -34,6 +34,7 @@
  * keeps the city's models; its hall is the town hall.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group } from "three";
@@ -52,6 +53,7 @@ import {
   WARNING_ORANGE,
   WINDOW_COLOR,
   desaturate,
+  litWindowGlow,
   mix,
   stateTint,
   type SceneAtmosphere,
@@ -59,7 +61,7 @@ import {
 import { BatchEntity } from "./Batch";
 import { Beacon, BlinkLight, Glow, Smoke, Sparks } from "./effects";
 import { facingTurn } from "./models/landmarks/facing";
-import { POWER_ANCHORS, powerPlant } from "./models/landmarks/power";
+import { POWER_ANCHORS, powerMode, powerPlant } from "./models/landmarks/power";
 import { fireStation } from "./models/landmarks/fire";
 import { infoCentre } from "./models/landmarks/info";
 import {
@@ -74,6 +76,18 @@ import {
   type Pantograph,
 } from "./models/landmarks/station";
 import { townHall } from "./models/landmarks/townhall";
+import {
+  chapelNear,
+  fireStationNear,
+  haltNear,
+  infoCentreNear,
+  powerPlantNear,
+  substationNear,
+  townHallNear,
+  trainCarsNear,
+  transitStationNear,
+  villageFireStationNear,
+} from "./models/landmarks/near";
 import {
   VILLAGE_NATURAL_SIZE,
   chapel,
@@ -106,11 +120,26 @@ const TRIM = mix(CIVIC_COLOR, "#ffffff", 0.75);
 const CONCRETE_GREY = mix(CONCRETE, "#7f8683", 0.55);
 const SLATE = "#8c9ea3";
 const STEEL = "#7d8689";
-const DARK_STEEL = "#414950";
+const DARK_STEEL = "#59626a";
 const SIGN_BLUE = "#4d8fce";
 const TRANSIT_BLUE = "#4489b4";
 const VERDIGRIS = "#7fb1a8";
 const ENGINE_RED = mix(HAZARD_RED, "#e05540", 0.5);
+
+/**
+ * A landmark is drawn once, so its detailed level (`models/landmarks/near.ts`,
+ * 30 to 60 thousand triangles each) replaces the lean one outright instead of
+ * standing in for the closest instances, as it does for the instanced layers.
+ * The quality governor already steps down when frames sag, and the low tier
+ * takes the lean model back: no distance switch is needed for a handful of
+ * buildings, and none of them can be seen swapping.
+ */
+function useDetailed(): boolean {
+  // The detailed models arrive after the city is drawn; the near accessors
+  // return null until they do, and this asks again when each lands.
+  useNearModels();
+  return useQuality().tier !== "low";
+}
 
 /** One merged slot, drawn with one material. Absent slots draw nothing. */
 function Part({
@@ -182,7 +211,8 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const recent = state === "recent-failure";
   const troubled = failing || recent;
   const bare = state === "none";
-  const slots = powerPlant(state);
+  const detailed = useDetailed();
+  const slots = (detailed && powerPlantNear(powerMode(state))) || powerPlant(state);
   const windows = useRef<MeshStandardMaterial>(null);
 
   const lit = troubled ? 0.14 + skin.glow * 0.5 : 0.4 + skin.glow;
@@ -208,7 +238,7 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
     <group>
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.hull} color={skin.tint(PALE)} roughness={0.82} />
-      <Part geometry={slots.cold} color={skin.tint("#6f6a64")} roughness={0.95} />
+      <Part geometry={slots.cold} color={skin.tint("#857f78")} roughness={0.95} />
       <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
       <Part geometry={slots.hazard} color={skin.tint(HAZARD_RED)} roughness={0.7} />
       <Part
@@ -325,7 +355,8 @@ function PowerPlant({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
 
 /** Tests as the city's emergency service (PLAN.md section 15). */
 function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const { slots, beacons } = fireStation(landmark.level);
+  const detailed = useDetailed();
+  const { slots, beacons } = (detailed && fireStationNear(landmark.level)) || fireStation(landmark.level);
 
   return (
     <group>
@@ -335,7 +366,7 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.6} />
       <Part geometry={slots.steel} color={skin.tint(DARK_STEEL)} roughness={0.5} metalness={0.25} />
       <Part geometry={slots.metal} color={skin.tint(STEEL)} roughness={0.45} metalness={0.35} />
-      <Part geometry={slots.dark} color={skin.tint("#2b2f33")} roughness={0.8} />
+      <Part geometry={slots.dark} color={skin.tint("#4d5359")} roughness={0.8} />
       <Part geometry={slots.green} color={skin.tint(TREE_LEAF)} roughness={0.95} />
       <Part geometry={slots.blue} color={skin.tint("#3d5068")} roughness={0.25} metalness={0.2} />
       <Part
@@ -354,7 +385,8 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
 
 /** Documentation as the city's wayfinding (PLAN.md section 16). */
 function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const { slots, lamps } = infoCentre(landmark.level);
+  const detailed = useDetailed();
+  const { slots, lamps } = (detailed && infoCentreNear(landmark.level)) || infoCentre(landmark.level);
 
   return (
     <group>
@@ -375,7 +407,7 @@ function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       />
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.8} rate={0.2} strength={0.16} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.8} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -383,7 +415,8 @@ function VisitorCenter({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
 
 /** One train, drawn from the shared geometry. */
 function Train({ skin, clip, pantograph }: { skin: Skin; clip?: Plane[]; pantograph: Pantograph }) {
-  const cars = trainCars(pantograph);
+  const detailed = useDetailed();
+  const cars = (detailed && trainCarsNear(pantograph)) || trainCars(pantograph);
   return (
     <>
       <Part
@@ -422,7 +455,8 @@ const PORTAL_PLANE = new Plane(new Vector3(-1, 0, 0), PORTAL_X);
  */
 function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const level = landmark.level;
-  const { slots, lamps, tracks } = transitStation(level);
+  const detailed = useDetailed();
+  const { slots, lamps, tracks } = (detailed && transitStationNear(level)) || transitStation(level);
   const perMinute = landmark.detail?.trainsPerMinute ?? fallbackArrivals(level);
   const frame = useRef<Group>(null);
   const train = useRef<Group>(null);
@@ -470,7 +504,7 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
 
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.9} rate={0.2} strength={0.18} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.9} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -478,7 +512,8 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
 
 /** The repository itself, at the centre of the city (PLAN.md section 23). */
 function TownHall({ skin }: { skin: Skin }) {
-  const { slots, lantern } = townHall();
+  const detailed = useDetailed();
+  const { slots, lantern } = (detailed && townHallNear()) || townHall();
 
   return (
     <group>
@@ -517,7 +552,8 @@ const BRICK = "#a8604a";
 
 /** The chapel on the green: the repository itself, in a village (PLAN.md 76.10). */
 function Chapel({ skin }: { skin: Skin }) {
-  const { slots, lamp } = chapel();
+  const detailed = useDetailed();
+  const { slots, lamp } = (detailed && chapelNear()) || chapel();
   return (
     <group>
       <Part geometry={slots.stone} color={skin.tint(LIMESTONE)} roughness={0.92} />
@@ -534,14 +570,15 @@ function Chapel({ skin }: { skin: Skin }) {
         roughness={0.3}
         cast={false}
       />
-      {skin.glow > 0.45 && <Glow position={lamp} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />}
+      {skin.glow > 0.45 && <Glow position={lamp} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.36} nightOnly />}
     </group>
   );
 }
 
 /** The village's retained fire station (PLAN.md section 15, at village scale). */
 function VillageFireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const { slots, beacons } = villageFireStation(landmark.level);
+  const detailed = useDetailed();
+  const { slots, beacons } = (detailed && villageFireStationNear(landmark.level)) || villageFireStation(landmark.level);
   return (
     <group>
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
@@ -566,7 +603,8 @@ function VillageFireStation({ landmark, skin }: { landmark: Landmark; skin: Skin
 
 /** The halt: releases, at village scale (PLAN.md section 20). */
 function Halt({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const { slots, lamps } = halt(landmark.level);
+  const detailed = useDetailed();
+  const { slots, lamps } = (detailed && haltNear(landmark.level)) || halt(landmark.level);
   return (
     <group>
       <Part geometry={slots.deck} color={skin.tint(mix(CONCRETE_GREY, LIMESTONE, 0.4))} roughness={0.95} />
@@ -585,7 +623,7 @@ function Halt({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       />
       {skin.glow > 0.45 &&
         lamps.map((at, i) => (
-          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.18} />
+          <Glow key={i} position={at} color={WINDOW_COLOR} radius={0.7} rate={0.2} strength={0.36} nightOnly />
         ))}
     </group>
   );
@@ -597,7 +635,8 @@ function Halt({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
  * because nothing to report is not a fault.
  */
 function Substation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
-  const { slots, anchors } = substation();
+  const detailed = useDetailed();
+  const { slots, anchors } = (detailed && substationNear()) || substation();
   const state = landmark.state;
   const failing = state === "failing";
   const recent = state === "recent-failure";
@@ -608,7 +647,7 @@ function Substation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
       <Part geometry={slots.hull} color={skin.tint(mix(PALE, "#b8c2bf", 0.5))} roughness={0.7} />
       <Part geometry={slots.steel} color={skin.tint(STEEL)} roughness={0.5} metalness={0.35} />
       <Part geometry={slots.hazard} color={skin.tint(WARNING_ORANGE)} roughness={0.7} />
-      <Part geometry={slots.dark} color={skin.tint("#4a4e52")} roughness={0.8} />
+      <Part geometry={slots.dark} color={skin.tint("#69717a")} roughness={0.8} />
       <Part geometry={slots.wood} color={skin.tint(OAK)} roughness={0.9} />
       <Part geometry={slots.glass} color={skin.tint("#9fb9c4")} roughness={0.3} metalness={0.1} />
       <mesh position={anchors.lamp}>
@@ -670,7 +709,7 @@ export default function LandmarkPiece({
 
   // Lit with the city's windows, and more at night: the power plant, the
   // fire station and the station are landmarks after dark too (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.45);
+  const glow = useSkyValue((a) => litWindowGlow(a) + a.nightness * 0.05);
   const skin: Skin = {
     wall: tint(CIVIC_COLOR),
     roof: tint(CIVIC_ROOF),

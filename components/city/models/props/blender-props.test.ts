@@ -16,7 +16,14 @@ import {
   furnitureGeometry,
   type FurnitureKind,
 } from "./streetFurniture";
-import { blenderWalkerBodyParts, blenderWalkerHeadParts, walkerBodyGeometry, walkerHeadGeometry } from "./walkerModel";
+import {
+  blenderWalkerBodyNearParts,
+  blenderWalkerBodyParts,
+  blenderWalkerHeadNearParts,
+  blenderWalkerHeadParts,
+  walkerBodyGeometry,
+  walkerHeadGeometry,
+} from "./walkerModel";
 import { figureParts } from "./figures";
 import { SURFACE_ATTRIBUTE } from "../../textures/surface-types";
 
@@ -114,17 +121,17 @@ describe("Blender street furniture", () => {
     }
   });
 
-  it("stands the lamp's pole and lantern on the procedural lamp's instance origins", () => {
+  it("stands the lamp's pole and lantern on the ground under the lamp, one origin for both", () => {
     const { pole, head } = blenderLampGeometry();
-    expect(triangleCount(pole)).toBeLessThanOrEqual(56);
+    expect(triangleCount(pole)).toBeLessThanOrEqual(72);
     expect(triangleCount(head)).toBeLessThanOrEqual(16);
     const p = bounds(pole);
-    // The pole's instance stands at half its height, as the cylinder's does.
-    expect(p.min.y).toBeCloseTo(-LAMP_HEIGHT / 2, 3);
-    expect(p.max.y + LAMP_HEIGHT / 2).toBeLessThan(LAMP_HEAD_Y + 0.25);
+    expect(p.min.y).toBeCloseTo(0, 3);
+    expect(p.max.y).toBeGreaterThan(LAMP_HEIGHT);
+    expect(p.max.y).toBeLessThan(LAMP_HEAD_Y + 0.25);
     // The lantern is centred on the halo's anchor.
     const h = bounds(head);
-    expect((h.min.y + h.max.y) / 2).toBeCloseTo(0, 1);
+    expect((h.min.y + h.max.y) / 2).toBeCloseTo(LAMP_HEAD_Y, 1);
     expect(Math.abs(h.min.x + h.max.x)).toBeLessThan(1e-3);
     expect(Math.abs(h.min.z + h.max.z)).toBeLessThan(1e-3);
     // Pole colour comes from the material: the vertex colour is shade only.
@@ -187,5 +194,50 @@ describe("Blender walker", () => {
   it("still places a procedural crew at their feet (figures accept parts without a position)", () => {
     const geometry = mergeParts(figureParts({ position: [2, 3, 4], color: "#e6c02f", helmet: "#f0d44a" }));
     expect(bounds(geometry).min.y).toBeCloseTo(3);
+  });
+});
+
+describe("Blender walker, near level", () => {
+  const body = mergeParts(blenderWalkerBodyNearParts());
+  const head = mergeParts(blenderWalkerHeadNearParts());
+
+  it("stays within the 3,000 triangle budget and the lean figure's frame", () => {
+    expect(triangleCount(body) + triangleCount(head)).toBeLessThanOrEqual(3000);
+    expect(triangleCount(body) + triangleCount(head)).toBeGreaterThan(2500);
+    const b = bounds(body);
+    const h = bounds(head);
+    // Soles on the same ground, shoulders and arms inside the lean width.
+    expect(b.min.y).toBeCloseTo(-0.44, 2);
+    expect(b.max.y).toBeLessThanOrEqual(0.36);
+    expect(b.max.x - b.min.x).toBeLessThan(0.47);
+    expect(b.min.x).toBeCloseTo(-b.max.x, 2);
+    // The backpack is the one thing behind the lean body's depth.
+    expect(b.min.z).toBeGreaterThan(-0.25);
+    expect(b.max.z).toBeLessThan(0.2);
+    // The neck runs down into the collar; the crown stays at the lean head's height.
+    expect(h.min.y).toBeGreaterThanOrEqual(-0.21);
+    expect(h.max.y).toBeLessThan(0.18);
+    expect(h.max.x - h.min.x).toBeLessThan(0.34);
+  });
+
+  it("keeps the lean figure's colour roles: paint takes the tint, the rest stays fixed", () => {
+    for (const geometry of [body, head]) {
+      const paint = geometry.getAttribute(PAINT_ATTRIBUTE);
+      const color = geometry.getAttribute("color");
+      let tinted = 0;
+      let fixed = 0;
+      for (let i = 0; i < paint.count; i++) {
+        if (paint.getX(i) > 0.5) {
+          tinted++;
+          expect(color.getX(i)).toBeCloseTo(color.getY(i), 5);
+          expect(color.getX(i)).toBeCloseTo(color.getZ(i), 5);
+        } else fixed++;
+      }
+      expect(tinted).toBeGreaterThan(0);
+      expect(fixed).toBeGreaterThan(0);
+    }
+    // Jacket layers are paint; the hands and the backpack are not.
+    expect(blenderWalkerBodyNearParts().filter((part) => part.paint).length).toBeGreaterThan(0);
+    expect(blenderWalkerHeadNearParts().some((part) => part.paint)).toBe(true);
   });
 });

@@ -11,8 +11,9 @@
  * the procedural models rather than leaving an empty stage.
  */
 
-import { useEffect, useState } from "react";
-import { loadModels, modelsLoaded } from "./imported";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useFrame } from "@react-three/fiber";
+import { loadModels, loadNearModels, modelsLoaded, nearModelsVersion, subscribeNearModels } from "./imported";
 import { BLENDER_MODELS, PROCEDURAL_PARAM } from "./modelSource";
 
 async function loadWithRetry(): Promise<void> {
@@ -49,4 +50,65 @@ export function useModelsReady(): boolean {
     };
   }, [ready]);
   return ready;
+}
+
+const serverVersion = () => 0;
+
+/**
+ * A number that changes each time a near model lands (`loadNearModels`).
+ * Read it in a component that draws a near level, and put it in the deps of
+ * any memo that builds one: the near accessors return null until their model
+ * is in, and this is what makes the component ask again.
+ */
+export function useNearModels(): number {
+  return useSyncExternalStore(subscribeNearModels, nearModelsVersion, serverVersion);
+}
+
+/**
+ * How long after the city is on screen the near models are fetched at the
+ * latest, if the camera has still not come close: long enough that the reveal,
+ * the quality probe and the baked surface swaps are all over, soon enough that
+ * they are in before a visitor has zoomed in.
+ */
+const NEAR_IDLE_DELAY_MS = 10_000;
+/** The camera this low (world units above the ground) is close enough for a near level to matter. */
+export const NEAR_APPROACH_HEIGHT = 110;
+
+/**
+ * Starts fetching the near levels once the city has been drawn (`shown`), in
+ * the background, one model at a time, and only when they can matter: the
+ * moment the camera comes down towards the city (`NearModelsOnApproach`), or
+ * when the browser has been idle for a while after the reveal. Never on the
+ * low tier or the procedural models, which have none (`enabled` false).
+ */
+export function useLoadNearModels(shown: boolean, enabled: boolean): void {
+  useEffect(() => {
+    if (!shown || !enabled || !BLENDER_MODELS) return;
+    let timer = 0;
+    let idle = 0;
+    const start = () => {
+      // Waits for the browser to have nothing else to do, but not for ever.
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(() => void loadNearModels(), { timeout: 5000 });
+      else void loadNearModels();
+    };
+    timer = window.setTimeout(start, NEAR_IDLE_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+    };
+  }, [shown, enabled]);
+}
+
+/**
+ * Inside the canvas: fetches the near levels as soon as the camera has come
+ * down close enough to draw one, instead of waiting out the idle delay.
+ */
+export function useLoadNearModelsOnApproach(enabled: boolean): void {
+  const started = useRef(false);
+  useFrame(({ camera }) => {
+    if (started.current || !enabled || !BLENDER_MODELS) return;
+    if (camera.position.y > NEAR_APPROACH_HEIGHT) return;
+    started.current = true;
+    void loadNearModels();
+  });
 }

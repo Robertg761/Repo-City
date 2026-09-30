@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SURFACE } from "../../textures/surface-types";
 import { coplanarOverlaps } from "../coplanar";
 import { narrowLedges } from "../ledges";
@@ -6,6 +6,11 @@ import type { ModelKey } from "./archetypes";
 import { addPanel, emptyDraft, LAYER, PANEL_LIFT, type MeshDraft, type Panel } from "./mesh";
 import { BLENDER_ARCHETYPES, archetypeModel, blenderArchetypeModel, type ArchetypeModel } from "./models";
 import { LIT_INSET, LIT_LIFT } from "./placement";
+
+// These read the draft's own vertex colours (the district multipliers), which is
+// how the classic palette paints; the material palette moves colour into the
+// paint channels (see facades.test.ts).
+vi.mock("../../look", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../look")>()), MATERIALS_PALETTE: false }));
 
 /**
  * The Blender variants of the city's archetypes and the metropolis towers

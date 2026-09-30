@@ -42,23 +42,27 @@ const LABEL_FLOOR = 12;
 const VILLAGE_LABEL_FLOOR = 7.5;
 
 /**
- * Development only: the renderer and camera on `window.__repoCityRenderer`
- * and `window.__repoCityCamera`, so a driver can read `renderer.info` (draw
- * calls, triangles) and project a crowd object to the screen to point at it
- * (PLAN.md 76.13). Nothing is exposed in production.
+ * Development only: the renderer, camera and scene on
+ * `window.__repoCityRenderer`, `__repoCityCamera` and `__repoCityScene`, so a
+ * driver can read `renderer.info` (draw calls, triangles), project a crowd
+ * object to the screen to point at it (PLAN.md 76.13), and hide one level of
+ * detail for a lean-vs-near shot. Nothing is exposed in production.
  */
 function useDevRendererHandle(): void {
   const gl = useThree((state) => state.gl);
   const camera = useThree((state) => state.camera);
+  const scene = useThree((state) => state.scene);
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     const handle = window as unknown as {
       __repoCityRenderer?: typeof gl;
       __repoCityCamera?: typeof camera;
+      __repoCityScene?: typeof scene;
     };
     handle.__repoCityRenderer = gl;
     handle.__repoCityCamera = camera;
-  }, [gl, camera]);
+    handle.__repoCityScene = scene;
+  }, [gl, camera, scene]);
 }
 
 export default function City({

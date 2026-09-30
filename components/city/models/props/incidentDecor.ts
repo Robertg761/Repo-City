@@ -36,7 +36,7 @@ import {
 } from "three";
 import type { IncidentState } from "@/types/analysis";
 import { SURFACE } from "../../textures/surface-types";
-import { CONCRETE, RUST, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
+import { CONCRETE, TREE_LEAF, WARNING_ORANGE, desaturate, mix } from "../../palette";
 import {
   EMERGENCY_LIGHTS,
   emergencyParts,
@@ -45,13 +45,16 @@ import {
   type EmergencyLight,
 } from "../vehicles/emergency";
 import { parkedGeometry } from "../vehicles/shapes";
+import { blenderNearParked } from "../vehicles/near";
+import { atLevel, detailLevel, modelFor, type DetailLevel } from "../detailLevel";
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as INCIDENT_PROPS } from "./incidentProps.model";
+import { MODEL as INCIDENT_PROPS_NEAR } from "./incidentPropsNear.model";
 import { figureParts } from "./figures";
 import { WORKER_YELLOW } from "./pedestrians";
 import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Triple } from "./geometry";
-import { debrisPiece, potholeParts, scorchParts, skidParts, spoilParts, weedParts } from "./incidentKit";
+import { debrisPiece, hoseCoilParts, hoseParts, potholeParts, scorchParts, skidParts, spoilParts, tapeParts, weedParts } from "./incidentKit";
 
 /** Just above the dark patch the incident draws on the tarmac. */
 const DECAL_Y = 0.135;
@@ -143,7 +146,8 @@ function wreck(
   body: "sedan" | "hatchback" | "pickup" = "sedan",
 ): Part {
   return {
-    geometry: parkedGeometry(body),
+    // At the near level the wreck is the fleet's near body on its near wheels.
+    geometry: detailLevel() === "near" && BLENDER_MODELS ? blenderNearParked(body) : parkedGeometry(body),
     color,
     position,
     rotation: [0, rotationY, tilt],
@@ -196,10 +200,10 @@ function debris(count: number, spread: number, color: string, seed: number, shad
 const blenderPropCache = new Map<string, BufferGeometry>();
 
 export function blenderProp(node: string, paint: (hex: string) => string, position: Triple, rotation?: Triple): Part {
-  const key = `${node}:${paint(WARNING_ORANGE)}`;
+  const key = `${detailLevel()}:${node}:${paint(WARNING_ORANGE)}`;
   let geometry = blenderPropCache.get(key);
   if (!geometry) {
-    geometry = mergeParts(importedParts(INCIDENT_PROPS, node, paint));
+    geometry = mergeParts(importedParts(modelFor(INCIDENT_PROPS, INCIDENT_PROPS_NEAR, node), node, paint));
     blenderPropCache.set(key, geometry);
   }
   return { geometry, color: "#ffffff", position, rotation };
@@ -427,6 +431,17 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       radius: 0.2,
     });
 
+    if (detailLevel() === "near") {
+      // A barrier across the carriageway behind the hole, as the crew would
+      // put out first, and hazard tape round the hole tied to the cones' shoulders.
+      addBarricade({ position: [0, 0, -2.7], rotationY: 0.05 * flip }, shade(WARNING_ORANGE), shade("#e8e3d6"));
+      const ring: [number, number][] = [[-1.6, -1.1], [-1, 0.5], [0.3, 1.5], [1.5, 1.2], [1, -0.4]];
+      ring.forEach(([x, z], i) => {
+        const [nx, nz] = ring[(i + 1) % ring.length];
+        parts.push(...tapeParts([x * flip, 0.68, z], [nx * flip, 0.68, nz], shade));
+      });
+    }
+
     // The crew's truck, parked facing the hole with its bed of cones to the
     // street behind, just clear of the crew.
     park("works", { position: [-1.35 * flip, 0, 4.3], rotationY: Math.PI });
@@ -461,7 +476,9 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     // The wreck nobody has moved: on its side, rusted through.
     // Tipped onto its flank rather than flat on its roof: from the overview
     // a car on its side still reads as a car.
-    addWreck(wreck([0, 0.58, 0], 0.7 * flip, 1.05 * flip, faded(RUST)));
+    // A mid-tone rust, not the faded rust multiplied over a dark body, and tipped
+    // about 0.6 rad so its flank catches the light.
+    addWreck(wreck([0, 0.36, 0], 0.7 * flip, 0.6 * flip, faded("#d2a57c")));
     parts.push(...debris(5, 2.1, faded("#7c766c"), 2.7, faded));
     addBarricade({ position: [0, 0, 3], rotationY: 0 }, faded(WARNING_ORANGE), faded("#e8e3d6"));
     addBarricade(
@@ -494,7 +511,12 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
     const sign: Placement = { position: [-2.3 * flip, 0, -2.4], rotationY: -0.5 * flip };
     parts.push(...worksSign(sign, faded(WARNING_ORANGE), 0.17 * flip, tone, faded));
     mark(sign.position[0], sign.position[2], 0.85, "sign");
-    parts.push(...weeds(2.6, faded(mix(TREE_LEAF, "#9aa36a", 0.4)), 9));
+    parts.push(...weeds(2.6, faded(mix(TREE_LEAF, "#9aa36a", 0.4)), detailLevel() === "near" ? 16 : 9));
+
+    if (detailLevel() === "near") {
+      // Tape strung from the barricade line's end post back to the rear one.
+      parts.push(...tapeParts([3.55 * flip, 1.0, 3.1], [1.15 * flip, 1.0, -3.2], faded));
+    }
 
     // The tow truck, backed up to the barricade line with its wheel-lift down
     // and its hook over the tape: it came, and nobody let it through.
@@ -511,8 +533,8 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
       position: [0, DECAL_Y, 0],
     });
   }
-  addWreck(wreck([-1.4 * flip, 0.02, 0.8], 0.9 * flip, 0, shade("#3a3532")));
-  addWreck(wreck([1.5 * flip, 0.1, -0.7], -0.5 * flip, 0.42 * flip, shade("#5a5450"), "pickup"));
+  addWreck(wreck([-1.15 * flip, 0.02, 0.8], 0.45 * flip, 0, shade("#b0a698")));
+  addWreck(wreck([1.3 * flip, 0.1, -0.9], -0.25 * flip, 0.42 * flip, shade("#a59b8c"), "pickup"));
   parts.push(...debris(9, 2.4, shade("#5f5a54"), 0.7, shade));
   addBarricade({ position: [0, 0, 4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
   addBarricade({ position: [0, 0, -4.2], rotationY: 0 }, shade(WARNING_ORANGE), shade("#e8e3d6"));
@@ -522,6 +544,11 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
   // fire: turned towards it, raised at `LADDER_PITCH`, into the smoke.
   const engine: Placement = { position: [-1.45 * flip, 0, 7.1], rotationY: 0.03 * flip };
   park("fire", engine, ladderYawToward(toVehicle(engine, FIRE_AT[0], FIRE_AT[1])));
+  if (detailLevel() === "near") {
+    // A line of hose from the engine's tail, under the barricade between its
+    // posts, to the crew at the fire, and a spare length flaked beside it.
+    parts.push(...hoseParts([-0.75 * flip, 4.7], [0.3 * flip, 1.6], shade), ...hoseCoilParts(1.35 * flip, 2.95, 0.6, shade));
+  }
 
   // The crew, working the fire from upwind, clear of the flames.
   for (const [x, z, facing] of [
@@ -537,7 +564,7 @@ function sceneFor(state: IncidentState, variant: number, tone: number): Scene {
 const sceneCache = new Map<string, Scene>();
 
 function scene(state: IncidentState, variant: number, tone: number): Scene {
-  const key = `${state}:${variant}:${toneKey(tone)}`;
+  const key = `${detailLevel()}:${state}:${variant}:${toneKey(tone)}`;
   const hit = sceneCache.get(key);
   if (hit) return hit;
   const made = sceneFor(state, variant, tone);
@@ -546,8 +573,10 @@ function scene(state: IncidentState, variant: number, tone: number): Scene {
 }
 
 const decorGeometryCache = geometryCache<string>((key) => {
-  const [state, variant, tone] = key.split(":");
-  return mergeParts(scene(state as IncidentState, Number(variant), Number(tone)).parts.map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
+  const [level, state, variant, tone] = key.split(":");
+  return atLevel(level as DetailLevel, () =>
+    mergeParts(scene(state as IncidentState, Number(variant), Number(tone)).parts.map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal }))),
+  );
 });
 
 /**
@@ -559,12 +588,15 @@ export function incidentDecor(
   state: IncidentState,
   variant: number,
   desaturation: number,
+  level: DetailLevel = "lean",
 ): IncidentDecor {
   const tone = Number(toneKey(desaturation));
   const side = variant === 1 ? 1 : 0;
+  // The near level exists only with the Blender models.
+  const at = BLENDER_MODELS ? level : "lean";
   return {
-    geometry: decorGeometryCache(`${state}:${side}:${toneKey(desaturation)}`),
-    lights: scene(state, side, tone).lights,
+    geometry: decorGeometryCache(`${at}:${state}:${side}:${toneKey(desaturation)}`),
+    lights: atLevel(at, () => scene(state, side, tone).lights),
   };
 }
 
@@ -575,8 +607,9 @@ export function incidentDecor(
 export function incidentLayout(
   state: IncidentState,
   variant: number,
+  level: DetailLevel = "lean",
 ): { vehicles: readonly ParkedService[]; clutter: readonly Clutter[] } {
-  const { vehicles, clutter } = scene(state, variant === 1 ? 1 : 0, 0);
+  const { vehicles, clutter } = atLevel(level, () => scene(state, variant === 1 ? 1 : 0, 0));
   return { vehicles, clutter };
 }
 

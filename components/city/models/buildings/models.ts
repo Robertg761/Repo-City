@@ -601,7 +601,7 @@ const BLENDER_ROLES: Record<string, Rgb3> = {
   mech: MECH,
 };
 
-function blenderRole(role: string): Rgb3 {
+export function blenderRole(role: string): Rgb3 {
   const color = BLENDER_ROLES[role];
   if (!color) throw new Error(`models.ts: no multiplier for the Blender role ${role}`);
   return color;

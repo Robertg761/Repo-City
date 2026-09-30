@@ -22,6 +22,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
+  PlaneGeometry,
   Matrix4,
   Quaternion,
   Vector3,
@@ -36,7 +37,10 @@ import { geometryCache, mergeParts, surfacePanel, toneKey, type Part, type Tripl
 import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { MODEL as CRANE } from "./crane.model";
+import { MODEL as CRANE_NEAR } from "./craneNear.model";
 import { MODEL as SITE_PROPS } from "./constructionProps.model";
+import { MODEL as SITE_PROPS_NEAR } from "./constructionPropsNear.model";
+import { atLevel, detailLevel, modelFor, type DetailLevel } from "../detailLevel";
 import { KIT_COLORS, completedYard, fallenHoarding, fenceParts, leaningSign, scaffoldParts } from "./siteKit";
 import { weedParts } from "./incidentKit";
 
@@ -112,7 +116,7 @@ function fence(color: string, rail: string): Part[] {
  */
 function siteProp(node: string, paint: (hex: string) => string, at: Triple, rotationY = 0): Part {
   return {
-    geometry: mergeParts(importedParts(SITE_PROPS, node, paint)),
+    geometry: mergeParts(importedParts(modelFor(SITE_PROPS, SITE_PROPS_NEAR, node), node, paint)),
     color: "#ffffff",
     position: at,
     rotation: [0, rotationY, 0],
@@ -358,14 +362,134 @@ function weeds(color: string, count: number, spread: number): Part[] {
   return parts;
 }
 
+
+/**
+ * The shell's own character, on its four faces (`SHELL_W` square, centred at
+ * the shell's position). A finished building gets windows with sills, a door
+ * with a canopy on the front, a cornice, a parapet and a plant box on the
+ * roof; a building in progress gets exposed corner columns, slab edges, dark
+ * openings and a patch of cladding, in fewer places the further it is from
+ * done.
+ */
+function shellParts(state: ConstructionState, shade: (hex: string) => string): Part[] {
+  const height = SHELL_HEIGHT[state];
+  const half = SHELL_W / 2;
+  const parts: Part[] = [];
+  const done = state === "completed";
+  const near = detailLevel() === "near";
+  // A wall-mounted box: `u` along the face, `y` up it, standing `out` proud.
+  const onFace = (face: number, u: number, y: number, w: number, h: number, out: number, thick: number, color: string, surface?: Part["surface"]): Part => {
+    const nx = Math.round(Math.sin((face * Math.PI) / 2));
+    const nz = Math.round(Math.cos((face * Math.PI) / 2));
+    const d = half + out;
+    return {
+      geometry: new BoxGeometry(w, h, thick),
+      color,
+      surface,
+      position: [SHELL_X + nx * d + nz * u, y, SHELL_Z + nz * d - nx * u],
+      rotation: [0, (face * Math.PI) / 2, 0],
+    };
+  };
+  // The same, as a flat panel: two triangles, for what is only a colour on the wall.
+  const panelOn = (face: number, u: number, y: number, w: number, h: number, out: number, color: string, surface?: Part["surface"]): Part => {
+    const nx = Math.round(Math.sin((face * Math.PI) / 2));
+    const nz = Math.round(Math.cos((face * Math.PI) / 2));
+    const d = half + out;
+    return {
+      geometry: new PlaneGeometry(w, h),
+      color,
+      surface,
+      position: [SHELL_X + nx * d + nz * u, y, SHELL_Z + nz * d - nx * u],
+      rotation: [0, (face * Math.PI) / 2, 0],
+    };
+  };
+  if (done) {
+    const glass = shade("#4f6474");
+    const frame = shade("#e9e3d6");
+    const stone = shade("#d8d1c2");
+    const floors = [3.5, 5.3, 7.1];
+    for (let face = 0; face < 4; face++) {
+      for (const y of floors) {
+        for (const u of [-1.6, 0, 1.6]) {
+          parts.push(
+            panelOn(face, u, y, 1.0, 1.24, 0.012, frame),
+            panelOn(face, u, y, 0.8, 1.04, 0.03, glass, SURFACE.glass),
+          );
+          if (near) {
+            // A close camera sees the sill standing out and the glazing bars.
+            parts.push(
+              onFace(face, u, y - 0.68, 1.2, 0.09, 0.08, 0.16, stone),
+              onFace(face, u, y, 0.05, 1.04, 0.06, 0.05, frame),
+              onFace(face, u, y + 0.1, 0.8, 0.05, 0.06, 0.05, frame),
+            );
+          }
+        }
+      }
+      // The ground floor: shop windows, and on the front a door in the middle.
+      for (const u of face === 0 ? [-1.75, 1.75] : [-1.6, 0, 1.6]) {
+        parts.push(
+          panelOn(face, u, 1.35, 1.1, 1.3, 0.012, frame),
+          panelOn(face, u, 1.35, 0.92, 1.12, 0.03, glass, SURFACE.glass),
+        );
+      }
+      // Cornice and parapet.
+      parts.push(
+        onFace(face, 0, height - 0.12, SHELL_W + 0.4, 0.24, 0.2, 0.4, stone),
+        onFace(face, 0, height + 0.15, SHELL_W + 0.1, 0.3, 0.02, 0.16, shade("#cfc8b8")),
+      );
+    }
+    parts.push(
+      onFace(0, 0, 1.15, 1.3, 2.2, 0.02, 0.08, frame),
+      onFace(0, 0, 1.1, 1.0, 1.95, 0.06, 0.08, shade("#5c4636")),
+      // The canopy over it.
+      onFace(0, 0, 2.45, 2.0, 0.12, 0.45, 1.0, shade("#b8493c")),
+      // The roof, inside the parapet, and its plant.
+      { geometry: new BoxGeometry(SHELL_W - 0.3, 0.05, SHELL_W - 0.3), color: shade("#5d5a55"), position: [SHELL_X, height + 0.02, SHELL_Z] },
+      { geometry: new BoxGeometry(1.5, 0.7, 1.0), color: shade("#8d918f"), position: [SHELL_X - 1, height + 0.4, SHELL_Z - 0.8] },
+      { geometry: new BoxGeometry(0.9, 0.45, 0.7), color: shade("#a4a8a6"), position: [SHELL_X + 1.2, height + 0.27, SHELL_Z + 0.6] },
+      // The ground floor's plinth.
+      ...[0, 1, 2, 3].map((face) => onFace(face, 0, 0.3, SHELL_W + 0.06, 0.6, 0.03, 0.06, shade("#8c857a"))),
+    );
+    return parts;
+  }
+  const hole = shade("#3b4147");
+  const raw = shade("#b7b2a6");
+  const levels = state === "active" ? [1.5, 3.2, 4.6] : state === "slow" ? [1.5, 3.2] : [1.5];
+  for (let face = 0; face < 4; face++) {
+    // Openings left in the walls; the higher the level, the more of them are still empty.
+    levels.forEach((y, row) => {
+      for (const u of [-1.5, 0, 1.5]) {
+        if (state !== "abandoned" && row === 0 && (face + (u > 0 ? 1 : 0)) % 2 === 0) continue;
+        parts.push(panelOn(face, u, y, 0.9, 1.1, 0.02, hole));
+      }
+    });
+  }
+  if (state !== "abandoned") {
+    // The frame: corner columns standing proud, and the slab edges between floors.
+    for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      parts.push({ geometry: new BoxGeometry(0.42, height, 0.42), color: raw, position: [SHELL_X + cx * half, height / 2, SHELL_Z + cz * half] });
+    }
+    // Cladding hung on part of the front: the lower left, panel by panel.
+    const cladding = [shade("#8e7a5c"), shade("#6f7a86")];
+    for (let i = 0; i < 3; i++) {
+      parts.push(onFace(0, -1.9 + i * 0.66, 2.0, 0.6, 3.4, 0.05, 0.05, cladding[i % 2]));
+    }
+    // Rebar stubs standing out of the top slab.
+    for (let i = 0; i < 3; i++) {
+      parts.push({ geometry: new BoxGeometry(0.04, 0.7, 0.04), color: shade("#7b5a44"), position: [SHELL_X - 1.5 + i * 1.5, height + 0.35, SHELL_Z + 2.1] });
+    }
+  }
+  return parts;
+}
+
 function partsFor(state: ConstructionState, tone: number): Part[] {
   const shade = (hex: string) => desaturate(hex, tone);
   const weathered = (hex: string) => desaturate(hex, Math.min(1, tone + 0.4));
   const height = SHELL_HEIGHT[state];
-  const parts: Part[] = [];
+  const parts: Part[] = [...shellParts(state, shade)];
 
   if (state === "completed") {
-    if (BLENDER_MODELS) return completedYard(shade);
+    if (BLENDER_MODELS) return [...parts, ...completedYard(shade)];
     // A finished building: a swept forecourt, a ribbon across the doors and
     // something planted. The clean opposite of the site next door.
     parts.push(
@@ -418,7 +542,8 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
   const paint = sitePaint(state, tone);
 
   if (state === "abandoned") {
-    parts.push(...weeds(weathered(mix(TREE_LEAF, "#9aa36a", 0.45)), 14, 4.2));
+    // Twice the tufts when close enough to count them.
+    parts.push(...weeds(weathered(mix(TREE_LEAF, "#9aa36a", 0.45)), detailLevel() === "near" ? 28 : 14, 4.2));
     parts.push(
       ...(BLENDER_MODELS
         ? [siteProp("Materials", paint, [-SITE * 0.3, 0, SITE * 0.3])]
@@ -489,6 +614,16 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
       siteProp("Mixer", paint, [SITE * 0.32, 0, -SITE * 0.1], busy ? 0.4 : 1.2),
     );
     if (busy) parts.push(siteProp("Excavator", paint, [-SITE * 0.32, 0, -SITE * 0.02], 2.2));
+    if (detailLevel() === "near") {
+      // What only a close camera notices, in the ground the site leaves free
+      // behind the shell and in front of the scaffold: a pallet of bricks, a
+      // skip and a portable toilet.
+      parts.push(
+        siteProp("BrickPallet", paint, [SITE * 0.09, 0, -SITE * 0.36], 0.35),
+        siteProp("Skip", paint, [SITE * 0.3, 0, -SITE * 0.33], -0.2),
+      );
+      if (busy) parts.push(siteProp("Portaloo", paint, [-SITE * 0.04, 0, SITE * 0.44], 0.3));
+    }
   } else {
     parts.push(...materials([-SITE * 0.3, 0, SITE * 0.32], shade(TIMBER), shade(STEEL), shade("#c2b08a")));
     parts.push(...hut([SITE * 0.3, 0, SITE * 0.34], -0.4, shade("#8fa3a8"), shade("#5f6a6d")));
@@ -523,8 +658,10 @@ function partsFor(state: ConstructionState, tone: number): Part[] {
 }
 
 const builder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  return mergeParts(partsFor(state as ConstructionState, Number(tone)).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal })));
+  const [level, state, tone] = key.split(":");
+  return atLevel(level as DetailLevel, () =>
+    mergeParts(partsFor(state as ConstructionState, Number(tone)).map((part) => ({ ...part, surface: part.surface ?? SURFACE.metal }))),
+  );
 });
 
 /** The crane's mast colour: rusted on a site nobody has visited for months. */
@@ -550,12 +687,12 @@ function cranePaint(state: ConstructionState, tone: number): (hex: string) => st
 
 /** The Blender crane's tower, or its jib in the jib's turning frame. */
 export function blenderCraneGeometry(piece: "CraneMast" | "CraneJib", state: ConstructionState, tone: number): BufferGeometry {
-  return mergeParts(importedParts(CRANE, piece, cranePaint(state, tone)));
+  return mergeParts(importedParts(modelFor(CRANE, CRANE_NEAR, piece), piece, cranePaint(state, tone)));
 }
 
 const mastBuilder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  if (BLENDER_MODELS) return blenderCraneGeometry("CraneMast", state as ConstructionState, Number(tone));
+  const [level, state, tone] = key.split(":");
+  if (BLENDER_MODELS) return atLevel(level as DetailLevel, () => blenderCraneGeometry("CraneMast", state as ConstructionState, Number(tone)));
   const mast = mastColor(state as ConstructionState, Number(tone));
   return mergeDecorParts([
     {
@@ -576,8 +713,8 @@ const mastBuilder = geometryCache<string>((key) => {
 });
 
 const jibBuilder = geometryCache<string>((key) => {
-  const [state, tone] = key.split(":");
-  if (BLENDER_MODELS) return blenderCraneGeometry("CraneJib", state as ConstructionState, Number(tone));
+  const [level, state, tone] = key.split(":");
+  if (BLENDER_MODELS) return atLevel(level as DetailLevel, () => blenderCraneGeometry("CraneJib", state as ConstructionState, Number(tone)));
   const mast = mastColor(state as ConstructionState, Number(tone));
   const hook = desaturate(state === "abandoned" ? RUST : WARNING_ORANGE, Number(tone));
   return mergeDecorParts([
@@ -595,17 +732,25 @@ const jibBuilder = geometryCache<string>((key) => {
   ]);
 });
 
-/** The crane's tower, and its jib in the jib's own turning frame. */
-export const craneMastGeometry = (state: ConstructionState, desaturation: number) =>
-  mastBuilder(`${state}:${toneKey(desaturation)}`);
+/**
+ * The crane's tower, and its jib in the jib's own turning frame, at a level of
+ * detail (`detailLevel.ts`): "near" is the crane of `blender/scenes_near/`.
+ */
+export const craneMastGeometry = (state: ConstructionState, desaturation: number, level: DetailLevel = "lean") =>
+  mastBuilder(`${level}:${state}:${toneKey(desaturation)}`);
 
-export const craneJibGeometry = (state: ConstructionState, desaturation: number) =>
-  jibBuilder(`${state}:${toneKey(desaturation)}`);
+export const craneJibGeometry = (state: ConstructionState, desaturation: number, level: DetailLevel = "lean") =>
+  jibBuilder(`${level}:${state}:${toneKey(desaturation)}`);
 
-/** The merged site dressing for one state at the city's tone. */
+/**
+ * The merged site dressing for one state at the city's tone, at a level of
+ * detail. The near level has no procedural counterpart: without the Blender
+ * models it is the lean one.
+ */
 export function constructionDecor(
   state: ConstructionState,
   desaturation: number,
+  level: DetailLevel = "lean",
 ): BufferGeometry {
-  return builder(`${state}:${toneKey(desaturation)}`);
+  return builder(`${BLENDER_MODELS ? level : "lean"}:${state}:${toneKey(desaturation)}`);
 }

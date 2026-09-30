@@ -25,6 +25,7 @@ import {
 } from "./archetypes";
 import { archetypeModel, type RoofPad } from "./models";
 import { LAYER, facingYaw, panelCentre } from "./mesh";
+import { cityPaint, type CityPaint } from "./facades";
 import { settlementPaint } from "./palettes";
 
 /** A building, with everything the renderer needs that is not in the model. */
@@ -59,6 +60,12 @@ export interface BuildingInstance {
    * colour.
    */
   paint?: { wall: string; accent: string };
+  /**
+   * Under the material palette the city's archetypes carry a paint too: the
+   * facade, accent, roof and glass, and the surface layer of the wall and the
+   * roof (`facades.ts`). `Buildings` draws these with the city paint material.
+   */
+  city?: CityPaint;
 }
 
 export interface ArchetypeGroup {
@@ -146,6 +153,8 @@ export interface PlanOptions {
   windowCap?: number;
   /** Hard cap on rooftop props. */
   propCap?: number;
+  /** the material palette: paint the city's archetypes from real materials (`facades.ts`). */
+  materials?: boolean;
 }
 
 const unit = (seed: string, channel: number): number => (hash32(`${seed}:${channel}`) % 10000) / 10000;
@@ -372,11 +381,13 @@ export function planBuildings(
       const seed = archetypeSeed(building);
       const { yaw, swapped } = buildingTurn(building, settlement, roads);
       const paint = settlementPaint(model, building);
+      const city = !paint && options.materials ? cityPaint(model, building) : null;
       instances.push({
         building,
         archetype,
         model,
         ...(paint ? { paint } : {}),
+        ...(city ? { city } : {}),
         height: drawnHeight(model, building.size),
         yaw,
         swapped,

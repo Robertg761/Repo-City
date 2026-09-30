@@ -10,8 +10,12 @@
  */
 
 import type { CityModel } from "@/types/city";
+import { RICH_GRADE } from "./look";
 
 export type Rgb = [number, number, number];
+
+/** The rich grade's ground colours (`grade.ts`), against the classic look's. */
+const rich = <T>(current: T, richer: T): T => (RICH_GRADE ? richer : current);
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
@@ -63,16 +67,28 @@ export function desaturate(hex: string, amount: number): string {
  * way towards a common neutral, which keeps them distinguishable side by side
  * while letting the buildings and the road furniture carry the frame.
  */
-export const DISTRICT_COLORS = [
-  "#cbd3c2", // sage
-  "#d6cebe", // sand
-  "#c6d1d3", // mist
-  "#d5c8c8", // dusty rose
-  "#caced6", // periwinkle
-  "#d4d0bc", // wheat
-  "#c4d3c7", // seafoam
-  "#d0cad3", // lilac
-] as const;
+export const DISTRICT_COLORS = rich(
+  [
+    "#cbd3c2", // sage
+    "#d6cebe", // sand
+    "#c6d1d3", // mist
+    "#d5c8c8", // dusty rose
+    "#caced6", // periwinkle
+    "#d4d0bc", // wheat
+    "#c4d3c7", // seafoam
+    "#d0cad3", // lilac
+  ],
+  [
+    "#9fcb8e", // lawn
+    "#aecb90", // meadow
+    "#94c8a0", // fern
+    "#b0c98f", // straw
+    "#98c4a8", // sage
+    "#a6d08a", // spring
+    "#8cc99a", // clover
+    "#a3c496", // moss
+  ],
+) as readonly string[];
 
 /** Eight building colours. Warm neutrals with two cool accents for rhythm. */
 export const BUILDING_COLORS = [
@@ -99,16 +115,16 @@ export const buildingColor = (colorIndex: number) => paletteEntry(BUILDING_COLOR
 export const HIGHLIGHT = "#ffd089";
 export const SELECT = "#ffb347";
 
-export const ROAD_COLOR = "#8e8d88";
-export const ROAD_LINE_COLOR = "#e9e5d8";
+export const ROAD_COLOR = rich("#8e8d88", "#65656a");
+export const ROAD_LINE_COLOR = rich("#e9e5d8", "#f4f0e2");
 /** The raised slab either side of every carriageway (PLAN.md section 36). */
-export const SIDEWALK_COLOR = "#bdb9ad";
+export const SIDEWALK_COLOR = rich("#bdb9ad", "#cbc1ae");
 /** The lip of that slab: a shade darker, so the kerb reads as a step. */
-export const CURB_COLOR = "#9d998f";
+export const CURB_COLOR = rich("#9d998f", "#a39987");
 /** Zebra stripes and lane dashes. Brighter than the centre line was. */
-export const CROSSWALK_COLOR = "#e7e3d5";
+export const CROSSWALK_COLOR = rich("#e7e3d5", "#f2eee0");
 /** Raked gravel around the civic centre. */
-export const PLAZA_COLOR = "#cfc8b6";
+export const PLAZA_COLOR = rich("#cfc8b6", "#d6cbb2");
 /** The town square's setts: a warmer, darker stone than the city's gravel. */
 export const SETTS_COLOR = "#bdb3a2";
 /**
@@ -121,9 +137,9 @@ export const VERGE_COLOR = "#bfb49c";
 export const SHOULDER_COLOR = "#a7a59f";
 export const BARRIER_COLOR = "#cdcac1";
 /** The grass on an avenue's median, a shade deeper than the lawn around it. */
-export const MEDIAN_GRASS = "#7fa476";
+export const MEDIAN_GRASS = rich("#7fa476", "#6fa25c");
 /** A village green: the richest grass in the settlement. */
-export const GREEN_GRASS = "#8cbf7c";
+export const GREEN_GRASS = rich("#8cbf7c", "#7cbc66");
 export const ROOF_COLOR = "#a7a49b";
 export const WINDOW_COLOR = "#ffdca5";
 export const CIVIC_COLOR = "#eceadf";
@@ -214,6 +230,15 @@ export function sunDirection(evening: number): [number, number, number] {
   const azimuth = ((SUN_AZIMUTH[0] + (SUN_AZIMUTH[1] - SUN_AZIMUTH[0]) * e) * Math.PI) / 180;
   const flat = Math.cos(elevation);
   return [flat * Math.sin(azimuth), Math.sin(elevation), flat * Math.cos(azimuth)];
+}
+
+/**
+ * `windowGlow` for a hand-built lit window (civic buildings, landmarks, sites):
+ * the hour's glow, with night's own lift on top. Dimming it by day turned
+ * the panes a flat mustard, so a lit window is cream at every hour.
+ */
+export function litWindowGlow(a: Pick<SceneAtmosphere, "windowGlow" | "nightness">): number {
+  return a.windowGlow + a.nightness * 0.4;
 }
 
 export interface SceneAtmosphere {

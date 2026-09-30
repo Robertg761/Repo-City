@@ -28,6 +28,7 @@
  * instanced mesh per model. The city's archetypes draw exactly as before.
  */
 
+import { useNearModels } from "./models/useModels";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
@@ -43,11 +44,25 @@ import { useCityStore } from "@/store/useCityStore";
 import {
   PROP_MESH,
   archetypeGeometry,
+  archetypeNearGeometry,
   propBlockGeometry,
   propTankGeometry,
   windowPanelGeometry,
 } from "./models/buildings/geometry";
-import { ACCENT_ATTRIBUTE, buildingDetailMaterial, settlementMaterial } from "./models/buildings/material";
+import {
+  ACCENT_ATTRIBUTE,
+  GLASS_ATTRIBUTE,
+  ROOF_ATTRIBUTE,
+  SURFACES_ATTRIBUTE,
+  buildingDetailMaterial,
+  cityPaintMaterial,
+  settlementMaterial,
+} from "./models/buildings/material";
+import { weather } from "./models/buildings/facades";
+import { MATERIALS_PALETTE } from "./look";
+import { BLENDER_MODELS } from "./models/modelSource";
+import { LodInstances } from "./lod";
+import { nearSizeAt, propBlockNearGeometry, propTankNearGeometry } from "./models/props/near";
 import { useQuality } from "./quality";
 import {
   litWindowCount,
@@ -72,6 +87,45 @@ import { useRevealClock } from "./useReveal";
 const scratch = new Object3D();
 const scratchColor = new Color();
 
+/** Most buildings of one archetype drawn in detail at once (high tier). */
+const BUILDING_NEAR_CAP = 24;
+/**
+ * The near models run to thousands of triangles (and cast shadows too), so an
+ * archetype's cap is what fits this many at once: a 15,000-triangle tower
+ * gets eight, a 3,000-triangle house the full cap.
+ */
+const BUILDING_NEAR_TRIANGLES = 120_000;
+const BUILDING_NEAR_MIN = 4;
+/**
+ * How close to the camera, in world units, a building of its archetype's usual
+ * size is drawn in detail. `LodInstances` picks by radius over distance, and a
+ * tower's radius is its height, so one size for every archetype would draw the
+ * spire in detail from across the whole overview and the house only from a
+ * few units; this is the same distance for all, scaled by the size each
+ * archetype's instances have. At 64 a 7.5 wide tower spans a few degrees of the
+ * view and its window frames are a few pixels: closer than the overview
+ * (about 160 out), where nothing is drawn in detail.
+ */
+const BUILDING_NEAR_DISTANCE = 64;
+const PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE] as const;
+const CITY_PAINTED_ATTRIBUTES = [ACCENT_ATTRIBUTE, ROOF_ATTRIBUTE, GLASS_ATTRIBUTE, SURFACES_ATTRIBUTE] as const;
+/** The attribute and its item size, per instance, that a city building's paint fills. */
+const CITY_ATTRIBUTE_SIZES: readonly (readonly [string, number])[] = [
+  [ACCENT_ATTRIBUTE, 3],
+  [ROOF_ATTRIBUTE, 3],
+  [GLASS_ATTRIBUTE, 3],
+  [SURFACES_ATTRIBUTE, 2],
+];
+const NO_ATTRIBUTES = [] as const;
+
+/**
+ * Rooftop plant in detail: the closest few of a kind, within this many units
+ * of the camera for a unit-sized one (they are small and there are many; only
+ * a street-level view looks up at a roof this close).
+ */
+const ROOF_PROP_NEAR_CAP = 32;
+const ROOF_PROP_NEAR_DISTANCE = 14;
+
 /** Below this the instance is scaled to nothing rather than drawn as a speck. */
 const VISIBLE = 0.002;
 
@@ -84,6 +138,7 @@ function ArchetypeInstances({
   group: ArchetypeGroup;
   atmosphere: SceneAtmosphere;
 }) {
+  const nearVersion = useNearModels();
   const meshRef = useRef<InstancedMesh>(null);
   const clock = useRevealClock();
   const settled = useRef(false);
@@ -99,45 +154,91 @@ function ArchetypeInstances({
   // A settlement model paints its walls and its accents per instance; the
   // city's archetypes shade the district colour, as they always have.
   const painted = instances.length > 0 && instances[0].paint !== undefined;
+  // The material palette (the default): the city's own archetypes take a facade, a roof and
+  // a glass tint per instance (`facades.ts`).
+  const cityPainted = instances.length > 0 && instances[0].city !== undefined;
   const geometry = useMemo(() => {
     const shared = archetypeGeometry(group.model);
-    if (!painted) return shared;
+    if (!painted && !cityPainted) return shared;
     // The accent is a per-instance attribute on the geometry, so each mesh
     // gets its own shallow copy rather than writing into the shared one.
     const own = shared.clone();
-    own.setAttribute(
-      ACCENT_ATTRIBUTE,
-      new InstancedBufferAttribute(new Float32Array(Math.max(1, instances.length) * 3), 3),
-    );
+    for (const [name, size] of cityPainted ? CITY_ATTRIBUTE_SIZES : ([[ACCENT_ATTRIBUTE, 3]] as const)) {
+      own.setAttribute(
+        name,
+        new InstancedBufferAttribute(new Float32Array(Math.max(1, instances.length) * size), size),
+      );
+    }
     return own;
-  }, [group.model, painted, instances.length]);
+  }, [group.model, painted, cityPainted, instances.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the near model arriving
+  const nearGeometry = useMemo(() => archetypeNearGeometry(group.model), [group.model, nearVersion]);
+  const near = useMemo(() => {
+    if (!nearGeometry) return { cap: 0, size: 0 };
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere?.radius ?? 1;
+    let scale = 0;
+    for (const instance of instances) {
+      const [w, , d] = instance.building.size;
+      scale += Math.max(w, instance.height, d);
+    }
+    scale /= Math.max(1, instances.length);
+    const triangles = (nearGeometry.index?.count ?? nearGeometry.getAttribute("position").count) / 3;
+    const cap = Math.floor(BUILDING_NEAR_TRIANGLES / Math.max(1, triangles));
+    return {
+      cap: Math.min(BUILDING_NEAR_CAP, Math.max(BUILDING_NEAR_MIN, cap)),
+      size: (radius * scale) / BUILDING_NEAR_DISTANCE,
+    };
+  }, [nearGeometry, geometry, instances]);
   const material = useMemo(
-    () => painted
+    () => cityPainted
+      ? cityPaintMaterial({ flatShading: true, roughness: 0.82, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
+      : painted
       ? settlementMaterial({ flatShading: true, roughness: 0.84, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })
       : buildingDetailMaterial({ flatShading: true, roughness: 0.82, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true }),
-    [painted, textureSize, anisotropy],
+    [painted, cityPainted, textureSize, anisotropy],
   );
   useEffect(
     () => () => {
-      if (painted) geometry.dispose();
+      if (painted || cityPainted) geometry.dispose();
     },
-    [geometry, painted],
+    [geometry, painted, cityPainted],
   );
   useEffect(() => () => material.dispose(), [material]);
+  // Health drains a settlement or district colour as it always has; on the
+  // materials palette it weathers instead (`facades.weather`).
   const baseColors = useMemo(
     () =>
       instances.map((instance) =>
-        desaturate(
-          instance.paint?.wall ?? buildingColor(instance.building.colorIndex),
-          atmosphere.desaturation,
-        ),
+        instance.city
+          ? weather(instance.city.wall, atmosphere.desaturation)
+          : desaturate(
+              instance.paint?.wall ?? buildingColor(instance.building.colorIndex),
+              atmosphere.desaturation,
+            ),
       ),
     [instances, atmosphere.desaturation],
   );
   const accentColors = useMemo(
     () =>
       instances.map((instance) =>
-        instance.paint ? desaturate(instance.paint.accent, atmosphere.desaturation) : null,
+        instance.city
+          ? weather(instance.city.accent, atmosphere.desaturation)
+          : instance.paint
+            ? desaturate(instance.paint.accent, atmosphere.desaturation)
+            : null,
+      ),
+    [instances, atmosphere.desaturation],
+  );
+  const cityColors = useMemo(
+    () =>
+      instances.map((instance) =>
+        instance.city
+          ? {
+              roof: weather(instance.city.roof, atmosphere.desaturation),
+              glass: weather(instance.city.glass, atmosphere.desaturation),
+            }
+          : null,
       ),
     [instances, atmosphere.desaturation],
   );
@@ -183,6 +284,9 @@ function ArchetypeInstances({
     const mesh = meshRef.current;
     if (!mesh) return;
     const accent = geometry.getAttribute(ACCENT_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const roof = geometry.getAttribute(ROOF_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const glass = geometry.getAttribute(GLASS_ATTRIBUTE) as InstancedBufferAttribute | undefined;
+    const surfaces = geometry.getAttribute(SURFACES_ATTRIBUTE) as InstancedBufferAttribute | undefined;
     for (let i = 0; i < instances.length; i++) {
       const instance = instances[i];
       const b = instance.building;
@@ -192,7 +296,7 @@ function ArchetypeInstances({
       // A little hue and value drift inside the district's own colour: a block
       // of twelve buildings should not be twelve copies (PLAN.md section 4).
       // A settlement wall already has its own colour, so it drifts less.
-      const drift = instance.paint ? 0.5 : 1;
+      const drift = instance.paint || instance.city ? 0.5 : 1;
       scratchColor.offsetHSL(instance.hueShift * drift, instance.satShift * drift, instance.lightShift * drift);
       mesh.setColorAt(i, scratchColor);
       const accentHex = accentColors[i];
@@ -200,24 +304,41 @@ function ArchetypeInstances({
         scratchColor.set(stateTint(accentHex, hovered, selected));
         accent.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
       }
+      const city = cityColors[i];
+      if (city && roof && glass && surfaces) {
+        // The roof and the glass follow hover and selection like the wall.
+        scratchColor.set(stateTint(city.roof, hovered, selected));
+        roof.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
+        scratchColor.set(stateTint(city.glass, hovered, selected));
+        glass.setXYZ(i, scratchColor.r, scratchColor.g, scratchColor.b);
+        surfaces.setXY(i, instance.city?.wallSurface ?? 0, instance.city?.roofSurface ?? 0);
+      }
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (accent) accent.needsUpdate = true;
+    if (roof) roof.needsUpdate = true;
+    if (glass) glass.needsUpdate = true;
+    if (surfaces) surfaces.needsUpdate = true;
     // `material` too: a new one remounts the mesh without its colours.
-  }, [instances, baseColors, accentColors, geometry, material, hoveredId, selectedId]);
+  }, [instances, baseColors, accentColors, cityColors, geometry, material, hoveredId, selectedId]);
 
   return (
-    <instancedMesh
+    // Vertex colours carry the roof, cornice, door and window shading; the
+    // instance colour carries the district. One material, one draw call for
+    // the lean level, one more for the few buildings drawn in detail.
+    <LodInstances
       ref={meshRef}
-      args={[geometry, material, instances.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={instances.length}
+      maxNear={near.cap}
+      nearSize={near.size}
+      instancedAttributes={cityPainted ? CITY_PAINTED_ATTRIBUTES : painted ? PAINTED_ATTRIBUTES : NO_ATTRIBUTES}
+      handlers={handlers}
       castShadow
       receiveShadow
-      frustumCulled={false}
-      {...handlers}
-    >
-      {/* Vertex colours carry the roof, cornice, door and window shading; the
-          instance colour carries the district. One material, one draw call. */}
-    </instancedMesh>
+    />
   );
 }
 
@@ -229,7 +350,7 @@ function ArchetypeInstances({
 const NIGHT_TONES: readonly { share: number; tint: [number, number, number] }[] = [
   { share: 0.58, tint: [1, 0.9, 0.72] },
   { share: 0.84, tint: [1, 1.08, 1.32] },
-  { share: 1, tint: [0.72, 1.12, 2.1] },
+  { share: 1, tint: [0.8, 1.1, 1.6] },
 ];
 
 function nightTone(tone: number): [number, number, number] {
@@ -361,11 +482,14 @@ function RoofProps({
   plan,
   props,
   geometry,
+  nearGeometry,
   atmosphere,
 }: {
   plan: CityBuildingPlan;
   props: PropInstance[];
   geometry: ReturnType<typeof propBlockGeometry>;
+  /** The detailed model for the closest few, or null to draw only the lean one. */
+  nearGeometry: ReturnType<typeof propBlockGeometry> | null;
   atmosphere: SceneAtmosphere;
 }) {
   const meshRef = useRef<InstancedMesh>(null);
@@ -448,14 +572,16 @@ function RoofProps({
   if (props.length === 0) return null;
 
   return (
-    <instancedMesh
+    <LodInstances
       ref={meshRef}
-      args={[geometry, undefined, props.length]}
+      geometry={geometry}
+      nearGeometry={nearGeometry}
+      material={material}
+      count={props.length}
+      maxNear={ROOF_PROP_NEAR_CAP}
+      nearSize={nearSizeAt(geometry, ROOF_PROP_NEAR_DISTANCE)}
       castShadow
-      frustumCulled={false}
-    >
-      <primitive object={material} attach="material" />
-    </instancedMesh>
+    />
   );
 }
 
@@ -475,6 +601,7 @@ export default function Buildings({
   settlement?: SettlementTier;
   roads?: readonly RoadSegment[];
 }) {
+  useNearModels();
   const storedTier = useCityStore((s) => s.city?.settlement?.tier);
   const storedRoads = useCityStore((s) => s.city?.roads);
   const tier = settlement ?? storedTier ?? "city";
@@ -487,6 +614,7 @@ export default function Buildings({
         litShare: 1,
         settlement: tier,
         roads: network,
+        materials: MATERIALS_PALETTE && BLENDER_MODELS,
       }),
     [buildings, tier, network],
   );
@@ -514,12 +642,14 @@ export default function Buildings({
         plan={plan}
         props={blockProps}
         geometry={propBlockGeometry()}
+        nearGeometry={propBlockNearGeometry()}
         atmosphere={atmosphere}
       />
       <RoofProps
         plan={plan}
         props={tankProps}
         geometry={propTankGeometry()}
+        nearGeometry={propTankNearGeometry()}
         atmosphere={atmosphere}
       />
     </group>

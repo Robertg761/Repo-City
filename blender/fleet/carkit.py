@@ -237,14 +237,17 @@ def mirror(name, side, x, y, z, mat, reach=0.05, height=0.07, depth=0.1):
     bm = bmesh.new()
     y0, y1 = y - height / 2, y + height / 2
     # Plan triangle: the root along the flank, the tip out and back.
-    plan = [(s * x, z + depth / 2), (s * (x + reach), z + depth * 0.1), (s * (x + reach * 0.8), z - depth / 2), (s * x, z - depth / 2)]
+    # The root is sunk 6 cm into the body (the flank tumbles home above the
+    # sill, so a root at the nominal width floats off it); the tip stays put.
+    root = x - 0.06
+    plan = [(s * root, z + depth / 2), (s * (x + reach), z + depth * 0.1), (s * (x + reach * 0.8), z - depth / 2), (s * root, z - depth / 2)]
     lo = [bm.verts.new(B((px, y0, pz))) for px, pz in plan]
     hi = [bm.verts.new(B((px, y1, pz))) for px, pz in plan]
     faces = [(hi, (0, 1, 0))]
     for i in range(3):
         a, b = i, i + 1
         mid = [(plan[a][0] + plan[b][0]) / 2, (plan[a][1] + plan[b][1]) / 2]
-        faces.append(([lo[a], lo[b], hi[b], hi[a]], (mid[0] - s * x, 0, mid[1] - z)))
+        faces.append(([lo[a], lo[b], hi[b], hi[a]], (mid[0] - s * root, 0, mid[1] - z)))
     for verts, out in faces:
         f = bm.faces.new(verts)
         _orient(bm, f, B(out))

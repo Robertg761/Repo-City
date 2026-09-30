@@ -12,11 +12,13 @@
  */
 
 import { useLayoutEffect, useRef } from "react";
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { BrightnessContrast, Bloom, EffectComposer, HueSaturation, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import type { BloomEffect } from "postprocessing";
+import { filmGrade } from "./grade";
 import { mix, type SceneAtmosphere } from "./palette";
 import type { QualitySettings } from "./quality";
+import { ShadowToe, toeLift, type ShadowToeEffect } from "./shadowToe";
 import { useSky, useSkyFrame } from "./sky";
 
 /** Bloom strength for an hour. Auto's is exactly what it always was. */
@@ -64,8 +66,15 @@ export default function Post({
   // most at night, when the lights are what the city is made of.
   const sky = useSky();
   const bloom = useRef<BloomEffect>(null);
+  const toe = useRef<ShadowToeEffect>(null);
+  const ao = useRef<{ configuration: { intensity: number } }>(null);
+  const grade = filmGrade();
   useSkyFrame((live) => {
     if (bloom.current) bloom.current.intensity = bloomIntensity(live);
+    if (toe.current) toe.current.lift = toeLift(live.evening, live.nightness);
+    // Occlusion on top of a low sun and a bluish fill is what left the shaded
+    // faces black: ease it off as the light goes.
+    if (ao.current) ao.current.configuration.intensity = grade.aoIntensity * (1 - 0.3 * Math.max(live.evening, live.nightness));
   });
 
   // Built as an array rather than with inline conditionals: the composer
@@ -76,6 +85,7 @@ export default function Post({
     effects.push(
       <N8AO
         key="ao"
+        ref={ao as never}
         // Full resolution, with twice the denoise samples of the "low" preset
         // over a tighter radius. At half resolution the occlusion is sampled
         // on a grid coarser than a tower's mullions, and the upsample drew
@@ -84,9 +94,9 @@ export default function Post({
         aoSamples={16}
         denoiseSamples={8}
         denoiseRadius={8}
-        aoRadius={2.6}
+        aoRadius={grade.aoRadius}
         distanceFalloff={1.1}
-        intensity={1.05}
+        intensity={grade.aoIntensity}
         // Neutral, with a breath of the ground bounce in it: an occlusion
         // tinted with the bounce colour turns the whole frame that colour.
         color={mix("#0a0c10", atmosphere.groundBounceColor, 0.2)}
@@ -106,7 +116,16 @@ export default function Post({
       />,
     );
   }
-  effects.push(<ToneMapping key="tone" mode={ToneMappingMode.NEUTRAL} />);
+  effects.push(
+    <ToneMapping
+      key="tone"
+      mode={grade.toneMapping === "agx" ? ToneMappingMode.AGX : ToneMappingMode.NEUTRAL}
+    />,
+  );
+  // The rich grade: a little vibrance and contrast after the tone mapping.
+  if (grade.saturation !== 0) effects.push(<HueSaturation key="sat" saturation={grade.saturation} />);
+  if (grade.contrast !== 0) effects.push(<BrightnessContrast key="contrast" contrast={grade.contrast} />);
+  effects.push(<ShadowToe key="toe" ref={toe} lift={toeLift(sky.atmosphere.evening, sky.atmosphere.nightness)} />);
   if (quality.smaa) effects.push(<SMAA key="smaa" />);
 
   return (

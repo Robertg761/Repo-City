@@ -33,12 +33,13 @@ import { REFERENCE_ASPECT, maxCameraDistance } from "@/components/city/entities"
 import Environment from "@/components/city/Environment";
 import Lighting from "@/components/city/Lighting";
 import Terrain, { StagePlate } from "@/components/city/Terrain";
+import { richSky } from "@/components/city/grade";
 import { atmosphere } from "@/components/city/palette";
 import { cameraFar } from "@/components/city/scale";
 import { STAGE_AMBIENCE, SkyProvider } from "@/components/city/sky";
 import PerfOverlay from "@/components/city/perf/PerfOverlay";
 import { stepDownAfterContextLoss, useQuality } from "@/components/city/quality";
-import { useModelsReady } from "@/components/city/models/useModels";
+import { useLoadNearModels, useLoadNearModelsOnApproach, useModelsReady } from "@/components/city/models/useModels";
 
 /** Roughly 47 degrees above the horizon, per PLAN.md section 5. */
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [30, 46, 30];
@@ -54,7 +55,7 @@ const EMPTY_SIZE = 120;
  * overcast fill of fog 0.3 -- which drained the grass to a grey-green and
  * read as a pale veil over the whole frame.
  */
-const EMPTY_ATMOSPHERE = atmosphere(STAGE_AMBIENCE, false);
+const EMPTY_ATMOSPHERE = richSky(atmosphere(STAGE_AMBIENCE, false));
 
 /**
  * R3F 9 still builds its frame clock from `THREE.Clock`, which three r183
@@ -204,7 +205,7 @@ function Scene({ city: latest, aspect }: { city: CityModel | null; aspect: numbe
   // atmosphere they need is resolved here too. `City` resolves the same one
   // from the same model: it is a pure function of it (`palette.ts`).
   const scene = useMemo(
-    () => (city ? atmosphere(city.ambience, city.repository.archived) : EMPTY_ATMOSPHERE),
+    () => (city ? richSky(atmosphere(city.ambience, city.repository.archived)) : EMPTY_ATMOSPHERE),
     [city],
   );
 
@@ -264,7 +265,10 @@ function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   // re-applies this prop whenever the canvas re-renders, so it has to be the
   // tier's own cap: a fixed `[1, 2]` here quietly put a stepped-down machine
   // back on twice the pixels each time a new city arrived.
-  const { maxDpr } = useQuality();
+  const { maxDpr, tier } = useQuality();
+  // The detailed near models download once the city is on screen, and not at
+  // all on the low tier, which draws none of them.
+  useLoadNearModels(city !== null, tier !== "low");
 
   return (
     <Canvas
@@ -291,6 +295,7 @@ function Viewport({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
     >
       <Scene city={city} aspect={aspect} />
       <ContextWatch onLost={onLost} />
+      <NearModelsOnApproach enabled={city !== null && tier !== "low"} />
 
       {/* Dev only, `?perf=1` (PLAN.md 76.13). Renders nothing otherwise. */}
       <PerfOverlay />
@@ -336,6 +341,12 @@ function webglAvailable(): boolean {
  * WebGL errors. Unmounted while the context is gone, everything is released
  * as a no-op, and the city comes back on a fresh canvas.
  */
+/** Fetches the near models the moment the camera comes down close enough to use one. */
+function NearModelsOnApproach({ enabled }: { enabled: boolean }) {
+  useLoadNearModelsOnApproach(enabled);
+  return null;
+}
+
 function ContextWatch({ onLost }: { onLost: (canvas: HTMLCanvasElement) => void }) {
   const gl = useThree((state) => state.gl);
 

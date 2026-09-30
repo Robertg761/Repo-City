@@ -24,6 +24,15 @@
  * sixteen incidents cost a handful of draw calls between them, not a hundred
  * and fifty (PLAN.md 76.13). Only the fire's halo, a sprite, is its own mesh.
  *
+ * TWO LEVELS. An incident is 8,000 to 20,000 triangles for the whole city. The
+ * few the camera is within `INCIDENT_NEAR` of are drawn from the near models
+ * instead (`blender/scenes_near/`: the vehicles with their fittings, the
+ * barricades and signs, tape, laid hose, a crumbling pothole, the crew in
+ * detail; 30,000 to 55,000 triangles), at most `INCIDENT_CAP` at a time
+ * (`sceneLod.ts`). The blinking lamps, the beacon, the fire and the smoke are
+ * the same in both levels, at the same points, so what animates never moves
+ * when the scene swaps.
+ *
  * Six to twelve of these exist at a time (section 11).
  */
 
@@ -54,6 +63,16 @@ import { buildingDetailMaterial } from "./models/buildings/material";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealGroup } from "./useReveal";
 import { useSkyValue } from "./sky";
+import { useSceneNear } from "./sceneLod";
+import type { DetailLevel } from "./models/detailLevel";
+
+/**
+ * The camera distance inside which an incident is drawn near: a scene is about
+ * seven units across, so from 45 it fills a tenth of the screen's height.
+ */
+const INCIDENT_NEAR = 45;
+/** How many incidents may be near at once. */
+const INCIDENT_CAP = 4;
 
 /**
  * The ground signal. A thin ring on the tarmac, wide enough to read from the
@@ -322,14 +341,15 @@ export default function IssueIncident({
   const handlers = useEntityHandlers(incident.id);
   const reveal = useRevealGroup(incident.appearAt);
   const quality = useQuality();
+  const level: DetailLevel = useSceneNear(reveal, INCIDENT_NEAR, INCIDENT_CAP) ? "near" : "lean";
   // The fire burns brighter as the light goes, and brightest at night.
   const fireGlow = useSkyValue((a) => a.lampGlow + a.nightness * 0.5);
   // Read once: the setting is the viewer's, and it does not change mid-visit.
   const [still] = useState(prefersStill);
 
   const decor = useMemo(
-    () => incidentDecor(incident.state, variantFor(incident.id), atmosphere.desaturation),
-    [incident.state, incident.id, atmosphere.desaturation],
+    () => incidentDecor(incident.state, variantFor(incident.id), atmosphere.desaturation, level),
+    [incident.state, incident.id, atmosphere.desaturation, level],
   );
 
   const marker = desaturate(

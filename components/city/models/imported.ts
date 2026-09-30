@@ -83,36 +83,67 @@ function undelta(data: Uint8Array, count: number, stride = 1): Uint32Array {
 // ---------------------------------------------------------------------------
 // Loading. Each generated `<name>.model.ts` is a small stub whose `MODEL` is a
 // handle registered here; its data lives in `<name>.data.ts`, which only
-// `loadModels()` imports, so the bundler splits it into its own chunk and the
-// city's main bundle carries none of it. The app starts `loadModels()` when it
-// opens (`useModels`), so the chunks arrive while the repository is surveyed.
+// `loadModels()` and `loadNearModels()` import, so the bundler splits it into
+// its own chunk and the city's main bundle carries none of it. The app starts
+// `loadModels()` when it opens (`useModels`), so the chunks arrive while the
+// repository is surveyed. A near level is `deferred`: it loads after the city
+// is drawn, one model at a time (`loadNearModels`).
 // ---------------------------------------------------------------------------
 
 interface ModelEntry {
   key: string;
   load: () => Promise<{ DATA: ImportedModel }>;
   data: ImportedModel | null;
+  /** A near level: fetched after the city is on screen (`loadNearModels`), not before. */
+  deferred: boolean;
+  /** The handle `lazyModel` returned. */
+  handle: ImportedModel;
 }
 
 // Kept on `globalThis` so a module reset (tests re-import model code with the
 // flag mocked on) finds the data already loaded or handed over.
-const STATE = ((globalThis as { __repoCityModels?: { registry: Map<string, ModelEntry>; preloaded: Map<string, ImportedModel> } })
-  .__repoCityModels ??= { registry: new Map(), preloaded: new Map() });
+interface ModelState {
+  registry: Map<string, ModelEntry>;
+  preloaded: Map<string, ImportedModel>;
+  handles: WeakMap<object, ModelEntry>;
+  version: number;
+  listeners: Set<() => void>;
+}
+const STATE: ModelState = (() => {
+  const holder = globalThis as { __repoCityModels?: Partial<ModelState> };
+  const state = (holder.__repoCityModels ??= {});
+  state.registry ??= new Map();
+  state.preloaded ??= new Map();
+  state.handles ??= new WeakMap();
+  state.version ??= 0;
+  state.listeners ??= new Set();
+  return state as ModelState;
+})();
 const REGISTRY = STATE.registry;
 
 /** Model data handed over up front (the test setup), by key. */
 const PRELOADED = STATE.preloaded;
 
-/** A generated stub's handle: reads throw until `loadModels()` has resolved. */
-export function lazyModel(key: string, load: () => Promise<{ DATA: ImportedModel }>): ImportedModel {
-  const entry: ModelEntry = REGISTRY.get(key) ?? { key, load, data: null };
+export interface LazyModelOptions {
+  /**
+   * A near (detailed) level. `loadModels()` leaves it out, so the city is not
+   * held back for it; `loadNearModels()` fetches it once the city is drawn.
+   * Until then `isModelLoaded(model)` is false and reading it throws, so a
+   * near accessor checks first and returns null.
+   */
+  deferred?: boolean;
+}
+
+/** A generated stub's handle: reads throw until its data has loaded. */
+export function lazyModel(key: string, load: () => Promise<{ DATA: ImportedModel }>, options: LazyModelOptions = {}): ImportedModel {
+  const entry: ModelEntry =
+    REGISTRY.get(key) ?? ({ key, load, data: null, deferred: options.deferred === true, handle: null as unknown as ImportedModel } satisfies ModelEntry);
   entry.data ??= PRELOADED.get(key) ?? null;
-  REGISTRY.set(key, entry);
   const data = (): ImportedModel => {
-    if (!entry.data) throw new Error(`model "${key}" was used before loadModels() resolved`);
+    if (!entry.data) throw new Error(`model "${key}" was used before it loaded`);
     return entry.data;
   };
-  return {
+  const handle: ImportedModel = {
     get materials() {
       return data().materials;
     },
@@ -126,19 +157,34 @@ export function lazyModel(key: string, load: () => Promise<{ DATA: ImportedModel
       return data().meta;
     },
   };
+  entry.handle = handle;
+  STATE.handles.set(handle, entry);
+  REGISTRY.set(key, entry);
+  return handle;
+}
+
+/** Whether a model's data is in memory: always true once `loadModels()` has resolved, and for a near model once its own chunk landed. */
+export function isModelLoaded(...models: readonly ImportedModel[]): boolean {
+  return models.every((model) => {
+    const entry = STATE.handles.get(model);
+    return entry ? entry.data !== null : true;
+  });
 }
 
 let loading: Promise<void> | null = null;
 
 /**
- * Fetches every registered model's data. Safe to call more than once; after
- * a failure the next call tries again (what already arrived is kept).
+ * Fetches every registered model's data except the deferred near levels. Safe
+ * to call more than once; after a failure the next call tries again (what
+ * already arrived is kept).
  */
 export function loadModels(): Promise<void> {
   loading ??= Promise.all(
-    [...REGISTRY.values()].map(async (entry) => {
-      entry.data ??= (await entry.load()).DATA;
-    }),
+    [...REGISTRY.values()]
+      .filter((entry) => !entry.deferred)
+      .map(async (entry) => {
+        entry.data ??= (await entry.load()).DATA;
+      }),
   ).then(
     () => undefined,
     (error: unknown) => {
@@ -150,7 +196,83 @@ export function loadModels(): Promise<void> {
 }
 
 export function modelsLoaded(): boolean {
-  return [...REGISTRY.values()].every((entry) => entry.data !== null);
+  return [...REGISTRY.values()].every((entry) => entry.deferred || entry.data !== null);
+}
+
+/** Whether every deferred (near) model is in. */
+export function nearModelsLoaded(): boolean {
+  return [...REGISTRY.values()].every((entry) => !entry.deferred || entry.data !== null);
+}
+
+/** Bumps each time a near model lands; what `useNearModels()` reads. */
+export function nearModelsVersion(): number {
+  return STATE.version;
+}
+
+export function subscribeNearModels(listener: () => void): () => void {
+  STATE.listeners.add(listener);
+  return () => {
+    STATE.listeners.delete(listener);
+  };
+}
+
+function landed(): void {
+  STATE.version++;
+  for (const listener of [...STATE.listeners]) listener();
+}
+
+/** Lets the browser run whatever is waiting (input, a frame) before the next step. */
+export function yieldToMain(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (scheduler?.yield) return scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Near models announced per consumer rebuild. */
+const NEAR_BATCH = 12;
+/** How long the next near model waits after the last landed, so downloads and rebuilds are separate tasks with frames between. */
+const NEAR_GAP_MS = 60;
+
+let nearLoading: Promise<void> | null = null;
+
+/**
+ * Fetches the deferred near models one at a time, in registration order, and
+ * bumps `nearModelsVersion()` as each lands, so the layers that use it build
+ * its geometry in a task of its own (a single bump would have every consumer
+ * decode everything in one render). A module that cannot be fetched is tried
+ * once more at the end and then left out: the lean models keep drawing it.
+ * Safe to call more than once.
+ */
+export function loadNearModels(): Promise<void> {
+  nearLoading ??= (async () => {
+    const pending = [...REGISTRY.values()].filter((entry) => entry.deferred && entry.data === null);
+    const failed: ModelEntry[] = [];
+    // Every landing re-renders every consumer, so announce them in batches:
+    // a handful of rebuilds instead of one per model.
+    let unannounced = 0;
+    const announce = () => {
+      if (unannounced === 0) return;
+      unannounced = 0;
+      landed();
+    };
+    const fetchOne = async (entry: ModelEntry, retry: boolean) => {
+      try {
+        entry.data ??= (await entry.load()).DATA;
+      } catch (error) {
+        if (retry) console.warn(`Repo City: the near model "${entry.key}" could not be loaded.`, error);
+        else failed.push(entry);
+        return;
+      }
+      if (++unannounced >= NEAR_BATCH) announce();
+      await new Promise((resolve) => setTimeout(resolve, NEAR_GAP_MS));
+      await yieldToMain();
+    };
+    for (const entry of pending) await fetchOne(entry, false);
+    announce();
+    for (const entry of failed) await fetchOne(entry, true);
+    announce();
+  })();
+  return nearLoading;
 }
 
 /** Hands over data modules already in memory (`{ KEY, DATA }`), for tests. */

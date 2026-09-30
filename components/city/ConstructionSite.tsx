@@ -24,6 +24,16 @@
  * jib. Every part is drawn from the city's shared pools (`Batch.tsx`), so ten
  * sites cost about a dozen draw calls between them, not a hundred (PLAN.md
  * 76.13), however much is going on inside each.
+ *
+ * TWO LEVELS. A site is 8,000 to 20,000 triangles for the whole city. The few
+ * the camera is within `SITE_NEAR` of are drawn from the near models instead
+ * (`blender/scenes_near/`: a lattice crane with a ladder and hoist, scaffold
+ * with couplers, hoarding on its feet, the plant with its tracks and hoses, the
+ * crew in detail; 30,000 to 60,000 triangles), at most `SITE_CAP` at a time
+ * (`sceneLod.ts`). A site is drawn a handful of times, so the choice is the
+ * whole scene at once, not per part: the two levels share every frame and pivot,
+ * the crane still slews on the same group, and the shell, slabs and ground are
+ * the same in both.
  */
 
 import { useRef } from "react";
@@ -40,7 +50,6 @@ import type { SettlementTier } from "@/types/analysis";
 import type { ConstructionSite } from "@/types/city";
 import {
   HIGHLIGHT,
-  WINDOW_COLOR,
   desaturate,
   mix,
   stateTint,
@@ -62,13 +71,23 @@ import {
 } from "./models/props/finishedHouse";
 import { BatchEntity, BatchPart } from "./Batch";
 import { batchKind, type BatchKind } from "./batching";
-import { lampMaterial } from "./effects";
+import { FACADES } from "./models/buildings/facades";
 import { craneSwing } from "./reveal";
 import { useEntityHandlers, useEntityState } from "./useEntity";
 import { useRevealClock, useRevealGroup } from "./useReveal";
-import { useSkyValue } from "./sky";
 import { buildingDetailMaterial } from "./models/buildings/material";
 import { qualitySettings, useQuality } from "./quality";
+import { useSceneNear } from "./sceneLod";
+import type { DetailLevel } from "./models/detailLevel";
+
+/**
+ * The camera distance inside which a site is drawn near. A site is about
+ * eight units across the diagonal, so from 55 it covers a tenth of the
+ * screen's height and its scaffold ties and hoarding screws begin to read.
+ */
+const SITE_NEAR = 55;
+/** How many sites may be near at once. */
+const SITE_CAP = 3;
 
 /** One pool per merged shape; `receive` as the mesh it replaces had it. */
 function mergedKind(
@@ -120,11 +139,22 @@ const SLAB = batchKind("site:slab", () => ({
   material: () => buildingDetailMaterial({ color: "#ffffff", vertexColors: false, roughness: 0.95 }, { ...qualitySettings(), surface: 11 }),
 }));
 
-/** The lit band of a finished building's windows. */
-const BAND = batchKind("site:band", () => ({
-  geometry: unitBox,
-  material: lampMaterial,
-}));
+/**
+ * A finished building's walls, one of the city's own facades (`facades.ts`),
+ * by the site: its windows, door and roof edge are the decor's.
+ */
+const DONE_FACADES = [
+  ...FACADES.brick.slice(0, 2),
+  FACADES.render[0],
+  FACADES.stone[1],
+  FACADES.render[4],
+  FACADES.render[3],
+];
+function doneFacade(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return DONE_FACADES[h % DONE_FACADES.length].hex;
+}
 
 const RIBBON = batchKind("site:ribbon", () => ({
   geometry: () => new RingGeometry(SITE * 0.38, SITE * 0.41, 40),
@@ -139,11 +169,13 @@ function Crane({
   state,
   atmosphere,
   appearAt,
+  level,
 }: {
   state: ConstructionSite["state"];
   atmosphere: SceneAtmosphere;
   /** The site's slot in the reveal, so the opening sweep lands with it. */
   appearAt: number;
+  level: DetailLevel;
 }) {
   const jib = useRef<Group>(null);
   const moving = state === "active";
@@ -167,11 +199,11 @@ function Crane({
   return (
     <group position={[-SITE * 0.32, 0, -SITE * 0.3]} rotation-z={lean}>
       <BatchPart
-        kind={mergedKind("mast", craneMastGeometry(state, atmosphere.desaturation), CRANE_SURFACE, true)}
+        kind={mergedKind("mast", craneMastGeometry(state, atmosphere.desaturation, level), CRANE_SURFACE, true)}
       />
       <group ref={jib} position={[0, 12.6, 0]}>
         <BatchPart
-          kind={mergedKind("jib", craneJibGeometry(state, atmosphere.desaturation), CRANE_SURFACE, false)}
+          kind={mergedKind("jib", craneJibGeometry(state, atmosphere.desaturation, level), CRANE_SURFACE, false)}
         />
       </group>
     </group>
@@ -206,12 +238,14 @@ function FinishedHouse({
   atmosphere,
   hovered,
   selected,
+  level,
 }: {
   site: ConstructionSite;
   tier: FinishedTier;
   atmosphere: SceneAtmosphere;
   hovered: boolean;
   selected: boolean;
+  level: DetailLevel;
 }) {
   const spec = FINISHED[tier];
   // Uniform: a plot squeezed smaller keeps the house's proportions, and its
@@ -229,13 +263,13 @@ function FinishedHouse({
         color={ground}
       />
       <BatchPart
-        kind={finishedKind(`house-${tier}`, finishedHouseGeometry(tier, atmosphere.desaturation))}
+        kind={finishedKind(`house-${tier}`, finishedHouseGeometry(tier, atmosphere.desaturation, level))}
         position={[0, 0.04, -spec.setBack]}
         scale={[spec.footprint[0], spec.height, spec.footprint[1]]}
         color={tint}
       />
       <BatchPart
-        kind={finishedKind(`finish-${tier}`, finishedDressingGeometry(tier, atmosphere.desaturation))}
+        kind={finishedKind(`finish-${tier}`, finishedDressingGeometry(tier, atmosphere.desaturation, level))}
         color={tint}
       />
     </group>
@@ -256,8 +290,7 @@ export default function ConstructionSitePiece({
   const { hovered, selected } = useEntityState(site.id);
   const handlers = useEntityHandlers(site.id);
   const reveal = useRevealGroup(site.appearAt);
-  // The finished band's windows follow the live hour (`sky.tsx`).
-  const glow = useSkyValue((a) => a.windowGlow + a.nightness * 0.4);
+  const level: DetailLevel = useSceneNear(reveal, SITE_NEAR, SITE_CAP) ? "near" : "lean";
 
   const done = site.state === "completed";
   const finished = done ? finishedTier(settlement) : null;
@@ -265,7 +298,7 @@ export default function ConstructionSitePiece({
     return (
       <group ref={reveal} position={site.position} rotation-y={site.rotationY} {...handlers}>
         <BatchEntity id={site.id}>
-          <FinishedHouse site={site} tier={finished} atmosphere={atmosphere} hovered={hovered} selected={selected} />
+          <FinishedHouse site={site} tier={finished} atmosphere={atmosphere} hovered={hovered} selected={selected} level={level} />
         </BatchEntity>
       </group>
     );
@@ -278,7 +311,7 @@ export default function ConstructionSitePiece({
   const shellHeight = SHELL_HEIGHT[site.state];
   const shell = stateTint(
     desaturate(
-      done ? "#ecdfcb" : weathered ? mix("#cfcabd", "#9a7b5f", 0.35) : "#cfcabd",
+      done ? doneFacade(site.id) : weathered ? mix("#cfcabd", "#9a7b5f", 0.35) : "#cfcabd",
       atmosphere.desaturation,
     ),
     hovered,
@@ -306,7 +339,7 @@ export default function ConstructionSitePiece({
           <BatchPart
             kind={mergedKind(
               "decor",
-              constructionDecor(site.state, atmosphere.desaturation),
+              constructionDecor(site.state, atmosphere.desaturation, level),
               { roughness: 0.85 },
               true,
             )}
@@ -315,13 +348,6 @@ export default function ConstructionSitePiece({
 
           {done ? (
             <>
-              <BatchPart
-                kind={BAND}
-                position={[SITE * 0.12, shellHeight * 0.62, SITE * 0.1]}
-                scale={[5.46, 0.34, 5.46]}
-                color={WINDOW_COLOR}
-                glow={0.3 + glow}
-              />
               <BatchPart kind={RIBBON} rotation-x={-Math.PI / 2} position-y={0.08} color={HIGHLIGHT} />
             </>
           ) : (
@@ -336,7 +362,7 @@ export default function ConstructionSitePiece({
                   color={mix(shell, "#ffffff", 0.18)}
                 />
               ))}
-              <Crane state={site.state} atmosphere={atmosphere} appearAt={site.appearAt} />
+              <Crane state={site.state} atmosphere={atmosphere} appearAt={site.appearAt} level={level} />
             </>
           )}
         </group>

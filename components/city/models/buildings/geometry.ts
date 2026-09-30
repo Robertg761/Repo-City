@@ -17,6 +17,8 @@ import { importedParts } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { mergeParts } from "../props/geometry";
 import { MODEL as STREET2_MODEL } from "../props/street2.model";
+import { NEAR_LOWRISE } from "./near/lowrise";
+import { NEAR_TOWERS } from "./near/towers";
 
 export function toGeometry(draft: MeshDraft): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -31,6 +33,23 @@ export function toGeometry(draft: MeshDraft): BufferGeometry {
 }
 
 const ARCHETYPE_CACHE = new Map<ModelKey, BufferGeometry>();
+
+/**
+ * The detailed near level of an archetype for `LodInstances` (`../../lod.tsx`),
+ * or null to draw only the lean model. A near level is authored in the same
+ * unit space as the lean one, stands on the same footprint, and keeps the lean
+ * model's window rectangles exactly: the lit-window pass draws both from the
+ * lean model's `windows`.
+ */
+export function archetypeNearGeometry(id: ModelKey): BufferGeometry | null {
+  return nearBuilders[id]?.() ?? null;
+}
+
+/**
+ * Near-level builders by archetype, one module per family (`./near/`); each
+ * entry returns a cached geometry built like `archetypeGeometry`'s.
+ */
+const nearBuilders: Partial<Record<ModelKey, () => BufferGeometry | null>> = { ...NEAR_TOWERS, ...NEAR_LOWRISE };
 
 export function archetypeGeometry(id: ModelKey): BufferGeometry {
   const cached = ARCHETYPE_CACHE.get(id);
