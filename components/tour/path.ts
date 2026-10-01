@@ -548,6 +548,16 @@ function trackPoses(road: TrackRoad, landing: Pose, towerAim: Vec3): { poses: Po
   return { poses, along: dir };
 }
 
+/**
+ * How far the track keeps off its own tower: a fraction of its height, so the
+ * climb reads as a crane shot up the whole face rather than a lens pressed to
+ * one floor of it. The flight clearance alone let a tall tower fill half the
+ * frame from three units away.
+ */
+export function subjectClearance(height: number): number {
+  return clamp(height * 0.4, 10, 30);
+}
+
 /** Where the climb may end, as distance scale and tilt, in order of preference. */
 const LANDINGS: readonly [number, number][] = [
   [1, 1.1],
@@ -571,6 +581,7 @@ function trackShot(
   if (focus.kind !== "building") return null;
   const obstacles = flightObstacles(city);
   const sight = framingObstacles(city).filter((o) => o.id !== focus.id);
+  const subject = obstacles.filter((o) => o.id === focus.id);
   const s = spin(city, stop.key);
   // `radius` is 0.7 of the tower's largest side, its height for any tower.
   const height = focus.radius / 0.7;
@@ -588,6 +599,8 @@ function trackShot(
           if (!flightClear(landing.position, obstacles)) continue;
           const { poses, along: dir } = trackPoses(road, landing, focus.lookAt);
           if (!pathClear(poses, obstacles)) continue;
+          const keepOff = subjectClearance(height);
+          if (poses.some((pose) => cameraInside(pose.position, subject, keepOff))) continue;
           const shot: Shot = { kind: "track", key: stop.key, poses, along: dir };
           // The way down onto the road has to be clear too, from where the
           // previous shot leaves the camera.
