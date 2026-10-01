@@ -30,6 +30,7 @@ from mathutils import Matrix  # noqa: E402
 
 import fire_truck  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cut_many, cyl, finish, marker  # noqa: E402
 
 DECK = 0.45
@@ -370,12 +371,22 @@ def flag(M, fx):
     ball = bpy.context.active_object
     ball.data.materials.append(M["trim"])
     parts.append(ball)
-    # The flag: three panels, each turned a little, so it reads as cloth.
-    x0 = fx + 0.06
-    for i, turn in enumerate((0.18, -0.2, 0.16)):
-        w = 0.5
-        parts.append(box("flag", (w, 0.9, 0.04), (x0 + w * (i + 0.5), DECK + 6.1, fz + (0.05 if i == 1 else 0.0)), M["red"], bev=0.0, rot=(0, turn, 0)))
+    # (the cloth is `flag_cloth()`: a node of its own, waved by the app)
     return parts
+
+
+FLAG_LENGTH, FLAG_HEIGHT = 1.5, 0.9
+
+
+def flag_pole_x(level):
+    return hall_centre(level) - hall_width(level) / 2 - 1.1
+
+
+def flag_cloth(M, level, scope=None, segs=(8, 2), thick=0.03, ripple=0.05):
+    """The level's flag cloth, hoisted on the pole and flying towards +x."""
+    scope = scope or f"Station{level}"
+    hoist = (flag_pole_x(level) + 0.05, DECK + 6.1, 2.0)
+    return animkit.flag(f"{scope}.Flag.0", M["red"], hoist, (1.0, 0.0, 0.0), FLAG_LENGTH, FLAG_HEIGHT, segs=segs, thick=thick, ripple=ripple)
 
 
 def training_yard(M):
@@ -437,6 +448,8 @@ def build():
         _bake_alone(made[-1], made, distance=1.2)
     made.append(engine())
     _bake_alone(made[-1], made, distance=0.5)
+    for level in (1, 2, 3):
+        made += flag_cloth(M, level)
     # The engine's two roof lamps, in its own frame, for the blinking beacons.
     for i, lx in enumerate((-0.32, 0.32)):
         made.append(marker(f"Engine.lamp.{i}", tuple(v * ENGINE_SCALE for v in (lx, 2.04, 2.0))))

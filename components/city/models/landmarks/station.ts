@@ -33,6 +33,7 @@ import { importedMarkers } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 import { blenderSlots } from "./blenderSlots";
+import { landmarkLife, type LandmarkLife } from "./life";
 import { MODEL as TRANSIT_STATION } from "./transitStation.model";
 import { MODEL as TRANSIT_TRAIN } from "./transitTrain.model";
 
@@ -67,6 +68,8 @@ export interface StationLayout {
   /** Platform lamps, lit by React from the scene atmosphere. */
   lamps: V3[];
   tracks: 1 | 2;
+  /** What moves: the clock's hands and the flags' cloth, nodes of their own in the Blender models (`life.ts`). */
+  life?: LandmarkLife;
 }
 
 function track(a: A, cz: number): void {
@@ -357,7 +360,7 @@ export function transitStation(level: number): StationLayout {
 export function blenderStation(level: number): StationLayout {
   const lamps = importedMarkers(TRANSIT_STATION, "Station.lamp.").map(([x, y, z]): V3 => [x, y, z]);
   const tracks: 1 | 2 = level >= 3 ? 2 : 1;
-  return { slots: blenderSlots<StationSlot>(TRANSIT_STATION, [`Station${level}`]), lamps, tracks };
+  return { slots: blenderSlots<StationSlot>(TRANSIT_STATION, [`Station${level}`]), lamps, tracks, life: landmarkLife(TRANSIT_STATION, "Station") };
 }
 
 /**

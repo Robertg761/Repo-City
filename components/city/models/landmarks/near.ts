@@ -23,6 +23,7 @@ import { importedMarker, importedMarkers, isModelLoaded } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { cached, type V3 } from "./assembly";
 import { blenderSlots } from "./blenderSlots";
+import { landmarkLife } from "./life";
 import { blenderFireFrom, type FireLayout } from "./fire";
 import { MODEL as FIRE_STATION_NEAR } from "./fireStationNear.model";
 import type { InfoLayout, InfoSlot } from "./info";
@@ -67,7 +68,7 @@ const villageLevel = (level: number): 1 | 2 => (level >= 2 ? 2 : 1);
 
 /** The town hall: the lean hall's lantern marker, the detailed slots. */
 export function blenderTownHallNear(): CivicLayout {
-  return { slots: blenderSlots<CivicSlot>(TOWN_HALL_NEAR, ["TownHallNear"]), lantern: v3(importedMarker(TOWN_HALL, "TownHall.lantern")) };
+  return { slots: blenderSlots<CivicSlot>(TOWN_HALL_NEAR, ["TownHallNear"]), lantern: v3(importedMarker(TOWN_HALL, "TownHall.lantern")), life: landmarkLife(TOWN_HALL_NEAR, "TownHallNear") };
 }
 
 /** The fire station with the detailed engine at each of the level's lean engine markers. */
@@ -97,6 +98,7 @@ export function blenderStationNear(level: number): StationLayout {
     slots: blenderSlots<StationSlot>(TRANSIT_STATION_NEAR, [`Station${clamped}Near`]),
     lamps: importedMarkers(TRANSIT_STATION, "Station.lamp.").map(v3),
     tracks: clamped >= 3 ? 2 : 1,
+    life: landmarkLife(TRANSIT_STATION_NEAR, "StationNear"),
   };
 }
 
@@ -122,7 +124,7 @@ export function blenderTrainPartsNear(pantograph: Pantograph = "raised"): TrainP
 // ---------------------------------------------------------------------------
 
 export function blenderChapelNear(): ChapelLayout {
-  return { slots: blenderSlots<ChapelSlot>(VILLAGE_CHAPEL_NEAR, ["ChapelNear"]), lamp: v3(importedMarker(VILLAGE_CHAPEL, "Chapel.lamp")) };
+  return { slots: blenderSlots<ChapelSlot>(VILLAGE_CHAPEL_NEAR, ["ChapelNear"]), lamp: v3(importedMarker(VILLAGE_CHAPEL, "Chapel.lamp")), life: landmarkLife(VILLAGE_CHAPEL_NEAR, "ChapelNear") };
 }
 
 export function blenderVillageFireNear(level: number): VillageFireLayout {
@@ -130,6 +132,7 @@ export function blenderVillageFireNear(level: number): VillageFireLayout {
   return {
     slots: blenderSlots<VillageFireSlot>(VILLAGE_FIRE_NEAR, [`VFire${key}Near`]),
     beacons: importedMarkers(VILLAGE_FIRE, `VFire${key}.beacon.`).map(v3),
+    life: landmarkLife(VILLAGE_FIRE_NEAR, `VFire${key}Near`),
   };
 }
 

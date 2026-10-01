@@ -37,11 +37,12 @@
 import type { FireSlot } from "./models/landmarks/fire";
 import type { Slots } from "./models/landmarks/assembly";
 import { useNearModels } from "./models/useModels";
-import { useCallback, useEffect, useMemo, useRef, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Matrix4, MeshStandardMaterial, Plane, Vector3, type BufferGeometry, type Group, type InstancedMesh } from "three";
-import { buildingDetailMaterial } from "./models/buildings/material";
+import { Matrix4, MeshStandardMaterial, Plane, Vector3, type Group, type InstancedMesh } from "three";
 import { useQuality } from "./quality";
+import { Part } from "./landmarkPart";
+import { LandmarkLifeParts, type Looks } from "./landmarkAnimated";
 import { NATURAL_LANDMARK_SIZE } from "@/lib/city/layout";
 import type { SettlementTier } from "@/types/analysis";
 import type { Landmark } from "@/types/city";
@@ -148,73 +149,6 @@ function useDetailed(): boolean {
   // return null until they do, and this asks again when each lands.
   useNearModels();
   return useQuality().tier !== "low";
-}
-
-/** One merged slot, drawn with one material. Absent slots draw nothing. */
-function Part({
-  geometry,
-  color,
-  roughness = 0.8,
-  metalness = 0,
-  emissive,
-  emissiveIntensity = 0,
-  materialRef,
-  cast = true,
-  receive = true,
-  clip,
-  instances,
-  meshRef,
-}: {
-  geometry: BufferGeometry | undefined;
-  color: string;
-  roughness?: number;
-  metalness?: number;
-  emissive?: string;
-  emissiveIntensity?: number;
-  materialRef?: Ref<MeshStandardMaterial>;
-  cast?: boolean;
-  receive?: boolean;
-  /** World-space clipping planes, shadows included. */
-  clip?: Plane[];
-  /** Draws this many copies as an instanced mesh, placed by the caller through `meshRef`. */
-  instances?: number;
-  meshRef?: Ref<InstancedMesh>;
-}) {
-  const { textureSize, anisotropy } = useQuality();
-  const material = useMemo(() => {
-    const parameters = {
-      color, roughness, metalness,
-      emissive: emissive ?? "#000000", emissiveIntensity,
-      toneMapped: emissive === undefined,
-      clippingPlanes: clip ?? null, clipShadows: clip !== undefined,
-      // Only the Blender models carry vertex colours (baked occlusion).
-      vertexColors: geometry?.hasAttribute("color") ?? false,
-    };
-    return buildingDetailMaterial(parameters, {
-      textureSize, anisotropy, surfaceAttribute: geometry?.hasAttribute("surface") ?? false,
-    });
-  }, [geometry, color, roughness, metalness, emissive, emissiveIntensity, clip, textureSize, anisotropy]);
-  useEffect(() => () => material.dispose(), [material]);
-  if (!geometry) return null;
-  if (instances !== undefined) {
-    return (
-      <instancedMesh
-        ref={meshRef}
-        key={instances}
-        args={[geometry, undefined, instances]}
-        castShadow={cast}
-        receiveShadow={receive}
-        frustumCulled={false}
-      >
-        <primitive ref={materialRef} object={material} attach="material" />
-      </instancedMesh>
-    );
-  }
-  return (
-    <mesh geometry={geometry} castShadow={cast} receiveShadow={receive}>
-      <primitive ref={materialRef} object={material} attach="material" />
-    </mesh>
-  );
 }
 
 /**
@@ -423,7 +357,8 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const detailed = useDetailed();
   // The first engine stands apart, so it can drive out on a call-out; without the Blender models it stays put.
   const live = (detailed && fireStationNearLive(landmark.level)) || fireStationLive(landmark.level);
-  const { slots, beacons, sortie } = live ?? fireStation(landmark.level);
+  const { slots, beacons, sortie, life } = live ?? fireStation(landmark.level);
+  const looks: Looks = { red: { color: skin.tint(ENGINE_RED), roughness: 0.55 } };
   const engine = useRef<Group>(null);
   const alarm = useRef(0);
   const state = useRef<Sortie>({ out: 0, alarm: 0 });
@@ -443,6 +378,7 @@ function FireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   return (
     <group>
       <FireParts slots={slots} skin={skin} />
+      <LandmarkLifeParts life={life} looks={looks} />
       {beacons.map((at, i) => (
         <FlashLight key={i} position={at} color="#ff5f52" radius={0.17} side={i % 2} />
       ))}
@@ -650,7 +586,8 @@ const PORTAL_PLANE = new Plane(new Vector3(-1, 0, 0), PORTAL_X);
 function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const level = landmark.level;
   const detailed = useDetailed();
-  const { slots, lamps, tracks } = (detailed && transitStationNear(level)) || transitStation(level);
+  const { slots, lamps, tracks, life } = (detailed && transitStationNear(level)) || transitStation(level);
+  const looks: Looks = { dark: { color: skin.tint("#1f2427"), roughness: 1 } };
   const perMinute = landmark.detail?.trainsPerMinute ?? fallbackArrivals(level);
   const frame = useRef<Group>(null);
   const train = useRef<Group>(null);
@@ -691,6 +628,7 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
 
   return (
     <group ref={frame}>
+      <LandmarkLifeParts life={life} looks={looks} />
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.wall} color={skin.tint(PALE)} roughness={0.78} />
       <Part geometry={slots.roof} color={skin.tint(SLATE)} roughness={0.82} />
@@ -725,10 +663,15 @@ function TransitStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) 
 /** The repository itself, at the centre of the city (PLAN.md section 23). */
 function TownHall({ skin }: { skin: Skin }) {
   const detailed = useDetailed();
-  const { slots, lantern } = (detailed && townHallNear()) || townHall();
+  const { slots, lantern, life } = (detailed && townHallNear()) || townHall();
+  const looks: Looks = {
+    accent: { color: skin.tint(VERDIGRIS), roughness: 0.5, metalness: 0.2 },
+    metal: { color: skin.tint(STEEL), roughness: 0.55, metalness: 0.3 },
+  };
 
   return (
     <group>
+      <LandmarkLifeParts life={life} looks={looks} />
       <Part geometry={slots.stone} color={skin.tint(SLATE)} roughness={0.9} />
       <Part geometry={slots.wall} color={skin.tint(PALE)} roughness={0.75} />
       {/* A verdigris dome and copper flags: the one civic colour in the city. */}
@@ -765,9 +708,11 @@ const BRICK = "#a8604a";
 /** The chapel on the green: the repository itself, in a village (PLAN.md 76.10). */
 function Chapel({ skin }: { skin: Skin }) {
   const detailed = useDetailed();
-  const { slots, lamp } = (detailed && chapelNear()) || chapel();
+  const { slots, lamp, life } = (detailed && chapelNear()) || chapel();
+  const looks: Looks = { metal: { color: skin.tint(DARK_STEEL), roughness: 0.5, metalness: 0.3 } };
   return (
     <group>
+      <LandmarkLifeParts life={life} looks={looks} />
       <Part geometry={slots.stone} color={skin.tint(LIMESTONE)} roughness={0.92} />
       <Part geometry={slots.roof} color={skin.tint(VILLAGE_SLATE)} roughness={0.8} />
       <Part geometry={slots.trim} color={skin.tint(TRIM)} roughness={0.7} />
@@ -790,9 +735,11 @@ function Chapel({ skin }: { skin: Skin }) {
 /** The village's retained fire station (PLAN.md section 15, at village scale). */
 function VillageFireStation({ landmark, skin }: { landmark: Landmark; skin: Skin }) {
   const detailed = useDetailed();
-  const { slots, beacons } = (detailed && villageFireStationNear(landmark.level)) || villageFireStation(landmark.level);
+  const { slots, beacons, life } = (detailed && villageFireStationNear(landmark.level)) || villageFireStation(landmark.level);
+  const looks: Looks = { red: { color: skin.tint(ENGINE_RED), roughness: 0.55 } };
   return (
     <group>
+      <LandmarkLifeParts life={life} looks={looks} />
       <Part geometry={slots.deck} color={skin.tint(CONCRETE_GREY)} roughness={0.95} />
       <Part geometry={slots.wall} color={skin.tint(BRICK)} roughness={0.85} />
       <Part geometry={slots.roof} color={skin.tint(VILLAGE_SLATE)} roughness={0.8} />

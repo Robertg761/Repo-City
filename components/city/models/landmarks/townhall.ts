@@ -17,6 +17,7 @@ import { importedMarker } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 import { blenderSlots } from "./blenderSlots";
+import { landmarkLife, type LandmarkLife } from "./life";
 import { MODEL as TOWN_HALL } from "./townHall.model";
 
 export type CivicSlot = "stone" | "wall" | "accent" | "metal" | "glass";
@@ -31,6 +32,8 @@ export interface CivicLayout {
   slots: Slots<CivicSlot>;
   /** The lantern above the dome, which React lights. */
   lantern: V3;
+  /** What moves: the clock's hands and the flags' cloth, nodes of their own in the Blender models (`life.ts`). */
+  life?: LandmarkLife;
 }
 
 function colonnade(a: A): void {
@@ -193,5 +196,5 @@ export function townHall(): CivicLayout {
  */
 export function blenderTownHall(): CivicLayout {
   const [x, y, z] = importedMarker(TOWN_HALL, "TownHall.lantern");
-  return { slots: blenderSlots<CivicSlot>(TOWN_HALL, ["TownHall"]), lantern: [x, y, z] };
+  return { slots: blenderSlots<CivicSlot>(TOWN_HALL, ["TownHall"]), lantern: [x, y, z], life: landmarkLife(TOWN_HALL, "TownHall") };
 }

@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lkit  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cut_many, cyl, finish  # noqa: E402
 
 DECK = 0.4
@@ -143,8 +144,7 @@ def concourse(M):
     parts.append(box("canopyEdge", (4.9, 0.1, 0.08), (x, base + 3.08, 3.66), M["accent"], bev=0.0))
     parts.append(cyl("clockRim", 0.62, 0.12, (x, base + 3.72, 2.66), M["steel"], axis="z", verts=16))
     parts.append(cyl("clockFace", 0.52, 0.04, (x, base + 3.72, 2.73), M["glass"], axis="z", verts=16))
-    parts.append(box("hand", (0.06, 0.34, 0.03), (x, base + 3.86, 2.77), M["dark"], bev=0.0))
-    parts.append(box("hand", (0.26, 0.06, 0.03), (x + 0.11, base + 3.72, 2.775), M["dark"], bev=0.0))
+    # (the hands are `animated()`)
     parts.append(box("roof", (6.8, 0.5, 6.0), (x, base + 4.45, 0), M["roof"], bev=0.06))
     parts.append(box("roofTop", (6.4, 0.06, 5.6), (x, base + 4.72, 0), M["roofDark"], bev=0.0))
     parts.append(box("nameBoard", (3.4, 0.62, 0.14), (x, base + 4.75, 2.5), M["accent"], bev=0.04))
@@ -290,6 +290,14 @@ def station(M, level):
     return parts
 
 
+CLOCK = (-9.4, DECK + 0.15 + 3.72, 2.75)
+
+
+def animated(M, scope="Station"):
+    """The concourse clock's hands, one set for every level."""
+    return animkit.clock_hands(f"{scope}.Clock.0", M["dark"], CLOCK, 0.52, z=0.005)
+
+
 def build():
     kit.reset()
     M = palette()
@@ -299,7 +307,7 @@ def build():
         lkit.bake(made[-1], [], made, distance=1.0)
     for i, lx in enumerate(LAMPS):
         made.append(kit.marker(f"Station.lamp.{i}", (lx, PLATFORM_Y + 2.52, 0)))
-    return made
+    return made + animated(M)
 
 
 def preview(level):

@@ -53,11 +53,40 @@ export interface CivicPalette {
   containers: [Rgb3, Rgb3, Rgb3];
 }
 
+/** A clock face the building carries: where its hands turn, in the building's frame. */
+export interface CivicClock {
+  /** The clock's centre. */
+  at: readonly [number, number, number];
+  /** Turn about y that takes the kit's clock (facing +z) to the wall it hangs on. */
+  yaw: number;
+  /** The kit clock's radius is 1: this scales it. */
+  radius: number;
+}
+
+/** A flag the building flies: the pole's top, where the kit's cloth hangs from. */
+export interface CivicFlag {
+  at: readonly [number, number, number];
+  /** One scale for the kit's flag (`FlagTop`'s). */
+  scale: number;
+}
+
+/**
+ * What moves on a civic building built from the Blender kit: the hands of
+ * every clock and the cloth of every flag are left out of the body and drawn
+ * on their own (`civicLife.ts`), turned to the scene's time and waved in the
+ * wind. Absent for the procedural build, whose hands and flag are part of it.
+ */
+export interface CivicLife {
+  clocks: CivicClock[];
+  flags: CivicFlag[];
+}
+
 export interface CivicDrafts {
   /** The building itself. */
   body: MeshDraft;
   /** Warm glass, drawn with the emissive material. */
   glow: MeshDraft;
+  life?: CivicLife;
 }
 
 export interface CivicPlot {
@@ -110,7 +139,7 @@ const kit = (): KitMeta => CIVIC_KIT.meta as KitMeta;
 /** Whether the near kit has loaded: `buildCivic(..., { near: true })` reads it. */
 export const civicNearReady = (): boolean => isModelLoaded(CIVIC_KIT_NEAR);
 
-type Authored = CivicPalette & { kit?: boolean; near?: boolean };
+type Authored = CivicPalette & { kit?: boolean; near?: boolean; life?: CivicLife };
 
 type KitPart =
   | "ColumnBase" | "ColumnShaft" | "ColumnCapital" | "Pediment" | "Steps3" | "Steps4" | "StepCheek"
@@ -131,7 +160,7 @@ interface Placement {
   container?: Rgb3;
 }
 
-function roleColor(p: CivicPalette, role: string, container?: Rgb3): Rgb3 {
+export function roleColor(p: CivicPalette, role: string, container?: Rgb3): Rgb3 {
   switch (role) {
     case "wall":
       return p.wall;
@@ -505,7 +534,9 @@ function addClock(
 ): void {
   const r = spec.radius;
   if (palette.kit) {
-    addPart(draft, palette, "Clock", { at: onWall(spec.facing, 0, spec.v, spec.plane, spec.cx, spec.cz), facing: spec.facing, s: r });
+    const at = onWall(spec.facing, 0, spec.v, spec.plane, spec.cx, spec.cz);
+    addPart(draft, palette, "Clock", { at, facing: spec.facing, s: r });
+    palette.life?.clocks.push({ at, yaw: facingYaw(spec.facing), radius: r });
     return;
   }
   const at = { facing: spec.facing, cx: spec.cx, cz: spec.cz };
@@ -529,7 +560,9 @@ function addFlag(
   addBox(draft, { x: spec.x, y: spec.y, z: spec.z, w: spec.size * 0.5, h: 0.22, d: spec.size * 0.5, color: palette.stone });
   if (palette.kit) {
     addPart(draft, palette, "FlagPole", { at: [spec.x, spec.y, spec.z], sx: 0.08, sz: 0.08, sy: spec.h });
-    addPart(draft, palette, "FlagTop", { at: [spec.x, spec.y + spec.h, spec.z], s: spec.size / kit().flagSize });
+    const top: [number, number, number] = [spec.x, spec.y + spec.h, spec.z];
+    addPart(draft, palette, "FlagTop", { at: top, s: spec.size / kit().flagSize });
+    palette.life?.flags.push({ at: top, scale: spec.size / kit().flagSize });
     return;
   }
   addCylinder(draft, { x: spec.x, y: spec.y, z: spec.z, radius: 0.08, h: spec.h, segments: 6, color: palette.metal });
@@ -1309,7 +1342,8 @@ export function buildCivic(
     flag: surfaceColor(palette.flag, SURFACE.fabric),
     containers: palette.containers.map((color) => surfaceColor(color, SURFACE.metal)) as [Rgb3, Rgb3, Rgb3],
   };
+  if (authored.kit) authored.life = { clocks: [], flags: [] };
   const drafts = BUILDERS[kind](plot, authored);
   addPlinth(drafts.body, plot, authored);
-  return drafts;
+  return authored.life ? { ...drafts, life: authored.life } : drafts;
 }

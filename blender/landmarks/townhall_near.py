@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nkit  # noqa: E402  (puts blender/ on sys.path)
 import kit  # noqa: E402
 import ndetail as nd  # noqa: E402
+import animkit  # noqa: E402
 from kit import finish  # noqa: E402
 
 lean = nkit.load_lean(os.path.join(os.path.dirname(os.path.abspath(__file__)), "townhall.py"))
@@ -150,7 +151,7 @@ def pediment(acc, M):
         a = math.tau * i / 28
         with acc.at((math.sin(a) * 0.7, cy + math.cos(a) * 0.7, 4.66), rot=(0, 0, -a)):
             acc.box(M["accent"], (0.11, 0.07, 0.03), (0, 0, 0), rot=(0, 0, 0.5))
-    nd.clock(acc, 0.5, {"rim": M["metal"], "dial": M["wall"], "ink": M["dark"]}, pos=(0, cy, 4.62), hour=10, minute=9)
+    nd.clock(acc, 0.5, {"rim": M["metal"], "dial": M["wall"], "ink": M["dark"]}, pos=(0, cy, 4.62), hands=False)
 
 
 def balustrades(acc, M):
@@ -238,15 +239,11 @@ def forecourt(acc, M):
     stone, metal, accent = M["stone"], M["metal"], M["accent"]
     iron = {"iron": M["dark"], "glass": M["glass"]}
     for s in (-1, 1):
-        # Flag poles: rings, a ball and a waving cloth in ten leaves.
+        # Flag poles: rings and a ball; the cloth is `animated()`.
         px = s * 3.4
         acc.cyl(stone, 0.26, 0.08, (px, 0.84, 4.75), sides=8)
         for y in (1.2, 2.6, 4.2):
             acc.cyl(metal, 0.085, 0.05, (px, y, 4.75), sides=8)
-        for k in range(10):
-            w = 0.1
-            wave = math.sin(k * 0.8) * 0.06
-            acc.box(accent, (w, 0.8 - k * 0.012, 0.03), (px + s * (0.08 + w * (k + 0.5)), 4.3 - k * 0.006, 4.75 + wave), rot=(0, math.cos(k * 0.8) * 0.28 * s, 0))
         acc.rod(metal, (px, 4.7, 4.75), (px + s * 0.5, 4.7, 4.75), 0.008, sides=3)
         # Lamp standards at the corners of the steps.
         nd.lamp_standard(acc, iron, (s * 5.4, 0.3, 4.9), height=2.85)
@@ -278,6 +275,16 @@ def paving(acc, M):
     nd.paving(acc, M["paving"], 5.25, 6.55, -4.95, 4.95, y, size=0.45)
 
 
+def animated(M, scope="TownHallNear"):
+    """The hands (with a second hand: the clock is big enough here) and the
+    cloths, finer than the lean ones, in the same places."""
+    objs = animkit.clock_hands(f"{scope}.Clock.0", M["dark"], (0.0, lean.CLOCK[1], 4.62), 0.5, z=0.145, depth=0.014, lift=0.022, second=True)
+    for k, px in enumerate(lean.FLAG_POLES):
+        s = 1 if px > 0 else -1
+        objs += animkit.flag(f"{scope}.Flag.{k}", M["accent"], (px + s * 0.05, lean.FLAG_Y, lean.FLAG_Z), (s, 0.0, 0.0), lean.FLAG_LENGTH, lean.FLAG_HEIGHT, segs=(14, 4), thick=0.02, ripple=0.045)
+    return objs
+
+
 def build():
     kit.reset()
     M = lean.palette()
@@ -297,7 +304,7 @@ def build():
     paving(acc, M)
     near = nkit.rejoin(hall, acc.objects(), "TownHallNear")
     kit.bake_ao([near], distance=1.2, samples=16, floor=0.55)
-    return [near]
+    return [near] + animated(M)
 
 
 def preview(_=0):

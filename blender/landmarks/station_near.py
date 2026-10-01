@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nkit  # noqa: E402  (puts blender/ on sys.path)
 import kit  # noqa: E402
 import ndetail as nd  # noqa: E402
+import animkit  # noqa: E402
 from kit import finish  # noqa: E402
 
 lean = nkit.load_lean(os.path.join(os.path.dirname(os.path.abspath(__file__)), "station.py"))
@@ -41,7 +42,7 @@ def concourse(acc, obj, M):
     x = -9.4
     base = DECK + 0.15
     S = lean.S
-    nd.clock(acc, 0.53, {"rim": M["steel"], "dial": M["wall"], "ink": M["dark"]}, pos=(x, base + 3.72, 2.6), hour=8, minute=25)
+    nd.clock(acc, 0.53, {"rim": M["steel"], "dial": M["wall"], "ink": M["dark"]}, pos=(x, base + 3.72, 2.6), hands=False)
     nd.letters(acc, M["wall"], "STATION", 0.34, pos=(x, base + 4.75, 2.57), depth=0.03)
     for sx in (-1, 1):
         acc.cyl(M["dark"], 0.03, 0.05, (x + sx * 1.62, base + 4.75, 2.6), axis="z", sides=6)
@@ -249,6 +250,11 @@ def near(M, level):
     return nkit.rejoin(obj, acc.objects(), f"Station{level}Near")
 
 
+def animated(M, scope="StationNear"):
+    """The concourse clock's hands and second hand, one set for every level."""
+    return animkit.clock_hands(f"{scope}.Clock.0", M["dark"], (-9.4, DECK + 0.15 + 3.72, 2.6), 0.53, z=0.145, depth=0.014, lift=0.022, second=True)
+
+
 def build(levels=(1, 2, 3)):
     kit.reset()
     M = lean.palette()
@@ -256,7 +262,7 @@ def build(levels=(1, 2, 3)):
     for level in levels:
         made.append(near(M, level))
         lean.lkit.bake(made[-1], [], made, distance=1.0)
-    return made
+    return made + animated(M)
 
 
 def preview(level):

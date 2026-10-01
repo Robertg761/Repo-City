@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import civickit as ck  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cyl  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -190,16 +191,7 @@ def clock(M):
             (s * r1 - c * wide / 2, c * r1 + s * wide / 2, z),
         ]
         parts.append(ck.face("tick", corners, M["door"], (0, 0, 1)))
-    # Ten to two, the clockmaker's hour.
-    for angle, length, wide, lift in ((math.radians(-60), 0.5, 0.1, 0.05), (math.radians(60), 0.78, 0.06, 0.1)):
-        c, s = math.cos(angle), math.sin(angle)
-        corners = [
-            (-c * wide / 2 - s * 0.1, s * wide / 2 - c * 0.1, z + lift),
-            (c * wide / 2 - s * 0.1, -s * wide / 2 - c * 0.1, z + lift),
-            (c * wide / 2 + s * length, -s * wide / 2 + c * length, z + lift),
-            (-c * wide / 2 + s * length, s * wide / 2 + c * length, z + lift),
-        ]
-        parts.append(ck.face("hand", corners, M["door"], (0, 0, 1)))
+    # (the hands are `animated()`: nodes of their own, turned by the app)
     parts.append(ck.face("boss", [(math.cos(a) * 0.08, math.sin(a) * 0.08, z + 0.045) for a in (2 * math.pi * i / 6 for i in range(6))], M["metal"], (0, 0, 1)))
     parts[-1].data.transform(__import__("mathutils").Matrix.Translation(kit.B((0, 0, 0.1))))
     return parts
@@ -410,17 +402,23 @@ def flag_top(M):
     # in it (both sides, so it reads from behind), hoisted at +x.
     s = FLAG_SIZE
     parts = [ck.lathe("ball", [(0.0, 0.0), (0.12, 0.06), (0.12, 0.14), (0.0, 0.2)], M["trim"], segments=6)]
-    cols = [0.0, 0.5, 1.0, 1.5]
-    wave = [0.0, 0.1, -0.02, 0.14]
-    y0, y1 = -s * 0.62, -s * 0.06
-    for i in range(3):
-        xa, xb = cols[i] * s, cols[i + 1] * s
-        za, zb = wave[i] * s, wave[i + 1] * s
-        droop = 0.03 * i
-        quad = [(xa, y0 - droop, za), (xb, y0 - droop - 0.03, zb), (xb, y1 - droop - 0.03, zb), (xa, y1 - droop, za)]
-        parts.append(ck.face("cloth", quad, M["flag"], (-(zb - za), 0, xb - xa)))
-        parts.append(ck.face("cloth", list(reversed(quad)), M["flag"], ((zb - za), 0, -(xb - xa))))
+    # (the cloth is `animated()`: `FlagCloth`, waved by the app)
     return parts
+
+
+# The flag cloth: hoisted on the pole's axis below the ball, flying along +x.
+FLAG_HOIST = (0.0, -FLAG_SIZE * 0.34, 0.0)
+FLAG_LENGTH, FLAG_HEIGHT = FLAG_SIZE * 1.5, FLAG_SIZE * 0.56
+
+
+def animated(M, near=False):
+    """What the app moves, each a node of its own at the kit's origin: the clock's
+    hands (pointing at twelve, radius 1, on the dial's plane facing +z) and the
+    flag's cloth. The near kit adds a second hand and a finer cloth."""
+    objs = animkit.clock_hands("Clock", M["door"], (0.0, 0.0, 0.0), 1.0, z=0.215, depth=0.02, lift=0.03, second=near)
+    segs, thick, ripple = ((14, 4), 0.02, 0.045) if near else ((8, 2), 0.03, 0.05)
+    objs += animkit.flag("FlagCloth", M["flag"], FLAG_HOIST, (1.0, 0.0, 0.0), FLAG_LENGTH, FLAG_HEIGHT, segs=segs, thick=thick, ripple=ripple)
+    return objs
 
 
 def _against_wall(obj):
@@ -494,6 +492,7 @@ def build():
     for obj in objs:
         obj.location.x = obj.location.y = 0
         print("TRIS", obj.name, ck.triangles(obj))
+    objs += animated(M)
     meta = {"profiles": PROFILES, "pediment": PEDIMENT, "door": DOOR, "belfryH": BELFRY_H, "spireH": SPIRE_H,
             "lanternH": LANTERN_H, "drumH": DRUM_H, "flagSize": FLAG_SIZE}
     os.makedirs(os.path.join(ROOT, "assets/models"), exist_ok=True)

@@ -184,8 +184,8 @@ export const DATA: ImportedModel = {
       "triangles": 20,
       "vertices": 14,
       "positions": "AP7/BwAA/f8HAAAA/v8HAICABAAA8HqZswIA4PUBAACujwGx5gL+/wf9/wfMmQUAAP3/BwD+/wcAAACy5gIArY8BsuYCAN/1AQAA73qaswI=",
-      "index": "AAICAAICAAICAAsEAAQEAgICAAICAgILBAQCBQYJAQgBBQYRCBABDQ4LBQoMFRYTBAwBCQoHBRQBERIP",
-      "ao": "HxkZGR8fHx8fHx8ZGR8fGRkfHx8fHx8ZHx8fHx8ZHx8fHx8fGxwfGx8fGRkfGR8fHx8fHx8fHx8cHxwc",
+      "index": "AAICAAICAAICAAsEAAQEAgICAAICAgILBAQCBQYJBRABDQ4LBQoMFRYTBAwBCQoHBRQBERIPBAgBBQYR",
+      "ao": "HxkZGR8fHx8fHx8ZGR8fGRkfHx8fHx8ZHx8fHx8ZGxwfGx8fGRkfGR8fHx8fHx8fHx8cHxwcHx8fHx8f",
       "aoLevels": 32,
       "material": "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
     },
@@ -206,13 +206,63 @@ export const DATA: ImportedModel = {
         0.000034790569487903724,
         0.000005264363843588677
       ],
-      "triangles": 76,
-      "vertices": 98,
-      "positions": "gIAE/v8HAAAA6KgC/v8By0QAAADnqAK0uwGzuwHoqAIAAOeoAsxE/f8B6KgCAAHnqALLRP3/AeioAgAA56gCs7sBs7sB6KgCAADnqAL9/wHLROioAgAA56gC//8BzEToqAIAAOeoArO7AbS7AeioAgAA56gCy0SAgALoqAIAAeeoAsxEgIAC6KgCAADnqAK0uwG0uwHoqAIAAOeoApCpBaetBJq9AwDq4wEA83GoxQEAp8UB9HEA6eMBAACnxQHzcQDzcafFAQAA6eMBAPRxp8UBAKjFAfNxAOrjAQAAqMUB9HEA+cYC0OgEtJQBuh8AAADuRwC5HwAAlqwB6VMAuhObCwC6FvImALkTngsAqGe3nAEAnAu5EwD0JroWAJ0LuhMA2Q/PtgEAALkfAO5HAAAAuh8A6VOVrAEAmwu5EwDyJrkWAJ4LuhMAt5wBp2cAuRObCwC6FvMmALoTngsAz7YB2g8AuR8AAADtRwC6HwAAlawB6lMAuROcCwC5FvEmALoTnQsAp2e4nAEAmwu6EwDzJrkWAJ4LuRMA2g/QtgEAALofAO1HAAAAuR8A6lOWrAEAnAu6EwDxJroWAJ0LuRMAuJwBqGcAuhOcCwC5FvQmALkTnQsAguIB/+oCtJQBuhbyJgCt6QHehgEAuRbxJgCIoAHPZ7SUAbwNqRcApNYCzsUBALsNqhcA15YC99kByIUB/BGQHwD7EY4fAPUjAAD7EY0fAPwRjx8A",
-      "index": "AAICAwQCAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICIQMBACoDAAMDAAMDAAMDAAMDAAUmAAcHAAcHIA8PIgEEAQICAAEpLCsBMAICAAICAAICAAICAAICAAIVAAQEAAQEAAQTCAgPGAICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAAICAAIJBAQH",
-      "ao": "Hx8fHx8fHx8fHx8fHx8aHxoaGxsfGx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8aHxobGxsfGx8fHx8fHx8fHxkfHx8fHx8fHxkfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHh4fHx8fHx8fHx4fHx8fHx8eHh8fHx8fHx8eHx8eHx8fHx8fHx8fHx8fHR0eHR4eGhoaGhoaHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fGhoaGhoaHx8fHx8fHx8fHx8fGxkfGx8eGRsfGR8fGhkbGxoZGRsaGxka",
+      "triangles": 72,
+      "vertices": 90,
+      "positions": "gIAE/v8HAAAA6KgC/v8By0QAAADnqAK0uwGzuwHoqAIAAOeoAsxE/f8B6KgCAAHnqALLRP3/AeioAgAA56gCs7sBs7sB6KgCAADnqAL9/wHLROioAgAA56gC//8BzEToqAIAAOeoArO7AbS7AeioAgAA56gCy0SAgALoqAIAAeeoAsxEgIAC6KgCAADnqAK0uwG0uwHoqAIAAOeoApCpBaetBJq9AwDq4wEA83GoxQEAp8UB9HEA6eMBAACnxQHzcQDzcafFAQAA6eMBAPRxp8UBAKjFAfNxAOrjAQAAqMUB9HEA+cYC0OgEtJQBuh8AAADuRwC5HwAAlqwB6VMAuhObCwC6FvImALkTngsAqGe3nAEAnAu5EwD0JroWAJ0LuhMA2Q/PtgEAALkfAO5HAAAAuh8A6VOVrAEAmwu5EwDyJrkWAJ4LuhMAt5wBp2cAuRObCwC6FvMmALoTngsAz7YB2g8AuR8AAADtRwC6HwAAlawB6lMAuROcCwC5FvEmALoTnQsAp2e4nAEAmwu6EwDzJrkWAJ4LuRMA2g/QtgEAALofAO1HAAAAuR8A6lOWrAEAnAu6EwDxJroWAJ0LuRMAuJwBqGcAuhOcCwC5FvQmALkTnQsAqNgBm+ACsK4D/BGQHwD7EY4fAPUjAAD7EY0fAPwRjx8A",
+      "index": "AAICAwQCAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICAAEEAQICIQMBACoDAAMDAAMDAAMDAAMDAAUmAAcHAAcHIA8PIgEEAQICAAEpLCsBMAICAAICAAICAAICAAICAAIVAAQEAAQEAAQTCAgPGAICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAwQCAgICAAICAAIJBAQH",
+      "ao": "Hx8fHx8fHx8fHx8fHx8aHxoaGxsfGx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8aHxobGxsfGx8fHx8fHx8fHxkfHx8fHx8fHxkfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHh4fHx8fHx8fHx4fHx8fHx8eHh8fHx8fHx8eHx8eHx8fHx8fHx8fHx8fHx8fHx8fGhoaGhoaHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fGhoaGhoaHx8fHx8fHx8fHx8fGxkbGxoZGRobGxkb",
       "aoLevels": 32,
-      "material": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAAAAAAAADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAgICAg=="
+      "material": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAAAAAAAADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCAgIC"
+    },
+    {
+      "name": "Clock.Hour",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "lo": [
+        -0.09000000357627869,
+        -0.09359999746084213,
+        0.2150000035762787
+      ],
+      "scale": [
+        0.0000027466240505463857,
+        0.000009362935506025113,
+        3.051803742683278e-7
+      ],
+      "triangles": 16,
+      "vertices": 10,
+      "positions": "APbLA/7/B5qzAvXLAwDKmQMAAJqzAvbLAwD//wOItAQA48wB/f8H/f8HmbMC9ssDAP7/A4i0BACAgASHtAQAmbMC9csDAA==",
+      "index": "AAICAAICAwQHCgICAAICAwQHAAgNBgUBEAEJDAsBDAEFCAcBCAELDg0IBAEHCgkB",
+      "ao": "Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8f",
+      "aoLevels": 32,
+      "material": "AwMDAwMDAwMDAwMDAwMDAw=="
+    },
+    {
+      "name": "Clock.Minute",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "lo": [
+        -0.02500000037252903,
+        -0.14399999380111694,
+        0.24500000476837158
+      ],
+      "scale": [
+        7.629511062036783e-7,
+        0.000014404516757794246,
+        3.051801468911829e-7
+      ],
+      "triangles": 16,
+      "vertices": 10,
+      "positions": "AODJAv7/B7Rm38kCAJazBgAAtGbgyQIA/f8DnrYFAMuZA/3/B/3/B7Nm4MkCAICABJ62BQD+/wOdtgUAs2bfyQIA",
+      "index": "AAICAAICAwQHCgICAAICAwQHAAgNBgUBEAEJDAsBDAEFCAcBCAELDg0IBAEHCgkB",
+      "ao": "Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8f",
+      "aoLevels": 32,
+      "material": "AwMDAwMDAwMDAwMDAwMDAw=="
     },
     {
       "name": "ColumnBase",
@@ -340,6 +390,31 @@ export const DATA: ImportedModel = {
       "material": "AwMDAwMDAwMDAwEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEGBgYGBgYGBgYGBwc="
     },
     {
+      "name": "FlagCloth",
+      "origin": [
+        0,
+        -0.37400001287460327,
+        0
+      ],
+      "lo": [
+        0,
+        -0.33263999223709106,
+        -0.054959870874881744
+      ],
+      "scale": [
+        0.000025177385765745665,
+        0.000009775539643978958,
+        0.0000021456553423587503
+      ],
+      "triangles": 104,
+      "vertices": 54,
+      "positions": "ALInuv0DgIABT4IiAKbsAwD/f1CBIgAAudoBgIABT4AiAKXsAwD/f1D/IYCAAf7XB7z8Af9/ToEiAAC52gGAgAFNgCKAgAG52gfK/gEApuwDAAAAu9oBAKXsAwAAzNgHvNoBAAC72gGAgAHV2weuqQEApuwDAAAAu9oBAKXsAwAAztgHvNoBAAC72gGAgAH13AfeOwCo7AMAAAC72gEAp+wDAADO2Ae82gEAALvaAf5/kd4HmkEApuwDAAAAu9oBAKXsAwAAzNgHvNoBAAC72gGAgAGt3wfuhgIApuwDAAAAu9oBAKXsAwAAzNgHvNoBAAC72gGAgAHL4AfSoAQApuwDAAAAu9oBAKXsAwAAzNgHvNoBAAC72gGAgAHp4Qe2jQUApuwDAAAAu9oBAKXsAwAAzNgHvNoBAAC72gE=",
+      "index": "AAICAwQCAgICAwQCBwEMCQoCAgILCgkBBRYCFxgVBhICExQRBxYGGxwPBgwFBQYRDgwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLCAwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLCAwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLCAwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLCAwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLCAwCDQ4LAgwCDQ4LAwwGERILAgwFBQYLRQEGAwQBBQEJDAsBEBACERILCRIFCwwVHgwCDQ4LAwwFBQYLFAwCDQ4LAwwFBQYLFAwCDQ4LAwwFBQYLFAwCDQ4LAwwFBQYLFAwCDQ4LAwwFBQYLFAwCDQ4LAwwFBQYLDgEGAwQBYwYCBwgGWgUCBAMGYwwCDQ4L",
+      "ao": "Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8f",
+      "aoLevels": 32,
+      "material": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg="
+    },
+    {
       "name": "FlagPole",
       "origin": [
         0,
@@ -373,21 +448,21 @@ export const DATA: ImportedModel = {
       ],
       "lo": [
         -0.11999999731779099,
-        -0.7720000147819519,
+        0,
         -0.10392304509878159
       ],
       "scale": [
-        0.00002700846835242135,
-        0.000014831769554622479,
-        0.000003935653380091807
+        0.0000036621651733513692,
+        0.0000030518044248147132,
+        0.000003171528041467356
       ],
-      "triangles": 30,
-      "vertices": 22,
-      "positions": "tkWkrQbMnAO2RZw/ANkiAMqcA7VFAADbIgDJnAPcIgDLnAO2RQAA2iKkVMycA9kiAMqcA7VFAADbIgDJnAPcIgDLnAO2RQAA2yKaP8ycAwCVoQcAmL4CzR/atAMA+ogFAJe+As4f2bQDsPwEk8gFq1cA+IgFAJi+AsWoBd66BQD4iAUA",
-      "index": "AAICAwQCBQYCBwgCCQoCCwwJAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwJAQILDAwJAAoHAAgFAAYDAAQBAAILDgICAwQCAwYCBwgFBAQCBQYD",
-      "ao": "ExQUFBQUExQUExQUExUVFBQUGxwcGxwbGh0cGhwaGhwcGhwaGx0cGxwbGhwcGhwaGx0dGx0bHx8fHx8fHx8fHx8fHx8fHx8fHx8bHxsbHx4cHxwbHh8dHh0c",
+      "triangles": 24,
+      "vertices": 14,
+      "positions": "gIAEAICABP7/A5izAgD//wEA/v8D/f8DAAD//wEA/f8DgIACAP//A/7/AwAAgIACzJkDgIAE//8BAP7/A/3/AwAA//8BAP3/A4CAAgD//wP+/wMAAP3/AZqzAoCABA==",
+      "index": "AAICAwQCBQYCBwgCCQoCCwwJAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwCDQ4LAAwJAQILDAwJAAoHAAgFAAYDAAQBAAIL",
+      "ao": "ExQUFBQUExQUExQUExUVFBQUGxwcGxwbGh0cGhwaGhwcGhwaGx0cGxwbGhwcGhwaGx0dGx0bHx8fHx8fHx8fHx8fHx8fHx8f",
       "aoLevels": 32,
-      "material": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBCAgICAgI"
+      "material": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
     },
     {
       "name": "Hood",
@@ -409,8 +484,8 @@ export const DATA: ImportedModel = {
       "triangles": 16,
       "vertices": 12,
       "positions": "AP7/BwAA/f8HAAAAgIAEAK70AgAArvQC/v8DAKKXAgD+/wf9/wf9/wMAAP//AwD+/wcAAAD+/wcAoZcCAACt9AL9/wM=",
-      "index": "AAICAgICCQQCAAQJDAICAAICAgkEAAQCCwgBBQYPBhABDQ4LAAwBCQoHBQgKERIP",
-      "ao": "HBkZGhscHBkaGhwcGRkbGxwbGhkbGxsaHx8fHx8fFBQVFBUVGxscGxwcGBgXGBcX",
+      "index": "AAICAgICCQQCAAQJDAICAAICAgkEAAQCDQwBCQoHBQgKERIPBAgBBQYPBhABDQ4L",
+      "ao": "HBkZGhscHBkaGhwcGRkbGxwbGhkbGxsaGxscGxwcGBgXGBcXHx8fHx8fFBQVFBUV",
       "aoLevels": 32,
       "material": "AQEBAQEBAQEBAQEBAQEBAQ=="
     },
@@ -665,7 +740,40 @@ export const DATA: ImportedModel = {
       "material": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC"
     }
   ],
-  "markers": [],
+  "markers": [
+    {
+      "name": "Clock.normal",
+      "position": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "Clock.pivot",
+      "position": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "FlagCloth.pivot",
+      "position": [
+        0,
+        -0.374,
+        0
+      ]
+    },
+    {
+      "name": "FlagCloth.tip",
+      "position": [
+        1.65,
+        -0.374,
+        0
+      ]
+    }
+  ],
   "meta": {
     "profiles": {
       "cornice": [

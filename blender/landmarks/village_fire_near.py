@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nkit  # noqa: E402  (puts blender/ on sys.path)
 import kit  # noqa: E402
 import ndetail as nd  # noqa: E402
+import animkit  # noqa: E402
 from kit import finish  # noqa: E402
 
 lean = nkit.load_lean(os.path.join(os.path.dirname(os.path.abspath(__file__)), "village_fire.py"))
@@ -102,10 +103,6 @@ def turret_and_pole(acc, M):
     px, pz = 2.8, -2.6
     for y in (1.2, 2.8, 4.4):
         acc.cyl(M["steel"], 0.1, 0.05, (px, y, pz), sides=8)
-    for k in range(9):
-        w = 0.1
-        wave = math.sin(k * 0.75) * 0.06
-        acc.box(M["red"], (w, 0.55 - k * 0.01, 0.025), (px + 0.1 + w * (k + 0.5), 5.55 - k * 0.005, pz + wave), rot=(0, math.cos(k * 0.75) * 0.3, 0))
     acc.rod(M["steel"], (px + 0.06, 5.8, pz + 0.05), (px + 0.06, 1.5, pz + 0.05), 0.006, sides=3)
     for hx in (-0.25, 0.25):
         acc.cyl(M["redDeep"], 0.05, 0.1, (px + hx, 4.2, pz), sides=8)
@@ -204,6 +201,8 @@ def build(levels=(1, 2)):
     for level in levels:
         made.append(near(M, level))
         lean.lkit.bake(made[-1], [], made, distance=0.8)
+    for level in levels:
+        made += lean.flag_cloth(M, level, scope=f"VFire{level}Near", segs=(12, 4), thick=0.015, ripple=0.045)
     return made
 
 
