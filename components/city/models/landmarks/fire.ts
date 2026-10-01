@@ -18,6 +18,7 @@ import { SURFACE } from "../../textures/surface-types";
 import { importedMarkers, importedSlots, type ImportedModel } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
+import { landmarkLife, type LandmarkLife } from "./life";
 import { MODEL as FIRE_STATION } from "./fireStation.model";
 
 /**
@@ -39,6 +40,8 @@ export interface FireLayout {
   slots: Slots<FireSlot>;
   /** Roof lights on every parked engine, drawn by React so they can blink. */
   beacons: V3[];
+  /** What moves: the clock's hands and the flags' cloth, nodes of their own in the Blender models (`life.ts`). */
+  life?: LandmarkLife;
   /**
    * Only when asked for (`detach`): the first engine, apart from the station,
    * so the renderer can drive it out of its bay. Its spot is where it parks
@@ -280,7 +283,8 @@ export function blenderFireFrom(level: number, model: ImportedModel, suffix: str
   const beacons: V3[] = parked.flatMap(([ex, ey, ez]) =>
     lamps.map(([lx, ly, lz]): V3 => [ex + lx, ey + ly, ez + lz]),
   );
-  if (!detach || !engines.length) return { slots, beacons };
+  const life = landmarkLife(model, `Station${level}${suffix}`);
+  if (!detach || !engines.length) return { slots, beacons, life };
   const own: Partial<Record<FireSlot, BufferGeometry>> = {};
   for (const [slot, list] of Object.entries(importedSlots(model, `Engine${suffix}`))) {
     const merged = mergeGeometries(list, false);
@@ -289,7 +293,7 @@ export function blenderFireFrom(level: number, model: ImportedModel, suffix: str
     own[slot as FireSlot] = merged;
   }
   const [sx, sy, sz] = engines[0];
-  return { slots, beacons, sortie: { slots: own as Slots<FireSlot>, spot: [sx, sy, sz], lamps: lamps.map(([x, y, z]): V3 => [x, y, z]) } };
+  return { slots, beacons, life, sortie: { slots: own as Slots<FireSlot>, spot: [sx, sy, sz], lamps: lamps.map(([x, y, z]): V3 => [x, y, z]) } };
 }
 
 /** The Blender station with its first engine apart, for the one that drives out; null without the Blender models. */

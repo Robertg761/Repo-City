@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lkit  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cut_many, cyl, finish  # noqa: E402
 
 PODIUM_TOP = 1.2
@@ -154,8 +155,7 @@ def colonnade(M):
     cy = base + 0.52
     parts.append(cyl("clockRim", 0.58, 0.12, (0, cy, 4.62), M["metal"], axis="z", verts=16))
     parts.append(cyl("clockFace", 0.48, 0.04, (0, cy, 4.69), M["glass"], axis="z", verts=16))
-    parts.append(box("hand", (0.06, 0.32, 0.03), (0, cy + 0.13, 4.73), M["dark"], bev=0.0))
-    parts.append(box("hand", (0.24, 0.06, 0.03), (0.1, cy, 4.735), M["dark"], bev=0.0))
+    # The hands are `animated()`: nodes of their own, turned by the app.
     return parts
 
 
@@ -224,9 +224,7 @@ def forecourt(M):
         parts.append(box("flagFoot", (0.4, 0.2, 0.4), (s * 3.4, 0.7, 4.75), M["stone"], bev=0.03))
         parts.append(cyl("flagPole", 0.07, 4.05, (s * 3.4, 0.75 + 2.025, 4.75), M["metal"], axis="y", verts=6, radius2=0.05))
         parts.append(lkit.sphere(s * 3.4, 4.8, 4.75, 0.09, M["metal"], segments=6, rings=4))
-        for k, turn in enumerate((0.16, -0.18, 0.14)):
-            w = 0.44
-            parts.append(box("flag", (w, 0.8, 0.04), (s * 3.4 + s * (0.08 + w * (k + 0.5)), 4.3, 4.75 + (0.04 if k == 1 else 0.0)), M["accent"], bev=0.0, rot=(0, turn * s, 0)))
+        # (the cloth is `animated()`: a node of its own, waved by the app)
     # The fountain: a basin, water, a column and a jet.
     fz = 5.95
     parts.append(lkit.lathe("basin", [(1.0, 0.15), (1.0, 0.65), (0.9, 0.65), (0.9, 0.5)], 14, (0, 0, fz), M["stone"]))
@@ -247,12 +245,27 @@ def forecourt(M):
     return parts
 
 
+CLOCK = (0.0, CORNICE_Y + 0.55 + 0.52, 4.71)
+FLAG_POLES = (-3.4, 3.4)
+FLAG_Z, FLAG_Y, FLAG_LENGTH, FLAG_HEIGHT = 4.75, 4.3, 1.32, 0.8
+
+
+def animated(M, scope="TownHall"):
+    """What the app moves: the clock's hands (pointing at twelve, turned about
+    the face normal) and the two flags' cloth (waved from the hoist)."""
+    objs = animkit.clock_hands(f"{scope}.Clock.0", M["dark"], CLOCK, 0.48, z=0.01)
+    for k, px in enumerate(FLAG_POLES):
+        s = 1 if px > 0 else -1
+        objs += animkit.flag(f"{scope}.Flag.{k}", M["accent"], (px + s * 0.05, FLAG_Y, FLAG_Z), (s, 0.0, 0.0), FLAG_LENGTH, FLAG_HEIGHT)
+    return objs
+
+
 def build():
     kit.reset()
     M = palette()
     hall = finish(plaza(M) + block(M) + colonnade(M) + cornice(M) + dome(M) + forecourt(M), "TownHall")
     kit.bake_ao([hall], distance=1.2, floor=0.55)
-    return [hall, kit.marker("TownHall.lantern", LANTERN)]
+    return [hall, kit.marker("TownHall.lantern", LANTERN)] + animated(M)
 
 
 def preview(_=0):

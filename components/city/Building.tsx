@@ -29,6 +29,9 @@ import type { LandmarkFile } from "@/types/analysis";
 import type { Building } from "@/types/city";
 import { toGeometry } from "./models/buildings/geometry";
 import { buildCivic, civicNearReady, type CivicPalette } from "./models/buildings/civic";
+import { civicLifeGeometry } from "./models/buildings/civicLife";
+import { CivicLifeParts } from "./civicAnimated";
+import { waveFlag } from "./flagWave";
 import { BLENDER_MODELS } from "./models/modelSource";
 import { useNearModels } from "./models/useModels";
 import type { Rgb3 } from "./models/buildings/mesh";
@@ -123,6 +126,12 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
     [textureSize, anisotropy],
   );
   useEffect(() => () => bodyMaterial.dispose(), [bodyMaterial]);
+  // The flag's cloth: the same finish, waving in the wind.
+  const flagMaterial = useMemo(
+    () => waveFlag(buildingDetailMaterial({ flatShading: true, roughness: 0.8, metalness: 0 }, { textureSize, anisotropy, surfaceAttribute: true })),
+    [textureSize, anisotropy],
+  );
+  useEffect(() => () => flagMaterial.dispose(), [flagMaterial]);
   // The windows follow the live hour, brightest at night (`sky.tsx`).
   const glow = useSkyValue((a) => litWindowGlow(a));
   const [width, height, depth] = building.size;
@@ -136,6 +145,8 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
       body: toGeometry(lean.body),
       glow: toGeometry(lean.glow),
       baseColors: Float32Array.from(lean.body.colors),
+      life: lean.life,
+      lifeGeometry: lean.life ? civicLifeGeometry(false, palette) : null,
     };
   }, [kind, width, height, depth, atmosphere.desaturation]);
 
@@ -146,11 +157,14 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
   const nearReady = BLENDER_MODELS && civicNearReady();
   const nearModel = useMemo(() => {
     if (!kind || !nearReady) return null;
-    const near = buildCivic(kind, { w: width, h: height, d: depth }, civicPalette(atmosphere.desaturation), { near: true });
+    const palette = civicPalette(atmosphere.desaturation);
+    const near = buildCivic(kind, { w: width, h: height, d: depth }, palette, { near: true });
     return {
       body: toGeometry(near.body),
       glow: toGeometry(near.glow),
       baseColors: Float32Array.from(near.body.colors),
+      life: near.life,
+      lifeGeometry: near.life ? civicLifeGeometry(true, palette) : null,
     };
   }, [kind, nearReady, width, height, depth, atmosphere.desaturation]);
 
@@ -223,6 +237,7 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
           <primitive object={bodyMaterial} attach="material" />
         </mesh>
         {model.glow.getAttribute("position").count > 0 && <mesh geometry={model.glow}>{glowMaterial}</mesh>}
+        <CivicLifeParts life={model.life} geometry={model.lifeGeometry} material={bodyMaterial} flagMaterial={flagMaterial} />
       </group>
       {nearModel && (
         <group ref={nearRef} visible={false}>
@@ -230,6 +245,7 @@ export default function CivicBuilding({ building, atmosphere }: CivicBuildingPro
             <primitive object={bodyMaterial} attach="material" />
           </mesh>
           {nearModel.glow.getAttribute("position").count > 0 && <mesh geometry={nearModel.glow}>{glowMaterial}</mesh>}
+          <CivicLifeParts life={nearModel.life} geometry={nearModel.lifeGeometry} material={bodyMaterial} flagMaterial={flagMaterial} />
         </group>
       )}
     </group>

@@ -207,7 +207,7 @@ def _strokes(text, h, thick):
     return out
 
 
-def clock(acc, r, mats, pos=(0, 0, 0), yaw=0.0, minutes=60, hour=10, minute=10):
+def clock(acc, r, mats, pos=(0, 0, 0), yaw=0.0, minutes=60, hour=10, minute=10, hands=True):
     """A clock face on a wall, its centre at `pos` facing local +z: a moulded
     bezel, a dial, twelve roman numerals, a minute track, two spade-and-needle
     hands and a boss. `mats`: rim, dial, ink (numerals, ticks, hands)."""
@@ -256,8 +256,9 @@ def clock(acc, r, mats, pos=(0, 0, 0), yaw=0.0, minutes=60, hour=10, minute=10):
             ]
             acc.prism(ink, body, 0.012, pos=(0, 0, zz), skip_back=True)
 
-        hand(ha, r * 0.5, r * 0.07, 0.15, True)
-        hand(ma, r * 0.76, r * 0.035, 0.172, False)
+        if hands:
+            hand(ha, r * 0.5, r * 0.07, 0.15, True)
+            hand(ma, r * 0.76, r * 0.035, 0.172, False)
         acc.cyl(ink, r * 0.06, 0.03, (0, 0, 0.2), axis="z", sides=10)
 
 

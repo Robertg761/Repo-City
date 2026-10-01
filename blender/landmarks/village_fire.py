@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lkit  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cut_many, cyl, finish  # noqa: E402
 
 W, D, H = 4.6, 5.2, 3.6
@@ -177,9 +178,7 @@ def hose_pole(M):
     ]
     for hx in (-0.25, 0.25):
         parts.append(box("hose", (0.07, 1.6, 0.07), (px + hx, 5.05, pz), M["redDeep"], bev=0.0))
-    for i, turn in enumerate((0.15, -0.18, 0.12)):
-        w = 0.3
-        parts.append(box("flag", (w, 0.55, 0.03), (px + 0.1 + w * (i + 0.5), 5.55, pz + (0.03 if i == 1 else 0.0)), M["red"], bev=0.0, rot=(0, turn, 0)))
+    # (the cloth is `flag_cloth()`: a node of its own, waved by the app)
     # A hydrant and a bench on the verge.
     parts.append(cyl("hydrant", 0.12, 0.5, (2.5, 0.42, 1.2), M["red"], axis="y", verts=8))
     parts.append(cyl("hydrantCap", 0.14, 0.08, (2.5, 0.7, 1.2), M["red"], axis="y", verts=8, radius2=0.06))
@@ -225,6 +224,15 @@ def station(M, level):
     return parts
 
 
+FLAG_HOIST, FLAG_LENGTH, FLAG_HEIGHT = (2.88, 5.55, -2.6), 0.9, 0.55
+
+
+def flag_cloth(M, level, scope=None, segs=(6, 2), thick=0.02, ripple=0.05):
+    """The hose pole's flag cloth, hoisted on the pole's arm and flying towards +x."""
+    scope = scope or f"VFire{level}"
+    return animkit.flag(f"{scope}.Flag.0", M["red"], FLAG_HOIST, (1.0, 0.0, 0.0), FLAG_LENGTH, FLAG_HEIGHT, segs=segs, thick=thick, ripple=ripple)
+
+
 def build():
     kit.reset()
     M = palette()
@@ -232,6 +240,8 @@ def build():
     for level in (1, 2):
         made.append(finish(station(M, level), f"VFire{level}"))
         lkit.bake(made[-1], [], made, distance=0.8)
+    for level in (1, 2):
+        made += flag_cloth(M, level)
     for level in (1, 2):
         made.append(kit.marker(f"VFire{level}.beacon.0", DOOR_LAMP))
     made.append(kit.marker("VFire2.beacon.1", ENGINE_LAMP))

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nkit  # noqa: E402  (puts blender/ on sys.path)
 import kit  # noqa: E402
 import ndetail as nd  # noqa: E402
+import animkit  # noqa: E402
 from kit import finish  # noqa: E402
 
 lean = nkit.load_lean(os.path.join(os.path.dirname(os.path.abspath(__file__)), "chapel.py"))
@@ -77,7 +78,7 @@ def roofs(acc, obj, M):
 
 
 def tower(acc, M):
-    nd.clock(acc, 0.42, {"rim": M["metal"], "dial": M["trim"], "ink": M["metal"]}, pos=(0, TOWER_H - 2.6, FRONT + 0.0), hour=3, minute=40)
+    nd.clock(acc, 0.42, {"rim": M["metal"], "dial": M["trim"], "ink": M["metal"]}, pos=(0, TOWER_H - 2.6, FRONT + 0.0), hands=False)
     # The doorway: studs on the boards, hinge straps with curled ends, a ring handle.
     with acc.at((0, 0.4, FRONT - 0.09)):
         for r in range(5):
@@ -127,6 +128,11 @@ def yard(acc, obj, M):
         acc.rect_run(M["trim"], s * 1.3 - 0.3, s * 1.3 + 0.3, 5.62 - 0.3, 5.62 + 0.3, [(0, 0), (0.05, 0), (0.05, 0.04), (0, 0.04)], y=0.93)
 
 
+def animated(M, scope="ChapelNear"):
+    """The hands and the second hand, turned by the app, over the near dial."""
+    return animkit.clock_hands(f"{scope}.Clock.0", M["metal"], (0.0, TOWER_H - 2.6, FRONT + 0.0), 0.42, z=0.145, depth=0.014, lift=0.022, second=True)
+
+
 def build():
     kit.reset()
     M = lean.palette()
@@ -140,7 +146,7 @@ def build():
     yard(acc, obj, M)
     near = nkit.rejoin(obj, acc.objects(), "ChapelNear")
     kit.bake_ao([near], distance=0.9, samples=16, floor=0.55)
-    return [near]
+    return [near] + animated(M)
 
 
 def preview(_=0):

@@ -19,6 +19,7 @@ import { importedMarker, importedMarkers } from "../imported";
 import { BLENDER_MODELS } from "../modelSource";
 import { Assembly, cached, type Slots, type V3 } from "./assembly";
 import { blenderSlots } from "./blenderSlots";
+import { landmarkLife, type LandmarkLife } from "./life";
 import { MODEL as VILLAGE_CHAPEL } from "./villageChapel.model";
 import { MODEL as VILLAGE_FIRE } from "./villageFire.model";
 import { MODEL as VILLAGE_HALT } from "./villageHalt.model";
@@ -44,6 +45,8 @@ export interface ChapelLayout {
   slots: Slots<ChapelSlot>;
   /** The lamp over the door, which React lights at dusk. */
   lamp: V3;
+  /** What moves: the clock's hands and the flags' cloth, nodes of their own in the Blender models (`life.ts`). */
+  life?: LandmarkLife;
 }
 
 const NAVE_W = 4.4;
@@ -192,6 +195,7 @@ export function blenderChapel(): ChapelLayout {
   return {
     slots: blenderSlots<ChapelSlot>(VILLAGE_CHAPEL, ["Chapel"]),
     lamp: v3(importedMarker(VILLAGE_CHAPEL, "Chapel.lamp")),
+    life: landmarkLife(VILLAGE_CHAPEL, "Chapel"),
   };
 }
 
@@ -205,6 +209,8 @@ export interface VillageFireLayout {
   slots: Slots<VillageFireSlot>;
   /** The blue lamp over the door. */
   beacons: V3[];
+  /** What moves: the clock's hands and the flags' cloth, nodes of their own in the Blender models (`life.ts`). */
+  life?: LandmarkLife;
 }
 
 /**
@@ -297,6 +303,7 @@ export function blenderVillageFire(level: number): VillageFireLayout {
   return {
     slots: blenderSlots<VillageFireSlot>(VILLAGE_FIRE, [`VFire${key}`]),
     beacons: importedMarkers(VILLAGE_FIRE, `VFire${key}.beacon.`).map(v3),
+    life: landmarkLife(VILLAGE_FIRE, `VFire${key}`),
   };
 }
 

@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nkit  # noqa: E402  (puts blender/ on sys.path)
 import kit  # noqa: E402
 import ndetail as nd  # noqa: E402
+import animkit  # noqa: E402
 from kit import finish  # noqa: E402
 from mathutils import Matrix  # noqa: E402
 
@@ -371,11 +372,7 @@ def flag_details(acc, M, level):
     acc.cyl(trim, 0.28, 0.08, (fx, DECK + 0.34, fz), sides=8)
     for y in (1.0, 2.4, 4.4):
         acc.cyl(metal, 0.085, 0.05, (fx, DECK + y, fz), sides=8)
-    # A waving cloth of twelve leaves, with a halyard and two cleats.
-    for k in range(12):
-        w = 0.13
-        wave = math.sin(k * 0.7) * 0.07
-        acc.box(M["red"], (w, 0.9 - k * 0.014, 0.025), (fx + 0.06 + w * (k + 0.5), DECK + 6.08 - k * 0.006, fz + wave), rot=(0, math.cos(k * 0.7) * 0.3, 0))
+    # A halyard and two cleats; the cloth is `lean.flag_cloth()`, a node of its own.
     acc.rod(metal, (fx + 0.04, DECK + 5.7, fz + 0.05), (fx + 0.04, DECK + 1.4, fz + 0.05), 0.006, sides=3)
     for y in (1.3, 1.5):
         acc.box(metal, (0.12, 0.03, 0.03), (fx + 0.08, DECK + y, fz))
@@ -444,6 +441,8 @@ def build(levels=(1, 2, 3)):
         _bake_alone(made[-1], made, distance=1.2)
     made.append(engine_near())
     _bake_alone(made[-1], made, distance=0.5)
+    for level in levels:
+        made += lean.flag_cloth(M, level, scope=f"Station{level}Near", segs=(14, 4), thick=0.02, ripple=0.045)
     return made
 
 

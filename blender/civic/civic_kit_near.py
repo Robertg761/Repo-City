@@ -165,18 +165,7 @@ def clock(M):
         parts.append(ck.face("minute", [
             (s * r0 - c * wide / 2, c * r0 + s * wide / 2, z), (s * r0 + c * wide / 2, c * r0 - s * wide / 2, z),
             (s * r1 + c * wide / 2, c * r1 - s * wide / 2, z), (s * r1 - c * wide / 2, c * r1 + s * wide / 2, z)], M["door"], (0, 0, 1)))
-    # Ten to two: spade hands with a tail, each in two layers.
-    for angle, length, wide, lift in ((math.radians(-60), 0.5, 0.1, 0.05), (math.radians(60), 0.78, 0.06, 0.1)):
-        c, s = math.cos(angle), math.sin(angle)
-
-        def p(u, v, lz):
-            # u across the hand, v along it
-            return (c * u + s * v, -s * u + c * v, lz)
-
-        outline = [(-wide / 2, -0.16), (wide / 2, -0.16), (wide / 2, 0.0), (wide * 0.95, length * 0.62), (0.0, length), (-wide * 0.95, length * 0.62), (-wide / 2, 0.0)]
-        parts.append(ck.face("hand", [p(u, v, z + lift) for u, v in outline], M["door"], (0, 0, 1)))
-        # A counterweight disc on the tail.
-        parts.append(ck.face("tail", [p(0.045 * math.cos(2 * math.pi * k / 8), -0.16 + 0.045 * math.sin(2 * math.pi * k / 8), z + lift + 0.025) for k in range(8)], M["door"], (0, 0, 1)))
+    # (the hands, with a second hand, are `animated()`: nodes of their own)
     boss = ck.face("boss", [(math.cos(a) * 0.08, math.sin(a) * 0.08, z + 0.045) for a in (2 * math.pi * i / 10 for i in range(10))], M["metal"], (0, 0, 1))
     boss.data.transform(Matrix.Translation(kit.B((0, 0, 0.1))))
     parts.append(boss)
@@ -410,18 +399,8 @@ def flag_pole(M):
 
 
 def flag_top(M):
-    s = lean.FLAG_SIZE
     parts = [ck.lathe("ball", [(0.0, 0.0), (0.06, 0.02), (0.11, 0.06), (0.12, 0.1), (0.11, 0.14), (0.06, 0.18), (0.0, 0.2)], M["trim"], segments=10)]
-    cols = [i / 6 * 1.5 for i in range(7)]
-    wave = [0.0, 0.06, 0.1, 0.05, -0.02, 0.07, 0.14]
-    y0, y1 = -s * 0.62, -s * 0.06
-    for i in range(6):
-        xa, xb = cols[i] * s, cols[i + 1] * s
-        za, zb = wave[i] * s, wave[i + 1] * s
-        droop = 0.03 * i * 0.5
-        quad = [(xa, y0 - droop, za), (xb, y0 - droop - 0.015, zb), (xb, y1 - droop - 0.015, zb), (xa, y1 - droop, za)]
-        parts.append(ck.face("cloth", quad, M["flag"], (-(zb - za), 0, xb - xa)))
-        parts.append(ck.face("cloth", list(reversed(quad)), M["flag"], ((zb - za), 0, -(xb - xa))))
+    # (the cloth is `lean.animated(near=True)`: `FlagCloth`, waved by the app)
     return parts
 
 
@@ -496,7 +475,7 @@ def build():
     for obj in objs:
         obj.location.x = obj.location.y = 0
         print("TRIS", obj.name, ck.triangles(obj))
-    return objs
+    return objs + lean.animated(M, near=True)
 
 
 def preview(n):

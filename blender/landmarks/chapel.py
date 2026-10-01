@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lkit  # noqa: E402
 import kit  # noqa: E402
+import animkit  # noqa: E402
 from kit import box, cut_many, cyl, finish  # noqa: E402
 
 NAVE_W, NAVE_H = 4.4, 3.7
@@ -174,8 +175,7 @@ def tower(M):
     cy = TOWER_H - 2.6
     parts.append(cyl("clock", 0.46, 0.08, (0, cy, FRONT + 0.03), M["trim"], axis="z", verts=12))
     parts.append(cyl("clockRim", 0.5, 0.05, (0, cy, FRONT + 0.005), M["metal"], axis="z", verts=12))
-    parts.append(box("hand", (0.05, 0.3, 0.03), (0, cy + 0.12, FRONT + 0.085), M["metal"], bev=0.0))
-    parts.append(box("hand", (0.22, 0.05, 0.03), (0.09, cy, FRONT + 0.088), M["metal"], bev=0.0))
+    # (the hands are `animated()`)
     # The door: oak, boarded, in a stone surround, a step and the lamp.
     parts.append(lkit.arched("door", 1.0, 1.4, 0.06, (0, 0.4, FRONT - 0.14), M["wood"]))
     for i in range(4):
@@ -210,12 +210,18 @@ def graves(M):
     return parts
 
 
+def animated(M, scope="Chapel"):
+    """The clock's hands, pointing at twelve, turned about the face normal by the app."""
+    centre = (0.0, TOWER_H - 2.6, FRONT + 0.07)
+    return animkit.clock_hands(f"{scope}.Clock.0", M["metal"], centre, 0.46, z=0.008, depth=0.03)
+
+
 def build():
     kit.reset()
     M = palette()
     obj = finish(churchyard(M) + nave(M) + tower(M) + graves(M), "Chapel")
     kit.bake_ao([obj], distance=0.9, floor=0.55)
-    return [obj, kit.marker("Chapel.lamp", LAMP)]
+    return [obj, kit.marker("Chapel.lamp", LAMP)] + animated(M)
 
 
 def preview(_=0):
