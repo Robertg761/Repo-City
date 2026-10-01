@@ -26,6 +26,7 @@ import {
   planShots,
   safePose,
   shotPose,
+  subjectClearance,
   trackMs,
   type Pose,
 } from "./path";
@@ -119,6 +120,33 @@ describe.each(SCENES)("the tour's camera over %s %s", (name, tier) => {
     // Low over the road at the start, well above it at the end.
     expect(shotPose(track, 0).position[1]).toBeLessThan(12);
     expect(shotPose(track, 1).position[1]).toBeGreaterThan(shotPose(track, 0).position[1]);
+  });
+
+  it("keeps a track's camera well off its own tower, every scene and aspect", () => {
+    // A tall tower filled half the frame from three units away on the town's
+    // track: the subject keeps a clearance that grows with its height.
+    let tracks = 0;
+    for (const [name, tier] of SCENES) {
+      const { city, stops } = scene(name, tier);
+      const obstacles = flightObstacles(city);
+      for (const aspect of ASPECTS) {
+        const shots = planShots(city, stops, aspect);
+        shots.forEach((shot, i) => {
+          if (shot.kind !== "track") return;
+          const focus = focusTargetFor(city, stops[i].subjectId!);
+          expect(focus).not.toBeNull();
+          if (!focus) return;
+          tracks++;
+          const subject = obstacles.filter((o) => o.id === focus.id);
+          const keepOff = subjectClearance(focus.radius / 0.7) - 1e-6;
+          for (let k = 0; k <= 60; k++) {
+            expect(cameraInside(shotPose(shot, k / 60).position, subject, keepOff), `${name} ${tier ?? ""} ${aspect}`).toBe(false);
+          }
+        });
+      }
+    }
+    // The check is only worth something if tracks were planned at all.
+    expect(tracks).toBeGreaterThan(4);
   });
 
   it("ends on the overview, so handing the camera back moves nothing", () => {
